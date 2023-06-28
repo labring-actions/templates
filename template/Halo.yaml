@@ -1,0 +1,300 @@
+apiVersion: template.app.sealos.io/v1beta1
+kind: Template
+metadata:
+  name: Halo
+spec:
+  title: 'Halo'
+  url: 'https://halo.run/'
+  readme: 'https://api.github.com/repos/halo-dev/halo/readme'
+  icon: './Halo.svg'
+  template_type: inline
+  defaults:
+    ingress_name:
+      # number or string.
+      type: string
+      value: ${{ random() }}
+    root_password:
+      type: string
+      value: ${{ random() }}
+  inputs:
+    volume_size:
+      description: 'save data size (Gi)'
+      # boolean, choice, number, or string.
+      type: string
+      default: '1'
+      required: false
+    admin_username:
+      description: 'Halo Super Admin Username'
+      type: string
+      default: 'admin'
+      required: false
+    admin_password:
+      description: 'Halo Super Admin Password'
+      type: string
+      default: 'admin'
+      required: false
+    
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: Halo
+  annotations:
+    originImageName: halohub/halo:2.5
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: Halo
+    app: Halo
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: Halo
+  selector:
+    matchLabels:
+      app: Halo
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  template:
+    metadata:
+      labels:
+        app: Halo
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: Halo
+          image: halohub/halo:2.5
+          env:
+            - name: spring.sql.init.platform
+              value: postgresql
+            - name: spring.r2dbc.url
+              value: >-
+                r2dbc:pool:postgresql://root:${{ defaults.root_password }}@halo-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432/halo
+            - name: spring.r2dbc.username
+              value: root
+            - name: spring.r2dbc.password
+              value: ${{ defaults.root_password }}
+            - name: halo.external-url
+              value: ${{ defaults.ingress_name }}.cloud.sealos.io
+            - name: halo.security.initializer.superadminusername
+              value: ${{ inputs.admin_username }}
+            - name: halo.security.initializer.superadminpassword
+              value: ${{ inputs.admin_password }}
+          resources:
+            requests:
+              cpu: 10m
+              memory: 6Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          command: []
+          args: []
+          ports:
+            - containerPort: 80
+          imagePullPolicy: Always
+          volumeMounts:
+            - name: vn-rootvn-vn-halo2
+              mountPath: /root/.halo2
+      volumes: []
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /root/.halo2
+          value: '1'
+        name: vn-rootvn-vn-halo2
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: ${{ inputs.volume_size }}Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: Halo
+  labels:
+    cloud.sealos.io/app-deploy-manager: Halo
+spec:
+  ports:
+    - port: 80
+  selector:
+    app: Halo
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: Halo
+  labels:
+    cloud.sealos.io/app-deploy-manager: Halo
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.ingress_name }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.ingress_name }}.cloud.sealos.io
+      http:
+        paths:
+          - pathType: Prefix
+            path: /()(.*)
+            backend:
+              service:
+                name: Halo
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.ingress_name }}.cloud.sealos.io
+      secretName: wildcard-cloud-sealos-io-cert
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-14.8.0
+    sealos-db-provider-cr: halo-pg
+  annotations: {}
+  name: halo-pg
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-14.8.0
+  componentSpecs:
+    - componentDefRef: postgresql
+      monitor: true
+      name: postgresql
+      replicas: 1
+      resources:
+        limits:
+          cpu: 1000m
+          memory: 1024Mi
+        requests:
+          cpu: 100m
+          memory: 102Mi
+      serviceAccountName: halo-pg
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 3Gi
+            storageClassName: openebs-backup
+      connection:
+        user: root
+        password: ${{ defaults.root_password }}
+        port: 5432
+        dbname: halo
+  terminationPolicy: Delete
+  tolerations: []
+---
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: halo-pg
+    app.kubernetes.io/instance: halo-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: halo-pg
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: halo-pg
+    app.kubernetes.io/instance: halo-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: halo-pg
+rules:
+  - apiGroups:
+      - ''
+    resources:
+      - events
+    verbs:
+      - create
+  - apiGroups:
+      - ''
+    resources:
+      - configmaps
+    verbs:
+      - create
+      - get
+      - list
+      - patch
+      - update
+      - watch
+      - delete
+  - apiGroups:
+      - ''
+    resources:
+      - endpoints
+    verbs:
+      - create
+      - get
+      - list
+      - patch
+      - update
+      - watch
+      - delete
+  - apiGroups:
+      - ''
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+      - patch
+      - update
+      - watch
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: halo-pg
+    app.kubernetes.io/instance: halo-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: halo-pg
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: halo-pg
+subjects:
+  - kind: ServiceAccount
+    name: halo-pg
+    namespace: ${{ SEALOS_NAMESPACE }}

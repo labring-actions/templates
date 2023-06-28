@@ -1,0 +1,428 @@
+apiVersion: template.app.sealos.io/v1beta1
+kind: Template
+metadata:
+  name: Tailchat
+spec:
+  title: 'Tailchat'
+  url: 'https://tailchat.msgbyte.com/'
+  readme: 'https://api.github.com/repos/msgbyte/tailchat/readme'
+  icon: './Tailchat.svg'
+  template_type: inline
+  defaults:
+    ingress_name:
+      # number or string.
+      type: string
+      value: ${{ random() }}
+    root_password:
+      type: string
+      value: ${{ random() }}
+  inputs:
+    volume_size:
+      description: 'save data size (Gi)'
+      # boolean, choice, number, or string.
+      type: string
+      default: '1'
+      required: false
+
+    
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: Tailchat
+  annotations:
+    originImageName: moonrailgun/tailchat
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: Tailchat
+    app: Tailchat
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: Tailchat
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  template:
+    metadata:
+      labels:
+        app: Tailchat
+        restartTime: '20230628151707'
+    spec:
+      containers:
+        - name: Tailchat
+          image: moonrailgun/tailchat
+          env:
+            - name: SERVICEDIR
+              value: services,plugins
+            - name: TRANSPORTER
+              value: redis://redis:6379
+            - name: REDIS_URL
+              value: redis://redis:6379
+            - name: MONGO_URL
+              value: mongodb://root:${{ defaults.root_password }}@tailchat-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017
+            - name: MINIO_URL
+              value: minio:9000
+            - name: MINIO_USER
+              value: tailchat
+            - name: MINIO_PASS
+              value: com.msgbyte.tailchat
+          resources:
+            requests:
+              cpu: 10m
+              memory: 6Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          command: []
+          args: []
+          ports:
+            - containerPort: 11000
+          imagePullPolicy: Always
+          volumeMounts: []
+      volumes: []
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: Tailchat
+  labels:
+    cloud.sealos.io/app-deploy-manager: Tailchat
+spec:
+  ports:
+    - port: 11000
+  selector:
+    app: Tailchat
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: Tailchat
+  labels:
+    cloud.sealos.io/app-deploy-manager: Tailchat
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.ingress_name }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.ingress_name }}.cloud.sealos.io
+      http:
+        paths:
+          - pathType: Prefix
+            path: /()(.*)
+            backend:
+              service:
+                name: Tailchat
+                port:
+                  number: 11000
+  tls:
+    - hosts:
+        - ${{ defaults.ingress_name }}.cloud.sealos.io
+      secretName: wildcard-cloud-sealos-io-cert
+
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: mongodb
+    clusterversion.kubeblocks.io/name: mongodb-5.0.14
+    sealos-db-provider-cr: tailchat
+  annotations: {}
+  name: tailchat
+  generation: 1
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: mongodb
+  clusterVersionRef: mongodb-5.0.14
+  componentSpecs:
+    - componentDefRef: mongodb
+      monitor: true
+      name: mongodb
+      replicas: 1
+      resources:
+        limits:
+          cpu: 1000m
+          memory: 1024Mi
+        requests:
+          cpu: 100m
+          memory: 102Mi
+      serviceAccountName: tailchat
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 3Gi
+            storageClassName: openebs-backup
+      connection:
+        user: root
+        password: ${{ defaults.root_password }}
+        port: 27017
+        dbname: halo
+  terminationPolicy: Delete
+  tolerations: []
+---
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: tailchat
+    app.kubernetes.io/instance: tailchat
+    app.kubernetes.io/managed-by: kbcli
+  name: tailchat
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: tailchat
+    app.kubernetes.io/instance: tailchat
+    app.kubernetes.io/managed-by: kbcli
+  name: tailchat
+rules:
+  - apiGroups:
+      - ''
+    resources:
+      - events
+    verbs:
+      - create
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: tailchat
+    app.kubernetes.io/instance: tailchat
+    app.kubernetes.io/managed-by: kbcli
+  name: tailchat
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tailchat
+subjects:
+  - kind: ServiceAccount
+    name: tailchat
+    namespace: ${{ SEALOS_NAMESPACE }}
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: minio
+  annotations:
+    originImageName: minio/minio
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: minio
+    app: minio
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: minio
+  selector:
+    matchLabels:
+      app: minio
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: minio
+          image: minio/minio
+          env:
+            - name: MINIO_ROOT_USER
+              value: tailchat
+            - name: MINIO_ROOT_PASSWORD
+              value: com.msgbyte.tailchat
+          resources:
+            requests:
+              cpu: 10m
+              memory: 6Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          command:
+            - minio
+          args:
+            - server
+            - /data
+          ports:
+            - containerPort: 9000
+          imagePullPolicy: Always
+          volumeMounts:
+            - name: vn-data
+              mountPath: /data
+      volumes: []
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /data
+          value: '1'
+        name: vn-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: ${{ inputs.volume_size }}Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  labels:
+    cloud.sealos.io/app-deploy-manager: minio
+spec:
+  ports:
+    - port: 9000
+  selector:
+    app: minio
+
+---
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: minio
+  labels:
+    cloud.sealos.io/app-deploy-manager: minio
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.ingress_name }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.ingress_name }}.cloud.sealos.io
+      http:
+        paths:
+          - pathType: Prefix
+            path: /()(.*)
+            backend:
+              service:
+                name: minio
+                port:
+                  number: 9000
+  tls:
+    - hosts:
+        - ${{ defaults.ingress_name }}.cloud.sealos.io
+      secretName: wildcard-cloud-sealos-io-cert
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  annotations:
+    originImageName: redis:alpine
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: redis
+    app: redis
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: redis
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  template:
+    metadata:
+      labels:
+        app: redis
+        restartTime: '20230628154703'
+    spec:
+      containers:
+        - name: redis
+          image: redis:alpine
+          env: []
+          resources:
+            requests:
+              cpu: 10m
+              memory: 6Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          command: []
+          args: []
+          ports:
+            - containerPort: 6379
+          imagePullPolicy: Always
+          volumeMounts: []
+      volumes: []
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  labels:
+    cloud.sealos.io/app-deploy-manager: redis
+spec:
+  ports:
+    - port: 6379
+  selector:
+    app: redis
+

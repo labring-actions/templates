@@ -1,0 +1,249 @@
+apiVersion: template.app.sealos.io/v1beta1
+kind: Template
+metadata:
+  name: WordPress
+spec:
+  title: 'WordPress'
+  url: 'https://wordpress.org'
+  readme: 'https://wordpress.org/Readme.md'
+  icon: './wordpress.svg'
+  template_type: inline
+  defaults:
+    ingress_name:
+      # number or string.
+      type: string
+      value: ${{ random() }}
+    root_password:
+      type: string
+      value: ${{ random() }}
+  inputs:
+    volume_size:
+      description: 'save data size (Gi)'
+      # boolean, choice, number, or string.
+      type: string
+      default: '1'
+      required: false
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: wordpress
+  annotations:
+    originImageName: wordpress
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: wordpress
+    app: wordpress
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: wordpress
+  selector:
+    matchLabels:
+      app: wordpress
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  template:
+    metadata:
+      labels:
+        app: wordpress
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: wordpress
+          image: wordpress
+          env:
+            - name: WORDPRESS_DB_HOST
+              value: wordpress-mysql.${{ SEALOS_NAMESPACE }}.svc
+            - name: WORDPRESS_DB_USER
+              value: root
+            - name: WORDPRESS_DB_PASSWORD
+              value: ${{ defaults.root_password }}
+            - name: WORDPRESS_DB_NAME
+              value: wordpress
+          resources:
+            requests:
+              cpu: 10m
+              memory: 6Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          command: []
+          args: []
+          ports:
+            - containerPort: 80
+          imagePullPolicy: Always
+          volumeMounts:
+            - name: var-www-html
+              mountPath: /var/www/html
+      volumes: []
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /var/www/html
+          value: '1'
+        name: var-www-html
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: ${{ inputs.volume_size }}Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wordpress
+  labels:
+    cloud.sealos.io/app-deploy-manager: wordpress
+spec:
+  ports:
+    - port: 80
+  selector:
+    app: wordpress
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: wordpress
+  labels:
+    cloud.sealos.io/app-deploy-manager: wordpress
+    cloud.sealos.io/app-deploy-manager-domain:  ${{ defaults.ingress_name }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.ingress_name }}.cloud.sealos.io
+      http:
+        paths:
+          - pathType: Prefix
+            path: /()(.*)
+            backend:
+              service:
+                name: wordpress
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.ingress_name }}.cloud.sealos.io
+      secretName: wildcard-cloud-sealos-io-cert
+
+
+
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: apecloud-mysql
+    clusterversion.kubeblocks.io/name: ac-mysql-8.0.30
+  name: wordpress-mysql
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: apecloud-mysql
+  clusterVersionRef: ac-mysql-8.0.30
+  componentSpecs:
+    - componentDefRef: mysql
+      monitor: true
+      name: mysql
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: dbname
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+      # kb not ready yet
+      connection:
+        user: root
+        password: ${{ defaults.root_password }}
+        port: 3306
+        dbname: wordpress
+  terminationPolicy: Delete
+  tolerations: []
+
+---
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: wordpress-mysql
+    app.kubernetes.io/instance: wordpress-mysql
+    app.kubernetes.io/managed-by: kbcli
+  name: wordpress-mysql
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: wordpress-mysql
+    app.kubernetes.io/instance: wordpress-mysql
+    app.kubernetes.io/managed-by: kbcli
+  name: wordpress-mysql
+rules:
+  - apiGroups:
+      - ''
+    resources:
+      - events
+    verbs:
+      - create
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: wordpress-mysql
+    app.kubernetes.io/instance: wordpress-mysql
+    app.kubernetes.io/managed-by: kbcli
+  name: wordpress-mysql
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: wordpress-mysql
+subjects:
+  - kind: ServiceAccount
+    name: wordpress-mysql
+    namespace: ${{ SEALOS_NAMESPACE }}
