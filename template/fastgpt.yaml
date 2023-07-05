@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Template
 metadata: 
-  name: FastGpt-${{ defaults.name_suffix }}
+  name: ${{ inputs.app_name }}
 spec:
   title: 'FastGpt'
   url: 'https://fastgpt.run/'
@@ -20,6 +20,11 @@ spec:
       type: string
       value: ${{ random(8) }}
   inputs:
+    app_name:
+      description: 'app name'
+      type: string
+      default: 'fastgpt'
+      required: false    
     volume_size:
       description: 'save data size (Gi)'
       # boolean, choice, number, or string.
@@ -56,20 +61,20 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: fastgpt
+  name: ${{ inputs.app_name }}
   annotations:
     originImageName: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:latest
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
-    cloud.sealos.io/app-deploy-manager: fastgpt
-    app: fastgpt
+    cloud.sealos.io/app-deploy-manager: ${{ inputs.app_name }}
+    app: ${{ inputs.app_name }}
 spec:
   replicas: 1
   revisionHistoryLimit: 1
   selector:
     matchLabels:
-      app: fastgpt
+      app: ${{ inputs.app_name }}
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -78,10 +83,10 @@ spec:
   template:
     metadata:
       labels:
-        app: fastgpt
+        app: ${{ inputs.app_name }}
     spec:
       containers:
-        - name: fastgpt
+        - name: ${{ inputs.app_name }}
           image: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:latest
           env:
             - name: QA_MAX_PROCESS
@@ -100,7 +105,7 @@ spec:
               value: '1'
             - name: MONGODB_URI
               value: >-
-                mongodb://root:${{ defaults.root_password }}@fastgpt-mongo.${{ SEALOS_NAMESPACE }}.svc:27017
+                mongodb://root:${{ defaults.root_password }}@${{ inputs.app_name }}-mongo.${{ SEALOS_NAMESPACE }}.svc:27017
             - name: MONGODB_NAME
               value: fastgpt
             - name: PG_USER
@@ -108,7 +113,7 @@ spec:
             - name: PG_PASSWORD
               value: ${{ defaults.root_password }}
             - name: PG_HOST
-              value: fastgpt-pg.${{ SEALOS_NAMESPACE }}.svc
+              value: ${{ inputs.app_name }}-pg.${{ SEALOS_NAMESPACE }}.svc
             - name: PG_PORT
               value: '5432'
             - name: PG_DB_NAME
@@ -138,20 +143,20 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: fastgpt
+  name: ${{ inputs.app_name }}
   labels:
-    cloud.sealos.io/app-deploy-manager: fastgpt
+    cloud.sealos.io/app-deploy-manager: ${{ inputs.app_name }}
 spec:
   ports:
     - port: 80
   selector:
-    app: fastgpt
+    app: ${{ inputs.app_name }}
 
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: fastgpt
+  name: ${{ inputs.app_name }}
   labels:
     cloud.sealos.io/app-deploy-manager: fastgpt
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.ingress_name }}
@@ -283,7 +288,7 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: fastgpt-mongo
-    namespace: ${{ SEALOS_NAMESPACE }}
+    namespace: ${{ SEALOS_NAMESPACE}}
 
 
 ---
@@ -431,5 +436,5 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: fastgpt-pg
-    namespace: ${{ SEALOS_NAMESPACE }}
+    namespace: ${{ SEALOS_NAMESPACE}}
 

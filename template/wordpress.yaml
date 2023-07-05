@@ -1,7 +1,7 @@
 apiVersion: template.app.sealos.io/v1beta1
 kind: Template
 metadata:
-  name: WordPress-${{ defaults.name_suffix }}
+  name: ${{ defaults.app_name }}
 spec:
   title: 'WordPress'
   url: 'https://wordpress.org'
@@ -16,9 +16,9 @@ spec:
     root_password:
       type: string
       value: ${{ random(8) }}
-    name_suffix:
+    app_name:
       type: string
-      value: ${{ random(8) }}
+      value: wordpress-${{ random(8) }}
   inputs:
     volume_size:
       description: 'save data size (Gi)'
@@ -31,22 +31,22 @@ spec:
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: wordpress
+  name: ${{ defaults.app_name }}
   annotations:
     originImageName: wordpress
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
-    cloud.sealos.io/app-deploy-manager: wordpress
-    app: wordpress
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
 spec:
   replicas: 1
   revisionHistoryLimit: 1
   minReadySeconds: 10
-  serviceName: wordpress
+  serviceName: ${{ defaults.app_name }}
   selector:
     matchLabels:
-      app: wordpress
+      app: ${{ defaults.app_name }}
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -55,15 +55,15 @@ spec:
   template:
     metadata:
       labels:
-        app: wordpress
+        app: ${{ defaults.app_name }}
     spec:
       terminationGracePeriodSeconds: 10
       containers:
-        - name: wordpress
+        - name: ${{ defaults.app_name }}
           image: wordpress
           env:
             - name: WORDPRESS_DB_HOST
-              value: wordpress-mysql.${{ SEALOS_NAMESPACE }}.svc
+              value: ${{ defaults.app_name }}-mysql.${{ SEALOS_NAMESPACE }}.svc
             - name: WORDPRESS_DB_USER
               value: root
             - name: WORDPRESS_DB_PASSWORD
@@ -103,22 +103,22 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: wordpress
+  name: ${{ defaults.app_name }}
   labels:
-    cloud.sealos.io/app-deploy-manager: wordpress
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
     - port: 80
   selector:
-    app: wordpress
+    app: ${{ defaults.app_name }}
 
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: wordpress
+  name: ${{ defaults.app_name }}
   labels:
-    cloud.sealos.io/app-deploy-manager: wordpress
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager-domain:  ${{ defaults.ingress_name }}
   annotations:
     kubernetes.io/ingress.class: nginx
@@ -145,7 +145,7 @@ spec:
             path: /()(.*)
             backend:
               service:
-                name: wordpress
+                name: ${{ defaults.app_name }}
                 port:
                   number: 80
   tls:
@@ -165,7 +165,7 @@ metadata:
   labels:
     clusterdefinition.kubeblocks.io/name: apecloud-mysql
     clusterversion.kubeblocks.io/name: ac-mysql-8.0.30
-  name: wordpress-mysql
+  name: ${{ defaults.app_name }}-mysql
 spec:
   affinity:
     nodeLabels: {}
@@ -211,20 +211,20 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   labels:
-    sealos-db-provider-cr: wordpress-mysql
-    app.kubernetes.io/instance: wordpress-mysql
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
     app.kubernetes.io/managed-by: kbcli
-  name: wordpress-mysql
+  name: ${{ defaults.app_name }}-mysql
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   labels:
-    sealos-db-provider-cr: wordpress-mysql
-    app.kubernetes.io/instance: wordpress-mysql
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
     app.kubernetes.io/managed-by: kbcli
-  name: wordpress-mysql
+  name: ${{ defaults.app_name }}-mysql
 rules:
   - apiGroups:
       - ''
@@ -238,15 +238,15 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   labels:
-    sealos-db-provider-cr: wordpress-mysql
-    app.kubernetes.io/instance: wordpress-mysql
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
     app.kubernetes.io/managed-by: kbcli
-  name: wordpress-mysql
+  name: ${{ defaults.app_name }}-mysql
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: wordpress-mysql
+  name: ${{ defaults.app_name }}-mysql
 subjects:
   - kind: ServiceAccount
-    name: wordpress-mysql
+    name: ${{ defaults.app_name }}-mysql
     namespace: ${{ SEALOS_NAMESPACE }}
