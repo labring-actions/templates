@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Template
 metadata: 
-  name: ${{ inputs.app_name }}
+  name: ${{ defaults.app_name }}
 spec:
   title: 'FastGpt'
   url: 'https://fastgpt.run/'
@@ -16,9 +16,9 @@ spec:
     root_password:
       type: string
       value: ${{ random(8) }}
-    name_suffix:
+    app_name:
       type: string
-      value: ${{ random(8) }}
+      value: wordpress-${{ random(8) }}
   inputs:
     app_name:
       description: 'app name'
@@ -61,20 +61,20 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ${{ inputs.app_name }}
+  name: ${{ defaults.app_name }}
   annotations:
     originImageName: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:latest
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ inputs.app_name }}
-    app: ${{ inputs.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
 spec:
   replicas: 1
   revisionHistoryLimit: 1
   selector:
     matchLabels:
-      app: ${{ inputs.app_name }}
+      app: ${{ defaults.app_name }}
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -83,10 +83,10 @@ spec:
   template:
     metadata:
       labels:
-        app: ${{ inputs.app_name }}
+        app: ${{ defaults.app_name }}
     spec:
       containers:
-        - name: ${{ inputs.app_name }}
+        - name: ${{ defaults.app_name }}
           image: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:latest
           env:
             - name: QA_MAX_PROCESS
@@ -105,7 +105,7 @@ spec:
               value: '1'
             - name: MONGODB_URI
               value: >-
-                mongodb://root:${{ defaults.root_password }}@${{ inputs.app_name }}-mongo.${{ SEALOS_NAMESPACE }}.svc:27017
+                mongodb://root:${{ defaults.root_password }}@${{ defaults.app_name }}-mongo.${{ SEALOS_NAMESPACE }}.svc:27017
             - name: MONGODB_NAME
               value: fastgpt
             - name: PG_USER
@@ -113,7 +113,7 @@ spec:
             - name: PG_PASSWORD
               value: ${{ defaults.root_password }}
             - name: PG_HOST
-              value: ${{ inputs.app_name }}-pg.${{ SEALOS_NAMESPACE }}.svc
+              value: ${{ defaults.app_name }}-pg.${{ SEALOS_NAMESPACE }}.svc
             - name: PG_PORT
               value: '5432'
             - name: PG_DB_NAME
@@ -143,22 +143,22 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: ${{ inputs.app_name }}
+  name: ${{ defaults.app_name }}
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ inputs.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
     - port: 80
   selector:
-    app: ${{ inputs.app_name }}
+    app: ${{ defaults.app_name }}
 
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: ${{ inputs.app_name }}
+  name: ${{ defaults.app_name }}
   labels:
-    cloud.sealos.io/app-deploy-manager: fastgpt
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.ingress_name }}
   annotations:
     kubernetes.io/ingress.class: nginx
@@ -185,7 +185,7 @@ spec:
             path: /()(.*)
             backend:
               service:
-                name: fastgpt
+                name: ${{ defaults.app_name }}
                 port:
                   number: 80
   tls:
@@ -202,9 +202,9 @@ metadata:
   labels:
     clusterdefinition.kubeblocks.io/name: mongodb
     clusterversion.kubeblocks.io/name: mongodb-5.0.14
-    sealos-db-provider-cr: fastgpt-mongo
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
   annotations: {}
-  name: fastgpt-mongo
+  name: ${{ defaults.app_name }}-mongo
   generation: 1
 spec:
   affinity:
@@ -226,7 +226,7 @@ spec:
         requests:
           cpu: 100m
           memory: 102Mi
-      serviceAccountName: fastgpt-mongo
+      serviceAccountName: ${{ defaults.app_name }}-mongo
       volumeClaimTemplates:
         - name: data
           spec:
@@ -250,20 +250,20 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   labels:
-    sealos-db-provider-cr: fastgpt-mongo
-    app.kubernetes.io/instance: fastgpt-mongo
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
     app.kubernetes.io/managed-by: kbcli
-  name: fastgpt-mongo
+  name: ${{ defaults.app_name }}-mongo
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   labels:
-    sealos-db-provider-cr: fastgpt-mongo
-    app.kubernetes.io/instance: fastgpt-mongo
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
     app.kubernetes.io/managed-by: kbcli
-  name: fastgpt-mongo
+  name: ${{ defaults.app_name }}-mongo
 rules:
   - apiGroups:
       - ''
@@ -277,17 +277,17 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   labels:
-    sealos-db-provider-cr: fastgpt-mongo
-    app.kubernetes.io/instance: fastgpt-mongo
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
     app.kubernetes.io/managed-by: kbcli
-  name: fastgpt-mongo
+  name: ${{ defaults.app_name }}-mongo
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: fastgpt-mongo
+  name: ${{ defaults.app_name }}-mongo
 subjects:
   - kind: ServiceAccount
-    name: fastgpt-mongo
+    name: ${{ defaults.app_name }}-mongo
     namespace: ${{ SEALOS_NAMESPACE}}
 
 
