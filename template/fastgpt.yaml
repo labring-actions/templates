@@ -18,7 +18,7 @@ spec:
       value: ${{ random(8) }}
     app_name:
       type: string
-      value: wordpress-${{ random(8) }}
+      value: fastgpt-${{ random(8) }}
   inputs:
     app_name:
       description: 'app name'
@@ -75,11 +75,6 @@ spec:
   selector:
     matchLabels:
       app: ${{ defaults.app_name }}
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 1
-      maxSurge: 0
   template:
     metadata:
       labels:
@@ -235,12 +230,7 @@ spec:
             resources:
               requests:
                 storage: 1Gi
-            storageClassName: openebs-backup
-      connection:
-        user: root
-        password: ${{ defaults.root_password }} 
-        port: 27017
-        dbname: fastgpt  
+            storageClassName: openebs-backup  
   terminationPolicy: Delete
   tolerations: []
 
@@ -335,27 +325,6 @@ spec:
               requests:
                 storage: 3Gi
             storageClassName: openebs-backup
-      connection:
-          user: root
-          password: ${{ defaults.root_password }}  
-          port: 5432
-          dbname: fastgpt
-          sql:
-            CREATE EXTENSION IF NOT EXISTS vector;
-            CREATE TABLE IF NOT EXISTS modelData (
-                id BIGSERIAL PRIMARY KEY,
-                vector VECTOR(1536) NOT NULL,
-                user_id VARCHAR(50) NOT NULL,
-                kb_id VARCHAR(50) NOT NULL,
-                source VARCHAR(100),
-                q TEXT NOT NULL,
-                a TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS modelData_userId_index ON modelData USING HASH (user_id);
-            CREATE INDEX IF NOT EXISTS modelData_kbId_index ON modelData USING HASH (kb_id);
-            CREATE INDEX IF NOT EXISTS idx_model_data_md5_q_a_user_id_kb_id ON modelData (md5(q), md5(a), user_id, kb_id);
-            CREATE INDEX IF NOT EXISTS vector_index  ON modeldata USING ivfflat (vector vector_ip_ops) WITH (lists = 100);
-            SET ivfflat.probes = 10;         
   terminationPolicy: Delete
   tolerations: []
 
@@ -436,5 +405,5 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: fastgpt-pg
-    namespace: ${{ SEALOS_NAMESPACE}}
+    namespace: ${{ SEALOS_NAMESPACE }}
 
