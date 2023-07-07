@@ -66,9 +66,9 @@ spec:
             - name: SERVICEDIR
               value: services,plugins
             - name: TRANSPORTER
-              value: redis://${{ defaults.redis_host }}.dev.sealos.run:6379
+              value: redis://${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc
             - name: REDIS_URL
-              value: redis://${{ defaults.redis_host }}.dev.sealos.run:6379
+              value: redis://${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc
             - name: MONGO_URL
               value: mongodb://root:${{ defaults.root_password }}@${{ defaults.app_name }}-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017
             - name: MINIO_URL
@@ -357,100 +357,60 @@ spec:
       secretName: wildcard-secret
 
 ---
-apiVersion: apps/v1
-kind: Deployment
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
 metadata:
-  name: ${{ defaults.app_name }}-redis
-  annotations:
-    originImageName: redis:alpine
-    deploy.cloud.sealos.io/minReplicas: '1'
-    deploy.cloud.sealos.io/maxReplicas: '1'
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
   labels:
-    dev.sealos.run/app-deploy-manager: ${{ defaults.app_name }}-redis
-    app: ${{ defaults.app_name }}-redis
-spec:
-  replicas: 1
-  revisionHistoryLimit: 1
-  selector:
-    matchLabels:
-      app: ${{ defaults.app_name }}-redis
-  template:
-    metadata:
-      labels:
-        app: ${{ defaults.app_name }}-redis
-        restartTime: '20230628154703'
-    spec:
-      containers:
-        - name: ${{ defaults.app_name }}-redis
-          image: redis:alpine
-          env: []
-          resources:
-            requests:
-              cpu: 100m
-              memory: 102Mi
-            limits:
-              cpu: 1000m
-              memory: 1024Mi
-          command: []
-          args: []
-          ports:
-            - containerPort: 6379
-          imagePullPolicy: Always
-          volumeMounts: []
-      volumes: []
-
----
-apiVersion: v1
-kind: Service
-metadata:
+    clusterdefinition.kubeblocks.io/name: redis
+    clusterversion.kubeblocks.io/name: redis-7.0.6
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+  annotations: {}
   name: ${{ defaults.app_name }}-redis
-  labels:
-    dev.sealos.run/app-deploy-manager: ${{ defaults.app_name }}-redis
 spec:
-  ports:
-    - port: 6379
-  selector:
-    app: ${{ defaults.app_name }}-redis
-
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: ${{ defaults.app_name }}-redis
-  labels:
-    dev.sealos.run/app-deploy-manager: ${{ defaults.app_name }}-redis
-    dev.sealos.run/app-deploy-manager-domain: ${{ defaults.redis_host }}
-  annotations:
-    kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/proxy-body-size: 32m
-    nginx.ingress.kubernetes.io/server-snippet: |
-      client_header_buffer_size 64k;
-      large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
-    nginx.ingress.kubernetes.io/backend-protocol: HTTP
-    nginx.ingress.kubernetes.io/rewrite-target: /$2
-    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
-    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
-    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
-    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
-        expires 30d;
-        add_header Cache-Control "public";
-      }
-spec:
-  rules:
-    - host: ${{ defaults.redis_host }}.dev.sealos.run
-      http:
-        paths:
-          - pathType: Prefix
-            path: /()(.*)
-            backend:
-              service:
-                name: ${{ defaults.app_name }}-redis
-                port:
-                  number: 6379
-  tls:
-    - hosts:
-        - ${{ defaults.redis_host }}.dev.sealos.run
-      secretName: wildcard-secret
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: redis
+  clusterVersionRef: redis-7.0.6
+  componentSpecs:
+    - componentDefRef: redis
+      monitor: true
+      name: redis
+      replicas: 1
+      resources:
+        limits:
+          cpu: 1000m
+          memory: 1024Mi
+        requests:
+          cpu: 100m
+          memory: 102Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 3Gi
+            storageClassName: openebs-backup
+    - componentDefRef: redis-sentinel
+      monitor: true
+      name: redis-sentinel
+      replicas: 1
+      resources:
+        limits:
+          cpu: 100m
+          memory: 100Mi
+        requests:
+          cpu: 100m
+          memory: 100Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
+  terminationPolicy: Delete
+  tolerations: []
