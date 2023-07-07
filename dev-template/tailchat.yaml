@@ -17,6 +17,10 @@ spec:
       # number or string.
       type: string
       value: ${{ random(8) }}
+    ingress_name2:
+      # number or string.
+      type: string
+      value: ${{ random(8) }}
     root_password:
       type: string
       value: ${{ random(8) }}
@@ -62,13 +66,13 @@ spec:
             - name: SERVICEDIR
               value: services,plugins
             - name: TRANSPORTER
-              value: redis://redis:6379
+              value: redis://${{ defaults.ingress_name1 }}:6379
             - name: REDIS_URL
-              value: redis://redis:6379
+              value: redis://${{ defaults.ingress_name1 }}:6379
             - name: MONGO_URL
               value: mongodb://root:${{ defaults.root_password }}@${{ defaults.app_name }}-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017
             - name: MINIO_URL
-              value: minio:9000
+              value: ${{ defaults.ingress_name1 }}:9000
             - name: MINIO_USER
               value: tailchat
             - name: MINIO_PASS
@@ -407,3 +411,46 @@ spec:
     - port: 6379
   selector:
     app: ${{ defaults.app_name }}-redis
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    dev.sealos.run/app-deploy-manager: ${{ defaults.app_name }}-redis
+    dev.sealos.run/app-deploy-manager-domain: ${{ defaults.ingress_name2 }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.ingress_name2 }}.cloud.sealos.io
+      http:
+        paths:
+          - pathType: Prefix
+            path: /()(.*)
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-redis
+                port:
+                  number: 6379
+  tls:
+    - hosts:
+        - ${{ defaults.ingress_name2 }}.cloud.sealos.io
+      secretName: wildcard-secret
