@@ -2,9 +2,9 @@
 
 通过本仓库的模板可以轻松在 Sealos 上运行各种应用，无需关心应用之间的依赖关系，只需一键轻松部署。
 
-https://cloud.sealos.io/xxxx（一键部署链接）
+https://fastdeploy.cloud.sealos.run/（一键部署链接）
 
-（一键部署页面贴图）
+![](homepage.png)
 
 ## 如何创建模板
 
@@ -13,4 +13,4 @@ https://cloud.sealos.io/xxxx（一键部署链接）
 
 ## 如何引入Deploy On Sealos
 
-- 在png/deploy-on-sealos目录下为您准备了 Deploy On Sealos 的按钮图标，您只需将该按钮跳转到https://cloud.sealos.io/xxxx 即可进入 Sealos 的一键部署页面
+- 在png/deploy-on-sealos目录下为您准备了 Deploy On Sealos 的按钮图标，您只需将该按钮跳转到https://fastdeploy.cloud.sealos.run/ 即可进入 Sealos 的一键部署页面
