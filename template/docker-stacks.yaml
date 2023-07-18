@@ -1,15 +1,15 @@
 apiVersion: template.app.sealos.io/v1beta1
 kind: Template
 metadata:
-  name: illaBuilder
+  name: docker-stacks
 spec:
-  title: 'illaBuilder'
-  url: 'https://www.illacloud.com/zh-CN'
-  github: 'https://github.com/illacloud/illa-builder'
+  title: 'JupyterDockerStacks'
+  url: 'https://jupyter-docker-stacks.readthedocs.io/en/latest/'
+  github: 'https://github.com/jupyter/docker-stacks'
   author: 'sealos'
-  description: 'ILLA is a robust open source low-code platform for developers to build internal tools. By using ILLAs library of Components and Actions, developers can save massive amounts of time on building tools.'
-  readme: 'https://raw.githubusercontent.com/illacloud/illa-builder/main/README.md'
-  icon: 'https://avatars.githubusercontent.com/u/93245159?s=96&v=4'
+  description: 'Jupyter Docker Stacks are a set of ready-to-run Docker images containing Jupyter applications and interactive computing tools.'
+  readme: 'https://raw.githubusercontent.com/jupyter/docker-stacks/main/README.md'
+  icon: 'https://avatars.githubusercontent.com/u/7388996?s=96&v=4'
   template_type: inline
   defaults:
     app_host:
@@ -18,39 +18,41 @@ spec:
       value: ${{ random(8) }}
     app_name:
       type: string
-      value: illabuilder-${{ random(8) }}
-  inputs:
+      value: appsmith-${{ random(8) }}
 
 ---
 apiVersion: apps/v1
-kind: StatefulSet
+kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: illasoft/illa-builder
+    originImageName: jupyter/scipy-notebook:2023-06-01
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-    app: ${{ defaults.app_name }}
     cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
 spec:
   replicas: 1
   revisionHistoryLimit: 1
-  minReadySeconds: 10
-  serviceName: ${{ defaults.app_name }}
   selector:
     matchLabels:
       app: ${{ defaults.app_name }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
   template:
     metadata:
       labels:
         app: ${{ defaults.app_name }}
+        restartTime: '20230717110314'
     spec:
-      terminationGracePeriodSeconds: 10
       containers:
         - name: ${{ defaults.app_name }}
-          image: illasoft/illa-builder
+          image: jupyter/scipy-notebook:2023-06-01
           env: []
           resources:
             requests:
@@ -62,25 +64,10 @@ spec:
           command: []
           args: []
           ports:
-            - containerPort: 2022
+            - containerPort: 8888
           imagePullPolicy: Always
-          volumeMounts:
-            - name: vn-appvn-data
-              mountPath: /app/data
+          volumeMounts: []
       volumes: []
-  volumeClaimTemplates:
-    - metadata:
-        annotations:
-          path: /app/data
-          value: '1'
-        name: vn-appvn-data
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 1Gi
-
 ---
 apiVersion: v1
 kind: Service
@@ -91,10 +78,9 @@ metadata:
     cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 2022
+    - port: 8888
   selector:
     app: ${{ defaults.app_name }}
-
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -102,7 +88,7 @@ metadata:
   name: ${{ defaults.app_name }}
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-    cloud.sealos.io/app-deploy-manager-domain:  ${{ defaults.app_host }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
     cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
   annotations:
     kubernetes.io/ingress.class: nginx
@@ -115,6 +101,8 @@ metadata:
     nginx.ingress.kubernetes.io/rewrite-target: /$2
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
     nginx.ingress.kubernetes.io/configuration-snippet: |
       if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
         expires 30d;
@@ -131,7 +119,7 @@ spec:
               service:
                 name: ${{ defaults.app_name }}
                 port:
-                  number: 2022
+                  number: 8888
   tls:
     - hosts:
         - ${{ defaults.app_host }}.cloud.sealos.io
