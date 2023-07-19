@@ -1,0 +1,176 @@
+apiVersion: template.app.sealos.io/v1beta1
+kind: Template
+metadata:
+  name: chatgpt-next-web
+spec:
+  title: 'chatgpt-next-web'
+  url: 'https://github.com/topics/midjourney-ui'
+  github: 'https://github.com/erictik/midjourney-ui'
+  author: 'sealos'
+  description: 'Midjourney UI is an open source txt2img UI for AI draw.'
+  readme: 'https://raw.githubusercontent.com/erictik/midjourney-ui/main/README.md'
+  icon: 'https://avatars.githubusercontent.com/u/16968934?s=96&v=4'
+  template_type: inline
+  defaults:
+    app_host:
+      # number or string..
+      type: string
+      value: ${{ random(8) }}
+    app_name:
+      type: string
+      value: chatgpt-next-web-${{ random(8) }}
+  inputs:
+    OPENAI_API_KEY:
+      description: 'OPENAI_API_KEY'
+      type: string
+      default: ''
+      required: true
+    CODE:
+      description: 'Access passsword, separated by comma.'
+      type: string
+      default: ''
+      required: false
+    BASE_URL:
+      description: 'Override openai api request base url.'
+      type: string
+      default: 'https://api.openai.com'
+      required: false
+    OPENAI_ORG_ID:
+      description: 'Specify OpenAI organization ID.'
+      type: string
+      default: ''
+      required: false
+    HIDE_USER_API_KEY:
+      description: 'Specify OpenAI organization ID.'
+      type: string
+      default: ''
+      required: false
+    DISABLE_GPT4:
+      description: 'If you do not want users to use GPT-4, set this value to 1.'
+      type: string
+      default: ''
+      required: false
+    HIDE_BALANCE_QUERY:
+      description: 'If you do not want users to query balance, set this value to 1.'
+      type: string
+      default: ''
+      required: false
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: yidadaa/chatgpt-next-web
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+        restartTime: '20230719161303'
+    spec:
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: yidadaa/chatgpt-next-web
+          env:
+            - name: OPENAI_API_KEY
+              value: ${{ inputs.OPENAI_API_KEY }}
+            - name: CODE
+              value: ${{ inputs.CODE }}
+            - name: PROXY_URL
+              value: ${{ inputs.PROXY_URL }}
+            - name: BASE_URL
+              value: ${{ inputs.BASE_URL }}
+            - name: OPENAI_ORG_ID
+              value: ${{ inputs.OPENAI_ORG_ID }}
+            - name: HIDE_USER_API_KEY
+              value: ${{ inputs.HIDE_USER_API_KEY }}
+            - name: DISABLE_GPT4
+              value: ${{ inputs.DISABLE_GPT4 }}
+          resources:
+            requests:
+              cpu: 100m
+              memory: 102Mi
+            limits:
+              cpu: 1000m
+              memory: 1024Mi
+          command: []
+          args: []
+          ports:
+            - containerPort: 3000
+          imagePullPolicy: Always
+          volumeMounts: []
+      volumes: []
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+spec:
+  ports:
+    - port: 3000
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.cloud.sealos.io
+      http:
+        paths:
+          - pathType: Prefix
+            path: /()(.*)
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 3000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.cloud.sealos.io
+      secretName: ${{ SEALOS_Cert_Secret_Name }}
