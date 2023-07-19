@@ -1,0 +1,154 @@
+apiVersion: template.app.sealos.io/v1beta1
+kind: Template
+metadata:
+  name: chatbot-ui
+spec:
+  title: 'chatbot-ui'
+  url: 'https://www.chatbotui.com/'
+  github: 'https://github.com/mckaywrigley/chatbot-ui'
+  author: 'sealos'
+  description: 'Chatbot UI is an open source chat UI for AI models.'
+  readme: 'https://raw.githubusercontent.com/mckaywrigley/chatbot-ui/main/README.md'
+  icon: 'https://avatars.githubusercontent.com/u/29221284?s=96&v=4'
+  template_type: inline
+  defaults:
+    app_host:
+      # number or string..
+      type: string
+      value: ${{ random(8) }}
+    app_name:
+      type: string
+      value: chatbot-ui-${{ random(8) }}
+  inputs:
+    OPENAI_API_KEY:
+      description: 'The default API key used for authentication with OpenAI'
+      type: string
+      default: ''
+      required: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/mckaywrigley/chatbot-ui:main
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+        restartTime: '20230719171055'
+    spec:
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: ghcr.io/mckaywrigley/chatbot-ui:main
+          env:
+            - name: OPENAI_API_KEY
+              value: ${{ inputs.OPENAI_API_KEY }}
+            - name: OPENAI_API_HOST
+              value: ''
+            - name: OPENAI_API_TYPE
+              value: ''
+            - name: OPENAI_API_VERSION
+              value: ''
+            - name: AZURE_DEPLOYMENT_ID
+              value: ''
+            - name: OPENAI_ORGANIZATION
+              value: ''
+            - name: DEFAULT_MODEL
+              value: ''
+            - name: NEXT_PUBLIC_DEFAULT_SYSTEM_PROMPT
+              value: ''
+            - name: NEXT_PUBLIC_DEFAULT_TEMPERATURE
+              value: ''
+            - name: GOOGLE_API_KEY
+              value: ''
+            - name: GOOGLE_CSE_ID
+              value: ''
+          resources:
+            requests:
+              cpu: 100m
+              memory: 102Mi
+            limits:
+              cpu: 1000m
+              memory: 1024Mi
+          command: []
+          args: []
+          ports:
+            - containerPort: 3000
+          imagePullPolicy: Always
+          volumeMounts: []
+      volumes: []
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+spec:
+  ports:
+    - port: 3000
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.cloud.sealos.io
+      http:
+        paths:
+          - pathType: Prefix
+            path: /()(.*)
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 3000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.cloud.sealos.io
+      secretName: ${{ SEALOS_Cert_Secret_Name }}
