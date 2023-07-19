@@ -1,0 +1,157 @@
+apiVersion: template.app.sealos.io/v1beta1
+kind: Template
+metadata:
+  name: gpt-academic
+spec:
+  title: 'gpt-academic'
+  url: 'https://huggingface.co/spaces/qingxu98/gpt-academic'
+  github: 'https://github.com/binary-husky/gpt_academic'
+  author: 'sealos'
+  description: 'Provide a graphical interactive interface for ChatGPT/GLM, especially optimized for the experience of reading, polishing, and writing academic papers, with a modular design.'
+  readme: 'https://raw.githubusercontent.com/binary-husky/gpt_academic/master/README.md'
+  icon: 'https://avatars.githubusercontent.com/u/96192199?s=96&v=4'
+  template_type: inline
+  defaults:
+    app_host:
+      # number or string..
+      type: string
+      value: ${{ random(8) }}
+    app_name:
+      type: string
+      value: gpt-academic-${{ random(8) }}
+  inputs:
+    API_KEY:
+      description: 'ChatGPT API KEY'
+      type: string
+      default: ''
+      required: false
+    USE_PROXY:
+      description: 'Whether to use a proxy'
+      type: string
+      default: 'False'
+      required: false
+    proxies:
+      description: 'proxies address'
+      type: string
+      default: '{ "http": "socks5h://localhost:10880", "https":"socks5h://localhost:10880", }'
+      required: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/binary-husky/gpt_academic_nolocal:master
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+        restartTime: '20230719113737'
+    spec:
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: ghcr.io/binary-husky/gpt_academic_nolocal:master
+          env:
+            - name: API_KEY
+              value: ${{ inputs.API_KEY }}
+            - name: USE_PROXY
+              value: ${{ inputs.USE_PROXY }}
+            - name: proxies
+              value: ${{ inputs.proxies }}
+            - name: LLM_MODEL
+              value: gpt-3.5-turbo
+            - name: AVAIL_LLM_MODELS
+              value: >-
+                ["gpt-3.5-turbo", "api2d-gpt-3.5-turbo", "gpt-4", "api2d-gpt-4",
+                "newbing"]
+            - name: WEB_PORT
+              value: '22303'
+            - name: ADD_WAIFU
+              value: 'True'
+          resources:
+            requests:
+              cpu: 100m
+              memory: 102Mi
+            limits:
+              cpu: 1000m
+              memory: 1024Mi
+          command: []
+          args: []
+          ports:
+            - containerPort: 22303
+          imagePullPolicy: Always
+          volumeMounts: []
+      volumes: []
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+spec:
+  ports:
+    - port: 22303
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.cloud.sealos.io
+      http:
+        paths:
+          - pathType: Prefix
+            path: /()(.*)
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 22303
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.cloud.sealos.io
+      secretName: ${{ SEALOS_Cert_Secret_Name }}
