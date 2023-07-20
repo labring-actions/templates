@@ -4,7 +4,7 @@ With the templates in this repository, you can easily run various applications o
 
 ![](docs/images/homepage.png)
 
-[Template Usage Tutorial](https://cloud.sealos.io/?openapp=system-fastdeploy%3F)
+[简体中文](README_zh.md) | [Template Usage Tutorial](https://cloud.sealos.io/?openapp=system-fastdeploy%3F)
 
 ## How to create a template
 
