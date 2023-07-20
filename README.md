@@ -14,3 +14,6 @@ https://fastdeploy.cloud.sealos.io/   （一键部署链接）
 ## 如何引入Deploy On Sealos
 
 - 在png目录下为您准备了 Deploy On Sealos 的按钮图标，您只需将该按钮跳转到https://fastdeploy.cloud.sealos.io/deploy?type=form&templateName=fastgpt 即可进入 Sealos 的一键部署页面，详见 [Deploy On Sealos.md](Deploy%20On%20Sealos.md)。
+
+[![](png/deploy on sealos/Deploy-On-Sealos-B-2x.png)](https://fastdeploy.cloud.sealos.io/deploy?type=form&templateName=fastgpt)
+
