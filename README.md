@@ -1,19 +1,30 @@
-## Deploy On Sealos
+# Sealos Template Repository
 
-通过本仓库的模板可以轻松在 Sealos 上运行各种应用，无需关心应用之间的依赖关系，只需一键轻松部署。
+With the templates in this repository, you can easily run various applications on Sealos without worrying about dependencies between applications, just deploy with one click. [Use Online](https://cloud.sealos.io/?openapp=system-fastdeploy%3F)
 
-https://fastdeploy.cloud.sealos.io/   （一键部署链接）
+![](docs/images/homepage.png)
 
-![](homepage.png)
+[简体中文](README_zh.md) | [Template Usage Tutorial](https://cloud.sealos.io/?openapp=system-fastdeploy%3F)
 
-## 如何创建模板
+## How to create a template
 
-- 你能够通过现有的模板文件或 Create Template(todo)按钮来创建你的应用模版。可基于 [template.yaml](template.yaml) 来创建想要的模板。你也可以像 GitHub Action 一样通过${{ SEALOS_NAMESPACE }}填写一些环境变量的的信息。环境变量的具体信息查看[environment.txt](environment.txt)。
-- 以FastGPT为例展示如何创建一个模板，详见[example.md](example.md)
+- You can create your application template through existing template files or the Create Template (TODO) button. You can create the desired template based on [template.yaml](template.yaml).
+- The system has some built-in common environment variables. Use syntax like `GitHub Actions` to write template parameters like the `${{SEALOS_NAMESPACE}}` environment variable. For specific built-in environment variable information, see [environment.txt](environment.txt).
+- Taking FastGPT as an example, this shows how to create a complete template, see [example.md](example.md) for details.
 
-## 如何引入Deploy On Sealos
+## Way to use Sealos one-click deployment button
 
-- 在png目录下为您准备了 Deploy On Sealos 的按钮图标，您只需将该按钮跳转到https://fastdeploy.cloud.sealos.io/deploy?type=form&templateName=fastgpt 即可进入 Sealos 的一键部署页面，详见 [Deploy On Sealos.md](Deploy%20On%20Sealos.md)。下面是一个一键部署FastGPT的案例。
+The Deploy-on-Sealos button icon is ready for use in the current directory. All you need is insert the button image and link to the specific application address to enter the Sealos template one-click deployment page.
 
-- [![](png/deploy%20on%20sealos/Deploy-On-Sealos-B-1.5x.png)](https://fastdeploy.cloud.sealos.io/deploy?type=form&templateName=fastgpt)
+[![](Deploy-on-Sealos.svg)](https://cloud.sealos.io/?openapp=system-fastdeploy%3FtemplateName%3Dfastgpt)
 
+### Button include method
+
+- Markdown:
+```markdown
+![](https://raw.githubusercontent.com/labring-actions/templates/main/Deploy-on-Sealos.svg)](https://cloud.sealos.io/?openapp=system-fastdeploy%3FtemplateName%3Dfastgpt
+```
+- HTML:
+```html
+<a href="https://cloud.sealos.io/?openapp=system-fastdeploy%3FtemplateName%3Dfastgpt"><img src="https://raw.githubusercontent.com/labring-actions/templates/main/Deploy-on-Sealos.svg" alt="Deploy on Sealos"/></a>
+```
