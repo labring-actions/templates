@@ -6,5 +6,5 @@
 
 ![](png/deploy%20on%20sealos/白1x.png)
 
-![](png/deploy%20on%20sealos/黑 1x.png)
+![](png/deploy%20on%20sealos/黑1x.png)
 
