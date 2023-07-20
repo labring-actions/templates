@@ -1,4 +1,6 @@
-- 以FastGPT为例展示如何创建一个模板，假设您对Kubernetes的资源文件已有一定了解，本示例只对模板特有的一些参数进行解释。
+- 以FastGPT为例展示如何创建一个模板，假设您对Kubernetes的资源文件已有一定了解，本示例只对模板特有的一些参数进行解释。模板文件主要分为三个部分![](png/structure.png)
+
+- ### 元数据
 
   ```yaml
   apiVersion: template.app.sealos.io/v1beta1
@@ -53,7 +55,9 @@
 
   定义好 Template 后接下来需要创建具体的资源文件，FastGPT依赖到项目有FastGPT-Admin、FastGPT、FastGPT-Keys、Mongo
 
-- #### 部署 FastGPT 主应用
+- ### 应用资源文件
+
+  - 这一部分一般以 Deployment/Statefulset、Service、Ingress 这三个类型的文件为一组，一组对应一个应用，如果应用不需要开启外放访问，则不需要 Ingress 类型的文件。
 
   ```yaml
   apiVersion: apps/v1
@@ -192,7 +196,7 @@
         secretName: ${{ SEALOS_Cert_Secret_Name }}
   ```
 
-- 主要需要关注以下几个字段：
+- #### 主要需要关注以下几个字段：
 
 | 代码                         | 说明                                                         |
 | :--------------------------- | :----------------------------------------------------------- |
@@ -224,6 +228,10 @@
 | `replicas: `  | 实例数        |
 | `resources: ` | 分配cpu和内存 |
 | `storage: `   | 存储卷大小    |
+
+- ### 数据库资源文件
+
+  - 需要使用哪种数据库直接复制相应的资源文件就可。
 
 - MongDB
 
