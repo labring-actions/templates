@@ -2,7 +2,7 @@
 
 通过本仓库的模板可以轻松在 Sealos 上运行各种应用，无需关心应用之间的依赖关系，只需一键轻松部署。[在线使用](https://cloud.sealos.io/?openapp=system-fastdeploy)
 
-![](docs/images/homepage.png)
+![](docs/images/homepage_zh.png)
 
 [模板使用教程](https://cloud.sealos.io/?openapp=system-fastdeploy)
 

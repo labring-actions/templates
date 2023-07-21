@@ -1,239 +1,239 @@
-- Taking FastGPT as an example to demonstrate how to create a template. This example assumes that you already have a certain understanding of Kubernetes resource files, and only explains some parameters unique to the template. The template file is mainly divided into three parts.
+- 以FastGPT为例展示如何创建一个模板，假设您对Kubernetes的资源文件已有一定了解，本示例只对模板特有的一些参数进行解释。模板文件主要分为三个部分
 
-![](docs/images/structure.png)
+![](docs/images/structure-zh.png)
 
-- ### Metadata
+- ### 元数据
 
-```yaml
-apiVersion: template.app.sealos.io/v1beta1
-kind: Template
-metadata: 
-  name: ${{ defaults.app_name }}
-spec:
-  title: 'FastGpt'                         
-  url: 'https://fastgpt.run/'                         
-  github: 'https://github.com/labring/FastGPT'        
-  author: 'sealos'                                     
-  description: 'Fast GPT allows you to use your own openai API KEY to quickly call the openai interface, currently integrating Gpt35, Gpt4 and embedding. You can build your own knowledge base.'    
-  readme: 'https://github.com/labring/FastGPT/blob/main/README.md'
-  icon: 'https://avatars.githubusercontent.com/u/50446880?s=48&v=4'
-  template_type: inline
-  defaults:
-    app_name:
-      type: string
-      value: fastgpt-${{ random(8) }}
-    app_host:
-      type: string
-      value: ${{ random(8) }}
-    fastgpt_admin_host:
-      type: string
-      value: ${{ random(8) }}
-    fastgpt_keys_host:
-      type: string
-      value: ${{ random(8) }}
-  inputs:
-    mail:
-      description: 'QQ email address'
-      type: string
-      default: ''
-      required: true
-    mail_code:
-      description: 'QQ mail_code'
-      type: string
-      default: ''
-      required: true
-```
+  ```yaml
+  apiVersion: template.app.sealos.io/v1beta1
+  kind: Template
+  metadata: 
+    name: ${{ defaults.app_name }}
+  spec:
+    title: 'FastGpt'                         
+    url: 'https://fastgpt.run/'                         
+    github: 'https://github.com/labring/FastGPT'        
+    author: 'sealos'                                     
+    description: 'Fast GPT allows you to use your own openai API KEY to quickly call the openai interface, currently integrating Gpt35, Gpt4 and embedding. You can build your own knowledge base.'    
+    readme: 'https://github.com/labring/FastGPT/blob/main/README.md'
+    icon: 'https://avatars.githubusercontent.com/u/50446880?s=48&v=4'
+    template_type: inline
+    defaults:
+      app_name:
+        type: string
+        value: fastgpt-${{ random(8) }}
+      app_host:
+        type: string
+        value: ${{ random(8) }}
+      fastgpt_admin_host:
+        type: string
+        value: ${{ random(8) }}
+      fastgpt_keys_host:
+        type: string
+        value: ${{ random(8) }}
+    inputs:
+      mail:
+        description: 'QQ email address'
+        type: string
+        default: ''
+        required: true
+      mail_code:
+        description: 'QQ mail_code'
+        type: string
+        default: ''
+        required: true
+  ```
 
-- To help you understand how to use YAML syntax to create template files, the following will explain the code of the example:
+- 为帮助您了解如何使用 YAML 语法来创建模板文件，接下来解释介绍示例的代码：
 
+  | 代码              | 说明                                                         |
+  | :---------------- | :----------------------------------------------------------- |
+  | `kind:  `         | Template 表示这是一个模版类型的资源文件                      |
+  | `template_type: ` | inline 表示这是一个内嵌模式的模板，所有 yaml 文件集成在一个文件中 |
+  | `spec: `          | 用于指定所部署应用所需要的一些基础信息                       |
+  | `title: `         | 与文件名一致                                                 |
+  | `defaults:  `     | 定义默认值填充到资源文件当中，如应用名称(app_name)，域名(app_host)等 |
+  | `inputs:  `       | 定义应用部署时由用户来定义的一些参数，如Email、API-KEY等，没有则可省略该项 |
 
+  定义好 Template 后接下来需要创建具体的资源文件，FastGPT依赖到项目有FastGPT-Admin、FastGPT、FastGPT-Keys、Mongo
 
-| Code              | Description                                                  |
-| :---------------- | :----------------------------------------------------------- |
-| `kind:  `         | `Template` indicates this is a template type of resource file |
-| `template_type: ` | `inline` indicates this is an inline mode template, all yaml files are integrated in one file |
-| `spec: `          | is used to specify some basic information needed for the deployed application |
-| `title: `         | is consistent with the file name                             |
-| `defaults:  `     | define default values to be filled into the resource file, such as application name (app_name), domain name (app_host), etc. |
-| `inputs:  `       | define some parameters defined by the user when deploying the application, such as Email, API-KEY, etc. If none, this item can be omitted |
+- ### 应用资源文件
 
-- ### Application Resource File
+  - 这一部分一般以 Deployment/Statefulset、Service、Ingress 这三个类型的文件为一组，一组对应一个应用，如果应用不需要开启外放访问，则不需要 Ingress 类型的文件。
 
-  - This part generally consists of a group of three types of files: Deployment/StatefulSet, Service, and Ingress. Each group corresponds to one application. If the application does not need to enable external access, then an Ingress type file is not required.
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: ${{ defaults.app_name }}
-  annotations:
-    originImageName: c121914yu/fast-gpt:latest
-    deploy.cloud.sealos.io/minReplicas: '1'
-    deploy.cloud.sealos.io/maxReplicas: '1'
-  labels:
-    dev.sealos.run/deploy-on-sealos: ${{ defaults.app_name }}
-    dev.sealos.run/app-deploy-manager: ${{ defaults.app_name }}
-    app: ${{ defaults.app_name }}
-spec:
-  replicas: 1
-  revisionHistoryLimit: 1
-  selector:
-    matchLabels:
+  ```yaml
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: ${{ defaults.app_name }}
+    annotations:
+      originImageName: c121914yu/fast-gpt:latest
+      deploy.cloud.sealos.io/minReplicas: '1'
+      deploy.cloud.sealos.io/maxReplicas: '1'
+    labels:
+      dev.sealos.run/deploy-on-sealos: ${{ defaults.app_name }}
+      dev.sealos.run/app-deploy-manager: ${{ defaults.app_name }}
       app: ${{ defaults.app_name }}
-  template:
-    metadata:
-      labels:
+  spec:
+    replicas: 1
+    revisionHistoryLimit: 1
+    selector:
+      matchLabels:
         app: ${{ defaults.app_name }}
-    spec:
-      containers:
-        - name: ${{ defaults.app_name }}
-          image: c121914yu/fast-gpt:latest
-          env:
-            - name: MONGO_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-mongo-conn-credential
-                  key: password
-            - name: PG_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: password    
-            - name: ONEAPI_URL
-              value: ${{ defaults.app_name }}-key.${{ SEALOS_NAMESPACE }}.svc.cluster.local:3000/v1
-            - name: ONEAPI_KEY
-              value: sk-xxxxxx
-            - name: DB_MAX_LINK
-              value: 5
-            - name: MY_MAIL
-              value: ${{ inputs.mail }}
-            - name: MAILE_CODE
-              value: ${{ inputs.mail_code }}
-            - name: TOKEN_KEY
-              value: fastgpttokenkey
-            - name: ROOT_KEY
-              value: rootkey
-            - name: MONGODB_URI
-              value: >-
-                mongodb://root:$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongo-mongo.${{ SEALOS_NAMESPACE }}.svc:27017
-            - name: MONGODB_NAME
-              value: fastgpt
-            - name: PG_HOST
-              value: ${{ defaults.app_name }}-pg-pg.${{ SEALOS_NAMESPACE }}.svc
-            - name: PG_USER
-              value: postgres
-            - name: PG_PORT
-              value: '5432'
-            - name: PG_DB_NAME
-              value: postgres
-          resources:
-            requests:
-              cpu: 100m
-              memory: 102Mi
-            limits:
-              cpu: 1000m
-              memory: 1024Mi
-          command: []
-          args: []
-          ports:
-            - containerPort: 3000
-          imagePullPolicy: Always
-          volumeMounts: []
-      volumes: []
+    template:
+      metadata:
+        labels:
+          app: ${{ defaults.app_name }}
+      spec:
+        containers:
+          - name: ${{ defaults.app_name }}
+            image: c121914yu/fast-gpt:latest
+            env:
+              - name: MONGO_PASSWORD
+                valueFrom:
+                  secretKeyRef:
+                    name: ${{ defaults.app_name }}-mongo-conn-credential
+                    key: password
+              - name: PG_PASSWORD
+                valueFrom:
+                  secretKeyRef:
+                    name: ${{ defaults.app_name }}-pg-conn-credential
+                    key: password    
+              - name: ONEAPI_URL
+                value: ${{ defaults.app_name }}-key.${{ SEALOS_NAMESPACE }}.svc.cluster.local:3000/v1
+              - name: ONEAPI_KEY
+                value: sk-xxxxxx
+              - name: DB_MAX_LINK
+                value: 5
+              - name: MY_MAIL
+                value: ${{ inputs.mail }}
+              - name: MAILE_CODE
+                value: ${{ inputs.mail_code }}
+              - name: TOKEN_KEY
+                value: fastgpttokenkey
+              - name: ROOT_KEY
+                value: rootkey
+              - name: MONGODB_URI
+                value: >-
+                  mongodb://root:$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongo-mongo.${{ SEALOS_NAMESPACE }}.svc:27017
+              - name: MONGODB_NAME
+                value: fastgpt
+              - name: PG_HOST
+                value: ${{ defaults.app_name }}-pg-pg.${{ SEALOS_NAMESPACE }}.svc
+              - name: PG_USER
+                value: postgres
+              - name: PG_PORT
+                value: '5432'
+              - name: PG_DB_NAME
+                value: postgres
+            resources:
+              requests:
+                cpu: 100m
+                memory: 102Mi
+              limits:
+                cpu: 1000m
+                memory: 1024Mi
+            command: []
+            args: []
+            ports:
+              - containerPort: 3000
+            imagePullPolicy: Always
+            volumeMounts: []
+        volumes: []
+  
+  ---
+  apiVersion: v1
+  kind: Service
+  metadata:
+    name: ${{ defaults.app_name }}
+    labels:
+      dev.sealos.run/deploy-on-sealos: ${{ defaults.app_name }}
+      dev.sealos.run/app-deploy-manager: ${{ defaults.app_name }}
+  spec:
+    ports:
+      - port: 3000
+    selector:
+      app: ${{ defaults.app_name }}
+  
+  ---
+  apiVersion: networking.k8s.io/v1
+  kind: Ingress
+  metadata:
+    name: ${{ defaults.app_name }}
+    labels:
+      dev.sealos.run/deploy-on-sealos: ${{ defaults.app_name }}
+      dev.sealos.run/app-deploy-manager: ${{ defaults.app_name }}
+      dev.sealos.run/app-deploy-manager-domain: ${{ defaults.app_host }}
+    annotations:
+      kubernetes.io/ingress.class: nginx
+      nginx.ingress.kubernetes.io/proxy-body-size: 32m
+      nginx.ingress.kubernetes.io/server-snippet: |
+        client_header_buffer_size 64k;
+        large_client_header_buffers 4 128k;
+      nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+      nginx.ingress.kubernetes.io/backend-protocol: HTTP
+      nginx.ingress.kubernetes.io/rewrite-target: /$2
+      nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+      nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+      nginx.ingress.kubernetes.io/configuration-snippet: |
+        if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+          expires 30d;
+          add_header Cache-Control "public";
+        }
+  spec:
+    rules:
+      - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+        http:
+          paths:
+            - pathType: Prefix
+              path: /()(.*)
+              backend:
+                service:
+                  name: ${{ defaults.app_name }}
+                  port:
+                    number: 3000
+    tls:
+      - hosts:
+          - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+        secretName: ${{ SEALOS_Cert_Secret_Name }}
+  ```
 
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: ${{ defaults.app_name }}
-  labels:
-    dev.sealos.run/deploy-on-sealos: ${{ defaults.app_name }}
-    dev.sealos.run/app-deploy-manager: ${{ defaults.app_name }}
-spec:
-  ports:
-    - port: 3000
-  selector:
-    app: ${{ defaults.app_name }}
+- #### 主要需要关注以下几个字段：
 
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: ${{ defaults.app_name }}
-  labels:
-    dev.sealos.run/deploy-on-sealos: ${{ defaults.app_name }}
-    dev.sealos.run/app-deploy-manager: ${{ defaults.app_name }}
-    dev.sealos.run/app-deploy-manager-domain: ${{ defaults.app_host }}
-  annotations:
-    kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/proxy-body-size: 32m
-    nginx.ingress.kubernetes.io/server-snippet: |
-      client_header_buffer_size 64k;
-      large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
-    nginx.ingress.kubernetes.io/backend-protocol: HTTP
-    nginx.ingress.kubernetes.io/rewrite-target: /$2
-    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
-    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
-        expires 30d;
-        add_header Cache-Control "public";
-      }
-spec:
-  rules:
-    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
-      http:
-        paths:
-          - pathType: Prefix
-            path: /()(.*)
-            backend:
-              service:
-                name: ${{ defaults.app_name }}
-                port:
-                  number: 3000
-  tls:
-    - hosts:
-        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
-      secretName: ${{ SEALOS_Cert_Secret_Name }}
-```
-
-- #### Pay attention to the following fields:
-
-| Code                         | Description                                                  |
+| 代码                         | 说明                                                         |
 | :--------------------------- | :----------------------------------------------------------- |
-| ` originImageName: `         | Change to your Docker image                                  |
-| `image: `                    | Change to your Docker image                                  |
-| `env: `                      | Configure environment variables for the container            |
-| `port: `                     | Change to the port corresponding to your Docker image        |
-| `${{ defaults.app_name }}  ` | You can use the `${{ defaults.xxxx }}` method to read parameters defined in the Template |
+| ` originImageName: `         | 改为你的 Docker 镜像                                         |
+| `image: `                    | 改为你的 Docker 镜像                                         |
+| `env: `                      | 为容器配置环境变量                                           |
+| `port: `                     | 改为你的 Docker 镜像对应的端口                               |
+| `${{ defaults.app_name }}  ` | 可以通过${{ defaults.xxxx }}的方式来读取 Template 中定义的参数 |
 
-- If the application involves the use of a database, the database password can be added to the environment variable through the following code. After adding, you can read the MONGODB password in the container through $(MONGO_PASSWORD). Currently, Sealos supports MySQL, MongoDB, PostgreSQL, Redis, and the naming method of the database uniformly adopts the ${{ defaults.app_name }}-mysql(pg, mongo, redis) method.
+- 如应用有涉及到数据库的使用可通过如下代码将数据库的密码添加到环境变量中，添加后在容器中可以通过$(MONGO_PASSWORD)的方式读取到MONGODB的密码，目前 Sealos 支持MySQL、MongoDB、PostgreSQL、Redis，数据库的命名方式统一采用${{ defaults.app_name }}-mysql(pg,mongo,redis)的方式。
 
-```yaml
-spec:
-  containers:
-    - name: ${{ defaults.app_name }}
-      image: c121914yu/fast-gpt:latest
-      env:
-        - name: MONGO_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: ${{ defaults.app_name }}-mongo-conn-credential
-              key: password
-```
+  ```yaml
+  spec:
+    containers:
+      - name: ${{ defaults.app_name }}
+        image: c121914yu/fast-gpt:latest
+        env:
+          - name: MONGO_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: ${{ defaults.app_name }}-mongo-conn-credential
+                key: password
+  ```
 
-- The deployment methods of FastGPT-key and FastGPT-admin are basically the same as the main FastGPT application. Below is a template resource file for deploying the database. In this part, you only need to concern about the resources used by the database. Here are the templates for creating MongoDB, PostgreSQL, MySQL, and Redis.
+- 部署 FastGPT-key 和 FastGPT-admin 的方式和 FastGPT 主应用的方式基本相同，下面提供部署数据库的模版资源文件，这一部分您只需关心数据库所使用的资源，以下为您提供了创建MongoDB、PostgreSQL、MySQL、Redis的模板。
 
-| Code          | Description             |
-| ------------- | ----------------------- |
-| `replicas: `  | Number of instances     |
-| `resources: ` | Allocate CPU and memory |
-| `storage: `   | Volume size             |
+| 代码          | 说明          |
+| ------------- | ------------- |
+| `replicas: `  | 实例数        |
+| `resources: ` | 分配cpu和内存 |
+| `storage: `   | 存储卷大小    |
 
-- ### Database Resource File
+- ### 数据库资源文件
 
-  - You can directly copy the corresponding resource file for the database you need to use.
+  - 需要使用哪种数据库直接复制相应的资源文件就可。
 
 - MongDB
 
