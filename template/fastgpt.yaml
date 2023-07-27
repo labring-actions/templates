@@ -21,147 +21,17 @@ spec:
     fastgpt_admin_host:
       type: string
       value: ${{ random(8) }}
-    fastgpt_keys_host:
-      type: string
-      value: ${{ random(8) }}
   inputs:
-    mail:
-      description: 'QQ email address'
+    root_passowrd:
+      description: 'root user password. username is "root"'
+      type: string
+      default: '1234'
+      required: true
+    openai_key:
+      description: 'openai api key'
       type: string
       default: ''
       required: true
-    mail_code:
-      description: 'QQ mail_code'
-      type: string
-      default: ''
-      required: true
-
----
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: ${{ defaults.app_name }}-key
-  annotations:
-    originImageName: ghcr.io/songquanpeng/one-api:latest
-    deploy.cloud.sealos.io/minReplicas: '1'
-    deploy.cloud.sealos.io/maxReplicas: '1'
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-key
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
-    app: ${{ defaults.app_name }}-key
-spec:
-  replicas: 1
-  revisionHistoryLimit: 1
-  minReadySeconds: 10
-  serviceName: ${{ defaults.app_name }}-key
-  selector:
-    matchLabels:
-      app: ${{ defaults.app_name }}-key
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 1
-      maxSurge: 0
-  template:
-    metadata:
-      labels:
-        app: ${{ defaults.app_name }}-key
-    spec:
-      terminationGracePeriodSeconds: 10
-      containers:
-        - name: ${{ defaults.app_name }}-key
-          image: ghcr.io/songquanpeng/one-api:latest
-          env:
-            - name: TZ
-              value: Asia/Shanghai
-            - name: SESSION_SECRET
-              value: sessionsecret
-            - name: REQUEST_INTERVAL
-              value: '3600'
-          resources:
-            requests:
-              cpu: 50m
-              memory: 51Mi
-            limits:
-              cpu: 500m
-              memory: 512Mi
-          command: []
-          args: []
-          ports:
-            - containerPort: 3000
-          imagePullPolicy: Always
-          volumeMounts:
-            - name: vn-data
-              mountPath: /data
-      volumes: []
-  volumeClaimTemplates:
-    - metadata:
-        annotations:
-          path: /data
-          value: '1'
-        name: vn-data
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 1Gi
-
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: ${{ defaults.app_name }}-key
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-key
-spec:
-  ports:
-    - port: 3000
-  selector:
-    app: ${{ defaults.app_name }}-key
-
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: ${{ defaults.app_name }}-key
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-key
-    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.fastgpt_keys_host }}
-  annotations:
-    kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/proxy-body-size: 32m
-    nginx.ingress.kubernetes.io/server-snippet: |
-      client_header_buffer_size 64k;
-      large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
-    nginx.ingress.kubernetes.io/backend-protocol: HTTP
-    nginx.ingress.kubernetes.io/rewrite-target: /$2
-    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
-    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
-    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
-    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
-        expires 30d;
-        add_header Cache-Control "public";
-      }
-spec:
-  rules:
-    - host: ${{ defaults.fastgpt_keys_host }}.cloud.sealos.io
-      http:
-        paths:
-          - pathType: Prefix
-            path: /()(.*)
-            backend:
-              service:
-                name: ${{ defaults.app_name }}-key
-                port:
-                  number: 3000
-  tls:
-    - hosts:
-        - ${{ defaults.fastgpt_keys_host }}.cloud.sealos.io
-      secretName: ${{ SEALOS_Cert_Secret_Name }}
 
 ---
 apiVersion: apps/v1
@@ -169,7 +39,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: c121914yu/fast-gpt:latest
+    originImageName: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.0-preview
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -189,7 +59,7 @@ spec:
     spec:
       containers:
         - name: ${{ defaults.app_name }}
-          image: c121914yu/fast-gpt:latest
+          image: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.0-preview
           env:
             - name: MONGO_PASSWORD
               valueFrom:
@@ -201,16 +71,12 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
-            - name: ONEAPI_URL
-              value: ${{ defaults.app_name }}-key.${{ SEALOS_NAMESPACE }}.svc.cluster.local:3000/v1
             - name: ONEAPI_KEY
-              value: sk-xxxxxx
+              value: ${{ inputs.openai_key }}
+            - name: ONEAPI_KEY
+              value: ${{ inputs.root_passowrd }}
             - name: DB_MAX_LINK
               value: '5'
-            - name: MY_MAIL
-              value: ${{ inputs.mail }}
-            - name: MAILE_CODE
-              value: ${{ inputs.mail_code }}
             - name: TOKEN_KEY
               value: fastgpttokenkey
             - name: ROOT_KEY
@@ -305,7 +171,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-admin
   annotations:
-    originImageName: c121914yu/fastgpt-admin:latest
+    originImageName: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-admin:latest
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
