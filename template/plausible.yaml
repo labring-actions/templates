@@ -1,0 +1,303 @@
+apiVersion: template.app.sealos.io/v1beta1
+kind: Template
+metadata:
+  name: plausible
+spec:
+  title: 'plausible'
+  url: 'https://github.com/plausible/analytics'
+  github: 'https://github.com/plausible/analytics'
+  author: 'sealos'
+  description: 'Simple, open-source, lightweight (< 1 KB) and privacy-friendly web analytics alternative to Google Analytics.'
+  readme: 'https://github.com/plausible/analytics/blob/master/README.md'
+  icon: 'https://raw.githubusercontent.com/plausible/docs/master/static/img/plausible-analytics-icon-top.png'
+  template_type: inline
+  defaults:
+    app_host:
+      # number or string..
+      type: string
+      value: ${{ random(8) }}
+    app_name:
+      type: string
+      value: plausible-${{ random(8) }}
+  inputs:
+    CLICKHOUSE_USER:
+      description: 'clickhouse user name'
+      type: string
+      default: ''
+      required: true
+    CLICKHOUSE_PASSWORD:
+      description: 'clickhouse password'
+      type: string
+      default: ''
+      required: true
+    DATABASE_URL:
+      description: 'URL type: postgres://user:password@postgres-server:5432/plausible'
+      type: string
+      default: ''
+      required: true
+    CLICKHOUSE_DATABASE_URL:
+      description: 'URL type: clickhouse://user:password@clickhouse-server:8123/plausible'
+      type: string
+      default: ''
+      required: true
+    DISABLE_REGISTRATION:
+      description: 'true or false'
+      type: string
+      default: ''
+      required: false
+    BASE_URL:
+      description: 'URL of plausible server'
+      type: string
+      default: ''
+      required: false
+    SECRET_KEY_BASE:
+      description: 'You can generate it using the following command: openssl rand -base64 64 | tr -d '\n' ; echo'
+      type: string
+      default: 'FhNHzoWJyoQgT21RsFQG+KUzJ/o5YbKsszc6CMOArA0OXxjZ763oCGiItOPlKJAfIQO0uov8xt8p5k+MqtmtOQ=='
+      required: true
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: plausible-events-db
+data:
+  vn-etcvn-clickhouse-servervn-configvn-dvn-loggingvn-xml: |-
+    <clickhouse>
+
+        <!-- disable IPv6 -->
+        <listen_host>0.0.0.0</listen_host>
+
+        <logger>
+            <level>warning</level>
+            <console>true</console>
+        </logger>
+
+        <!-- Stop all the unnecessary logging -->
+        <query_thread_log remove="remove"/>
+        <query_log remove="remove"/>
+        <text_log remove="remove"/>
+        <trace_log remove="remove"/>
+        <metric_log remove="remove"/>
+        <asynchronous_metric_log remove="remove"/>
+        <session_log remove="remove"/>
+        <part_log remove="remove"/>
+    </clickhouse>
+  vn-etcvn-clickhouse-servervn-usersvn-dvn-loggingvn-xml: |-
+    <clickhouse>
+        <profiles>
+            <default>
+                <log_queries>0</log_queries>
+                <log_query_threads>0</log_query_threads>
+            </default>
+        </profiles>
+    </clickhouse>
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: plausible-events-db
+  annotations:
+    originImageName: clickhouse/clickhouse-server:23.3.7.5-alpine
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: plausible-events-db
+    app: plausible-events-db
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: plausible-events-db
+  serviceName: plausible-events-db
+  template:
+    metadata:
+      labels:
+        app: plausible-events-db
+    spec:
+      containers:
+        - name: plausible-events-db
+          image: clickhouse/clickhouse-server:23.3.7.5-alpine
+          env:
+            - name: CLICKHOUSE_DB
+              value: plausible
+            - name: CLICKHOUSE_LISTEN_HOST
+              value: 0.0.0.0
+            - name: CLICKHOUSE_USER
+              value: ${{ inputs.CLICKHOUSE_USER }}
+            - name: CLICKHOUSE_PASSWORD
+              value: ${{ inputs.CLICKHOUSE_PASSWORD }}
+          resources:
+            requests:
+              cpu: 50m
+              memory: 102Mi
+            limits:
+              cpu: 500m
+              memory: 1024Mi
+          command: []
+          args: []
+          ports:
+            - containerPort: 8123
+          imagePullPolicy: Always
+          volumeMounts:
+            - name: vn-etcvn-clickhouse-servervn-configvn-dvn-loggingvn-xml
+              mountPath: /etc/clickhouse-server/config.d/logging.xml
+              subPath: ./etc/clickhouse-server/config.d/logging.xml
+            - name: vn-etcvn-clickhouse-servervn-usersvn-dvn-loggingvn-xml
+              mountPath: /etc/clickhouse-server/users.d/logging.xml
+              subPath: ./etc/clickhouse-server/users.d/logging.xml
+            - name: vn-varvn-libvn-clickhouse
+              mountPath: /var/lib/clickhouse
+      volumes:
+        - name: vn-etcvn-clickhouse-servervn-configvn-dvn-loggingvn-xml
+          configMap:
+            name: plausible-events-db
+            items:
+              - key: vn-etcvn-clickhouse-servervn-configvn-dvn-loggingvn-xml
+                path: ./etc/clickhouse-server/config.d/logging.xml
+        - name: vn-etcvn-clickhouse-servervn-usersvn-dvn-loggingvn-xml
+          configMap:
+            name: plausible-events-db
+            items:
+              - key: vn-etcvn-clickhouse-servervn-usersvn-dvn-loggingvn-xml
+                path: ./etc/clickhouse-server/users.d/logging.xml
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /var/lib/clickhouse
+          value: '5'
+        name: vn-varvn-libvn-clickhouse
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: plausible-events-db
+  labels:
+    cloud.sealos.io/app-deploy-manager: plausible-events-db
+    cloud.sealos.io/deploy-on-sealos: plausible-events-db
+spec:
+  ports:
+    - port: 8123
+  selector:
+    app: plausible-events-db
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: plausible/analytics:v2.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: plausible/analytics:v2.0
+          env:
+            - name: DATABASE_URL
+              value: ${{ inputs.DATABASE_URL }}
+            - name: CLICKHOUSE_DATABASE_URL
+              value: ${{ inputs.CLICKHOUSE_DATABASE_URL }}
+            - name: DISABLE_REGISTRATION
+              value: ${{ inputs.DISABLE_REGISTRATION }}
+            - name: BASE_URL
+              value: ${{ inputs.BASE_URL }}
+            - name: SECRET_KEY_BASE
+              value: ${{ inputs.SECRET_KEY_BASE }}
+          resources:
+            requests:
+              cpu: 100m
+              memory: 102Mi
+            limits:
+              cpu: 1000m
+              memory: 1024Mi
+          command: []
+          args: []
+          ports:
+            - containerPort: 8000
+          imagePullPolicy: Always
+          volumeMounts: []
+      volumes: []
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+spec:
+  ports:
+    - port: 8000
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /()(.*)
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 8000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
