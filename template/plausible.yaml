@@ -31,14 +31,14 @@ spec:
       default: ''
       required: true
     DATABASE_URL:
-      description: 'URL type: postgres://user:password@postgres-server:5432/plausible'
+      description: 'URL type: postgres://user:password@plausible-db:5432/plausible'
       type: string
-      default: ''
+      default: 'postgres://user:password@plausible-db:5432/plausible'
       required: true
     CLICKHOUSE_DATABASE_URL:
-      description: 'URL type: clickhouse://user:password@clickhouse-server:8123/plausible'
+      description: 'URL type: clickhouse://user:password@plausible-events-db:8123/plausible'
       type: string
-      default: ''
+      default: 'lickhouse://user:password@plausible-events-db:8123/plausible'
       required: true
     DISABLE_REGISTRATION:
       description: 'true or false'
@@ -56,6 +56,132 @@ spec:
       default: 'FhNHzoWJyoQgT21RsFQG+KUzJ/o5YbKsszc6CMOArA0OXxjZ763oCGiItOPlKJAfIQO0uov8xt8p5k+MqtmtOQ=='
       required: true
 
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-14.8.0
+    sealos-db-provider-cr: plausible-db
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+  annotations: {}
+  name: plausible-db
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-14.8.0
+  componentSpecs:
+    - componentDefRef: postgresql
+      monitor: true
+      name: postgresql
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 500Mi
+        requests:
+          cpu: 50m
+          memory: 50Mi
+      serviceAccountName: plausible-db
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 10Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+  tolerations: []
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: plausible-db
+    app.kubernetes.io/instance: plausible-db
+    app.kubernetes.io/managed-by: kbcli
+  name: plausible-db
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: plausible-db
+    app.kubernetes.io/instance: plausible-db
+    app.kubernetes.io/managed-by: kbcli
+  name: plausible-db
+rules:
+  - apiGroups:
+      - ''
+    resources:
+      - events
+    verbs:
+      - create
+  - apiGroups:
+      - ''
+    resources:
+      - configmaps
+    verbs:
+      - create
+      - get
+      - list
+      - patch
+      - update
+      - watch
+      - delete
+  - apiGroups:
+      - ''
+    resources:
+      - endpoints
+    verbs:
+      - create
+      - get
+      - list
+      - patch
+      - update
+      - watch
+      - delete
+  - apiGroups:
+      - ''
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+      - patch
+      - update
+      - watch
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-db
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-db
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-db
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-db
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-db
+    namespace: ${{ SEALOS_NAMESPACE }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -238,8 +364,11 @@ spec:
             limits:
               cpu: 1000m
               memory: 1024Mi
-          command: []
-          args: []
+          command:
+            - sh
+            - -c
+          args:
+            - sleep 10 && /entrypoint.sh db createdb && /entrypoint.sh db migrate && /entrypoint.sh run
           ports:
             - containerPort: 8000
           imagePullPolicy: Always
