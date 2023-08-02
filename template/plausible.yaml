@@ -30,16 +30,6 @@ spec:
       type: string
       default: ''
       required: true
-    DATABASE_URL:
-      description: 'URL type: postgres://user:password@plausible-db:5432/plausible'
-      type: string
-      default: 'postgres://user:password@plausible-db:5432/plausible'
-      required: true
-    CLICKHOUSE_DATABASE_URL:
-      description: 'URL type: clickhouse://user:password@plausible-events-db:8123/plausible'
-      type: string
-      default: 'lickhouse://user:password@plausible-events-db:8123/plausible'
-      required: true
     DISABLE_REGISTRATION:
       description: 'true or false'
       type: string
@@ -65,10 +55,10 @@ metadata:
   labels:
     clusterdefinition.kubeblocks.io/name: postgresql
     clusterversion.kubeblocks.io/name: postgresql-14.8.0
-    sealos-db-provider-cr: plausible-db
+    sealos-db-provider-cr: ${{ defaults.app_name }}-db
     cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
   annotations: {}
-  name: plausible-db
+  name: ${{ defaults.app_name }}-db
 spec:
   affinity:
     nodeLabels: {}
@@ -89,7 +79,7 @@ spec:
         requests:
           cpu: 50m
           memory: 50Mi
-      serviceAccountName: plausible-db
+      serviceAccountName: ${{ defaults.app_name }}-db
       switchPolicy:
         type: Noop
       volumeClaimTemplates:
@@ -109,20 +99,22 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   labels:
-    sealos-db-provider-cr: plausible-db
-    app.kubernetes.io/instance: plausible-db
+    sealos-db-provider-cr: ${{ defaults.app_name }}-db
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-db
     app.kubernetes.io/managed-by: kbcli
-  name: plausible-db
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+  name: ${{ defaults.app_name }}-db
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   labels:
-    sealos-db-provider-cr: plausible-db
-    app.kubernetes.io/instance: plausible-db
+    sealos-db-provider-cr: ${{ defaults.app_name }}-db
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-db
     app.kubernetes.io/managed-by: kbcli
-  name: plausible-db
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+  name: ${{ defaults.app_name }}-db
 rules:
   - apiGroups:
       - ''
@@ -186,7 +178,11 @@ subjects:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: plausible-events-db
+  name: ${{ defaults.app_name }}-events-db
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-events-db
+    app: ${{ defaults.app_name }}-events-db
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
 data:
   vn-etcvn-clickhouse-servervn-configvn-dvn-loggingvn-xml: |-
     <clickhouse>
@@ -222,26 +218,26 @@ data:
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: plausible-events-db
+  name: ${{ defaults.app_name }}-events-db
   annotations:
     originImageName: clickhouse/clickhouse-server:23.3.7.5-alpine
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
-    cloud.sealos.io/app-deploy-manager: plausible-events-db
-    app: plausible-events-db
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-events-db
+    app: ${{ defaults.app_name }}-events-db
     cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
 spec:
   replicas: 1
   revisionHistoryLimit: 1
   selector:
     matchLabels:
-      app: plausible-events-db
-  serviceName: plausible-events-db
+      app: ${{ defaults.app_name }}-events-db
+  serviceName: ${{ defaults.app_name }}-events-db
   template:
     metadata:
       labels:
-        app: plausible-events-db
+        app: ${{ defaults.app_name }}-events-db
     spec:
       containers:
         - name: plausible-events-db
@@ -279,13 +275,13 @@ spec:
       volumes:
         - name: vn-etcvn-clickhouse-servervn-configvn-dvn-loggingvn-xml
           configMap:
-            name: plausible-events-db
+            name: ${{ defaults.app_name }}-events-db
             items:
               - key: vn-etcvn-clickhouse-servervn-configvn-dvn-loggingvn-xml
                 path: ./etc/clickhouse-server/config.d/logging.xml
         - name: vn-etcvn-clickhouse-servervn-usersvn-dvn-loggingvn-xml
           configMap:
-            name: plausible-events-db
+            name: ${{ defaults.app_name }}-events-db
             items:
               - key: vn-etcvn-clickhouse-servervn-usersvn-dvn-loggingvn-xml
                 path: ./etc/clickhouse-server/users.d/logging.xml
@@ -305,15 +301,15 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: plausible-events-db
+  name: ${{ defaults.app_name }}-events-db
   labels:
-    cloud.sealos.io/app-deploy-manager: plausible-events-db
-    cloud.sealos.io/deploy-on-sealos: plausible-events-db
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-events-db
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
 spec:
   ports:
     - port: 8123
   selector:
-    app: plausible-events-db
+    app: ${{ defaults.app_name }}-events-db
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -347,10 +343,15 @@ spec:
         - name: ${{ defaults.app_name }}
           image: plausible/analytics:v2.0
           env:
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: plausible-db-conn-credential
+                  key: password 
             - name: DATABASE_URL
-              value: ${{ inputs.DATABASE_URL }}
+              value: postgres://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-db:5432/plausible
             - name: CLICKHOUSE_DATABASE_URL
-              value: ${{ inputs.CLICKHOUSE_DATABASE_URL }}
+              value: clickhouse://${{ inputs.CLICKHOUSE_USER }}:${{ inputs.CLICKHOUSE_PASSWORD }}@${{ defaults.app_name }}-events-db:8123/plausible
             - name: DISABLE_REGISTRATION
               value: ${{ inputs.DISABLE_REGISTRATION }}
             - name: BASE_URL
