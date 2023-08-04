@@ -1,8 +1,14 @@
-- Taking FastGPT as an example to demonstrate how to create a template. This example assumes that you already have a certain understanding of Kubernetes resource files, and only explains some parameters unique to the template. The template file is mainly divided into three parts.
+# Template File Example
 
-![](docs/images/structure.png)
+![FastGPT Page](docs/images/fastgpt.png)
 
-- ### Metadata
+[简体中文](example_zh.md)
+
+Taking FastGPT as an example here to demonstrate how to create a template. This example assumes that you already have a certain understanding of Kubernetes resource files, and will only explains some parameters unique to the template. The template file is mainly divided into two parts.
+
+![structure](docs/images/structure-black.png#gh-dark-mode-only)![structure](docs/images/structure-white.png#gh-light-mode-only)
+
+## Part One: `Metadata CR`
 
 ```yaml
 apiVersion: template.app.sealos.io/v1beta1
@@ -15,8 +21,8 @@ spec:
   github: 'https://github.com/labring/FastGPT'        
   author: 'sealos'                                     
   description: 'Fast GPT allows you to use your own openai API KEY to quickly call the openai interface, currently integrating Gpt35, Gpt4 and embedding. You can build your own knowledge base.'    
-  readme: 'https://github.com/labring/FastGPT/blob/main/README.md'
-  icon: 'https://avatars.githubusercontent.com/u/50446880?s=48&v=4'
+  readme: 'https://raw.githubusercontent.com/labring/FastGPT/main/README.md'
+  icon: 'https://avatars.githubusercontent.com/u/50446880?s=96&v=4'
   template_type: inline
   defaults:
     app_name:
@@ -25,41 +31,121 @@ spec:
     app_host:
       type: string
       value: ${{ random(8) }}
-    fastgpt_admin_host:
-      type: string
-      value: ${{ random(8) }}
-    fastgpt_keys_host:
-      type: string
-      value: ${{ random(8) }}
   inputs:
-    mail:
-      description: 'QQ email address'
+    root_passowrd:
+      description: 'Set root password. login: username: root, password: root_passowrd'
+      type: string
+      default: ${{ SEALOS_NAMESPACE }}
+      required: true
+    openai_key:
+      description: 'openai api key'
       type: string
       default: ''
       required: true
-    mail_code:
-      description: 'QQ mail_code'
-      type: string
-      default: ''
-      required: true
+    database_type:
+      description: 'type of database'
+      required: false
+      type: choice
+      default: 'mysql'
+      options:
+        - sqlite
+        - mysql
 ```
 
-- To help you understand how to use YAML syntax to create template files, the following will explain the code of the example:
+As demo shows, the metatda CR is a regular Kubernetes custom resource type, and the following table lists the fields that need to be filled in.
 
+| Code            | Description                                                  |
+| :---------------| :----------------------------------------------------------- |
+| `template_type` | `inline` indicates this is an inline mode template, all yaml files are integrated in one file. |
+| `defaults`      | Define default values to be filled into the resource file, such as application name (app_name), domain name (app_host), etc. |
+| `inputs`        | Define some parameters needed by the user when deploying the application, such as Email, API-KEY, etc. If none, this item can be omitted |
 
+### Explain: `Variables`
 
-| Code              | Description                                                  |
-| :---------------- | :----------------------------------------------------------- |
-| `kind:  `         | `Template` indicates this is a template type of resource file |
-| `template_type: ` | `inline` indicates this is an inline mode template, all yaml files are integrated in one file |
-| `spec: `          | is used to specify some basic information needed for the deployed application |
-| `title: `         | is consistent with the file name                             |
-| `defaults:  `     | define default values to be filled into the resource file, such as application name (app_name), domain name (app_host), etc. |
-| `inputs:  `       | define some parameters defined by the user when deploying the application, such as Email, API-KEY, etc. If none, this item can be omitted |
+Any characters enclosed in `${{ }}` are variables, and the variables are divided into these types: 
+1. `SEALOS_` pre-defined system built-in variables with upper case letters, such as `${{ SEALOS_NAMESPACE }}`, are variables provided by Sealos itself. For all currently supported system variables, please refer to [System Variables](#Built-in-system-variables:).
+2. `functions()` functions, such as `${{ random(8) }}`, are functions provided by Sealos itself. For all currently supported functions, please refer to [Functions](#Built-in-system-functions:).
+2. `defaults` is a list of names and values that are filled in by parsing, usually used for random values.
+3. `inputs` filled in by the user when deploying the application, inputs will be rendered into frontend form.
 
-- ### Application Resource File
+### Explain: `Defaults`
+`spec.defaults` is a map of names, types and values that are filled as defaults when parsing the template.
 
-  - This part generally consists of a group of three types of files: Deployment/StatefulSet, Service, and Ingress. Each group corresponds to one application. If the application does not need to enable external access, then an Ingress type file is not required.
+| Name    | Description |
+| :-------| :---------- |
+| `type`  | `string` or `number` stands for the type of the variable, the only difference is that the string type will be quoted when rendered, and the number type will not. |
+| `value` | The value of the variable, if the value is a function, it will be rendered. |
+
+### Explain: `Inputs`
+`spec.defaults` is a map of defined objects that are parsed and shown as form inputs for user to react.
+
+| Name    | Description |
+| :-------| :---------- |
+| `description` | The description of the input. Will be rendered as input placeholder. |
+| `default`     | The default value of the input. |
+| `required`    | Whether the input is required. |
+| `type`        | Must be one of `string` \| `number` \| `choice` \| `boolean` |
+| `options`?    | When type is `choice`, set list of available options. |
+
+Inputs as demoed above will be rendered as form inputs in the frontend:
+
+<table>
+<tr>
+<td> Template </td> <td> View </td>
+</tr>
+<tr>
+<td width="50%"> 
+
+```yaml
+inputs:
+  root_passowrd:
+    description: 'Set root password. login: username: root, password: root_passowrd'
+    type: string
+    default: ''
+    required: true
+  openai_key:
+    description: 'openai api key'
+    type: string
+    default: ''
+    required: true
+```
+
+</td> 
+<td> 
+
+![render inputs](docs/images/render-inputs.png) 
+
+</td>
+</tr>
+</table>
+
+### Built-in system variables and functions
+
+#### Built in system variables:
+- `${{ SEALOS_NAMESPACE }}` The namespace where Sealos user is deployed.
+- `${{ SEALOS_CLOUD_DOMAIN }}` The domain suffix of the Sealos cluster.
+- `${{ SEALOS_CERT_SECRET_NAME }}` The name of the secret that Sealos uses to store the tls certificate.
+
+#### Built in system functions:
+- `${{ random(length) }}` generate a random string of length `length`.
+- TODO: `${{ if() }}` `${{ endif() }}` Conditional rendering.
+
+## Part Two: `Application Resource File(s)`
+
+This part generally consists of a group of types of resources: 
+- Applications `Deployment`, `StatefulSet`, `Service`
+- External Access, `Ingress`
+- Underlying Requirements, `Database`, `Object Storage`
+
+Each resources can repeat any times with no order.
+
+### Explain: `Applications`
+
+Applications is list of as many as `Deployment`, `StatefulSet`, `Service` Or/And `Job`, `Secret`, `ConfigMap`, `Custom Resource` as you want.
+
+<details>
+
+<summary>Demo</summary>
 
 ```yaml
 apiVersion: apps/v1
@@ -154,8 +240,29 @@ spec:
     - port: 3000
   selector:
     app: ${{ defaults.app_name }}
+```
 
----
+</details>
+
+Frequently changes with the following fields:
+
+| Code                         | Description                                                  |
+| :--------------------------- | :----------------------------------------------------------- |
+| `metadata.annotations`<br/>`metadata.labels` | Change to match launchpad's requirements, like `originImageName`, `minReplicas`, `maxReplicas`. |
+| `spec.containers[].image` | Change to your Docker image. |
+| `spec.containers[].env` | Configure environment variables for the container            |
+| `spec.containers[].ports.containerPort` | Change to the port corresponding to your Docker image        |
+| `${{ defaults.app_name }}` | You can use the `${{ defaults.xxxx }}`\|`${{ inputs.xxxx }}` variables to set parameters defined in the `Template CR`. |
+
+### Explain: `External Accesses`
+
+If the application needs to be accessed externally, you need to add the following code:
+
+<details>
+
+<summary>Demo</summary>
+
+```yaml
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -195,47 +302,24 @@ spec:
   tls:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
-      secretName: ${{ SEALOS_Cert_Secret_Name }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
 ```
 
-- #### Pay attention to the following fields:
+</details>
 
-| Code                         | Description                                                  |
-| :--------------------------- | :----------------------------------------------------------- |
-| ` originImageName: `         | Change to your Docker image                                  |
-| `image: `                    | Change to your Docker image                                  |
-| `env: `                      | Configure environment variables for the container            |
-| `port: `                     | Change to the port corresponding to your Docker image        |
-| `${{ defaults.app_name }}  ` | You can use the `${{ defaults.xxxx }}` method to read parameters defined in the Template |
+Please note that the `host` field needs to be randomly set for security purpose. You can use `${{ random(8) }}` set to `defaults.app_host` and use `${{ defaults.app_host }}` then.
 
-- If the application involves the use of a database, the database password can be added to the environment variable through the following code. After adding, you can read the MONGODB password in the container through $(MONGO_PASSWORD). Currently, Sealos supports MySQL, MongoDB, PostgreSQL, Redis, and the naming method of the database uniformly adopts the ${{ defaults.app_name }}-mysql(pg, mongo, redis) method.
+### Explain: `Underlying Requirements`
 
-```yaml
-spec:
-  containers:
-    - name: ${{ defaults.app_name }}
-      image: c121914yu/fast-gpt:latest
-      env:
-        - name: MONGO_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: ${{ defaults.app_name }}-mongo-conn-credential
-              key: password
-```
+Almost all applications needs underlying requirements, such as `database`, `cache`, `object storage` etc. You can add the following code to deploy some underlying requirements we provided:
 
-- The deployment methods of FastGPT-key and FastGPT-admin are basically the same as the main FastGPT application. Below is a template resource file for deploying the database. In this part, you only need to concern about the resources used by the database. Here are the templates for creating MongoDB, PostgreSQL, MySQL, and Redis.
+#### `Database`
 
-| Code          | Description             |
-| ------------- | ----------------------- |
-| `replicas: `  | Number of instances     |
-| `resources: ` | Allocate CPU and memory |
-| `storage: `   | Volume size             |
+We using [`kubeblocks`](https://kubeblocks.io/) to provide database resources support. You can directly use the following code to deploy a database:
 
-- ### Database Resource File
+<details>
 
-  - You can directly copy the corresponding resource file for the database you need to use.
-
-- MongDB
+<summary>MongoDB</summary>
 
 ```yaml
 apiVersion: apps.kubeblocks.io/v1alpha1
@@ -330,7 +414,11 @@ subjects:
     namespace: ${{ SEALOS_NAMESPACE}}
 ```
 
-- PostgreSQL
+</details>
+
+<details>
+
+<summary>PostgreSQL</summary>
 
 ```yaml
 apiVersion: apps.kubeblocks.io/v1alpha1
@@ -459,7 +547,11 @@ subjects:
     namespace: ${{ SEALOS_NAMESPACE }}
 ```
 
-- MySQL
+</details>
+
+<details>
+
+<summary>MySQL</summary>
 
 ```yaml
 apiVersion: apps.kubeblocks.io/v1alpha1
@@ -552,7 +644,11 @@ subjects:
 
 ```
 
-- Redis
+</details>
+
+<details>
+
+<summary>Redis</summary>
 
 ```yaml
 apiVersion: apps.kubeblocks.io/v1alpha1
@@ -658,3 +754,34 @@ subjects:
     namespace: ${{ SEALOS_NAMESPACE }}
 ```
 
+</details>
+
+
+When deploy databases, you only need to concern about the resources used by the database:
+
+| Code        | Description             |
+| ----------- | ----------------------- |
+| `replicas`  | Number of instances     |
+| `resources` | Allocate CPU and memory |
+| `storage`   | Volume size             |
+
+#### How to access database for applications
+
+The database username/password is set into one secret for future usage. It can be added to the environment variables through the following code. After adding, you can read the MONGODB password in the container through $(MONGO_PASSWORD). 
+
+```yaml
+...
+spec:
+  containers:
+    - name: ${{ defaults.app_name }}
+      ...
+      env:
+        - name: MONGO_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-mongo-conn-credential
+              key: password
+...
+```
+
+#### TODO: `Minio`
