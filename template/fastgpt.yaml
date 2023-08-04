@@ -96,10 +96,10 @@ spec:
               value: postgres
           resources:
             requests:
-              cpu: 20m
+              cpu: 50m
               memory: 25Mi
             limits:
-              cpu: 200m
+              cpu: 500m
               memory: 256Mi
           command: []
           args: []
@@ -163,133 +163,6 @@ spec:
   tls:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
-      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
-
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: ${{ defaults.app_name }}-admin
-  annotations:
-    originImageName: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-admin:latest
-    deploy.cloud.sealos.io/minReplicas: '1'
-    deploy.cloud.sealos.io/maxReplicas: '1'
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-admin
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
-    app: ${{ defaults.app_name }}-admin
-spec:
-  replicas: 1
-  revisionHistoryLimit: 1
-  selector:
-    matchLabels:
-      app: ${{ defaults.app_name }}-admin
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 1
-      maxSurge: 0
-  template:
-    metadata:
-      labels:
-        app: ${{ defaults.app_name }}-admin
-        cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
-    spec:
-      containers:
-        - name: ${{ defaults.app_name }}-admin
-          image: c121914yu/fastgpt-admin:latest
-          env:
-            - name: MONGO_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-mongo-conn-credential
-                  key: password
-            - name: MONGODB_URI
-              value: >-
-                mongodb://root:$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongo-mongo.${{ SEALOS_NAMESPACE }}.svc:27017
-            - name: MONGODB_NAME
-              value: fastgpt
-            - name: ADMIN_USER
-              value: adminuser
-            - name: ADMIN_PASS
-              value: adminpsw
-            - name: ADMIN_SECRET
-              value: adminsecret
-            - name: PARENT_URL
-              value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
-            - name: PARENT_ROOT_KEY
-              value: rootkey
-          resources:
-            requests:
-              cpu: 10m
-              memory: 12Mi
-            limits:
-              cpu: 100m
-              memory: 128Mi
-          command: []
-          args: []
-          ports:
-            - containerPort: 3001
-          imagePullPolicy: Always
-          volumeMounts: []
-      volumes: []
-
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: ${{ defaults.app_name }}-admin
-  labels:
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-admin
-spec:
-  ports:
-    - port: 3001
-  selector:
-    app: ${{ defaults.app_name }}-admin
-
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: ${{ defaults.app_name }}-admin
-  labels:
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-admin
-    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.fastgpt_admin_host }}
-  annotations:
-    kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/proxy-body-size: 32m
-    nginx.ingress.kubernetes.io/server-snippet: |
-      client_header_buffer_size 64k;
-      large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
-    nginx.ingress.kubernetes.io/backend-protocol: HTTP
-    nginx.ingress.kubernetes.io/rewrite-target: /$2
-    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
-    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
-    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
-    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
-        expires 30d;
-        add_header Cache-Control "public";
-      }
-spec:
-  rules:
-    - host: ${{ defaults.fastgpt_admin_host }}.${{ SEALOS_CLOUD_DOMAIN }}
-      http:
-        paths:
-          - pathType: Prefix
-            path: /()(.*)
-            backend:
-              service:
-                name: ${{ defaults.app_name }}-admin
-                port:
-                  number: 3001
-  tls:
-    - hosts:
-        - ${{ defaults.fastgpt_admin_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
 
 ---
