@@ -63,8 +63,8 @@ As demo shows, the metatda CR is a regular Kubernetes custom resource type, and 
 ### Explain: `Variables`
 
 Any characters enclosed in `${{ }}` are variables, and the variables are divided into these types: 
-1. `SEALOS_` pre-defined system built-in variables with upper case letters, such as `${{ SEALOS_NAMESPACE }}`, are variables provided by Sealos itself. For all currently supported system variables, please refer to [System Variables](#Built-in-system-variables:).
-2. `functions()` functions, such as `${{ random(8) }}`, are functions provided by Sealos itself. For all currently supported functions, please refer to [Functions](#Built-in-system-functions:).
+1. `SEALOS_` pre-defined system built-in variables with upper case letters, such as `${{ SEALOS_NAMESPACE }}`, are variables provided by Sealos itself. For all currently supported system variables, please refer to [System Variables](#built-in-system-variables-and-functions).
+2. `functions()` functions, such as `${{ random(8) }}`, are functions provided by Sealos itself. For all currently supported functions, please refer to [Functions](#built-in-system-functions).
 2. `defaults` is a list of names and values that are filled in by parsing, usually used for random values.
 3. `inputs` filled in by the user when deploying the application, inputs will be rendered into frontend form.
 
@@ -121,12 +121,12 @@ inputs:
 
 ### Built-in system variables and functions
 
-#### Built in system variables:
+#### Built in system variables
 - `${{ SEALOS_NAMESPACE }}` The namespace where Sealos user is deployed.
 - `${{ SEALOS_CLOUD_DOMAIN }}` The domain suffix of the Sealos cluster.
 - `${{ SEALOS_CERT_SECRET_NAME }}` The name of the secret that Sealos uses to store the tls certificate.
 
-#### Built in system functions:
+#### Built in system functions
 - `${{ random(length) }}` generate a random string of length `length`.
 - TODO: `${{ if() }}` `${{ endif() }}` Conditional rendering.
 
@@ -137,7 +137,7 @@ This part generally consists of a group of types of resources:
 - External Access, `Ingress`
 - Underlying Requirements, `Database`, `Object Storage`
 
-Each resources can repeat any times with no order.
+Each resources can repeat any times without order.
 
 ### Explain: `Applications`
 
