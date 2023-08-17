@@ -9,7 +9,7 @@
 ## 如何创建模板
 
 - 直接通过现有的模板文件或 Create Template(TODO)按钮来创建应用模版。可基于 [template.yaml](template.yaml) 来创建想要的模板。
-- 系统内置了一些通用的环境变量信息。使用像 `GitHub Actions` 一样的语法，通过 `${{ SEALOS_NAMESPACE }}`环境变量来编写模板参数。具体内置的环境变量信息可以查看[environment.txt](environment.txt)。
+- 系统内置了一些通用的环境变量信息与内置函数。使用像 `GitHub Actions` 一样的语法，通过 `${{ SEALOS_NAMESPACE }}`环境变量来编写模板参数。具体内置的环境变量信息可以查看[变量](example.md)。
 - 文档以FastGPT为例展示如何完整的创建一个模板，详见[example.md](example.md)
 
 ## 如何引入 sealos 一键部署按钮

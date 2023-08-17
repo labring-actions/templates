@@ -61,8 +61,8 @@ spec:
 ### 解释：`变量`
 
 任何被 `${{ }}` 包围的字符都是变量，变量分为以下几种类型：
-1. `SEALOS_` 全大写字母的预定义系统内置变量，例如 `${{ SEALOS_NAMESPACE }}`，是 Sealos 本身提供的变量。有关所有当前支持的系统变量，请参阅[系统变量](#内置系统变量:)。
-2. `functions()` 函数，例如 `${{ random(8) }}`，是 Sealos 本身提供的函数。有关所有当前支持的函数，请参阅[函数](#内置系统函数:)。
+1. `SEALOS_` 全大写字母的预定义系统内置变量，例如 `${{ SEALOS_NAMESPACE }}`，是 Sealos 本身提供的变量。有关所有当前支持的系统变量，请参阅[系统变量](#内置系统变量和函数)。
+2. `functions()` 函数，例如 `${{ random(8) }}`，是 Sealos 本身提供的函数。有关所有当前支持的函数，请参阅[函数](#内置系统函数)。
 3. `defaults` 是填充随机值时解析的名称和值列表。
 4. `inputs` 是在部署应用程序时由用户填写的，输入将呈现为前端表单。
 
@@ -119,12 +119,12 @@ inputs:
 
 ### 内置系统变量和函数
 
-#### 内置系统变量：
+#### 内置系统变量
 - `${{ SEALOS_NAMESPACE }}` Sealos 用户部署的命名空间。
 - `${{ SEALOS_CLOUD_DOMAIN }}` Sealos 集群的域名后缀。
 - `${{ SEALOS_CERT_SECRET_NAME }}` Sealos 用于存储 TLS 证书的 secret 名称。
 
-#### 内置系统函数：
+#### 内置系统函数
 - `${{ random(length) }}` 生成长度为 `length` 的随机字符串。
 - TODO: `${{ if() }}` `${{ endif() }}` 条件渲染。
 
@@ -155,8 +155,8 @@ metadata:
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
-    dev.sealos.run/deploy-on-sealos: ${{ defaults.app_name }}
-    dev.sealos.run/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
 spec:
   replicas: 1
@@ -180,8 +180,8 @@ metadata:
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
-    dev.sealos.run/deploy-on-sealos: ${{ defaults.app_name }}
-    dev.sealos.run/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
 spec:
   replicas: 1
@@ -256,8 +256,8 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
-    dev.sealos.run/deploy-on-sealos: ${{ defaults.app_name }}
-    dev.sealos.run/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
     - port: 3000
@@ -291,9 +291,9 @@ kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}
   labels:
-    dev.sealos.run/deploy-on-sealos: ${{ defaults.app_name }}
-    dev.sealos.run/app-deploy-manager: ${{ defaults.app_name }}
-    dev.sealos.run/app-deploy-manager-domain: ${{ defaults.app_host }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/proxy-body-size: 32m

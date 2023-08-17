@@ -9,7 +9,7 @@ With the templates in this repository, you can easily run various applications o
 ## How to create a template
 
 - You can create your application template through existing template files or the Create Template (TODO) button. You can create the desired template based on [template.yaml](template.yaml).
-- The system has some built-in common environment variables. Use syntax like `GitHub Actions` to write template parameters like the `${{SEALOS_NAMESPACE}}` environment variable. For specific built-in environment variable information, see [environment.txt](environment.txt).
+- The system has some built-in common environment variables and functions. Use syntax like `GitHub Actions` to write template parameters like the `${{SEALOS_NAMESPACE}}` environment variable. For specific built-in environment variable information, see [variables](example.md#Built-in-system-variables-and-functions).
 - Taking FastGPT as an example, this shows how to create a complete template, see [example.md](example.md) for details.
 
 ## Way to use Sealos one-click deployment button
