@@ -597,8 +597,8 @@ spec:
             storageClassName: openebs-backup
   terminationPolicy: Delete
   tolerations: []
-  ---
-  apiVersion: v1
+---
+apiVersion: v1
 kind: ServiceAccount
 metadata:
   labels:
