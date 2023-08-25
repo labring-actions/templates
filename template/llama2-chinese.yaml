@@ -33,6 +33,19 @@ spec:
       storage: 10Gi
   storageClassName: sealfs-csi-llama-chinese
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+data:
+  None.yaml: >-
+    user: ""
+    bot: ""
+    turn_template: "<|user|><|user-message|> [/INST] <|bot|><|bot-message|>
+    </s><s>[INST] "
+    context: "[INST] <<SYS>>\nPlease answer all the questions in
+    Chinese.\n<</SYS>>\n\n"
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -66,23 +79,33 @@ spec:
         - name: ${{ defaults.app_name }}
           image: luanshaotong/text-generation-webui-cpu:dev
           command: ["sh", "-c"]
-          args: ["cp /share/models/* /app/models && /scripts/docker-entrypoint.sh python3 /app/server.py --listen --verbose --chat --model Chinese-Llama-2-7b-ggml-q4.bin"]
+          args: ["cp /share/models/* /app/models/ && /scripts/docker-entrypoint.sh python3 /app/server.py --listen --verbose --chat --model Chinese-Llama-2-7b-ggml-q4.bin --extensions openai --n_ctx 4096"]
           resources:
             requests:
               cpu: 2
               memory: 4Gi
             limits:
-              cpu: 8
+              cpu: 15
               memory: 8Gi
           ports:
-            - containerPort: 7860
+            - containerPort: 5001
           volumeMounts:
             - name: models
               mountPath: "/share/models"
+            - mountPath: /app/characters/instruction-following/None.yaml
+              name: ${{ defaults.app_name }}
+              subPath: ./app/characters/instruction-following/None.yaml
       volumes:
         - name: models
           persistentVolumeClaim:
             claimName: ${{ defaults.app_name }}
+        - configMap:
+            defaultMode: 420
+            items:
+            - key: None.yaml
+              path: ./app/characters/instruction-following/None.yaml
+            name: ${{ defaults.app_name }}
+          name: ${{ defaults.app_name }}
 ---
 apiVersion: v1
 kind: Service
@@ -93,7 +116,7 @@ metadata:
     cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 7860
+    - port: 5001
   selector:
     app: ${{ defaults.app_name }}
 ---
@@ -134,7 +157,7 @@ spec:
               service:
                 name: ${{ defaults.app_name }}
                 port:
-                  number: 7860
+                  number: 5001
   tls:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
