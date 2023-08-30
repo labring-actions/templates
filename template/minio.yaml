@@ -1,0 +1,205 @@
+apiVersion: template.app.sealos.io/v1beta1
+kind: Template
+metadata:
+  name: minio
+spec:
+  title: 'MinIO'
+  url: 'https://min.io/'
+  github: 'https://github.com/minio/minio'
+  author: 'sealos'
+  description: 'MinIO is a High Performance Object Storage released under GNU Affero General Public License v3.0. It is API compatible with Amazon S3 cloud storage service. Use MinIO to build high performance infrastructure for machine learning, analytics and application data workloads.'
+  readme: 'https://raw.githubusercontent.com/minio/minio/master/README.md'
+  icon: 'https://raw.githubusercontent.com/minio/minio/master/.github/logo.svg?sanitize=true'
+  template_type: inline
+  defaults:
+    app_host:
+      # number or string.
+      type: string
+      value: ${{ random(8) }}
+    app_name:
+      type: string
+      value: minio-${{ random(8) }}
+  inputs:
+    username:
+      description: 'MinIO Console Username'
+      type: string
+      default: ''
+      required: false
+    password:
+      description: 'MinIO Console Password'
+      type: string
+      default: ''
+      required: false
+    storage:
+      description: 'Storage size for each server in Gi (four servers in total)'
+      type: string
+      default: ''
+      required: false
+    important note:
+      description: 'Changing storage size of MinIO leads to unrecoverable crashes.'
+      type: string
+      default: ''
+      required: false
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: quay.io/minio/minio
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+spec:
+  replicas: 4
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  podManagementPolicy: Parallel
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      containers:
+        - name: minio
+          image: quay.io/minio/minio
+          imagePullPolicy: IfNotPresent
+          args:
+            - server
+            - http://${{ defaults.app_name }}-{0...3}.${{ defaults.app_name }}.${{ SEALOS_NAMESPACE }}.svc.cluster.local/data
+            - "--console-address=:9001"
+          env:
+            - name: MINIO_ROOT_USER
+              value: ${{ inputs.username }}
+            - name: MINIO_ROOT_PASSWORD
+              value: ${{ inputs.password }}
+          ports:
+            - name: api
+              containerPort: 9000
+              protocol: TCP
+            - name: console
+              containerPort: 9001
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 200m
+              memory: 256Mi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          livenessProbe:
+            exec:
+              command: [ "curl", "-f", "http://localhost:9000/minio/health/live" ]
+            initialDelaySeconds: 3
+            periodSeconds: 3
+            timeoutSeconds: 3
+            successThreshold: 1
+            failureThreshold: 5
+          readinessProbe:
+            exec:
+              command: [ "curl", "-f", "http://localhost:9000/minio/health/live" ]
+            initialDelaySeconds: 3
+            periodSeconds: 2
+            timeoutSeconds: 1
+            successThreshold: 1
+            failureThreshold: 5
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /data
+          value: '1'
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: ${{  inputs.storage }}Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+spec:
+  selector:
+    app: ${{ defaults.app_name }}
+  clusterIP: None
+  ports:
+    - name: minio
+      port: 9000
+    - name: console
+      port: 9001
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-console
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+spec:
+  selector:
+    app: ${{ defaults.app_name }}
+  type: ClusterIP
+  ports:
+    - name: console
+      protocol: TCP
+      port: 80
+      targetPort: 9001
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /()(.*)
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-console
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
