@@ -1,0 +1,297 @@
+apiVersion: template.app.sealos.io/v1beta1
+kind: Template
+metadata:
+  name: Cloudreve
+spec:
+  title: 'Cloudreve'
+  url: 'https://cloudreve.org/'
+  github: 'https://github.com/cloudreve/Cloudreve'
+  author: 'sealos'
+  description: 'Self-hosted file management and sharing system, supports multiple storage providers.'
+  readme: 'https://raw.githubusercontent.com/cloudreve/Cloudreve/master/README.md'
+  icon: 'https://avatars.githubusercontent.com/u/48898462?s=48&v=4'
+  template_type: inline
+  defaults:
+    app_host:
+      type: string
+      value: ${{ random(8) }}
+    app_name:
+      type: string
+      value: cloudreve-${{ random(8) }}
+    session_secret:
+      type: string
+      value: ${{ random(64) }}
+    hash_id_salt:
+      type: string
+      value: ${{ random(64) }}
+  inputs:
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: cloudreve/cloudreve
+    deploy.cloud.sealos.io/maxReplicas: "1"
+    deploy.cloud.sealos.io/minReplicas: "1"
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  podManagementPolicy: Parallel
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      initContainers:
+        - name: cloudreve-init-mysql
+          image: arey/mysql-client
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-conn-credential
+                  key: username
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-conn-credential
+                  key: password
+            - name: MYSQL_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-conn-credential
+                  key: host
+            - name: MYSQL_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-conn-credential
+                  key: port
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - |
+              echo "CREATE DATABASE v3;" > /create.sql
+              until mysql -h $MYSQL_HOST -P $MYSQL_PORT -u $MYSQL_USER -p$MYSQL_PASSWORD -e 'source /create.sql;' &>/dev/null; do sleep 1; done
+      containers:
+        - name: cloudreve
+          image: cloudreve/cloudreve
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-conn-credential
+                  key: username
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-conn-credential
+                  key: password
+            - name: MYSQL_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-conn-credential
+                  key: host
+            - name: MYSQL_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-conn-credential
+                  key: port
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - |
+              echo -e "[System] \nDebug = false \nMode = master \nListen = :5212 \nSessionSecret = ${{ defaults.session_secret }} \nHashIDSalt = ${{ defaults.hash_id_salt }} \n[Database] \nType = mysql \nPort = $MYSQL_PORT \nUser = $MYSQL_USER \nPassword = $MYSQL_PASSWORD \nHost = $MYSQL_HOST \nName = v3 \nTablePrefix = cd \nCharset = utf8" > /cloudreve/conf.ini
+              ./cloudreve
+          ports:
+            - containerPort: 5212
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 100m
+              memory: 64Mi
+            requests:
+              cpu: 10m
+              memory: 6Mi
+          volumeMounts:
+            - name: data
+              mountPath: /cloudreve/uploads
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /cloudreve/uploads
+          value: '1'
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+spec:
+  selector:
+    app: ${{ defaults.app_name }}
+  type: ClusterIP
+  ports:
+    - name: cloudreve
+      protocol: TCP
+      port: 80
+      targetPort: 5212
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /()(.*)
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: apecloud-mysql
+    clusterversion.kubeblocks.io/name: ac-mysql-8.0.30
+    sealos-db-provider-cr: ${{ defaults.app_name }}
+  annotations: {}
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: apecloud-mysql
+  clusterVersionRef: ac-mysql-8.0.30
+  componentSpecs:
+    - componentDefRef: mysql
+      monitor: true
+      name: mysql
+      replicas: 1
+      resources:
+        limits:
+          cpu: 1000m
+          memory: 1024Mi
+        requests:
+          cpu: 100m
+          memory: 102Mi
+      serviceAccountName: ${{ defaults.app_name }}
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 3Gi
+  terminationPolicy: Delete
+  tolerations: []
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}
+    app.kubernetes.io/instance: ${{ defaults.app_name }}
+    app.kubernetes.io/managed-by: kbcli
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}
+    app.kubernetes.io/instance: ${{ defaults.app_name }}
+    app.kubernetes.io/managed-by: kbcli
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+rules:
+  - apiGroups:
+      - ''
+    resources:
+      - events
+    verbs:
+      - create
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}
+    app.kubernetes.io/instance: ${{ defaults.app_name }}
+    app.kubernetes.io/managed-by: kbcli
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}
+    namespace: ${{ SEALOS_NAMESPACE}}
+
