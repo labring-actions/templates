@@ -1,0 +1,743 @@
+apiVersion: template.app.sealos.io/v1beta1
+kind: Template
+metadata:
+  name: liebianbao
+spec:
+  title: '慧动裂变宝'
+  url: 'http://www.liebianbao.vip/'
+  github: ''
+  author: 'sealos'
+  description: '一款基于微信全生态运营场景开发的系统工具，助力企业打造获客·运营·转化·管理为一体的私域增长闭环。更好地通过微信公众号+社群+企业微信+视频号进行快速裂变获客、宣传推广、拓客到店，从而达到销售业绩的提升。'
+  readme: ''
+  icon: 'http://www.liebianbao.vip/plugins/style/res/lbb/logo.png'
+  template_type: inline
+  defaults:
+    app_name:
+      type: string
+      value: liebianbao-${{ random(8) }}
+    app_host:
+      type: string
+      value: ${{ random(8) }}
+  inputs:
+    url:
+      description: '注册域名-需要 cname 到当前域名'
+      type: string
+      default: ''
+      required: true
+    reg_token:
+      description: '注册码'
+      type: string
+      default: ''
+      required: true
+    admin_username:
+      description: '管理员账户'
+      type: string
+      default: ' admin'
+      required: true
+    admin_password:
+      description: '管理员密码'
+      type: string
+      default: '12345678'
+      required: true
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: labring4docker/php-custom:7.2-fpm
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      initContainers:
+      - name: initializer
+        image: busybox:1.36.1
+        command:
+          - "/bin/sh"
+          - "-c"
+          - |
+            if [[ -d /data/918map/app ]]; then
+                echo "Directory already exists. Exiting."
+                exit 0
+            fi
+
+
+            mkdir -p /data/918map && wget -q -O /data/918map/frame_zip.zip https://lbb918.oss-cn-shenzhen.aliyuncs.com/frame_zip.zip
+            cd /data/918map && unzip -q frame_zip.zip -x __MACOSX\* && mv frame_zip app && rm -rf frame_zip.zip
+
+            mkdir -p /data/918map && wget -q -O /data/918map/install.zip https://lbb918.oss-cn-shenzhen.aliyuncs.com/docker/install.zip
+            cd /data/918map && unzip -q install.zip -x __MACOSX\* && mv install app/public/ && rm -rf install.zip
+
+            mkdir -p /data/918map/app/public/storage
+
+            mkdir -p /data/918map/nginx
+            touch /data/918map/nginx/error.log
+
+            touch /data/918map/app/.env
+
+            chmod -R 0777 /data/918map
+            chown -R www:www /data/918map
+        volumeMounts:
+          - name: vn-datavn-918map
+            mountPath: /data/918map
+        # securityContext:
+        #   runAsUser: 1000
+        #   runAsGroup: 1000
+        #   fsGroup: 1000
+        imagePullPolicy: IfNotPresent
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: docker.io/labring4docker/php-custom:7.2-fpm
+          env:
+            - name: APP_NAME
+              value: Laravel
+            - name: APP_ENV
+              value: local
+            - name: APP_KEY
+              value: 'base64:9pF/k2HH4NWfUcnjSymylVAmHuGUc7e0lq70Kob0URE='
+            - name: APP_DEBUG
+              value: true
+            - name: APP_URL
+              value: ${{ inputs.url }}
+            - name: DB_CONNECTION
+              value: mysql
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: host
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: port
+            - name: DB_DATABASE
+              value: app
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: password
+            - name: DB_PREFIX
+              value: hd_
+            - name: MONGODB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mongo-conn-credential
+                  key: host
+            - name: MONGODB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mongo-conn-credential
+                  key: port
+            - name: MONGODB_DATABASE
+              value: app
+            - name: MONGODB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mongo-conn-credential
+                  key: username
+            - name: MONGODB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mongo-conn-credential
+                  key: password
+            - name: BROADCAST_DRIVER
+              value: log
+            - name: CACHE_DRIVER
+              value: redis
+            - name: QUEUE_CONNECTION
+              value: redis
+            - name: SESSION_DRIVER
+              value: redis
+            - name: SESSION_LIFETIME
+              value: 12000
+            - name: REDIS_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-conn-credential
+                  key: host
+            - name: REDIS_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-conn-credential
+                  key: port
+            - name: REDIS_CACHE_DB
+              value: 1
+            - name: REDIS_DB
+              value: 1
+            - name: WECHAT_OPEN_PLATFORM_TOKEN
+              value: third201808162020
+            - name: WECHAT_OPEN_PLATFORM_AES_KEY
+              value: PYaR78qCRqz8J5OFg3klgvcPnRwWs6FmN0lk2RUn0AA
+            - name: TESTDAY
+              value: 1
+            - name: reg_token
+              value: ${{ inputs.reg_token }}
+          resources:
+            requests:
+              cpu: 500m
+              memory: 256Mi
+            limits:
+              cpu: 1
+              memory: 2Gi
+          command:
+            - "/bin/sh"
+            - "-c"
+            - |
+              cron
+              cd /data/918map/app/
+              nohup php artisan horizon &
+              php-fpm -R
+          args: []
+          ports:
+            - containerPort: 9000
+          imagePullPolicy: Always
+          volumeMounts:
+            - name: vn-datavn-918map
+              mountPath: /data/918map
+            - name: php-ini
+              mountPath: /usr/local/etc/php/conf.d/99-custom.ini
+              subPath: ./usr/local/etc/php/conf.d/99-custom.ini
+          # securityContext:
+          #   runAsUser: 1000
+          #   runAsGroup: 1000
+          #   fsGroup: 1000
+        - name: nginx
+          image: nginx:1.25.2
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 64m
+              memory: 128Mi
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: vn-datavn-918map
+              mountPath: /data/918map
+            - name: nginx-conf
+              mountPath: /etc/nginx/nginx.conf
+              subPath: ./etc/nginx/nginx.conf
+          imagePullPolicy: IfNotPresent
+      volumes:
+        - name: php-ini
+          configMap:
+            name: ${{ defaults.app_name }}
+            items:
+              - key: php-ini
+                path: ./usr/local/etc/php/conf.d/99-custom.ini
+        - name: nginx-conf
+          configMap:
+            name: ${{ defaults.app_name }}
+            items:
+              - key: nginx-conf
+                path: ./etc/nginx/nginx.conf
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /data/918map
+          value: '1'
+        name: vn-datavn-918map
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+data:
+  nginx-conf: |
+    user  root;
+    worker_processes  4;
+
+    error_log  /data/918map/nginx/error.log warn;
+    pid        /var/run/nginx.pid;
+
+    events {
+        worker_connections  1024;
+    }
+
+    http {
+        include       /etc/nginx/mime.types;
+        default_type  application/octet-stream;
+        client_max_body_size 300M;
+        log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                          '$status $body_bytes_sent "$http_referer" '
+                          '"$http_user_agent" "$http_x_forwarded_for"';
+
+        access_log /data/918map/nginx/access.log  main;
+
+        sendfile        on;
+        keepalive_timeout  65;
+        gzip  on;
+
+        server {
+            listen       80 default_server;
+            server_name  localhost;
+
+            root   /data/918map/app/public;
+            index  index.php;
+
+            location / {
+                try_files $uri $uri/ /index.php?$query_string;
+            }
+
+            # pass the PHP scripts to FastCGI server listening on 127.0.0.1:9000
+            location ~ \.php$ {
+                fastcgi_pass   127.0.0.1:9000;
+                fastcgi_index  index.php;
+                fastcgi_buffer_size 128k;
+                fastcgi_buffers 32 32k;
+                fastcgi_param  SCRIPT_FILENAME  $document_root$fastcgi_script_name;
+                include        fastcgi_params;
+                fastcgi_param  SERVER_NAME $host;
+            }
+        }
+    }
+  php-ini: |
+    memory_limit=-1
+    upload_max_filesize=256M
+    ; disable_functions=putenv,pcntl_signal,pcntl_signal_dispatch,proc_open,pcntl_alarm
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - port: 80
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: ${{ inputs.url }}
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: ${{ defaults.app_name }}
+            port:
+              number: 80
+  tls:
+    - hosts:
+        - ${{ inputs.url }}
+      secretName: ${{ defaults.app_name }}-cert
+
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: ${{ defaults.app_name }}
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: admin@sealos.io
+    privateKeySecretRef:
+      name: letsencrypt-prod
+    solvers:
+      - http01:
+          ingress:
+            class: nginx
+
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ${{ defaults.app_name }}
+spec:
+  secretName: ${{ defaults.app_name }}-cert
+  dnsNames:
+    - ${{ inputs.url }}
+  issuerRef:
+    name: ${{ defaults.app_name }}
+    kind: Issuer
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: mongodb
+    clusterversion.kubeblocks.io/name: mongodb-5.0.14
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+  annotations: {}
+  name: ${{ defaults.app_name }}-mongo
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: mongodb
+  clusterVersionRef: mongodb-5.0.14
+  componentSpecs:
+    - componentDefRef: mongodb
+      monitor: true
+      name: mongodb
+      replicas: 1
+      resources:
+        limits:
+          cpu: 1
+          memory: 1Gi
+        requests:
+          cpu: 100m
+          memory: 128Mi
+      serviceAccountName: ${{ defaults.app_name }}-mongo
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 3Gi
+  terminationPolicy: Delete
+  tolerations: []
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/managed-by: kbcli
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+  name: ${{ defaults.app_name }}-mongo
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/managed-by: kbcli
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+  name: ${{ defaults.app_name }}-mongo
+rules:
+  - apiGroups:
+      - ''
+    resources:
+      - events
+    verbs:
+      - create
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/managed-by: kbcli
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+  name: ${{ defaults.app_name }}-mongo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-mongo
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-mongo
+    namespace: ${{ SEALOS_NAMESPACE }}
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: redis
+    clusterversion.kubeblocks.io/name: redis-7.0.6
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+  annotations: {}
+  name: ${{ defaults.app_name }}-redis
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: redis
+  clusterVersionRef: redis-7.0.6
+  componentSpecs:
+    - componentDefRef: redis
+      monitor: true
+      name: redis
+      replicas: 1
+      resources:
+        limits:
+          cpu: 1000m
+          memory: 1024Mi
+        requests:
+          cpu: 100m
+          memory: 128Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 3Gi
+    - componentDefRef: redis-sentinel
+      monitor: true
+      name: redis-sentinel
+      replicas: 1
+      resources:
+        limits:
+          cpu: 100m
+          memory: 128Mi
+        requests:
+          cpu: 100m
+          memory: 128Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
+  terminationPolicy: Delete
+  tolerations: []
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+  name: ${{ defaults.app_name }}-redis
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+  name: ${{ defaults.app_name }}-redis
+rules:
+  - apiGroups:
+      - ''
+    resources:
+      - events
+    verbs:
+      - create
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+  name: ${{ defaults.app_name }}-redis
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-redis
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-redis
+    namespace: ${{ SEALOS_NAMESPACE }}
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: apecloud-mysql
+    clusterversion.kubeblocks.io/name: ac-mysql-8.0.30
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+  name: ${{ defaults.app_name }}-mysql
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: apecloud-mysql
+  clusterVersionRef: ac-mysql-8.0.30
+  componentSpecs:
+    - componentDefRef: mysql
+      monitor: true
+      name: mysql
+      replicas: 1
+      resources:
+        limits:
+          cpu: 1
+          memory: 1Gi
+        requests:
+          cpu: 100m
+          memory: 128Mi
+      serviceAccountName: ${{ defaults.app_name }}-mysql
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 3Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+  tolerations: []
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+  name: ${{ defaults.app_name }}-mysql
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+  name: ${{ defaults.app_name }}-mysql
+rules:
+  - apiGroups:
+      - ''
+    resources:
+      - events
+    verbs:
+      - create
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+  name: ${{ defaults.app_name }}-mysql
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-mysql
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-mysql
+    namespace: ${{ SEALOS_NAMESPACE }}
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-init
+  labels:
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+spec:
+  completions: 1
+  template:
+    spec:
+      containers:
+        - name: mysql-init
+          image: docker.io/arey/mysql-client:latest
+          env:
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: username
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: password
+            - name: MYSQL_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: host
+            - name: MYSQL_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: port
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "CREATE DATABASE IF NOT EXISTS app; USE app;" > /create.sql
+              wget -O /lbb_daili.sql https://lbb918.oss-cn-shenzhen.aliyuncs.com/lbb_daili.sql
+              wget -O /newup.sql https://lbb918.oss-cn-shenzhen.aliyuncs.com/newup.sql
+              echo 'INSERT INTO `hd_daili_web_settings` (`aaid`,`web_url`,`reg_token`) VALUES (1,"${{ inputs.url }}","${{ inputs.reg_token }}");' > /init.sql
+              echo 'INSERT INTO `hd_admin_accounts` (`phone`,`pwd`) VALUES ("${{ inputs.admin_username }}", MD5("${{ inputs.admin_password }}"));' >> /init.sql
+              until mysql -h $MYSQL_HOST -P $MYSQL_PORT -u $MYSQL_USER -p$MYSQL_PASSWORD -e 'source /create.sql; source /lbb_daili.sql; source /newup.sql; source /init.sql;' &>/dev/null; do sleep 1; done
+      restartPolicy: Never
+  backoffLimit: 0
