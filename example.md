@@ -11,19 +11,19 @@ Taking FastGPT as an example here to demonstrate how to create a template. This 
 ## Part One: `Metadata CR`
 
 ```yaml
-apiVersion: template.app.sealos.io/v1beta1
+apiVersion: app.sealos.io/v1
 kind: Template
 metadata: 
   name: ${{ defaults.app_name }}
 spec:
   title: 'FastGpt'                         
   url: 'https://fastgpt.run/'                         
-  github: 'https://github.com/labring/FastGPT'        
+  gitRepo: 'https://github.com/labring/FastGPT'        
   author: 'sealos'                                     
   description: 'Fast GPT allows you to use your own openai API KEY to quickly call the openai interface, currently integrating Gpt35, Gpt4 and embedding. You can build your own knowledge base.'    
   readme: 'https://raw.githubusercontent.com/labring/FastGPT/main/README.md'
   icon: 'https://avatars.githubusercontent.com/u/50446880?s=96&v=4'
-  template_type: inline
+  templateType: inline
   defaults:
     app_name:
       type: string
@@ -56,7 +56,7 @@ As demo shows, the metatda CR is a regular Kubernetes custom resource type, and 
 
 | Code            | Description                                                  |
 | :---------------| :----------------------------------------------------------- |
-| `template_type` | `inline` indicates this is an inline mode template, all yaml files are integrated in one file. |
+| `templateType` | `inline` indicates this is an inline mode template, all yaml files are integrated in one file. |
 | `defaults`      | Define default values to be filled into the resource file, such as application name (app_name), domain name (app_host), etc. |
 | `inputs`        | Define some parameters needed by the user when deploying the application, such as Email, API-KEY, etc. If none, this item can be omitted |
 
