@@ -21,19 +21,68 @@ spec:
     server_jwt:
       type: string
       value: ${{ random(32) }}
-    domain:
+    minio_passwd:
       type: string
-      value: laf-${{ random(8) }}
+      value: ${{ random(8) }}
   inputs:
     minio_storage:
       description: "Storage size for each server in Gi (4 servers in total)"
       type: number
       default: "1"
       required: true
-    minio_passwd:
+    domain:
+      description: "the domain of laf"
       type: string
-      default: "bGFmbGFmeXlkcw=="
+      default: laf-${{ random(8) }}
       required: true
+---
+# mongo sa
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/managed-by: kbcli
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+  name: ${{ defaults.app_name }}-mongo
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/managed-by: kbcli
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+  name: ${{ defaults.app_name }}-mongo
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/managed-by: kbcli
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+  name: ${{ defaults.app_name }}-mongo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-mongo
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-mongo
+    namespace: ${{ SEALOS_NAMESPACE}}
 ---
 # mongodb
 apiVersion: apps.kubeblocks.io/v1alpha1
@@ -88,7 +137,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   labels:
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}-server
   name: ${{ defaults.app_name }}-sa
 
 ---
@@ -96,7 +145,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   labels:
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}-server
   name: ${{ defaults.app_name }}-role
 rules:
   - apiGroups:
@@ -111,7 +160,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   labels:
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}-server
   name: ${{ defaults.app_name }}-rolebind
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -123,75 +172,24 @@ subjects:
     namespace: ${{ SEALOS_NAMESPACE}}
 
 ---
-# mongo
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
-    app.kubernetes.io/managed-by: kbcli
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
-  name: ${{ defaults.app_name }}-mongo
-
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
-    app.kubernetes.io/managed-by: kbcli
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
-  name: ${{ defaults.app_name }}-mongo
-rules:
-  - apiGroups:
-      - ""
-    resources:
-      - events
-    verbs:
-      - create
-
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
-    app.kubernetes.io/managed-by: kbcli
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
-  name: ${{ defaults.app_name }}-mongo
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: ${{ defaults.app_name }}-mongo
-subjects:
-  - kind: ServiceAccount
-    name: ${{ defaults.app_name }}-mongo
-    namespace: ${{ SEALOS_NAMESPACE}}
----
 # laf-log
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   labels:
-    app.kubernetes.io/name: ${{ defaults.app_name }}-log
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-server
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}-log
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-log
+    app: ${{ defaults.app_name }}-log
   name: ${{ defaults.app_name }}-log
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: ${{ defaults.app_name }}-log
-      app.kubernetes.io/instance: ${{ defaults.app_name }}-server
+      app: ${{ defaults.app_name }}-log
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: ${{ defaults.app_name }}-log
-        app.kubernetes.io/instance: ${{ defaults.app_name }}-server
+        app: ${{ defaults.app_name }}-log
     spec:
       containers:
         - image: docker.io/lafyun/log-server:latest
@@ -231,10 +229,8 @@ apiVersion: v1
 kind: Service
 metadata:
   labels:
-    app.kubernetes.io/name: ${{ defaults.app_name }}-log
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-server
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}-log
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-log
   name: ${{ defaults.app_name }}-log
 spec:
   ports:
@@ -243,8 +239,7 @@ spec:
       protocol: TCP
       targetPort: http
   selector:
-    app.kubernetes.io/name: ${{ defaults.app_name }}-log
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-server
+    app: ${{ defaults.app_name }}-log
 ---
 # laf-server
 apiVersion: apps/v1
@@ -252,21 +247,18 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-server
   labels:
-    app.kubernetes.io/name: ${{ defaults.app_name }}-server
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-server
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}-server
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}-server
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-server
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: ${{ defaults.app_name }}-server
-      app.kubernetes.io/instance: ${{ defaults.app_name }}-server
+      app: ${{ defaults.app_name }}-server
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: ${{ defaults.app_name }}-server
-        app.kubernetes.io/instance: ${{ defaults.app_name }}-server
+        app: ${{ defaults.app_name }}-server
     spec:
       automountServiceAccountToken: true
       serviceAccountName: ${{ defaults.app_name }}-sa
@@ -310,25 +302,25 @@ spec:
             - name: JWT_SECRET
               value: ${{ defaults.server_jwt }}
             - name: API_SERVER_URL
-              value: "http://api.${{ defaults.domain }}.${{ SEALOS_CLOUD_DOMAIN }}"
+              value: "http://api.${{ inputs.domain }}.${{ SEALOS_CLOUD_DOMAIN }}"
             - name: JWT_EXPIRES_IN
               value: "7d"
             - name: DEFAULT_REGION_DATABASE_URL
               value: "mongodb://root:$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017/sys_db?authSource=admin&w=majority"
             - name: DEFAULT_REGION_MINIO_DOMAIN
-              value: "oss.${{ defaults.domain }}.${{ SEALOS_CLOUD_DOMAIN }}"
+              value: "oss.${{ inputs.domain }}.${{ SEALOS_CLOUD_DOMAIN }}"
             - name: DEFAULT_REGION_MINIO_EXTERNAL_ENDPOINT
-              value: "http://oss.${{ defaults.domain }}.${{ SEALOS_CLOUD_DOMAIN }}"
+              value: "http://oss.${{ inputs.domain }}.${{ SEALOS_CLOUD_DOMAIN }}"
             - name: DEFAULT_REGION_MINIO_INTERNAL_ENDPOINT
               value: "http://${{ defaults.app_name }}-minio.${{ SEALOS_NAMESPACE }}.svc.cluster.local:9000"
             - name: DEFAULT_REGION_MINIO_ROOT_ACCESS_KEY
-              value: "laflafyyds"
+              value: ${{ defaults.minio_passwd }}
             - name: DEFAULT_REGION_MINIO_ROOT_SECRET_KEY
-              value: "laflafyyds"
+              value: ${{ defaults.minio_passwd }}
             - name: DEFAULT_REGION_RUNTIME_DOMAIN
-              value: "${{ defaults.domain }}.${{ SEALOS_CLOUD_DOMAIN }}"
+              value: "${{ inputs.domain }}.${{ SEALOS_CLOUD_DOMAIN }}"
             - name: DEFAULT_REGION_WEBSITE_DOMAIN
-              value: "site.${{ defaults.domain }}.${{ SEALOS_CLOUD_DOMAIN }}"
+              value: "site.${{ inputs.domain }}.${{ SEALOS_CLOUD_DOMAIN }}"
             - name: DEFAULT_REGION_TLS
               value: "false"
             - name: DEFAULT_REGION_LOG_SERVER_URL
@@ -340,17 +332,15 @@ spec:
             - name: DEFAULT_REGION_PROMETHEUS_URL
               value:
             - name: SITE_NAME
-              value: "${{ defaults.domain }}.${{ SEALOS_CLOUD_DOMAIN }}"
+              value: "${{ inputs.domain }}.${{ SEALOS_CLOUD_DOMAIN }}"
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: ${{ defaults.app_name }}-server
   labels:
-    app.kubernetes.io/name: ${{ defaults.app_name }}-server
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-server
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}-server
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-server
 spec:
   type: ClusterIP
   ports:
@@ -359,8 +349,7 @@ spec:
       protocol: TCP
       name: http
   selector:
-    app.kubernetes.io/name: ${{ defaults.app_name }}-server
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-server
+    app: ${{ defaults.app_name }}-server
 ---
 # laf-web
 apiVersion: apps/v1
@@ -368,21 +357,18 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-web
   labels:
-    app.kubernetes.io/name: ${{ defaults.app_name }}-web
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-web
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}-web
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}-web
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-web
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: ${{ defaults.app_name }}-web
-      app.kubernetes.io/instance: ${{ defaults.app_name }}-web
+      app: ${{ defaults.app_name }}-web
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: ${{ defaults.app_name }}-web
-        app.kubernetes.io/instance: ${{ defaults.app_name }}-web
+        app: ${{ defaults.app_name }}-web
     spec:
       serviceAccountName: default
       securityContext: {}
@@ -417,10 +403,8 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-web
   labels:
-    app.kubernetes.io/name: ${{ defaults.app_name }}-web
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-web
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}-web
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-web
 spec:
   type: ClusterIP
   ports:
@@ -429,8 +413,7 @@ spec:
       protocol: TCP
       name: http
   selector:
-    app.kubernetes.io/name: ${{ defaults.app_name }}-web
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-web
+    app: ${{ defaults.app_name }}-web
 
 ---
 #laf minio
@@ -440,12 +423,12 @@ metadata:
   name: ${{ defaults.app_name }}-minio
   labels:
     app: ${{ defaults.app_name }}-minio
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}-minio
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio
 type: Opaque
-data:
-  rootUser: ${{ inputs.minio_passwd }}
-  rootPassword: ${{ inputs.minio_passwd }}
+stringData:
+  rootUser: ${{ defaults.minio_passwd }}
+  rootPassword: ${{ defaults.minio_passwd }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -453,8 +436,8 @@ metadata:
   name: ${{ defaults.app_name }}-minio
   labels:
     app: ${{ defaults.app_name }}-minio
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}-minio
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio
 data:
   initialize: |-
     #!/bin/sh
@@ -818,8 +801,8 @@ metadata:
   name: ${{ defaults.app_name }}-minio-console
   labels:
     app: ${{ defaults.app_name }}-minio
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}-minio
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio
 spec:
   type: ClusterIP
   ports:
@@ -829,7 +812,6 @@ spec:
       targetPort: 9001
   selector:
     app: ${{ defaults.app_name }}-minio
-    release: ${{ defaults.app_name }}-minio
 ---
 apiVersion: v1
 kind: Service
@@ -837,8 +819,8 @@ metadata:
   name: ${{ defaults.app_name }}-minio
   labels:
     app: ${{ defaults.app_name }}-minio
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}-minio
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio
 spec:
   type: ClusterIP
   ports:
@@ -848,7 +830,6 @@ spec:
       targetPort: 9000
   selector:
     app: ${{ defaults.app_name }}-minio
-    release: ${{ defaults.app_name }}-minio
 ---
 apiVersion: v1
 kind: Service
@@ -856,8 +837,8 @@ metadata:
   name: ${{ defaults.app_name }}-minio-svc
   labels:
     app: ${{ defaults.app_name }}-minio
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}-minio
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio
 spec:
   publishNotReadyAddresses: true
   clusterIP: None
@@ -868,7 +849,6 @@ spec:
       targetPort: 9000
   selector:
     app: ${{ defaults.app_name }}-minio
-    release: ${{ defaults.app_name }}-minio
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -880,15 +860,14 @@ metadata:
     deploy.cloud.sealos.io/maxReplicas: "1"
   labels:
     app: ${{ defaults.app_name }}-minio
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}-minio
 spec:
   replicas: 4
   serviceName: ${{ defaults.app_name }}-minio-svc
   selector:
     matchLabels:
       app: ${{ defaults.app_name }}-minio
-      release: ${{ defaults.app_name }}-minio
   podManagementPolicy: Parallel
   updateStrategy:
     type: RollingUpdate
@@ -897,7 +876,6 @@ spec:
       name: ${{ defaults.app_name }}-minio
       labels:
         app: ${{ defaults.app_name }}-minio
-        release: ${{ defaults.app_name }}-minio
     spec:
       securityContext:
         runAsUser: 1000
@@ -985,15 +963,14 @@ metadata:
   name: ${{ defaults.app_name }}-minio-make-policies-job
   labels:
     app: ${{ defaults.app_name }}-minio-make-policies-job
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}-minio
 spec:
   ttlSecondsAfterFinished: 100
   template:
     metadata:
       labels:
-        app: ${{ defaults.app_name }}-minio-job
-        release: ${{ defaults.app_name }}-minio
+        app: ${{ defaults.app_name }}-minio-make-policies-job
     spec:
       securityContext:
         runAsNonRoot: false
@@ -1041,15 +1018,14 @@ metadata:
   name: ${{ defaults.app_name }}-minio-custom-command-job
   labels:
     app: ${{ defaults.app_name }}-minio-custom-command-job
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}-minio
 spec:
   ttlSecondsAfterFinished: 100
   template:
     metadata:
       labels:
-        app: ${{ defaults.app_name }}-minio-job
-        release: ${{ defaults.app_name }}-minio
+        app: ${{ defaults.app_name }}-minio-custom-command-job
     spec:
       securityContext:
         runAsNonRoot: false
@@ -1096,8 +1072,8 @@ kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}-web
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-web
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}-web
   annotations:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/proxy-body-size: 32m
@@ -1116,7 +1092,7 @@ metadata:
       }
 spec:
   rules:
-    - host: ${{ defaults.domain }}.${{ SEALOS_CLOUD_DOMAIN }}
+    - host: ${{ inputs.domain }}.${{ SEALOS_CLOUD_DOMAIN }}
       http:
         paths:
           - backend:
@@ -1139,8 +1115,8 @@ kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}-server
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-server
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}-server
   annotations:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/proxy-body-size: 32m
@@ -1159,7 +1135,7 @@ metadata:
       }
 spec:
   rules:
-    - host: api.${{ defaults.domain }}.${{ SEALOS_CLOUD_DOMAIN }}
+    - host: api.${{ inputs.domain }}.${{ SEALOS_CLOUD_DOMAIN }}
       http:
         paths:
           - backend:
@@ -1176,9 +1152,9 @@ kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}-minio-console
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
-    cloud.sealos.io/app-deploy-manager-domain: minio.${{ defaults.domain }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}-minio
+    cloud.sealos.io/app-deploy-manager-domain: minio.${{ inputs.domain }}
   annotations:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/proxy-body-size: 32m
@@ -1195,7 +1171,7 @@ metadata:
       }
 spec:
   rules:
-    - host: minio.${{ defaults.domain }}.${{ SEALOS_CLOUD_DOMAIN }}
+    - host: minio.${{ inputs.domain }}.${{ SEALOS_CLOUD_DOMAIN }}
       http:
         paths:
           - pathType: Prefix
@@ -1214,7 +1190,7 @@ metadata:
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
-    cloud.sealos.io/app-deploy-manager-domain: oss.${{ defaults.domain }}
+    cloud.sealos.io/app-deploy-manager-domain: oss.${{ inputs.domain }}
   annotations:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/proxy-body-size: 32m
@@ -1231,7 +1207,7 @@ metadata:
       }
 spec:
   rules:
-    - host: oss.${{ defaults.domain }}.${{ SEALOS_CLOUD_DOMAIN }}
+    - host: oss.${{ inputs.domain }}.${{ SEALOS_CLOUD_DOMAIN }}
       http:
         paths:
           - pathType: Prefix
