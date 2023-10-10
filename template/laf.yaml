@@ -11,6 +11,7 @@ spec:
   readme: "https://github.com/labring/laf/blob/main/README.md"
   icon: "https://laf.run/homepage/logo_icon.svg"
   templateType: inline
+  draft: true
   defaults:
     app_name:
       type: string
@@ -23,7 +24,10 @@ spec:
       value: ${{ random(32) }}
     minio_passwd:
       type: string
-      value: ${{ random(8) }}
+      value: ${{ random(24) }}
+    mongo_express:
+      type: string
+      value: ${{ random(24) }}
   inputs:
     minio_storage:
       description: "Storage size for each server in Gi (4 servers in total)"
@@ -138,6 +142,7 @@ kind: ServiceAccount
 metadata:
   labels:
     cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}-server
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-server
   name: ${{ defaults.app_name }}-sa
 
 ---
@@ -146,6 +151,7 @@ kind: Role
 metadata:
   labels:
     cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}-server
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-server
   name: ${{ defaults.app_name }}-role
 rules:
   - apiGroups:
@@ -161,6 +167,7 @@ kind: RoleBinding
 metadata:
   labels:
     cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}-server
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-server
   name: ${{ defaults.app_name }}-rolebind
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -192,7 +199,7 @@ spec:
         app: ${{ defaults.app_name }}-log
     spec:
       containers:
-        - image: docker.io/lafyun/log-server:latest
+        - image: docker.io/lafyun/log-server:sha-ef27fc1
           imagePullPolicy: Always
           name: ${{ defaults.app_name }}-log
           ports:
@@ -266,7 +273,7 @@ spec:
       containers:
         - name: ${{ defaults.app_name }}-server
           securityContext: {}
-          image: "docker.io/lafyun/laf-server:latest"
+          image: "docker.io/lafyun/laf-server:sha-8751858"
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -290,6 +297,10 @@ spec:
           env:
             - name: DEFAULT_REGION_NAMESPACE
               value: ${{ SEALOS_NAMESPACE }}
+            - name: DEFAULT_REGION_TLS_ENABLED
+              value: true
+            - name: DEFAULT_REGION_TLS_WILDCARD_CERTIFICATE_SECRET_NAME
+              value: ${{ SEALOS_CERT_SECRET_NAME }}
             - name: MONGO_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -302,15 +313,15 @@ spec:
             - name: JWT_SECRET
               value: ${{ defaults.server_jwt }}
             - name: API_SERVER_URL
-              value: "http://api.${{ inputs.domain }}.${{ SEALOS_CLOUD_DOMAIN }}"
+              value: "https://api-${{ inputs.domain }}.${{ SEALOS_CLOUD_DOMAIN }}"
             - name: JWT_EXPIRES_IN
               value: "7d"
             - name: DEFAULT_REGION_DATABASE_URL
               value: "mongodb://root:$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017/sys_db?authSource=admin&w=majority"
             - name: DEFAULT_REGION_MINIO_DOMAIN
-              value: "oss.${{ inputs.domain }}.${{ SEALOS_CLOUD_DOMAIN }}"
+              value: "oss-${{ inputs.domain }}.${{ SEALOS_CLOUD_DOMAIN }}"
             - name: DEFAULT_REGION_MINIO_EXTERNAL_ENDPOINT
-              value: "http://oss.${{ inputs.domain }}.${{ SEALOS_CLOUD_DOMAIN }}"
+              value: "https://oss-${{ inputs.domain }}.${{ SEALOS_CLOUD_DOMAIN }}"
             - name: DEFAULT_REGION_MINIO_INTERNAL_ENDPOINT
               value: "http://${{ defaults.app_name }}-minio.${{ SEALOS_NAMESPACE }}.svc.cluster.local:9000"
             - name: DEFAULT_REGION_MINIO_ROOT_ACCESS_KEY
@@ -318,11 +329,11 @@ spec:
             - name: DEFAULT_REGION_MINIO_ROOT_SECRET_KEY
               value: ${{ defaults.minio_passwd }}
             - name: DEFAULT_REGION_RUNTIME_DOMAIN
-              value: "${{ inputs.domain }}.${{ SEALOS_CLOUD_DOMAIN }}"
+              value: "${{ SEALOS_CLOUD_DOMAIN }}"
             - name: DEFAULT_REGION_WEBSITE_DOMAIN
-              value: "site.${{ inputs.domain }}.${{ SEALOS_CLOUD_DOMAIN }}"
+              value: "${{ SEALOS_CLOUD_DOMAIN }}"
             - name: DEFAULT_REGION_TLS
-              value: "false"
+              value: "true"
             - name: DEFAULT_REGION_LOG_SERVER_URL
               value: "http://${{ defaults.app_name }}-log.${{ SEALOS_NAMESPACE }}.svc.cluster.local:5060"
             - name: DEFAULT_REGION_LOG_SERVER_SECRET
@@ -375,7 +386,7 @@ spec:
       containers:
         - name: ${{ defaults.app_name }}-web
           securityContext: {}
-          image: "docker.io/lafyun/laf-web:latest"
+          image: "docker.io/lafyun/laf-web:sha-1f7d6af"
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -420,9 +431,8 @@ spec:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: ${{ defaults.app_name }}-minio
+  name: ${{ defaults.app_name }}-minio-secret
   labels:
-    app: ${{ defaults.app_name }}-minio
     cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}-minio
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio
 type: Opaque
@@ -433,9 +443,8 @@ stringData:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: ${{ defaults.app_name }}-minio
+  name: ${{ defaults.app_name }}-minio-conf
   labels:
-    app: ${{ defaults.app_name }}-minio
     cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}-minio
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio
 data:
@@ -798,24 +807,6 @@ data:
 apiVersion: v1
 kind: Service
 metadata:
-  name: ${{ defaults.app_name }}-minio-console
-  labels:
-    app: ${{ defaults.app_name }}-minio
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}-minio
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio
-spec:
-  type: ClusterIP
-  ports:
-    - name: http
-      port: 9001
-      protocol: TCP
-      targetPort: 9001
-  selector:
-    app: ${{ defaults.app_name }}-minio
----
-apiVersion: v1
-kind: Service
-metadata:
   name: ${{ defaults.app_name }}-minio
   labels:
     app: ${{ defaults.app_name }}-minio
@@ -824,29 +815,14 @@ metadata:
 spec:
   type: ClusterIP
   ports:
-    - name: http
+    - name: api
       port: 9000
       protocol: TCP
       targetPort: 9000
-  selector:
-    app: ${{ defaults.app_name }}-minio
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: ${{ defaults.app_name }}-minio-svc
-  labels:
-    app: ${{ defaults.app_name }}-minio
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}-minio
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio
-spec:
-  publishNotReadyAddresses: true
-  clusterIP: None
-  ports:
-    - name: http
-      port: 9000
+    - name: console
+      port: 9001
       protocol: TCP
-      targetPort: 9000
+      targetPort: 9001
   selector:
     app: ${{ defaults.app_name }}-minio
 ---
@@ -864,6 +840,8 @@ metadata:
     cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}-minio
 spec:
   replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
   serviceName: ${{ defaults.app_name }}-minio-svc
   selector:
     matchLabels:
@@ -873,10 +851,11 @@ spec:
     type: RollingUpdate
   template:
     metadata:
-      name: ${{ defaults.app_name }}-minio
       labels:
         app: ${{ defaults.app_name }}-minio
+        cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
     spec:
+      terminationGracePeriodSeconds: 10
       securityContext:
         runAsUser: 1000
         runAsGroup: 1000
@@ -904,12 +883,12 @@ spec:
             - name: MINIO_ROOT_USER
               valueFrom:
                 secretKeyRef:
-                  name: ${{ defaults.app_name }}-minio
+                  name: ${{ defaults.app_name }}-minio-secret
                   key: rootUser
             - name: MINIO_ROOT_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: ${{ defaults.app_name }}-minio
+                  name: ${{ defaults.app_name }}-minio-secret
                   key: rootPassword
           ports:
             - name: http
@@ -926,22 +905,7 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
-          livenessProbe:
-            exec:
-              command: ["curl", "-f", "http://localhost:9000/minio/health/live"]
-            initialDelaySeconds: 5
-            periodSeconds: 3
-            timeoutSeconds: 3
-            successThreshold: 1
-            failureThreshold: 5
-          readinessProbe:
-            exec:
-              command: ["curl", "-f", "http://localhost:9000/minio/health/live"]
-            initialDelaySeconds: 5
-            periodSeconds: 2
-            timeoutSeconds: 1
-            successThreshold: 1
-            failureThreshold: 5
+      volumes: []
   volumeClaimTemplates:
     - metadata:
         annotations:
@@ -982,9 +946,9 @@ spec:
           projected:
             sources:
               - configMap:
-                  name: ${{ defaults.app_name }}-minio
+                  name: ${{ defaults.app_name }}-minio-conf
               - secret:
-                  name: ${{ defaults.app_name }}-minio
+                  name: ${{ defaults.app_name }}-minio-secret
       containers:
         - name: ${{ defaults.app_name }}-minio-mc
           image: "quay.io/minio/mc:RELEASE.2022-11-07T23-47-39Z"
@@ -1037,9 +1001,9 @@ spec:
           projected:
             sources:
               - configMap:
-                  name: ${{ defaults.app_name }}-minio
+                  name: ${{ defaults.app_name }}-minio-conf
               - secret:
-                  name: ${{ defaults.app_name }}-minio
+                  name: ${{ defaults.app_name }}-minio-secret
       containers:
         - name: ${{ defaults.app_name }}-minio-mc
           image: "quay.io/minio/mc:RELEASE.2022-11-07T23-47-39Z"
@@ -1074,6 +1038,7 @@ metadata:
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-web
     cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}-web
+    cloud.sealos.io/app-deploy-manager-domain: ${{ inputs.domain }}
   annotations:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/proxy-body-size: 32m
@@ -1109,6 +1074,10 @@ spec:
                   number: 3000
             path: /v1/
             pathType: Prefix
+  tls:
+    - hosts:
+        - ${{ inputs.domain }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -1117,6 +1086,7 @@ metadata:
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-server
     cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}-server
+    cloud.sealos.io/app-deploy-manager-domain: api-${{ inputs.domain }}
   annotations:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/proxy-body-size: 32m
@@ -1135,7 +1105,7 @@ metadata:
       }
 spec:
   rules:
-    - host: api.${{ inputs.domain }}.${{ SEALOS_CLOUD_DOMAIN }}
+    - host: api-${{ inputs.domain }}.${{ SEALOS_CLOUD_DOMAIN }}
       http:
         paths:
           - backend:
@@ -1145,6 +1115,10 @@ spec:
                   number: 3000
             path: /
             pathType: Prefix
+  tls:
+    - hosts:
+        - api-${{ inputs.domain }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
 
 ---
 apiVersion: networking.k8s.io/v1
@@ -1154,7 +1128,7 @@ metadata:
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio
     cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}-minio
-    cloud.sealos.io/app-deploy-manager-domain: minio.${{ inputs.domain }}
+    cloud.sealos.io/app-deploy-manager-domain: minio-${{ inputs.domain }}
   annotations:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/proxy-body-size: 32m
@@ -1171,16 +1145,20 @@ metadata:
       }
 spec:
   rules:
-    - host: minio.${{ inputs.domain }}.${{ SEALOS_CLOUD_DOMAIN }}
+    - host: minio-${{ inputs.domain }}.${{ SEALOS_CLOUD_DOMAIN }}
       http:
         paths:
           - pathType: Prefix
             path: /
             backend:
               service:
-                name: ${{ defaults.app_name }}-minio-console
+                name: ${{ defaults.app_name }}-minio
                 port:
                   number: 9001
+  tls:
+    - hosts:
+        - minio-${{ inputs.domain }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
 
 ---
 apiVersion: networking.k8s.io/v1
@@ -1188,9 +1166,9 @@ kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}-minio-api
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
-    cloud.sealos.io/app-deploy-manager-domain: oss.${{ inputs.domain }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}-minio
+    cloud.sealos.io/app-deploy-manager-domain: oss-${{ inputs.domain }}
   annotations:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/proxy-body-size: 32m
@@ -1207,7 +1185,7 @@ metadata:
       }
 spec:
   rules:
-    - host: oss.${{ inputs.domain }}.${{ SEALOS_CLOUD_DOMAIN }}
+    - host: oss-${{ inputs.domain }}.${{ SEALOS_CLOUD_DOMAIN }}
       http:
         paths:
           - pathType: Prefix
@@ -1217,3 +1195,7 @@ spec:
                 name: ${{ defaults.app_name }}-minio
                 port:
                   number: 9000
+  tls:
+    - hosts:
+        - oss-${{ inputs.domain }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
