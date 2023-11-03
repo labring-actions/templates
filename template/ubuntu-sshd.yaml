@@ -1,0 +1,82 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: ubuntu-sshd
+spec:
+  title: 'seth0r/ubuntu-sshd'
+  url: 'https://github.com/seth0r'
+  gitRepo: 'https://github.com/seth0r/ubuntu-sshd'
+  author: 'sealos'
+  description: 'ssh'
+  readme: 'https://github.com/seth0r/ubuntu-sshd/blob/master/README.md'
+  icon: 'https://avatars.githubusercontent.com/u/11237572?s=48&v=4'
+  templateType: inline
+  defaults:
+    app_name:
+      type: string
+      value: ubuntu-sshd-${{ random(8) }}
+  inputs:
+    IMAGE_TAG:
+      description: 'tag with seth0r/ubuntu-sshd'
+      type: string
+      default: '20.04'
+      required: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: seth0r/ubuntu-sshd
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      containers:
+        - name: ubuntu-sshd
+          image: seth0r/ubuntu-sshd:${{ inputs.IMAGE_TAG }}
+          resources:
+            requests:
+              cpu: 100m
+              memory: 102Mi
+            limits:
+              cpu: 2000m
+              memory: 2048Mi
+          command: []
+          args: []
+          ports:
+            - containerPort: 22
+          imagePullPolicy: Always
+          volumeMounts: []
+      volumes: []
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: NodePort
+  ports:
+    - port: 22
+      targetPort: 22
+  selector:
+    app: ${{ defaults.app_name }}
