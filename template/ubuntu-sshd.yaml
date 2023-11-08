@@ -1,0 +1,90 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: ubuntu-sshd
+spec:
+  title: 'docker-ubuntu-sshd'
+  url: 'https://github.com/takeyamajp/docker-ubuntu-sshd'
+  gitRepo: 'https://github.com/takeyamajp/docker-ubuntu-sshd'
+  author: 'sealos'
+  description: 'sshd for ubuntu'
+  readme: 'https://github.com/takeyamajp/docker-ubuntu-sshd/blob/master/README.md'
+  icon: 'https://avatars.githubusercontent.com/u/11237572?s=48&v=4'
+  templateType: inline
+  defaults:
+    app_name:
+      type: string
+      value: ubuntu-sshd-${{ random(8) }}
+  inputs:
+    IMAGE_TAG:
+      description: 'tag with takeyamajp/ubuntu-sshd'
+      type: string
+      default: 'ubuntu22.04'
+      required: true
+    ROOT_PASSWORD:
+      description: 'root password'
+      type: string
+      default: 'root@qmywad'
+      required: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: takeyamajp/ubuntu-sshd
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      containers:
+        - name: ubuntu-sshd
+          image: takeyamajp/ubuntu-sshd:${{ inputs.IMAGE_TAG }}
+          resources:
+            requests:
+              cpu: 100m
+              memory: 102Mi
+            limits:
+              cpu: 2000m
+              memory: 2048Mi
+          command: []
+          args: []
+          env:
+            - name: ROOT_PASSWORD
+              value: ${{ inputs.ROOT_PASSWORD }}
+          ports:
+            - containerPort: 22
+          imagePullPolicy: Always
+          volumeMounts: []
+      volumes: []
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: NodePort
+  ports:
+    - port: 22
+      targetPort: 22
+  selector:
+    app: ${{ defaults.app_name }}
