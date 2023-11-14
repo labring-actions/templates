@@ -7,7 +7,7 @@ spec:
   url: "https://laf.run/"
   gitRepo: "https://github.com/labring/laf"
   author: "laf"
-  description: "Laf is a cloud development platform integrating functions, databases and storage Publish online anytime, anywhere"
+  description: "Laf is a cloud development platform integrating functions, databases and storage Publish online anytime, anywhere. For private local deployments, make sure Prometheus operator is installed (https://github.com/labring-actions/cluster-image/tree/main/applications/kube-prometheus-stack)"
   readme: "https://raw.githubusercontent.com/labring/laf/main/README.md"
   icon: "https://laf.run/homepage/logo_icon.svg"
   templateType: inline
@@ -15,7 +15,7 @@ spec:
     app_name:
       type: string
       value: laf-${{ random(8) }}
-    log_jwt:
+    exporter_jwt:
       type: string
       value: ${{ random(32) }}
     server_jwt:
@@ -29,7 +29,12 @@ spec:
       value: ${{ random(24) }}
   inputs:
     minio_storage:
-      description: "Storage size for each server in Gi (4 servers in total)"
+      description: "Storage size for minio in Gi"
+      type: number
+      default: "2"
+      required: true
+    prometheus_storage:
+      description: "Storage size for Prometheus in Gi"
       type: number
       default: "2"
       required: true
@@ -171,73 +176,6 @@ subjects:
     namespace: ${{ SEALOS_NAMESPACE}}
 
 ---
-# laf-log
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-log
-    app: ${{ defaults.app_name }}-log
-  name: ${{ defaults.app_name }}-log
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: ${{ defaults.app_name }}-log
-  template:
-    metadata:
-      labels:
-        app: ${{ defaults.app_name }}-log
-    spec:
-      containers:
-        - image: docker.io/lafyun/log-server:sha-ef27fc1
-          imagePullPolicy: Always
-          name: ${{ defaults.app_name }}-log
-          ports:
-            - name: http
-              containerPort: 5060
-              protocol: TCP
-          livenessProbe:
-            httpGet:
-              path: /healthz
-              port: http
-          readinessProbe:
-            httpGet:
-              path: /healthz
-              port: http
-          env:
-            - name: MONGO_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-mongo-conn-credential
-                  key: password
-            - name: DB_URI
-              value: "mongodb://root:$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017/function-logs?authSource=admin&w=majority"
-            - name: JWT_SECRET
-              value: ${{ defaults.log_jwt }}
-          resources:
-            limits:
-              cpu: 100m
-              memory: 256Mi
-            requests:
-              cpu: 100m
-              memory: 256Mi
----
-apiVersion: v1
-kind: Service
-metadata:
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-log
-  name: ${{ defaults.app_name }}-log
-spec:
-  ports:
-    - name: http
-      port: 5060
-      protocol: TCP
-      targetPort: http
-  selector:
-    app: ${{ defaults.app_name }}-log
----
 # laf-server
 apiVersion: apps/v1
 kind: Deployment
@@ -262,7 +200,7 @@ spec:
       containers:
         - name: ${{ defaults.app_name }}-server
           securityContext: {}
-          image: "docker.io/lafyun/laf-server:sha-93de793"
+          image: "docker.io/lafyun/laf-server:sha-afbdd36"
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -297,9 +235,9 @@ spec:
             - name: DISABLED_STORAGE_USAGE_LIMIT_TASK
               value: "true"
             - name: DEFAULT_RUNTIME_IMAGE
-              value: docker.io/lafyun/runtime-node:sha-3878bc0
+              value: docker.io/lafyun/runtime-node:sha-67b3cd6
             - name: DEFAULT_RUNTIME_INIT_IMAGE
-              value: docker.io/lafyun/runtime-node-init:sha-3878bc0
+              value: docker.io/lafyun/runtime-node-init:sha-67b3cd6
             - name: APPID_LENGTH
               value: 8
             - name: DEFAULT_REGION_NAMESPACE
@@ -315,8 +253,6 @@ spec:
                   key: password
             - name: DATABASE_URL
               value: "mongodb://root:$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017/sys_db?authSource=admin&w=majority"
-            - name: METERING_DATABASE_URL
-              value: "mongodb://root:$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017/sealos-resources?authSource=admin&w=majority"
             - name: JWT_SECRET
               value: ${{ defaults.server_jwt }}
             - name: API_SERVER_URL
@@ -339,14 +275,8 @@ spec:
               value: "${{ SEALOS_CLOUD_DOMAIN }}"
             - name: DEFAULT_REGION_WEBSITE_DOMAIN
               value: "${{ SEALOS_CLOUD_DOMAIN }}"
-            - name: DEFAULT_REGION_LOG_SERVER_URL
-              value: "http://${{ defaults.app_name }}-log.${{ SEALOS_NAMESPACE }}.svc.cluster.local:5060"
-            - name: DEFAULT_REGION_LOG_SERVER_SECRET
-              value: ${{ defaults.log_jwt }}
-            - name: DEFAULT_REGION_LOG_SERVER_DATABASE_URL
-              value: "mongodb://root:$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017/function-logs?authSource=admin&w=majority"
             - name: DEFAULT_REGION_PROMETHEUS_URL
-              value:
+              value: http://prometheus-${{ defaults.app_name }}.${{ SEALOS_NAMESPACE }}.svc.cluster.local:9090
             - name: SITE_NAME
               value: "${{ inputs.domain }}.${{ SEALOS_CLOUD_DOMAIN }}"
 ---
@@ -389,7 +319,7 @@ spec:
       containers:
         - name: ${{ defaults.app_name }}-web
           securityContext: {}
-          image: "docker.io/lafyun/laf-web:sha-b0128c5"
+          image: "docker.io/lafyun/laf-web:sha-88d3a4e"
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -428,6 +358,295 @@ spec:
   selector:
     app: ${{ defaults.app_name }}-web
 
+---
+# runtime exporter
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-runtime-exporter
+    app: ${{ defaults.app_name }}-runtime-exporter
+  name: ${{ defaults.app_name }}-runtime-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-runtime-exporter
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-runtime-exporter
+    spec:
+      automountServiceAccountToken: true
+      serviceAccountName: ${{ defaults.app_name }}-sa
+      securityContext: {}
+      containers:
+        - image: docker.io/lafyun/runtime-exporter:sha-c1f0cdc
+          imagePullPolicy: IfNotPresent
+          name: ${{ defaults.app_name }}-runtime-exporter
+          ports:
+            - name: http
+              containerPort: 2342
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 200m
+              memory: 256Mi
+          env:
+            - name: API_SECRET
+              value: ${{ defaults.exporter_jwt }}
+            - name: NAMESPACE
+              value: ${{ SEALOS_NAMESPACE }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-runtime-exporter
+  name: ${{ defaults.app_name }}-runtime-exporter
+spec:
+  ports:
+    - name: http
+      port: 2342
+      protocol: TCP
+      targetPort: http
+  selector:
+    app: ${{ defaults.app_name }}-runtime-exporter
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-runtime-exporter
+  name: ${{ defaults.app_name }}-runtime-exporter
+spec:
+  endpoints:
+    - interval: 30s
+      path: "/runtime/metrics/${{ defaults.exporter_jwt }}"
+      scrapeTimeout: 10s
+      honorLabels: true
+  namespaceSelector:
+    matchNames:
+      - ${{ SEALOS_NAMESPACE }}
+  selector:
+    matchLabels:
+      cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-runtime-exporter
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-runtime-exporter
+  name: ${{ defaults.app_name }}-prometheus-laf-billing.rules
+spec:
+  groups:
+    - name: ${{ defaults.app_name }}-prometheus-laf-billing.rules
+      interval: 30s
+      rules:
+        - record: laf:billing:cpu
+          expr: max_over_time(sum by (appid) (laf_runtime_cpu_limit{container!=""})[1h:])
+        - record: laf:billing:memory
+          expr: max_over_time(sum by (appid) (laf_runtime_memory_limit{container!=""})[1h:])
+---
+## Prometheus
+apiVersion: monitoring.coreos.com/v1
+kind: Prometheus
+metadata:
+  labels:
+    cloud.sealos.io/app-deploy-manager: prometheus-${{ defaults.app_name }}
+    app: prometheus-${{ defaults.app_name }}
+  name: ${{ defaults.app_name }}
+spec:
+  podMetadata:
+    labels:
+      app: prometheus-${{ defaults.app_name }}
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+  securityContext:
+    fsGroup: 2000
+    runAsGroup: 2000
+    runAsNonRoot: true
+    runAsUser: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  evaluationInterval: 60s
+  image: quay.io/prometheus/prometheus:v2.45.0
+  serviceMonitorSelector: {}
+  probeSelector: {}
+  ruleSelector: {}
+  portName: http-web
+  retention: 10d
+  scrapeInterval: 60s
+  serviceAccountName: ${{ defaults.app_name }}-sa
+  replicas: 1
+  shards: 1
+  storage:
+    volumeClaimTemplate:
+      metadata:
+        annotations:
+          path: /prometheus
+          value: " ${{ inputs.prometheus_storage }} "
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: ${{ inputs.prometheus_storage }}Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: prometheus-${{ defaults.app_name }}
+spec:
+  ports:
+    - port: 9090
+      targetPort: http-web
+      protocol: TCP
+      name: http-web
+  selector:
+    app: prometheus-${{ defaults.app_name }}
+  type: ClusterIP
+---
+## mongo exporter
+# Source: prometheus-mongodb-exporter/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-mongodb-exporter
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-mongodb-exporter
+spec:
+  ports:
+    - port: 9216
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+  selector:
+    app: ${{ defaults.app_name }}-mongodb-exporter
+  type: ClusterIP
+---
+# Source: prometheus-mongodb-exporter/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-mongodb-exporter
+  labels:
+    app: ${{ defaults.app_name }}-mongodb-exporter
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-mongodb-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-mongodb-exporter
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-mongodb-exporter
+    spec:
+      serviceAccountName: ${{ defaults.app_name }}-sa
+      containers:
+        - name: ${{ defaults.app_name }}-mongodb-exporter
+          env:
+            - name: MONGO_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mongo-conn-credential
+                  key: password
+            - name: MONGODB_URI
+              value: "mongodb://root:$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017/sys_db?authSource=admin&w=majority"
+          image: "percona/mongodb_exporter:0.31.0"
+          imagePullPolicy: IfNotPresent
+          args:
+            - --web.listen-address=:9216
+            - --collect-all
+          ports:
+            - name: metrics
+              containerPort: 9216
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: metrics
+            initialDelaySeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: metrics
+            initialDelaySeconds: 10
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 200m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - all
+            readOnlyRootFilesystem: true
+            runAsGroup: 10000
+            runAsNonRoot: true
+            runAsUser: 10000
+          volumeMounts: []
+      affinity: {}
+      imagePullSecrets: []
+      nodeSelector: {}
+      terminationGracePeriodSeconds: 30
+      tolerations: []
+      volumes: []
+---
+# Source: prometheus-mongodb-exporter/templates/servicemonitor.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ${{ defaults.app_name }}-mongodb-exporter
+spec:
+  endpoints:
+    - port: metrics
+      interval: 30s
+      scrapeTimeout: 10s
+  namespaceSelector:
+    matchNames:
+      - ${{ SEALOS_NAMESPACE }}
+  selector:
+    matchLabels:
+      cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-mongodb-exporter
+---
+# minio prometheus probe
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: ${{ defaults.app_name }}-minio
+spec:
+  jobName: ${{ defaults.app_name }}-minio-probe-job
+  prober:
+    path: /minio/v2/metrics/cluster
+    scheme: http
+    url: ${{ defaults.app_name }}-minio.${{ SEALOS_NAMESPACE }}:9000
+  targets:
+    staticConfig:
+      static:
+        - ${{ defaults.app_name }}-minio.${{ SEALOS_NAMESPACE }}
 ---
 #laf minio
 apiVersion: v1
@@ -885,6 +1104,8 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-minio-secret
                   key: rootPassword
+            - name: MINIO_PROMETHEUS_AUTH_TYPE
+              value: public
           ports:
             - name: http
               containerPort: 9000
