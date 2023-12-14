@@ -1,0 +1,150 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: openobserve
+spec:
+  title: 'OpenObserve'
+  url: 'https://openobserve.ai/'
+  gitRepo: 'https://github.com/openobserve/openobserve'
+  author: 'baerwang'
+  description: 'OpenObserve is a cloud native observability platform built specifically for logs, metrics, traces, analytics, RUM (Real User Monitoring - Performance, Errors, Session Replay) designed to work at petabyte scale.'
+  readme: 'https://github.com/openobserve/openobserve/blob/main/README.md'
+  icon: 'https://avatars.githubusercontent.com/u/95867656?s=48&v=4'
+  templateType: inline
+  defaults:
+    app_host:
+      type: string
+      value: ${{ random(8) }}
+    app_name:
+      type: string
+      value: openobserve-${{ random(8) }}
+  inputs:
+    mail:
+      description: 'user email'
+      type: string
+      default: 'root@example.com'
+      required: true
+    password:
+      description: 'user password'
+      type: string
+      default: 'Complexpass#123'
+      required: true
+    data_dri:
+      description: 'Data store directory'
+      type: string
+      default: '/data'
+      required: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  clusterIP: None
+  selector:
+    app: ${{ defaults.app_name }}
+  ports:
+    - name: http
+      port: 443
+      targetPort: 5080
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: rancher/rancher
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  serviceName: ${{ defaults.app_name }}
+  replicas: 1
+  selector:
+    matchLabels:
+      name: ${{ defaults.app_name }}
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        name: ${{ defaults.app_name }}
+        app: ${{ defaults.app_name }}
+    spec:
+      securityContext:
+        fsGroup: 2000
+        runAsUser: 10000
+        runAsGroup: 3000
+        runAsNonRoot: true
+      containers:
+        - name: openobserve
+          image: public.ecr.aws/zinclabs/openobserve:latest
+          env:
+            - name: ZO_ROOT_USER_EMAIL
+              value: ${{ inputs.mail }}
+            - name: ZO_ROOT_USER_PASSWORD
+              value: ${{ inputs.password }}
+            - name: ZO_DATA_DIR
+              value: ${{ inputs.data_dri }}
+          imagePullPolicy: Always
+          resources:
+            limits:
+              cpu: 4096m
+              memory: 2048Mi
+            requests:
+              cpu: 256m
+              memory: 50Mi
+          ports:
+            - containerPort: 5080
+              name: http
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Gi
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /()(.*)
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 443
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
