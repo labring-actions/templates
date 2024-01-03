@@ -6,11 +6,12 @@ spec:
   title: '慧动裂变宝'
   url: 'http://www.liebianbao.vip/'
   gitRepo: ''
-  author: 'sealos'
+  author: 'Sealos'
   description: '一款基于微信全生态运营场景开发的系统工具，助力企业打造获客·运营·转化·管理为一体的私域增长闭环。更好地通过微信公众号+社群+企业微信+视频号进行快速裂变获客、宣传推广、拓客到店，从而达到销售业绩的提升。'
   readme: ''
   icon: 'http://www.liebianbao.vip/plugins/style/res/lbb/logo.png'
   templateType: inline
+  draft: true
   defaults:
     app_name:
       type: string
@@ -20,7 +21,7 @@ spec:
       value: ${{ random(8) }}
   inputs:
     url:
-      description: '注册域名-需要 cname 到当前域名'
+      description: '注册域名-需要 cname 到 ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}'
       type: string
       default: ''
       required: true
@@ -50,7 +51,6 @@ metadata:
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
 spec:
@@ -190,10 +190,6 @@ spec:
               value: 1
             - name: REDIS_DB
               value: 1
-            - name: WECHAT_OPEN_PLATFORM_TOKEN
-              value: third201808162020
-            - name: WECHAT_OPEN_PLATFORM_AES_KEY
-              value: PYaR78qCRqz8J5OFg3klgvcPnRwWs6FmN0lk2RUn0AA
             - name: TESTDAY
               value: 1
             - name: reg_token
@@ -223,6 +219,9 @@ spec:
             - name: php-ini
               mountPath: /usr/local/etc/php/conf.d/99-custom.ini
               subPath: ./usr/local/etc/php/conf.d/99-custom.ini
+            - name: php-fpm-conf
+              mountPath: /usr/local/etc/php-fpm.d/zz-custom.conf
+              subPath: ./usr/local/etc/php-fpm.d/zz-custom.conf
           # securityContext:
           #   runAsUser: 1000
           #   runAsGroup: 1000
@@ -231,11 +230,11 @@ spec:
           image: nginx:1.25.2
           resources:
             requests:
-              cpu: 10m
-              memory: 32Mi
+              cpu: 25m
+              memory: 50Mi
             limits:
-              cpu: 64m
-              memory: 128Mi
+              cpu: 256m
+              memory: 512Mi
           ports:
             - containerPort: 80
           volumeMounts:
@@ -252,6 +251,12 @@ spec:
             items:
               - key: php-ini
                 path: ./usr/local/etc/php/conf.d/99-custom.ini
+        - name: php-fpm-conf
+          configMap:
+            name: ${{ defaults.app_name }}
+            items:
+              - key: php-fpm-conf
+                path: ./usr/local/etc/php-fpm.d/zz-custom.conf
         - name: nginx-conf
           configMap:
             name: ${{ defaults.app_name }}
@@ -277,7 +282,6 @@ kind: ConfigMap
 metadata:
   name: ${{ defaults.app_name }}
   labels:
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
 data:
@@ -333,6 +337,9 @@ data:
     memory_limit=-1
     upload_max_filesize=256M
     ; disable_functions=putenv,pcntl_signal,pcntl_signal_dispatch,proc_open,pcntl_alarm
+  php-fpm-conf: |
+    [www]
+    pm.max_children=128
 
 ---
 apiVersion: v1
@@ -340,7 +347,6 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
@@ -354,7 +360,6 @@ kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}
   labels:
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
@@ -392,6 +397,7 @@ spec:
       - http01:
           ingress:
             class: nginx
+            serviceType: ClusterIP
 
 ---
 apiVersion: cert-manager.io/v1
@@ -414,9 +420,8 @@ metadata:
     - cluster.kubeblocks.io/finalizer
   labels:
     clusterdefinition.kubeblocks.io/name: mongodb
-    clusterversion.kubeblocks.io/name: mongodb-5.0.14
+    clusterversion.kubeblocks.io/name: mongodb-5.0
     sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
   annotations: {}
   name: ${{ defaults.app_name }}-mongo
 spec:
@@ -426,7 +431,7 @@ spec:
     tenancy: SharedNode
     topologyKeys: []
   clusterDefinitionRef: mongodb
-  clusterVersionRef: mongodb-5.0.14
+  clusterVersionRef: mongodb-5.0
   componentSpecs:
     - componentDefRef: mongodb
       monitor: true
@@ -448,6 +453,7 @@ spec:
             resources:
               requests:
                 storage: 3Gi
+            storageClassName: openebs-backup
   terminationPolicy: Delete
   tolerations: []
 
@@ -459,7 +465,6 @@ metadata:
     sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
     app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
     app.kubernetes.io/managed-by: kbcli
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
   name: ${{ defaults.app_name }}-mongo
 
 ---
@@ -470,7 +475,6 @@ metadata:
     sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
     app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
     app.kubernetes.io/managed-by: kbcli
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
   name: ${{ defaults.app_name }}-mongo
 rules:
   - apiGroups:
@@ -488,7 +492,6 @@ metadata:
     sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
     app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
     app.kubernetes.io/managed-by: kbcli
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
   name: ${{ defaults.app_name }}-mongo
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -509,7 +512,6 @@ metadata:
     clusterdefinition.kubeblocks.io/name: redis
     clusterversion.kubeblocks.io/name: redis-7.0.6
     sealos-db-provider-cr: ${{ defaults.app_name }}-redis
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
   annotations: {}
   name: ${{ defaults.app_name }}-redis
 spec:
@@ -566,7 +568,6 @@ metadata:
     sealos-db-provider-cr: ${{ defaults.app_name }}-redis
     app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
     app.kubernetes.io/managed-by: kbcli
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
   name: ${{ defaults.app_name }}-redis
 
 ---
@@ -577,7 +578,6 @@ metadata:
     sealos-db-provider-cr: ${{ defaults.app_name }}-redis
     app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
     app.kubernetes.io/managed-by: kbcli
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
   name: ${{ defaults.app_name }}-redis
 rules:
   - apiGroups:
@@ -595,7 +595,6 @@ metadata:
     sealos-db-provider-cr: ${{ defaults.app_name }}-redis
     app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
     app.kubernetes.io/managed-by: kbcli
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
   name: ${{ defaults.app_name }}-redis
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -614,7 +613,6 @@ metadata:
   labels:
     clusterdefinition.kubeblocks.io/name: apecloud-mysql
     clusterversion.kubeblocks.io/name: ac-mysql-8.0.30
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
   name: ${{ defaults.app_name }}-mysql
 spec:
   affinity:
@@ -657,7 +655,6 @@ metadata:
     sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
     app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
     app.kubernetes.io/managed-by: kbcli
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
   name: ${{ defaults.app_name }}-mysql
 
 ---
@@ -668,7 +665,6 @@ metadata:
     sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
     app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
     app.kubernetes.io/managed-by: kbcli
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
   name: ${{ defaults.app_name }}-mysql
 rules:
   - apiGroups:
@@ -686,7 +682,6 @@ metadata:
     sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
     app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
     app.kubernetes.io/managed-by: kbcli
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
   name: ${{ defaults.app_name }}-mysql
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -702,8 +697,6 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: ${{ defaults.app_name }}-init
-  labels:
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
 spec:
   completions: 1
   template:

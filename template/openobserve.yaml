@@ -1,85 +1,39 @@
 apiVersion: app.sealos.io/v1
 kind: Template
 metadata:
-  name: vaultwarden
+  name: openobserve
 spec:
-  title: 'Vaultwarden'
-  url: 'https://github.com/dani-garcia/vaultwarden'
-  gitRepo: 'https://github.com/dani-garcia/vaultwarden'
-  author: 'Sealos'
-  description: 'Alternative implementation of the Bitwarden server API written in Rust and compatible with upstream Bitwarden clients*, perfect for self-hosted deployment where running the official resource-heavy service might not be ideal.'
-  readme: 'https://raw.githubusercontent.com/dani-garcia/vaultwarden/main/README.md'
-  icon: 'https://raw.githubusercontent.com/dani-garcia/vaultwarden/main/resources/vaultwarden-icon.svg'
+  title: 'OpenObserve'
+  url: 'https://openobserve.ai/'
+  gitRepo: 'https://github.com/openobserve/openobserve'
+  author: 'baerwang'
+  description: 'OpenObserve is a cloud native observability platform built specifically for logs, metrics, traces, analytics, RUM (Real User Monitoring - Performance, Errors, Session Replay) designed to work at petabyte scale.'
+  readme: 'https://jsd.onmicrosoft.cn/gh/openobserve/openobserve@main/README.md'
+  icon: 'https://openobserve.ai/favicon.svg'
   templateType: inline
   defaults:
     app_host:
-      # number or string.
       type: string
       value: ${{ random(8) }}
     app_name:
       type: string
-      value: vaultwarden-${{ random(8) }}
+      value: openobserve-${{ random(8) }}
   inputs:
-
----
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: ${{ defaults.app_name }}
-  annotations:
-    originImageName: vaultwarden/server:latest
-    deploy.cloud.sealos.io/minReplicas: '1'
-    deploy.cloud.sealos.io/maxReplicas: '1'
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-    app: ${{ defaults.app_name }}
-spec:
-  replicas: 1
-  revisionHistoryLimit: 1
-  minReadySeconds: 10
-  serviceName: ${{ defaults.app_name }}
-  selector:
-    matchLabels:
-      app: ${{ defaults.app_name }}
-  template:
-    metadata:
-      labels:
-        app: ${{ defaults.app_name }}
-    spec:
-      terminationGracePeriodSeconds: 10
-      containers:
-        - name: ${{ defaults.app_name }}
-          image: vaultwarden/server:latest
-          env: []
-          resources:
-            requests:
-              cpu: 20m
-              memory: 25Mi
-            limits:
-              cpu: 200m
-              memory: 256Mi
-          command: []
-          args: []
-          ports:
-            - containerPort: 80
-          imagePullPolicy: IfNotPresent
-          volumeMounts:
-            - name: vn-data
-              mountPath: /data
-      volumes: []
-  volumeClaimTemplates:
-    - metadata:
-        annotations:
-          path: /data
-          value: '1'
-        name: vn-data
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 1Gi
-
+    mail:
+      description: 'user email'
+      type: string
+      default: 'root@example.com'
+      required: true
+    password:
+      description: 'user password'
+      type: string
+      default: 'Complexpass#123'
+      required: true
+    data_dir:
+      description: 'Data store directory'
+      type: string
+      default: '/data'
+      required: true
 ---
 apiVersion: v1
 kind: Service
@@ -88,10 +42,76 @@ metadata:
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
-  ports:
-    - port: 80
+  clusterIP: None
   selector:
     app: ${{ defaults.app_name }}
+  ports:
+    - name: http
+      port: 443
+      targetPort: 5080
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: rancher/rancher
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  serviceName: ${{ defaults.app_name }}
+  replicas: 1
+  selector:
+    matchLabels:
+      name: ${{ defaults.app_name }}
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        name: ${{ defaults.app_name }}
+        app: ${{ defaults.app_name }}
+    spec:
+      securityContext:
+        fsGroup: 2000
+        runAsUser: 10000
+        runAsGroup: 3000
+        runAsNonRoot: true
+      containers:
+        - name: openobserve
+          image: public.ecr.aws/zinclabs/openobserve:latest
+          env:
+            - name: ZO_ROOT_USER_EMAIL
+              value: ${{ inputs.mail }}
+            - name: ZO_ROOT_USER_PASSWORD
+              value: ${{ inputs.password }}
+            - name: ZO_DATA_DIR
+              value: ${{ inputs.data_dir }}
+          imagePullPolicy: Always
+          resources:
+            limits:
+              cpu: 4096m
+              memory: 2048Mi
+            requests:
+              cpu: 256m
+              memory: 50Mi
+          ports:
+            - containerPort: 5080
+              name: http
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Gi
 
 ---
 apiVersion: networking.k8s.io/v1
@@ -112,11 +132,6 @@ metadata:
     nginx.ingress.kubernetes.io/rewrite-target: /$2
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
-        expires 30d;
-        add_header Cache-Control "public";
-      }
 spec:
   rules:
     - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
@@ -128,7 +143,7 @@ spec:
               service:
                 name: ${{ defaults.app_name }}
                 port:
-                  number: 80
+                  number: 443
   tls:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}

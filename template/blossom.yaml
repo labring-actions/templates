@@ -1,25 +1,23 @@
 apiVersion: app.sealos.io/v1
 kind: Template
 metadata:
-  name: wordpress
+  name: blossom
 spec:
-  title: 'WordPress'
-  url: 'https://wordpress.org'
-  gitRepo: 'https://github.com/WordPress/WordPress'
+  title: 'blossom'
+  url: 'https://github.com/blossom-editor/blossom'
+  gitRepo: 'https://github.com/blossom-editor/blossom'
   author: 'Sealos'
-  description: 'WordPress is a powerful, user-friendly and open source content management system (CMS) that can be used to publish websites, news, blogs and other content on the Internet.'
-  readme: 'https://raw.githubusercontent.com/WordPress/WordPress/master/readme.html'
-  icon: 'https://raw.githubusercontent.com/WordPress/WordPress/master/wp-admin/images/wordpress-logo.svg'
+  description: 'Blossom 是一个支持私有部署的云端双链笔记软件，你可以将你的笔记，图片，个人计划安排保存在自己的服务器中，并在任意设备之间实时同步。'
+  readme: 'https://raw.githubusercontent.com/blossom-editor/blossom/dev/README.md'
+  icon: 'https://raw.githubusercontent.com/blossom-editor/blossom/dev/blossom-editor/src/renderer/src/assets/imgs/blossom_logo.png'
   templateType: inline
   defaults:
-    app_host:
-      # number or string.
-      type: string
-      value: ${{ random(8) }}
     app_name:
       type: string
-      value: wordpress-${{ random(8) }}
-  inputs:
+      value: blossom-${{ random(8) }}
+    app_host:
+      type: string
+      value: ${{ random(8) }}
 
 ---
 apiVersion: apps/v1
@@ -27,7 +25,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: wordpress
+    originImageName: jasminexzzz/blossom:latest
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -49,41 +47,48 @@ spec:
       terminationGracePeriodSeconds: 10
       containers:
         - name: ${{ defaults.app_name }}
-          image: wordpress
+          image: jasminexzzz/blossom:latest
           env:
-            - name: WORDPRESS_DB_HOST
-              value: ${{ defaults.app_name }}-mysql-mysql.${{ SEALOS_NAMESPACE }}.svc
-            - name: WORDPRESS_DB_USER
-              value: root
-            - name: WORDPRESS_DB_PASSWORD
+            - name: SPRING_DATASOURCE_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-mysql-conn-credential
                   key: password
-            - name: WORDPRESS_DB_NAME
-              value: mydb
+            - name: SPRING_DATASOURCE_URL
+              value: >-
+                jdbc:mysql://${{ defaults.app_name }}-mysql-mysql.${{ SEALOS_NAMESPACE }}.svc:3306/blossom?useUnicode=true&characterEncoding=utf-8&allowPublicKeyRetrieval=true&allowMultiQueries=true&useSSL=false&&serverTimezone=GMT%2B8
+            - name: SPRING_DATASOURCE_USERNAME
+              value: root
+            - name: PROJECT_IAAS_BLOS_DOMAIN
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/pic/
+            - name: PROJECT_IAAS_BLOS_DEFAULT-PATH
+              value: /home/bl/img/
           resources:
             requests:
               cpu: 100m
-              memory: 102Mi
+              memory: 204Mi
             limits:
               cpu: 1000m
-              memory: 1024Mi
-          command: []
-          args: []
+              memory: 2048Mi
           ports:
-            - containerPort: 80
+            - containerPort: 9999
           imagePullPolicy: Always
           volumeMounts:
-            - name: var-www-html
-              mountPath: /var/www/html
-      volumes: []
+            - name: vn-homevn-bl
+              mountPath: /home/bl
+          livenessProbe:
+            httpGet:
+              path: /sys/alive
+              port: 9999
+            initialDelaySeconds: 300
+            periodSeconds: 300
+            timeoutSeconds: 300
   volumeClaimTemplates:
     - metadata:
         annotations:
-          path: /var/www/html
+          path: /home/bl
           value: '1'
-        name: var-www-html
+        name: vn-homevn-bl
       spec:
         accessModes:
           - ReadWriteOnce
@@ -100,7 +105,7 @@ metadata:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 80
+    - port: 9999
   selector:
     app: ${{ defaults.app_name }}
 
@@ -114,7 +119,7 @@ metadata:
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
     kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/proxy-body-size: 1g
     nginx.ingress.kubernetes.io/server-snippet: |
       client_header_buffer_size 64k;
       large_client_header_buffers 4 128k;
@@ -128,6 +133,7 @@ metadata:
         expires 30d;
         add_header Cache-Control "public";
       }
+      rewrite ^/$ /editor/#/settingindex redirect;
 spec:
   rules:
     - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
@@ -139,7 +145,7 @@ spec:
               service:
                 name: ${{ defaults.app_name }}
                 port:
-                  number: 80
+                  number: 9999
   tls:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
@@ -183,7 +189,7 @@ spec:
               - ReadWriteOnce
             resources:
               requests:
-                storage: 1Gi
+                storage: 3Gi
             storageClassName: openebs-backup
   terminationPolicy: Delete
   tolerations: []
@@ -232,3 +238,63 @@ subjects:
   - kind: ServiceAccount
     name: ${{ defaults.app_name }}-mysql
     namespace: ${{ SEALOS_NAMESPACE }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: "https://raw.githubusercontent.com/blossom-editor/blossom/dev/blossom-editor/src/renderer/src/assets/imgs/blossom_logo.png"
+  menuData:
+    nameColor: text-black
+  name: ${{ defaults.app_name }}
+  type: iframe
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-init
+spec:
+  completions: 1
+  template:
+    spec:
+      containers:
+        - name: mysql-init
+          image: docker.io/arey/mysql-client:latest
+          env:
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: username
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: password
+            - name: MYSQL_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: host
+            - name: MYSQL_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: port
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "CREATE DATABASE blossom DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;" > /create.sql
+              until mysql -h $MYSQL_HOST -P $MYSQL_PORT -u $MYSQL_USER -p$MYSQL_PASSWORD -e 'source /create.sql;' &>/dev/null; do sleep 1; done
+      restartPolicy: Never
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300

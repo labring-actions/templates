@@ -74,6 +74,8 @@ spec:
 | `type`  | `string` 或 `number` 表示变量的类型，唯一的区别是在渲染时字符串类型将被引用，而数字类型不会。 |
 | `value` | 变量的值，如果值是函数，则将被渲染。 |
 
+**在目前的版本实现中, `defaults` 必须要有一个 `app_name` 的字段,且其中需要包含 `${{ random(8) }}` 的随机数来作为应用的唯一名字,否则会报错.**
+
 ### 解释：`Inputs`
 `spec.defaults` 是一个定义的对象映射，被解析并显示为用户反应的表单输入。
 
@@ -133,7 +135,7 @@ inputs:
 此部分通常由一组资源类型组成：
 - 应用程序 `Deployment`、`StatefulSet`、`Service`
 - 外部访问 `Ingress`
-- 底层要求 `Database`、`Object Storage`
+- 底层依赖 `Database`、`Object Storage`
 
 每个资源可以重复任意次数，没有顺序。
 
@@ -155,7 +157,6 @@ metadata:
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
 spec:
@@ -180,7 +181,6 @@ metadata:
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
 spec:
@@ -256,7 +256,6 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
@@ -291,7 +290,6 @@ kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}
   labels:
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
@@ -332,9 +330,9 @@ spec:
 
 请注意，出于安全目的，`host` 字段需要随机设置。您可以将 `${{ random(8) }}` 设置为 `defaults.app_host`，然后使用 `${{ defaults.app_host }}`。
 
-### 解释：`底层要求`
+### 解释：`底层依赖`
 
-几乎所有应用程序都需要底层要求，例如 `database`、`cache`、`object storage` 等。您可以添加以下代码来部署我们提供的一些底层要求：
+几乎所有应用程序都需要底层依赖，例如 `database`、`cache`、`object storage` 等。您可以添加以下代码来部署我们提供的一些底层依赖：
 
 #### `数据库`
 
@@ -352,7 +350,7 @@ metadata:
     - cluster.kubeblocks.io/finalizer
   labels:
     clusterdefinition.kubeblocks.io/name: mongodb
-    clusterversion.kubeblocks.io/name: mongodb-5.0.14
+    clusterversion.kubeblocks.io/name: mongodb-5.0
     sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
   annotations: {}
   name: ${{ defaults.app_name }}-mongo
@@ -364,7 +362,7 @@ spec:
     tenancy: SharedNode
     topologyKeys: []
   clusterDefinitionRef: mongodb
-  clusterVersionRef: mongodb-5.0.14
+  clusterVersionRef: mongodb-5.0
   componentSpecs:
     - componentDefRef: mongodb
       monitor: true
@@ -807,3 +805,19 @@ spec:
 ```
 
 #### TODO: `Minio`
+
+### 说明: 系统底层处理逻辑
+
+#### 模板的实例
+
+为了方便用户管理和变更通过模板部署的应用,系统会在实际部署的时候部署一个`app.sealos.io/v1, Kind=Instance`的 CRD作为应用的实例.
+
+CRD本身会完全按照 `app.sealos.io/v1, Kind=Template` 的模板格式与字段进行迁移,其中处理逻辑为:
+1. 把 template 当中的所有变量/函数全部替换为一个确定的值
+2. 将 kind 从`Template` 改为 `Instance`
+3. Apply 这个模板的实例到用户的 ns
+
+#### 资源的标签
+对于所有的通过模板市场部署的资源,包括系统资源比如 `deploy`, `service` 以及自定义资源比如 `app`, `kb数据库` 等,都会全部统一增加一个标签: `cloud.sealos.io/deploy-on-sealos: $app_name`.
+
+其中 `app_name` 为用户部署的应用的名称, 默认是以一个随机数作为结尾,比如 `fastgpt-zu1n048s`.

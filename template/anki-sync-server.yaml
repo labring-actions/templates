@@ -1,32 +1,41 @@
 apiVersion: app.sealos.io/v1
 kind: Template
 metadata:
-  name: openai-proxy
+  name: anki-sync-server
 spec:
-  title: 'Openai-proxy'
-  url: 'https://github.com/UNICKCHENG/openai-proxy'
-  gitRepo: 'https://github.com/UNICKCHENG/openai-proxy'
+  title: 'anki-sync-server'
+  url: 'https://docs.ankiweb.net/sync-server.html'
+  gitRepo: 'https://github.com/yangchuansheng/anki-sync-server'
   author: 'Sealos'
-  description: 'openai-proxy 是为中国用户提供的解决方案，用于将 Claude 和 Google Bard 封装成 API。'
-  readme: 'https://raw.githubusercontent.com/UNICKCHENG/openai-proxy/main/readme.md'
-  icon: 'https://cdn.apifox.com/app/project-icon/builtin/18.jpg'
+  description: 'Self-Hosted Anki Sync Server'
+  readme: 'https://raw.githubusercontent.com/yangchuansheng/anki-sync-server/main/README.md'
+  icon: 'https://raw.githubusercontent.com/yangchuansheng/anki-sync-server/main/images/logo.jpeg'
   templateType: inline
   defaults:
-    app_host:
-      # number or string..
-      type: string
-      value: ${{ random(8) }}
     app_name:
       type: string
-      value: openai-proxy-${{ random(8) }}
+      value: anki-sync-server-${{ random(8) }}
+    app_host:
+      type: string
+      value: ${{ random(8) }}
   inputs:
+    SYNC_USER1:
+      description: 'the first user and password for Anki Sync Server，format: "user:pass"'
+      type: string
+      default: 'user:pass'
+      required: false
+    MAX_SYNC_PAYLOAD_MEGS:
+      description: 'limit on uploads'
+      type: string
+      default: '100'
+      required: false
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: unickcheng/openai-proxy
+    originImageName: ghcr.io/yangchuansheng/anki-sync-server:23.12.1
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -35,38 +44,58 @@ metadata:
 spec:
   replicas: 1
   revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: ${{ defaults.app_name }}
   selector:
     matchLabels:
       app: ${{ defaults.app_name }}
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 1
-      maxSurge: 0
   template:
     metadata:
       labels:
         app: ${{ defaults.app_name }}
     spec:
+      terminationGracePeriodSeconds: 10
       containers:
         - name: ${{ defaults.app_name }}
-          image: unickcheng/openai-proxy
-          env: []
+          image: ghcr.io/yangchuansheng/anki-sync-server:23.12.1
+          env:
+            - name: SYNC_USER1
+              value: ${{ inputs.SYNC_USER1 }}
+            - name: MAX_SYNC_PAYLOAD_MEGS
+              value: ${{ inputs.MAX_SYNC_PAYLOAD_MEGS }}
           resources:
             requests:
-              cpu: 20m
-              memory: 25Mi
+              cpu: 10m
+              memory: 6Mi
             limits:
-              cpu: 200m
-              memory: 256Mi
-          command: []
-          args: []
+              cpu: 100m
+              memory: 64Mi
           ports:
-            - containerPort: 3000
+            - name: http
+              protocol: TCP
+              containerPort: 8080
           imagePullPolicy: Always
-          volumeMounts: []
-      volumes: []
-
+          volumeMounts:
+            - name: vn-syncserver
+              mountPath: /syncserver
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 30
+            timeoutSeconds: 5
+            periodSeconds: 15
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /syncserver
+          value: '1'
+        name: vn-syncserver
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
 
 ---
 apiVersion: v1
@@ -77,7 +106,7 @@ metadata:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 3000
+    - port: 8080
   selector:
     app: ${{ defaults.app_name }}
 
@@ -119,7 +148,7 @@ spec:
               service:
                 name: ${{ defaults.app_name }}
                 port:
-                  number: 3000
+                  number: 8080
   tls:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
