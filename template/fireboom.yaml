@@ -21,9 +21,10 @@ spec:
     app_host1:
       type: string
       value: ${{ random(8) }}
+
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
@@ -36,22 +37,23 @@ metadata:
 spec:
   replicas: 1
   revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: ${{ defaults.app_name }}
   selector:
     matchLabels:
       app: ${{ defaults.app_name }}
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 1
-      maxSurge: 0
   template:
     metadata:
       labels:
         app: ${{ defaults.app_name }}
     spec:
+      terminationGracePeriodSeconds: 10
       containers:
         - name: ${{ defaults.app_name }}
           image: fireboomapi/fireboom_server:latest
+          command: []
+          args:
+            - dev
           resources:
             requests:
               cpu: 100m
@@ -59,17 +61,40 @@ spec:
             limits:
               cpu: 1000m
               memory: 1024Mi
-          command: []
-          args:
-            - dev
           ports:
             - containerPort: 9991
               name: api
             - containerPort: 9123
               name: console
           imagePullPolicy: Always
-          volumeMounts: []
-      volumes: []
+          volumeMounts:
+            - name: vn-fbservervn-store
+              mountPath: /fbserver/store
+            - name: vn-fbservervn-upload
+              mountPath: /fbserver/upload
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /fbserver/store
+          value: '1'
+        name: vn-fbservervn-store
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+    - metadata:
+        annotations:
+          path: /fbserver/upload
+          value: '1'
+        name: vn-fbservervn-upload
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
 
 ---
 apiVersion: v1
