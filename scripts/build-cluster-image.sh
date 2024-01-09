@@ -1,0 +1,1 @@
+echo "building cluster image for $1"
