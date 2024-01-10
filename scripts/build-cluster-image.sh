@@ -31,4 +31,4 @@ COPY registry registry
 CMD ["echo "uploaded images for template $template_name""]
 " > build/Kubefile
 
-sealos build -f build/Kubefile -t "$image_name"
+sealos build -f build/Kubefile -t "$image_name" build
