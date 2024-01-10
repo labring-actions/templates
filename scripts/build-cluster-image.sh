@@ -28,6 +28,7 @@ FROM scratch
 USER 65532:65532
 
 COPY registry registry
+COPY manifests manifests
 
 CMD ["echo "uploaded images for template $template_name""]
 " > build/Kubefile
