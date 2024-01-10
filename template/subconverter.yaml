@@ -1,0 +1,175 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: subconverter
+spec:
+  title: 'subconverter'
+  url: 'https://github.com/gclm/subconverter'
+  gitRepo: 'https://github.com/gclm/subconverter'
+  author: '孤城落寞'
+  description: '该项目是subconverter项目一站式服务项目，包括后台subconverter服务和提供了一个前端UI界面，方便用户快速生成各平台的订阅链接.'
+  readme: 'https://raw.githubusercontent.com/gclm/subconverter/main/README.md'
+  icon: 'https://raw.githubusercontent.com/gclm/subconverter/main/public/favicon.png'
+  templateType: inline
+  defaults:
+    app_host:
+      # number or string.
+      type: string
+      value: ${{ random(8) }}
+    app_name:
+      type: string
+      value: subconverter-${{ random(8) }}
+  inputs:
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: gclmit/subconverter:latest
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: gclmit/subconverter:latest
+          env: []
+          resources:
+            requests:
+              cpu: 50m
+              memory: 51Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          command: []
+          args: []
+          ports:
+            - containerPort: 80
+          imagePullPolicy: Always
+          volumeMounts:
+            - name: vn-usrvn-sharevn-nginxvn-htmlvn-confvn-configvn-js
+              mountPath: /usr/share/nginx/html/conf/config.js
+              subPath: ./usr/share/nginx/html/conf/config.js
+      volumes:
+        - name: vn-usrvn-sharevn-nginxvn-htmlvn-confvn-configvn-js
+          configMap:
+            name: ${{ defaults.app_name }}
+            items:
+              - key: vn-usrvn-sharevn-nginxvn-htmlvn-confvn-configvn-js
+                path: ./usr/share/nginx/html/conf/config.js
+
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+data:
+  vn-usrvn-sharevn-nginxvn-htmlvn-confvn-configvn-js: |-
+    window.config = {
+      siteName: 'Subconverter Web',
+      apiUrl: 'https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}',
+      menuItem: [
+        {
+          title: '首页',
+          link: '/',
+          target: '',
+        },
+        {
+          title: 'GitHub',
+          link: 'https://github.com/gclm/subconverter',
+          target: '_blank',
+        },
+      ],
+      remoteConfigList: [
+        {
+          title: 'ACL-默认',
+          url: 'https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/config/ACL4SSR.ini',
+        },
+        {
+          title: 'ACL-全分组',
+          url: 'https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/config/ACL4SSR_Online_Full_AdblockPlus.ini',
+        },
+        {
+          title: '墨鱼-Clash配置',
+          url: 'https://raw.githubusercontent.com/ddgksf2013/Profile/master/ClashforWindows.yaml',
+        },
+        {
+          title: '自定义远程配置地址',
+          url: 'manual',
+        },
+      ],
+    };
+
+
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - port: 80
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /()(.*)
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
