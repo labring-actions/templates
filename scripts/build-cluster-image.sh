@@ -19,6 +19,8 @@ fi
 rm -rf build
 mkdir -p build && mkdir -p build/manifests
 
+cp "$template_file" build/manifests/template.yaml
+
 echo "
 FROM scratch
 
