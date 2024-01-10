@@ -32,4 +32,7 @@ COPY manifests manifests
 CMD [\" echo "uploaded images for template "${template_name}"" \"]
 " > build/Kubefile
 
-sealos build -f build/Kubefile -t "$image_name" build
+if [ -d "build/registry" ]; then
+  echo "building cluster image for template: $template_name"
+  sealos build -f build/Kubefile -t "$image_name" build
+fi
