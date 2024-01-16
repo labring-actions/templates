@@ -6,16 +6,16 @@ spec:
   title: 'Umami'
   url: 'https://umami.is/'
   gitRepo: 'https://github.com/umami-software/umami'
-  author: 'sealos'
+  author: 'Sealos'
   description: 'Umami is an open source, privacy-focused alternative to Google Analytics.'
   readme: 'https://raw.githubusercontent.com/umami-software/umami/master/README.md'
-  icon: 'https://avatars.githubusercontent.com/u/105618662?s=96&v=4'
+  icon: 'https://raw.githubusercontent.com/umami-software/umami/master/src/assets/logo.svg'
   templateType: inline
   defaults:
     app_host:
       # number or string..
       type: string
-      value: ${{ random(8) }}
+      value: umami-${{ random(8) }}
     app_name:
       type: string
       value: umami-${{ random(8) }}
@@ -25,6 +25,11 @@ spec:
       type: string
       default: 'admin'
       required: true
+    TRACKER_SCRIPT_NAME:
+      description: 'Allows you to assign a custom name to the tracker script different from the default script.js. This is to help you avoid some ad-blockers.'
+      type: string
+      default: ''
+      required: false
 
 ---
 apiVersion: apps/v1
@@ -69,6 +74,8 @@ spec:
               value: postgresql
             - name: APP_SECRET
               value: ${{ inputs.APP_SECRET }}
+            - name: TRACKER_SCRIPT_NAME
+              value: ${{ inputs.TRACKER_SCRIPT_NAME }}
           resources:
             requests:
               cpu: 100m
@@ -262,3 +269,49 @@ subjects:
   - kind: ServiceAccount
     name: ${{ defaults.app_name }}-pg
     namespace: ${{ SEALOS_NAMESPACE }}
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-init
+spec:
+  completions: 1
+  template:
+    spec:
+      containers:
+        - name: pgsql-init
+          image: senzing/postgresql-client:latest
+          env:
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until psql ${DATABASE_URL} -c 'CREATE DATABASE umami;' &>/dev/null; do sleep 1; done
+      restartPolicy: Never
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: "https://raw.githubusercontent.com/umami-software/umami/master/src/assets/logo.svg"
+  menuData:
+    nameColor: text-black
+  name: ${{ defaults.app_name }}
+  type: iframe

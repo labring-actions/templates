@@ -1,0 +1,53 @@
+name: build-template-cluster-image
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - "template"
+jobs:
+  gen-targets:
+    runs-on: ubuntu-latest
+    outputs:
+      targets: ${{ steps.changed-files.outputs.all_changed_files }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Get all changed template files
+        id: changed-files
+        uses: tj-actions/changed-files@v41
+        with:
+          files: |
+            template/*.yaml
+          json: true
+          escape_json: false
+      - name: List all changed files
+        run: echo ${{ steps.changed-files.outputs.all_changed_files }}
+  build:
+    runs-on: ubuntu-latest
+    needs: gen-targets
+    strategy:
+      matrix:
+        target: ${{ fromJSON(needs.gen-targets.outputs.targets) }}
+      fail-fast: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Set up sealos
+        run: |
+          curl -sfL https://raw.githubusercontent.com/labring/sealos/main/scripts/install.sh | sh -s v4.3.7 labring/sealos
+      - name: Login to ghcr.io
+        run: |
+          sudo sealos login -u ${{ github.repository_owner }} -p ${{ secrets.GH_PAT }} ghcr.io
+      - name: Build cluster image
+        run: |
+          template_name=$(basename ${{ matrix.target }} .yaml)
+          sudo bash scripts/build-cluster-image.sh ${{ matrix.target }} ghcr.io/${{ github.repository_owner }}/sealos-cloud-template-$template_name:latest
+      - name: Push cluster image
+        run: |
+          template_name=$(basename ${{ matrix.target }} .yaml)
+          sudo sealos push ghcr.io/${{ github.repository_owner }}/sealos-cloud-template-$template_name:latest

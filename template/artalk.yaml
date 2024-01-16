@@ -1,32 +1,37 @@
 apiVersion: app.sealos.io/v1
 kind: Template
 metadata:
-  name: docker-stacks
+  name: artalk
 spec:
-  title: 'JupyterDockerStacks'
-  url: 'https://jupyter-docker-stacks.readthedocs.io/en/latest/'
-  gitRepo: 'https://github.com/jupyter/docker-stacks'
-  author: 'sealos'
-  description: 'Ready-to-run Docker images containing Jupyter applications.'
-  readme: 'https://jsd.onmicrosoft.cn/gh/jupyter/docker-stacks@main/README.md'
-  icon: 'https://jsd.onmicrosoft.cn/gh/jupyter/docker-stacks@main/docs/_static/jupyter-logo.svg'
+  title: 'artalk'
+  url: 'https://github.com/ArtalkJS/Artalk'
+  gitRepo: 'https://github.com/ArtalkJS/Artalk'
+  author: '孤城落寞'
+  description: 'Golang 自托管评论系统'
+  readme: 'https://raw.githubusercontent.com/ArtalkJS/Artalk/master/README.md'
+  icon: 'https://raw.githubusercontent.com/ArtalkJS/Artalk/master/docs/docs/public/favicon.png'
   templateType: inline
   defaults:
     app_host:
-      # number or string.
       type: string
       value: ${{ random(8) }}
     app_name:
       type: string
-      value: jupyter-${{ random(8) }}
+      value: artalk-${{ random(8) }}
+  inputs:
+    artalk_storage:
+        description: "Storage size for artalk in Gi"
+        type: number
+        default: "5"
+        required: true
 
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: jupyter/scipy-notebook:2023-11-17
+    originImageName: artalk/artalk-go:latest
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -35,37 +40,52 @@ metadata:
 spec:
   replicas: 1
   revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: ${{ defaults.app_name }}
   selector:
     matchLabels:
       app: ${{ defaults.app_name }}
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 1
-      maxSurge: 0
   template:
     metadata:
       labels:
         app: ${{ defaults.app_name }}
     spec:
+      terminationGracePeriodSeconds: 10
       containers:
         - name: ${{ defaults.app_name }}
-          image: jupyter/scipy-notebook:2023-11-17
-          env: []
+          image: artalk/artalk-go:latest
+          env:
+            - name: TZ
+              value: Asia/Shanghai
           resources:
             requests:
-              cpu: 100m
-              memory: 102Mi
+              cpu: 50m
+              memory: 25Mi
             limits:
-              cpu: 1000m
-              memory: 1024Mi
+              cpu: 500m
+              memory: 256Mi
           command: []
           args: []
           ports:
-            - containerPort: 8888
-          imagePullPolicy: Always
-          volumeMounts: []
+            - containerPort: 23366
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: vn-data
+              mountPath: /data
       volumes: []
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /data
+          value: "${{ inputs.artalk_storage }} "
+        name: vn-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: ${{ inputs.artalk_storage }}Gi
+
 ---
 apiVersion: v1
 kind: Service
@@ -75,9 +95,10 @@ metadata:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 8888
+    - port: 23366
   selector:
     app: ${{ defaults.app_name }}
+
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -97,8 +118,6 @@ metadata:
     nginx.ingress.kubernetes.io/rewrite-target: /$2
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
-    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
-    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
     nginx.ingress.kubernetes.io/configuration-snippet: |
       if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
         expires 30d;
@@ -115,7 +134,7 @@ spec:
               service:
                 name: ${{ defaults.app_name }}
                 port:
-                  number: 8888
+                  number: 23366
   tls:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
