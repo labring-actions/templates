@@ -1,0 +1,456 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: librechat
+spec:
+  title: 'LibreChat'
+  url: 'https://github.com/danny-avila/LibreChat'
+  gitRepo: 'https://github.com/danny-avila/LibreChat'
+  author: 'Sealos'
+  description: 'Enhanced ChatGPT Clone'
+  readme: 'https://raw.githubusercontent.com/danny-avila/LibreChat/main/README.md'
+  icon: 'https://raw.githubusercontent.com/danny-avila/LibreChat/main/docs/assets/favicon_package/mstile-144x144.png'
+  templateType: inline
+  defaults:
+    app_name:
+      type: string
+      value: librechat-${{ random(8) }}
+    app_host:
+      type: string
+      value: librechat-${{ random(8) }}
+  inputs:
+    OPENAI_REVERSE_PROXY:
+      description: "reverse proxy for openai, remember to add /v1 to the end of the url"
+      type: string
+      default: "https://api.openai.com/v1"
+      required: false
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/danny-avila/librechat:latest
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: ghcr.io/danny-avila/librechat:latest
+          env:
+            - name: MONGO_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mongo-conn-credential
+                  key: password
+            - name: MONGO_URI
+              value: >-
+                mongodb://root:$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017/LibreChat?authSource=admin
+            - name: HOST
+              value: 0.0.0.0
+            - name: MEILI_HOST
+              value: http://${{ defaults.app_name }}-meilisearch:7700
+            - name: OPENAI_REVERSE_PROXY
+              value: ${{ inputs.OPENAI_REVERSE_PROXY }}
+          envFrom:
+          - secretRef:
+              name: ${{ defaults.app_name }}
+          resources:
+            requests:
+              cpu: 20m
+              memory: 51Mi
+            limits:
+              cpu: 200m
+              memory: 512Mi
+          ports:
+            - containerPort: 3080
+          imagePullPolicy: Always
+          volumeMounts:
+            - name: vn-appvn-clientvn-publicvn-images
+              mountPath: /app/client/public/images
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /app/client/public/images
+          value: '1'
+        name: vn-appvn-clientvn-publicvn-images
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+type: Opaque
+stringData:
+  ALLOW_EMAIL_LOGIN: "true"
+  ALLOW_REGISTRATION: "true"
+  ALLOW_SOCIAL_LOGIN: "false"
+  ALLOW_SOCIAL_REGISTRATION: "false"
+  ANTHROPIC_API_KEY: user_provided
+  ANTHROPIC_MODELS: claude-1,claude-instant-1,claude-2
+  APP_TITLE: LibreChat
+  AZURE_AI_SEARCH_API_KEY: ""
+  AZURE_AI_SEARCH_API_VERSION: ""
+  AZURE_AI_SEARCH_INDEX_NAME: ""
+  AZURE_AI_SEARCH_SEARCH_OPTION_QUERY_TYPE: ""
+  AZURE_AI_SEARCH_SEARCH_OPTION_SELECT: ""
+  AZURE_AI_SEARCH_SEARCH_OPTION_TOP: ""
+  AZURE_AI_SEARCH_SERVICE_ENDPOINT: ""
+  AZURE_OPENAI_MODELS: gpt-3.5-turbo,gpt-4
+  AZURE_USE_MODEL_AS_DEPLOYMENT_NAME: "TRUE"
+  BAN_DURATION: 1000 * 60 * 60 * 2
+  BAN_INTERVAL: "20"
+  BAN_VIOLATIONS: "true"
+  BINGAI_TOKEN: user_provided
+  CHATGPT_MODELS: text-davinci-002-render-sha
+  CHATGPT_TOKEN: ""
+  CHECK_BALANCE: "false"
+  CONCURRENT_MESSAGE_MAX: "2"
+  CONCURRENT_VIOLATION_SCORE: "1"
+  CREDS_IV: e2341419ec3dd3d19b13a1a87fafcbfb
+  CREDS_KEY: f34be427ebb29de8d88c107a71546019685ed8b241d8f2ed00c3df97ad2566f0
+  DEBUG_CONSOLE: "false"
+  DEBUG_LOGGING: "true"
+  DEBUG_OPENAI: "false"
+  DEBUG_PLUGINS: "true"
+  DISCORD_CALLBACK_URL: /oauth/discord/callback
+  DISCORD_CLIENT_ID: ""
+  DISCORD_CLIENT_SECRET: ""
+  DOMAIN_CLIENT: http://localhost:3080
+  DOMAIN_SERVER: http://localhost:3080
+  EMAIL_ALLOW_SELFSIGNED: '         '
+  EMAIL_ENCRYPTION: '               '
+  EMAIL_ENCRYPTION_HOSTNAME: '      '
+  EMAIL_FROM: noreply@librechat.ai
+  EMAIL_FROM_NAME: '                '
+  EMAIL_HOST: '                     '
+  EMAIL_PASSWORD: '                 '
+  EMAIL_PORT: '25                   '
+  EMAIL_SERVICE: '                  '
+  EMAIL_USERNAME: '                 '
+  FACEBOOK_CALLBACK_URL: /oauth/facebook/callback
+  FACEBOOK_CLIENT_ID: ""
+  FACEBOOK_CLIENT_SECRET: ""
+  FIREBASE_API_KEY: ""
+  FIREBASE_APP_ID: ""
+  FIREBASE_AUTH_DOMAIN: ""
+  FIREBASE_MESSAGING_SENDER_ID: ""
+  FIREBASE_PROJECT_ID: ""
+  FIREBASE_STORAGE_BUCKET: ""
+  GITHUB_CALLBACK_URL: /oauth/github/callback
+  GITHUB_CLIENT_ID: ""
+  GITHUB_CLIENT_SECRET: ""
+  GOOGLE_API_KEY: ""
+  GOOGLE_CALLBACK_URL: /oauth/google/callback
+  GOOGLE_CLIENT_ID: ""
+  GOOGLE_CLIENT_SECRET: ""
+  GOOGLE_CSE_ID: ""
+  GOOGLE_KEY: user_provided
+  HOST: localhost
+  JWT_REFRESH_SECRET: eaa5191f2914e30b9387fd84e254e4ba6fc51b4654968a9b0803b456a54b8418
+  JWT_SECRET: 16f8c0ef4a5d391b26034086c628469d3f9f497f08163ab9b40137092f2909ef
+  LIMIT_CONCURRENT_MESSAGES: "true"
+  LIMIT_MESSAGE_IP: "true"
+  LIMIT_MESSAGE_USER: "false"
+  LOGIN_MAX: "7"
+  LOGIN_VIOLATION_SCORE: "1"
+  LOGIN_WINDOW: "5"
+  MEILI_HOST: http://0.0.0.0:7700
+  MEILI_MASTER_KEY: DrhYf7zENyR6AlUCKmnz0eYASOQdl6zxH7s7MKFSfFCt
+  MEILI_NO_ANALYTICS: "true"
+  MESSAGE_IP_MAX: "40"
+  MESSAGE_IP_WINDOW: "1"
+  MESSAGE_USER_MAX: "40"
+  MESSAGE_USER_WINDOW: "1"
+  MESSAGE_VIOLATION_SCORE: "1"
+  MONGO_URI: mongodb://127.0.0.1:27017/LibreChat
+  NO_INDEX: "true"
+  NON_BROWSER_VIOLATION_SCORE: "20"
+  OPENAI_API_KEY: user_provided
+  OPENAI_MODERATION: "false"
+  OPENAI_MODERATION_API_KEY: ""
+  OPENID_BUTTON_LABEL: ""
+  OPENID_CALLBACK_URL: /oauth/openid/callback
+  OPENID_CLIENT_ID: ""
+  OPENID_CLIENT_SECRET: ""
+  OPENID_IMAGE_URL: ""
+  OPENID_ISSUER: ""
+  OPENID_SCOPE: '"openid profile email"'
+  OPENID_SESSION_SECRET: ""
+  PORT: "3080"
+  PROXY: ""
+  REFRESH_TOKEN_EXPIRY: (1000 * 60 * 60 * 24) * 7
+  REGISTER_MAX: "5"
+  REGISTER_WINDOW: "60"
+  REGISTRATION_VIOLATION_SCORE: "1"
+  SD_WEBUI_URL: http://host.docker.internal:7860
+  SEARCH: "true"
+  SERPAPI_API_KEY: ""
+  SESSION_EXPIRY: 1000 * 60 * 15
+  WOLFRAM_APP_ID: ""
+  ZAPIER_NLA_API_KEY: ""
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - port: 3080
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-meilisearch
+  annotations:
+    originImageName: getmeili/meilisearch:v1.5
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-meilisearch
+    app: ${{ defaults.app_name }}-meilisearch
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: ${{ defaults.app_name }}-meilisearch
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-meilisearch
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-meilisearch
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: ${{ defaults.app_name }}-meilisearch
+          image: getmeili/meilisearch:v1.5
+          env:
+            - name: MEILI_NO_ANALYTICS
+              value: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 51Mi
+            limits:
+              cpu: 100m
+              memory: 512Mi
+          ports:
+            - containerPort: 7700
+          imagePullPolicy: Always
+          volumeMounts:
+            - name: vn-meili-data
+              mountPath: /meili_data
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /meili_data
+          value: '1'
+        name: vn-meili-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-meilisearch
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-meilisearch
+spec:
+  ports:
+    - port: 7700
+  selector:
+    app: ${{ defaults.app_name }}-meilisearch
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 1g
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+      rewrite ^/$ /editor/#/settingindex redirect;
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /()(.*)
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 3080
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: mongodb
+    clusterversion.kubeblocks.io/name: mongodb-5.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
+  annotations: {}
+  name: ${{ defaults.app_name }}-mongo
+  generation: 1
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: mongodb
+  clusterVersionRef: mongodb-5.0
+  backup:
+    enabled: true
+    cronExpression: 0 18 * * *
+    method: backupTool
+    pitrEnabled: false
+    retentionPeriod: 7d
+  componentSpecs:
+    - componentDefRef: mongodb
+      monitor: true
+      name: mongodb
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-mongo
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 3Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+  tolerations: []
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-mongo
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-mongo
+rules:
+  - apiGroups:
+      - ''
+    resources:
+      - events
+    verbs:
+      - create
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-mongo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-mongo
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-mongo
+    namespace: ${{ SEALOS_NAMESPACE}}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: "https://raw.githubusercontent.com/danny-avila/LibreChat/main/docs/assets/favicon_package/mstile-144x144.png"
+  menuData:
+    nameColor: text-black
+  name: ${{ defaults.app_name }}
+  type: iframe
