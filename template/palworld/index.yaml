@@ -1,0 +1,190 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: palworld
+spec:
+  title: 'Palworld Server'
+  url: 'https://github.com/thijsvanloef/palworld-server-docker'
+  gitRepo: 'https://github.com/thijsvanloef/palworld-server-docker'
+  author: 'Sealos'
+  description: '幻兽帕鲁私服 | your own Palworld dedicated server'
+  readme: 'https://raw.githubusercontent.com/thijsvanloef/palworld-server-docker/main/README.md'
+  icon: 'https://raw.githubusercontent.com/labring-actions/templates/main/template/palworld/logo.jpg'
+  templateType: inline
+  defaults:
+    app_name:
+      type: string
+      value: palworld-${{ random(8) }}
+  inputs:
+    ADMIN_PASSWORD:
+      description: "Secure administration access in the server with a password"
+      type: string
+      default: ""
+      required: true
+    SERVER_NAME:
+      description: "A name for your community server"
+      type: string
+      default: ""
+      required: true
+    SERVER_PASSWORD:
+      description: "Secure your community server with a password"
+      type: string
+      default: ""
+      required: true
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: thijsvanloef/palworld-server-docker:latest
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      terminationGracePeriodSeconds: 10
+      initContainers:
+        - name: take-data-dir-ownership
+          image: alpine
+          # Give `grafana` user (id 472) permissions a mounted volume
+          # https://github.com/grafana/grafana-docker/blob/master/Dockerfile
+          command: ["/bin/sh", "-c", "chown -R 1000:1000 /palworld; chmod -R 770 /palworld"]
+          volumeMounts:
+            - name: vn-palworld
+              mountPath: /palworld
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: thijsvanloef/palworld-server-docker:latest
+          env:
+            - name: ServerIP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: PUID
+              value: 1000
+            - name: PGID
+              value: 1000
+            - name: PORT
+              value: 8211
+            - name: PLAYERS
+              value: 31
+            - name: MULTITHREADING
+              value: true
+            - name: RCON_ENABLED
+              value: true
+            - name: RCON_PORT
+              value: 25575
+            - name: ADMIN_PASSWORD
+              value: ${{ inputs.ADMIN_PASSWORD }}
+            - name: COMMUNITY
+              value: true
+            - name: SERVER_PASSWORD
+              value: ${{ inputs.SERVER_PASSWORD }}
+            - name: SERVER_NAME
+              value: ${{ inputs.SERVER_NAME }}
+          resources:
+            requests:
+              cpu: 400m
+              memory: 819Mi
+            limits:
+              cpu: 4000m
+              memory: 8192Mi
+          ports:
+            - containerPort: 8211
+              name: game
+            - containerPort: 27015
+              name: query
+            - containerPort: 25575
+              name: rcon
+          imagePullPolicy: Always
+          volumeMounts:
+            - name: vn-palworld
+              mountPath: /palworld
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /palworld
+          value: '1'
+        name: vn-palworld
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 6Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: NodePort
+  ports:
+    - protocol: UDP
+      port: 8211
+      targetPort: 8211
+      name: game
+    - protocol: UDP
+      port: 27015
+      targetPort: 27015
+      name: query
+  selector:
+    app: ${{ defaults.app_name }}
+    
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-rcon
+  annotations:
+    originImageName: outdead/rcon:latest
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-rcon
+    app: ${{ defaults.app_name }}-rcon
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-rcon
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-rcon
+    spec:
+      containers:
+        - name: ${{ defaults.app_name }}-rcon
+          image: ghcr.io/mckaywrigley/chatbot-ui:main
+          command: ["sleep", "infinity"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 12Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
