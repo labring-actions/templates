@@ -1,0 +1,139 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: ${{ defaults.app_name }}
+spec:
+  title: rustdesk
+  url: 'https://rustdesk.com/'
+  gitRepo: 'https://github.com/rustdesk/rustdesk'
+  author: '123385918'
+  description: '开源的远程连接工具，比肩Teamviewer和ToDesk'
+  readme: 'https://github.com/rustdesk/rustdesk/blob/master/docs/README-ZH.md'
+  icon: 'https://cdn.jsdelivr.us/gh/rustdesk/rustdesk@master/res/icon.ico'
+  templateType: inline
+  defaults:
+    app_host:
+      type: string
+      value: ${{ random(8) }}
+    app_name:
+      type: string
+      value: rustdesk-${{ random(8) }}
+  inputs:
+    【非配置项】防白嫖提示：:
+      description: '请自行修改yaml文件中args参数，新增"-k _"。详阅官方文档中"自建服务器"。'
+      type: string
+      default: ''
+      required: false
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: rustdesk/rustdesk-server
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: ${{ defaults.app_name }}-hbbr
+          image: rustdesk/rustdesk-server
+          env: []
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          args: ["hbbr"]
+          ports:
+            - containerPort: 21117
+              protocol: TCP
+              name: 'port3'
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: vn-data
+              mountPath: /root
+        - name: ${{ defaults.app_name }}
+          image: rustdesk/rustdesk-server
+          env: []
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          args: ["hbbs", "-r", "${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}:21116"]
+          ports:
+            - containerPort: 21115
+              protocol: TCP
+              name: 'port4'
+            - containerPort: 21116
+              protocol: TCP
+              name: 'port2'
+            - containerPort: 21116
+              protocol: UDP
+              name: 'port1'
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: vn-data
+              mountPath: /root
+      volumes: []
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /root
+          value: '1'
+        name: vn-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 256Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: NodePort
+  ports:
+    - protocol: UDP
+      port: 21116
+      targetPort: 21116
+      name: 'port1'
+    - protocol: TCP
+      port: 21116
+      targetPort: 21116
+      name: 'port2'
+    - protocol: TCP
+      port: 21117
+      targetPort: 21117
+      name: 'port3'
+    - protocol: TCP
+      port: 21115
+      targetPort: 21115
+      name: 'port4'
+  selector:
+    app: ${{ defaults.app_name }}
