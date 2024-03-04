@@ -1,0 +1,68 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: palworld-autobackup
+spec:
+  title: '帕鲁私服定时存档'
+  url: 'https://github.com/yangchuansheng/templates-palworld'
+  gitRepo: 'https://github.com/yangchuansheng/templates-palworld'
+  author: 'Sealos'
+  description: '定时存档帕鲁私服数据'
+  readme: 'https://mirror.ghproxy.com/https://raw.githubusercontent.com/yangchuansheng/templates-palworld/main/template/palworld-autobackup/README.md'
+  icon: 'https://raw.githubusercontent.com/yangchuansheng/templates-palworld/main/template/palworld-autobackup/logo.jpg'
+  templateType: inline
+  categories:
+    - game
+  defaults:
+    app_name:
+      type: string
+      value: palworld-autobackup-${{ random(8) }}
+    app_host:
+      type: string
+      value: palworld-autobackup-${{ random(8) }}
+  inputs:
+    APP_NAME:
+      description: "帕鲁私服应用名称"
+      type: string
+      default: ""
+      required: true
+    INTERVAL:
+      description: "每隔多少小时备份一次？单位是小时"
+      type: string
+      default: "3"
+      required: true
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  labels:
+    cloud.sealos.io/cronjob: ${{ defaults.app_name }}
+    cronjob-launchpad-name: ""
+    cronjob-type: image
+  name: ${{ defaults.app_name }}
+spec:
+  concurrencyPolicy: Replace
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - args:
+            - kubectl exec ${{ inputs.APP_NAME }}-0 -c ${{ inputs.APP_NAME }} -- bash -c 'if ! [ -d /palworld/backups ]; then mkdir /palworld/backups; fi && backup'
+            command:
+            - bash
+            - -c
+            image: bitnami/kubectl
+            imagePullPolicy: IfNotPresent
+            name: ${{ defaults.app_name }}
+          serviceAccount: ${{ SEALOS_SERVICE_ACCOUNT }}
+          serviceAccountName: ${{ SEALOS_SERVICE_ACCOUNT }}
+          restartPolicy: OnFailure
+  schedule: '0 */${{ inputs.INTERVAL }} * * *'
+  startingDeadlineSeconds: 60
+  successfulJobsHistoryLimit: 3
+  ttlSecondsAfterFinished: 300
+  suspend: false
+  timeZone: Asia/Shanghai
