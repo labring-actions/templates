@@ -1,0 +1,168 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: palworld-management
+spec:
+  title: '帕鲁管理器'
+  url: 'https://github.com/zaigie/palworld-server-tool'
+  gitRepo: 'https://github.com/zaigie/palworld-server-tool'
+  author: 'Sealos'
+  description: '通过图形化界面管理幻兽帕鲁 / PalWorld 专用服务器'
+  readme: 'https://mirror.ghproxy.com/https://raw.githubusercontent.com/yangchuansheng/templates-palworld/main/template/palworld-mg/README.md'
+  icon: 'https://raw.githubusercontent.com/labring-actions/templates/main/template/palworld/logo.jpg'
+  templateType: inline
+  categories:
+    - game
+  defaults:
+    app_name:
+      type: string
+      value: palworld-management-${{ random(8) }}
+    app_host:
+      type: string
+      value: palworld-management-${{ random(8) }}
+  inputs:
+    APP_NAME:
+      description: "帕鲁私服应用名称"
+      type: string
+      default: ""
+      required: true
+    ADMIN_PASSWORD:
+      description: "帕鲁私服管理员密码"
+      type: string
+      default: ""
+      required: true
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-rcon
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-rcon
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - protocol: TCP
+      port: 25575
+      targetPort: 25575
+      name: rcon
+  selector:
+    app: ${{ inputs.APP_NAME }}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: registry.cn-hangzhou.aliyuncs.com/bxy4543/palworld-server-tool:2024-02-18
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: registry.cn-hangzhou.aliyuncs.com/bxy4543/palworld-server-tool:2024-02-18
+          env:
+            - name: WEB__PASSWORD
+              value: ${{ inputs.ADMIN_PASSWORD }}
+            - name: RCON__ADDRESS
+              value: ${{ inputs.APP_NAME }}-0.${{ inputs.APP_NAME }}:25575
+            - name: RCON__PASSWORD
+              value: ${{ inputs.ADMIN_PASSWORD }}
+            - name: SAVE__PATH
+              value: k8s://${{ inputs.APP_NAME }}-0/${{ inputs.APP_NAME }}:/palworld/Pal/Saved
+            - name: SAVE__SYNC_INTERVAL
+              value: '60'
+          resources:
+            requests:
+              cpu: 200m
+              memory: 409Mi
+            limits:
+              cpu: 2000m
+              memory: 4096Mi
+          ports:
+            - containerPort: 8080
+          imagePullPolicy: IfNotPresent
+          volumeMounts: []
+      securityContext:
+        runAsUser: 0
+      serviceAccountName: ${{ SEALOS_SERVICE_ACCOUNT }}
+      serviceAccount:  ${{ SEALOS_SERVICE_ACCOUNT }}
+      volumes: []
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: ClusterIP
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+      name: http
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 1g
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /()(.*)
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 8080
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}

@@ -1,0 +1,210 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: enshrouded
+spec:
+  title: '雾锁王国私服'
+  url: 'https://github.com/mornedhels/enshrouded-server'
+  gitRepo: 'https://github.com/mornedhels/enshrouded-server'
+  author: 'Sealos'
+  description: '该私服默认可容纳 4~8 个玩家流畅玩耍'
+  readme: 'https://mirror.ghproxy.com/https://raw.githubusercontent.com/yangchuansheng/templates-palworld/main/template/enshrouded/README.md'
+  icon: 'https://raw.githubusercontent.com/yangchuansheng/templates-palworld/main/template/enshrouded/logo.jpg'
+  templateType: inline
+  categories:
+    - game
+  defaults:
+    app_name:
+      type: string
+      value: enshrouded-${{ random(8) }}
+    app_host:
+      type: string
+      value: enshrouded-${{ random(8) }}
+  inputs:
+    SERVER_NAME:
+      description: "私服名称"
+      type: string
+      default: ""
+      required: false
+    SERVER_PASSWORD:
+      description: "私服密码"
+      type: string
+      default: ""
+      required: false
+      
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-external
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: NodePort
+  ports:
+    - protocol: UDP
+      port: 15636
+      targetPort: 15636
+      name: game
+    - protocol: UDP
+      port: 15637
+      targetPort: 15637
+      name: query
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: registry.cn-hangzhou.aliyuncs.com/luanshaotong/enshrouded:v0.2
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      initContainers:
+        - name: take-data-dir-ownership
+          image: alpine
+          command: ["/bin/sh", "-c", "mkdir -p /opt/enshrouded; chown -R 4711:4711 /opt/enshrouded; chmod -R 0777 /opt/enshrouded"]
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: vn-optvn-enshrouded
+              mountPath: /opt/enshrouded
+        - name: switch-ports
+          image: bitnami/kubectl  # 一个包含 kubectl 工具的镜像
+          env:
+          - name: APP_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.labels['app']
+          command:
+          - sh
+          - -c
+          - |
+            echo "APP_NAME=$APP_NAME"
+            if [ -f /opt/enshrouded/gameport ]; then
+                echo "Game port already set"
+                . /opt/enshrouded/gameport
+                . /opt/enshrouded/queryport
+            else
+                echo "Setting game port"
+                GAME_PORT=`kubectl get svc ${APP_NAME}-external -o=jsonpath='{.spec.ports[?(@.name=="game")].nodePort}'`
+                QUERY_PORT=`kubectl get svc ${APP_NAME}-external -o=jsonpath='{.spec.ports[?(@.name=="query")].nodePort}'`
+
+                echo "GAME_PORT=$GAME_PORT QUERY_PORT=$QUERY_PORT"
+                echo "GAME_PORT=$GAME_PORT" > /opt/enshrouded/gameport
+                echo "QUERY_PORT=$QUERY_PORT" > /opt/enshrouded/queryport
+            fi
+
+            kubectl patch svc ${APP_NAME}-external -p '{"spec":{"type":"ClusterIP"}}'
+
+            kubectl patch svc ${{ defaults.app_name }}-external --type='json' -p="[{\"op\": \"replace\", \"path\": \"/spec/type\", \"value\": \"NodePort\"}, {\"op\": \"replace\", \"path\": \"/spec/ports/0/nodePort\", \"value\": $GAME_PORT}, {\"op\": \"replace\", \"path\": \"/spec/ports/0/targetPort\", \"value\": $GAME_PORT}, {\"op\": \"replace\", \"path\": \"/spec/ports/0/name\", \"value\": game}, {\"op\": \"replace\", \"path\": \"/spec/ports/1/nodePort\", \"value\": $QUERY_PORT}, {\"op\": \"replace\", \"path\": \"/spec/ports/1/targetPort\", \"value\": $QUERY_PORT}, {\"op\": \"replace\", \"path\": \"/spec/ports/1/name\", \"value\": query}]"
+
+            echo "Game port set to $GAME_PORT"
+            echo "Query port set to $QUERY_PORT"
+
+            if [ -f /opt/enshrouded/server/enshrouded_server.json ]; then
+                sed -i "s/\"gamePort\": [0-9]\+,$/\"gamePort\": $GAME_PORT,/" /opt/enshrouded/server/enshrouded_server.json
+                sed -i "s/\"queryPort\": [0-9]\+,$/\"queryPort\": $QUERY_PORT,/" /opt/enshrouded/server/enshrouded_server.json
+            fi
+          volumeMounts:
+            - name: vn-optvn-enshrouded
+              mountPath: /opt/enshrouded
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: registry.cn-hangzhou.aliyuncs.com/luanshaotong/enshrouded:v0.2
+          env:
+            - name: SERVER_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            # - name: PUID
+            #   value: "1000"
+            # - name: PGID
+            #   value: "1000"
+            # - name: SERVER_PORT
+            #   value: "15636"
+            # - name: SERVER_QUERYPORT
+            #   value: "15637"
+            - name: SERVER_SLOT_COUNT
+              value: "16"
+            - name: SERVER_PASSWORD
+              value: ${{ inputs.SERVER_PASSWORD }}
+            - name: SERVER_NAME
+              value: ${{ inputs.SERVER_NAME }}
+          resources:
+            requests:
+              cpu: 1000m
+              memory: 5461Mi
+              ephemeral-storage: 4Gi
+            limits:
+              cpu: 4000m
+              memory: 16384Mi
+              ephemeral-storage: 4Gi
+          ports:
+            - containerPort: 15636
+              name: game
+              protocol: UDP
+            - containerPort: 15637
+              name: query
+              protocol: UDP
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: vn-optvn-enshrouded
+              mountPath: /opt/enshrouded
+      securityContext:
+        runAsUser: 0
+      serviceAccountName: ${{ SEALOS_SERVICE_ACCOUNT }}
+      serviceAccount:  ${{ SEALOS_SERVICE_ACCOUNT }}
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /opt/enshrouded
+          value: '30'
+        name: vn-optvn-enshrouded
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 30Gi
+            
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-restart
+spec:
+  completions: 1
+  template:
+    spec:
+      containers:
+        - name: ${{ defaults.app_name }}-restart
+          image: bitnami/kubectl
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until kubectl exec ${{ defaults.app_name }}-0 -c e${{ defaults.app_name }} -- ls /opt/enshrouded-data/game_ready &>/dev/null; do sleep 1; done
+              kubectl rollout restart statefulset ${{ defaults.app_name }}
+      restartPolicy: Never
+      serviceAccountName: ${{ SEALOS_SERVICE_ACCOUNT }}
+      serviceAccount:  ${{ SEALOS_SERVICE_ACCOUNT }}
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
