@@ -6,7 +6,7 @@ spec:
   title: rustdesk
   url: 'https://rustdesk.com/'
   gitRepo: 'https://github.com/rustdesk/rustdesk'
-  author: '123385918'
+  author: 'L.King'
   description: '开源的远程连接工具，比肩Teamviewer和ToDesk'
   readme: 'https://github.com/rustdesk/rustdesk/blob/master/docs/README-ZH.md'
   icon: 'https://cdn.jsdelivr.us/gh/rustdesk/rustdesk@master/res/icon.ico'
@@ -19,18 +19,21 @@ spec:
       type: string
       value: rustdesk-${{ random(8) }}
   inputs:
-    【非配置项】防白嫖提示：:
-      description: '请自行修改yaml文件中args参数，新增"-k _"。详阅官方文档中"自建服务器"。'
-      type: string
-      default: ''
-      required: false
+    ENCRYPTED_ONLY:
+      description: '1:仅限于提供公钥的加密传输, 0:允许非加密传输'
+      type: choice
+      options:
+        - 1
+        - 0
+      required: true
+    
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: rustdesk/rustdesk-server
+    originImageName: rustdesk/rustdesk-server-s6:latest
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -51,28 +54,13 @@ spec:
     spec:
       terminationGracePeriodSeconds: 10
       containers:
-        - name: ${{ defaults.app_name }}-hbbr
-          image: rustdesk/rustdesk-server
-          env: []
-          resources:
-            requests:
-              cpu: 20m
-              memory: 64Mi
-            limits:
-              cpu: 200m
-              memory: 128Mi
-          args: ["hbbr"]
-          ports:
-            - containerPort: 21117
-              protocol: TCP
-              name: 'port3'
-          imagePullPolicy: IfNotPresent
-          volumeMounts:
-            - name: vn-data
-              mountPath: /root
         - name: ${{ defaults.app_name }}
-          image: rustdesk/rustdesk-server
-          env: []
+          image: rustdesk/rustdesk-server-s6:latest
+          env: 
+            - name: RELAY
+              value: "${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: ENCRYPTED_ONLY
+              value: "${{ inputs.ENCRYPTED_ONLY }}"
           resources:
             requests:
               cpu: 20m
@@ -80,26 +68,28 @@ spec:
             limits:
               cpu: 200m
               memory: 128Mi
-          args: ["hbbs", "-r", "${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}:21116"]
           ports:
             - containerPort: 21115
               protocol: TCP
-              name: 'port4'
+              name: 'heartbeat'
             - containerPort: 21116
               protocol: TCP
-              name: 'port2'
+              name: 'rendezvous-tcp'
             - containerPort: 21116
               protocol: UDP
-              name: 'port1'
+              name: 'rendezvous-udp'
+            - containerPort: 21117
+              protocol: TCP
+              name: 'relay'
           imagePullPolicy: IfNotPresent
           volumeMounts:
             - name: vn-data
-              mountPath: /root
+              mountPath: /data
       volumes: []
   volumeClaimTemplates:
     - metadata:
         annotations:
-          path: /root
+          path: /data
           value: '1'
         name: vn-data
       spec:
@@ -122,18 +112,18 @@ spec:
     - protocol: UDP
       port: 21116
       targetPort: 21116
-      name: 'port1'
+      name: 'rendezvous-udp'
     - protocol: TCP
       port: 21116
       targetPort: 21116
-      name: 'port2'
+      name: 'rendezvous-tcp'
     - protocol: TCP
       port: 21117
       targetPort: 21117
-      name: 'port3'
+      name: 'relay'
     - protocol: TCP
       port: 21115
       targetPort: 21115
-      name: 'port4'
+      name: 'heartbeat'
   selector:
     app: ${{ defaults.app_name }}
