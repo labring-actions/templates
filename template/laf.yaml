@@ -36,7 +36,7 @@ spec:
     prometheus_storage:
       description: "Storage size for Prometheus in Gi"
       type: number
-      default: "5"
+      default: "10"
       required: true
     domain:
       description: "the domain of laf"
@@ -200,7 +200,7 @@ spec:
       containers:
         - name: ${{ defaults.app_name }}-server
           securityContext: {}
-          image: "docker.io/lafyun/laf-server:sha-afbdd36"
+          image: "docker.io/lafyun/laf-server:sha-ef30cd9"
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -235,9 +235,9 @@ spec:
             - name: DISABLED_STORAGE_USAGE_LIMIT_TASK
               value: "true"
             - name: DEFAULT_RUNTIME_IMAGE
-              value: docker.io/lafyun/runtime-node:sha-67b3cd6
+              value: docker.io/lafyun/runtime-node:sha-fbfa762
             - name: DEFAULT_RUNTIME_INIT_IMAGE
-              value: docker.io/lafyun/runtime-node-init:sha-67b3cd6
+              value: docker.io/lafyun/runtime-node-init:sha-fbfa762
             - name: APPID_LENGTH
               value: 8
             - name: DEFAULT_REGION_NAMESPACE
@@ -319,7 +319,7 @@ spec:
       containers:
         - name: ${{ defaults.app_name }}-web
           securityContext: {}
-          image: "docker.io/lafyun/laf-web:sha-88d3a4e"
+          image: "docker.io/lafyun/laf-web:sha-e9d012d"
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -381,7 +381,7 @@ spec:
       serviceAccountName: ${{ defaults.app_name }}-sa
       securityContext: {}
       containers:
-        - image: docker.io/lafyun/runtime-exporter:sha-c1f0cdc
+        - image: docker.io/lafyun/runtime-exporter:sha-2948df9
           imagePullPolicy: IfNotPresent
           name: ${{ defaults.app_name }}-runtime-exporter
           ports:
@@ -407,6 +407,8 @@ spec:
             - name: API_SECRET
               value: ${{ defaults.exporter_jwt }}
             - name: NAMESPACE
+              value: ${{ SEALOS_NAMESPACE }}
+            - name: DB_NAMESPACE
               value: ${{ SEALOS_NAMESPACE }}
 ---
 apiVersion: v1
@@ -436,12 +438,34 @@ spec:
       path: "/runtime/metrics/${{ defaults.exporter_jwt }}"
       scrapeTimeout: 10s
       honorLabels: true
+    - interval: 30s
+      path: "/database/metrics/${{ defaults.exporter_jwt }}"
+      scrapeTimeout: 10s
+      honorLabels: true
   namespaceSelector:
     matchNames:
       - ${{ SEALOS_NAMESPACE }}
   selector:
     matchLabels:
       cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-runtime-exporter
+---
+# kubeblock mongodb prometheus
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ${{ defaults.app_name }}-laf-mongodb
+spec:
+  endpoints:
+    - interval: 30s
+      path: /metrics
+      port: http-metrics
+  namespaceSelector:
+    matchNames:
+      - ${{ SEALOS_NAMESPACE }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mongodb
+      apps.kubeblocks.io/component-name: mongodb
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
@@ -473,8 +497,8 @@ spec:
       app: prometheus-${{ defaults.app_name }}
   resources:
     limits:
-      cpu: 200m
-      memory: 256Mi
+      cpu: 500m
+      memory: 1024Mi
     requests:
       cpu: 50m
       memory: 128Mi
@@ -491,7 +515,7 @@ spec:
   probeSelector: {}
   ruleSelector: {}
   portName: http-web
-  retention: 10d
+  retention: 5d
   scrapeInterval: 60s
   serviceAccountName: ${{ defaults.app_name }}-sa
   replicas: 1
@@ -524,113 +548,6 @@ spec:
   selector:
     app: prometheus-${{ defaults.app_name }}
   type: ClusterIP
----
-## mongo exporter
-# Source: prometheus-mongodb-exporter/templates/service.yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: ${{ defaults.app_name }}-mongodb-exporter
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-mongodb-exporter
-spec:
-  ports:
-    - port: 9216
-      targetPort: metrics
-      protocol: TCP
-      name: metrics
-  selector:
-    app: ${{ defaults.app_name }}-mongodb-exporter
-  type: ClusterIP
----
-# Source: prometheus-mongodb-exporter/templates/deployment.yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: ${{ defaults.app_name }}-mongodb-exporter
-  labels:
-    app: ${{ defaults.app_name }}-mongodb-exporter
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-mongodb-exporter
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: ${{ defaults.app_name }}-mongodb-exporter
-  template:
-    metadata:
-      labels:
-        app: ${{ defaults.app_name }}-mongodb-exporter
-    spec:
-      serviceAccountName: ${{ defaults.app_name }}-sa
-      containers:
-        - name: ${{ defaults.app_name }}-mongodb-exporter
-          env:
-            - name: MONGO_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-mongo-conn-credential
-                  key: password
-            - name: MONGODB_URI
-              value: "mongodb://root:$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017/sys_db?authSource=admin&w=majority"
-          image: "percona/mongodb_exporter:0.31.0"
-          imagePullPolicy: IfNotPresent
-          args:
-            - --web.listen-address=:9216
-            - --collect-all
-          ports:
-            - name: metrics
-              containerPort: 9216
-              protocol: TCP
-          livenessProbe:
-            httpGet:
-              path: /
-              port: metrics
-            initialDelaySeconds: 10
-          readinessProbe:
-            httpGet:
-              path: /
-              port: metrics
-            initialDelaySeconds: 10
-          resources:
-            limits:
-              cpu: 200m
-              memory: 256Mi
-            requests:
-              cpu: 50m
-              memory: 128Mi
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - all
-            readOnlyRootFilesystem: true
-            runAsGroup: 10000
-            runAsNonRoot: true
-            runAsUser: 10000
-          volumeMounts: []
-      affinity: {}
-      imagePullSecrets: []
-      nodeSelector: {}
-      terminationGracePeriodSeconds: 30
-      tolerations: []
-      volumes: []
----
-# Source: prometheus-mongodb-exporter/templates/servicemonitor.yaml
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  name: ${{ defaults.app_name }}-mongodb-exporter
-spec:
-  endpoints:
-    - port: metrics
-      interval: 30s
-      scrapeTimeout: 10s
-  namespaceSelector:
-    matchNames:
-      - ${{ SEALOS_NAMESPACE }}
-  selector:
-    matchLabels:
-      cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-mongodb-exporter
 ---
 # minio prometheus probe
 apiVersion: monitoring.coreos.com/v1
@@ -1411,122 +1328,6 @@ spec:
     - hosts:
         - oss-${{ inputs.domain }}.${{ SEALOS_CLOUD_DOMAIN }}
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
-
----
-# mongo express
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: ${{ defaults.app_name }}-mongo-express
-  annotations:
-    originImageName: mongo-express
-    deploy.cloud.sealos.io/minReplicas: "1"
-    deploy.cloud.sealos.io/maxReplicas: "1"
-  labels:
-    app: ${{ defaults.app_name }}-mongo-express
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-mongo-express
-spec:
-  replicas: 1
-  revisionHistoryLimit: 1
-  selector:
-    matchLabels:
-      app: ${{ defaults.app_name }}-mongo-express
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 1
-      maxSurge: 0
-  template:
-    metadata:
-      labels:
-        app: ${{ defaults.app_name }}-mongo-express
-    spec:
-      containers:
-        - name: ${{ defaults.app_name }}-mongo-express
-          image: mongo-express
-          env:
-            - name: MONGO_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-mongo-conn-credential
-                  key: password
-            - name: ME_CONFIG_MONGODB_URL
-              value: >-
-                mongodb://root:$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017/sys_db?authSource=admin&w=majority
-            - name: ME_CONFIG_BASICAUTH_USERNAME
-              value: ${{ defaults.mongo_express}}
-            - name: ME_CONFIG_BASICAUTH_PASSWORD
-              value: ${{ defaults.mongo_express}}
-          resources:
-            limits:
-              cpu: 100m
-              memory: 128Mi
-            requests:
-              cpu: 100m
-              memory: 128Mi
-          ports:
-            - containerPort: 8081
-              name: http
-          imagePullPolicy: IfNotPresent
-          volumeMounts: []
-      volumes: []
-
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: ${{ defaults.app_name }}-mongo-express
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-mongo-express
-spec:
-  ports:
-    - port: 8081
-      targetPort: 8081
-      name: http
-  selector:
-    app: ${{ defaults.app_name }}-mongo-express
-
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: ${{ defaults.app_name }}-mongo-express
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-mongo-express
-    cloud.sealos.io/app-deploy-manager-domain: mongo-express-${{ inputs.domain }}
-  annotations:
-    kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/proxy-body-size: 32m
-    nginx.ingress.kubernetes.io/server-snippet: |
-      client_header_buffer_size 64k;
-      large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/backend-protocol: HTTP
-    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
-    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
-        expires 30d;
-        add_header Cache-Control "public";
-      }
-spec:
-  rules:
-    - host: mongo-express-${{ inputs.domain }}.${{ SEALOS_CLOUD_DOMAIN }}
-      http:
-        paths:
-          - backend:
-              service:
-                name: ${{ defaults.app_name }}-mongo-express
-                port:
-                  number: 8081
-            path: /
-            pathType: Prefix
-  tls:
-    - hosts:
-        - mongo-express-${{ inputs.domain }}.${{ SEALOS_CLOUD_DOMAIN }}
-      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
-
 ---
 # cert issuer
 apiVersion: cert-manager.io/v1
