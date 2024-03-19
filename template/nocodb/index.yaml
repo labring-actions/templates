@@ -1,26 +1,26 @@
 apiVersion: app.sealos.io/v1
 kind: Template
 metadata:
-  name: n8n
+  name: nocodb
 spec:
-  title: 'N8N'
-  url: 'https://n8n.io/'
-  gitRepo: 'https://github.com/n8n-io/n8n'
+  title: 'NocoDB'
+  url: 'https://nocodb.com/'
+  gitRepo: 'https://github.com/nocodb/nocodb'
   author: 'Sealos'
-  description: 'Free and source-available fair-code licensed workflow automation tool. Easily automate tasks across different services.'
-  readme: 'https://raw.githubusercontent.com/n8n-io/n8n/master/README.md'
-  icon: 'https://n8n.io/favicon.ico'
+  description: 'Turns any MySQL, PostgreSQL, SQL Server, SQLite & MariaDB into a smart spreadsheet.'
+  readme: 'https://raw.githubusercontent.com/nocodb/nocodb/develop/README.md'
+  icon: 'https://raw.githubusercontent.com/nocodb/nocodb/develop/packages/nc-gui/assets/img/brand/nocodb-logo.svg'
   templateType: inline
   categories:
-    - tool
+    - database
   defaults:
     app_host:
       # number or string..
       type: string
-      value: n8n-${{ random(8) }}
+      value: nocodb-${{ random(8) }}
     app_name:
       type: string
-      value: n8n-${{ random(8) }}
+      value: nocodb-${{ random(8) }}
 ---
 
 apiVersion: apps/v1
@@ -28,7 +28,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: n8nio/n8n:1.33.1
+    originImageName: nocodb/nocodb:0.204.5
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -48,50 +48,37 @@ spec:
         app: ${{ defaults.app_name }}
     spec:
       terminationGracePeriodSeconds: 10
-      initContainers:
-        - name: take-data-dir-ownership
-          image: alpine
-          command: ["/bin/sh", "-c", "chown 1000:1000 /data"]
-          imagePullPolicy: IfNotPresent
-          volumeMounts:
-            - name: vn-homevn-nodevn-vn-n8n
-              mountPath: /data
+      automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: n8nio/n8n:1.33.1
-          env:
-            - name: N8N_PORT
-              value: "5678"
-            - name: WEBHOOK_URL
-              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/
-            - name: QUEUE_HEALTH_CHECK_ACTIVE
-              value: true
+          image: nocodb/nocodb:0.204.5
           resources:
             requests:
-              cpu: 100m
-              memory: 250Mi
+              cpu: 200m
+              memory: 409Mi
+              ephemeral-storage: "400Mi"
             limits:
-              cpu: 1000m
-              memory: 2500Mi
+              cpu: 2000m
+              memory: 4096Mi
+              ephemeral-storage: "400Mi"
           ports:
             - name: http
               protocol: TCP
-              containerPort: 5678
+              containerPort: 8080
           imagePullPolicy: IfNotPresent
           volumeMounts:
-            - name: vn-homevn-nodevn-vn-n8n
-              mountPath: /home/node/.n8n
+            - name: vn-usrvn-appvn-data
+              mountPath: /usr/app/data
           livenessProbe:
-            httpGet:
-              path: /healthz
-              port: http
+            tcpSocket:
+              port: 8080
             initialDelaySeconds: 20
   volumeClaimTemplates:
     - metadata:
         annotations:
-          path: /home/node/.n8n
+          path: /usr/app/data
           value: '1'
-        name: vn-homevn-nodevn-vn-n8n
+        name: vn-usrvn-appvn-data
       spec:
         accessModes:
           - ReadWriteOnce
@@ -108,7 +95,7 @@ metadata:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 5678
+    - port: 8080
   selector:
     app: ${{ defaults.app_name }}
 ---
@@ -148,7 +135,7 @@ spec:
               service:
                 name: ${{ defaults.app_name }}
                 port:
-                  number: 5678
+                  number: 8080
   tls:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
@@ -165,7 +152,7 @@ spec:
   data:
     url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
   displayType: normal
-  icon: "https://n8n.io/favicon.ico"
+  icon: "https://raw.githubusercontent.com/nocodb/nocodb/develop/packages/nc-gui/assets/img/brand/nocodb-logo.svg"
   menuData:
     nameColor: text-black
   name: ${{ defaults.app_name }}
