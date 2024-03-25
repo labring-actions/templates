@@ -1,0 +1,300 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: influxdb
+spec:
+  title: 'influxdb'
+  author: 'sealos'
+  description: 'InfluxDB(TM) is an open source time-series database.'
+  readme: ''
+  icon: ''
+  templateType: inline
+  categories:
+    - tool
+  defaults:
+    app_host:
+      type: string
+      value: ${{ random(8) }}
+    app_name:
+      type: string
+      value: influxdb-${{ random(8) }}
+  inputs:
+    adminUserPassword:
+      description: 'admin user password'
+      type: string
+      default: 'adminUserPassw0rd'
+      required: true
+    adminUserToken:
+      description: 'admin user token'
+      type: string
+      default: 'adminUserT0ken'
+      required: true
+---
+# Source: influxdb/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app.kubernetes.io/instance: ${{ defaults.app_name }}
+    app.kubernetes.io/name: ${{ defaults.app_name }}
+    app.kubernetes.io/version: 2.7.5
+    app.kubernetes.io/component: ${{ defaults.app_name }}
+automountServiceAccountToken: false
+---
+# Source: influxdb/templates/secrets.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app.kubernetes.io/instance: ${{ defaults.app_name }}
+    app.kubernetes.io/name: ${{ defaults.app_name }}
+    app.kubernetes.io/version: 2.7.5
+type: Opaque
+data:
+  admin-user-password: ${{ inputs.adminUserPassword }}
+  admin-user-token: ${{ inputs.adminUserToken }}
+---
+# Source: influxdb/templates/pvc.yaml
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app.kubernetes.io/instance: ${{ defaults.app_name }}
+    app.kubernetes.io/name: ${{ defaults.app_name }}
+    app.kubernetes.io/version: 2.7.5
+    app.kubernetes.io/component: ${{ defaults.app_name }}
+spec:
+  accessModes:
+    - "ReadWriteOnce"
+  resources:
+    requests:
+      storage: "8Gi"
+---
+# Source: influxdb/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app.kubernetes.io/instance: ${{ defaults.app_name }}
+    app.kubernetes.io/name: ${{ defaults.app_name }}
+    app.kubernetes.io/version: 2.7.5
+    app.kubernetes.io/component: ${{ defaults.app_name }}
+spec:
+  type: ClusterIP
+  sessionAffinity: None
+  ports:
+    - port: 8086
+      targetPort: http
+      protocol: TCP
+      name: http
+      nodePort: null
+    - port: 8088
+      targetPort: rpc
+      protocol: TCP
+      name: rpc
+      nodePort: null
+  selector:
+    app.kubernetes.io/instance: ${{ defaults.app_name }}
+    app.kubernetes.io/name: ${{ defaults.app_name }}
+    app.kubernetes.io/component: ${{ defaults.app_name }}
+---
+# Source: influxdb/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app.kubernetes.io/instance: ${{ defaults.app_name }}
+    app.kubernetes.io/name: ${{ defaults.app_name }}
+    app.kubernetes.io/version: 2.7.5
+    app.kubernetes.io/component: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: ${{ defaults.app_name }}
+      app.kubernetes.io/name: ${{ defaults.app_name }}
+      app.kubernetes.io/component: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: ${{ defaults.app_name }}
+        app.kubernetes.io/name: ${{ defaults.app_name }}
+        app.kubernetes.io/version: 2.7.5
+        app.kubernetes.io/component: ${{ defaults.app_name }}
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/instance: ${{ defaults.app_name }}
+                    app.kubernetes.io/name: ${{ defaults.app_name }}
+                    app.kubernetes.io/component: ${{ defaults.app_name }}
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+      securityContext:
+        fsGroup: 1001
+        fsGroupChangePolicy: Always
+        supplementalGroups: []
+        sysctls: []
+      serviceAccountName: ${{ defaults.app_name }}
+      containers:
+        - name: influxdb
+          image: docker.io/bitnami/influxdb:2.7.5-debian-12-r13
+          imagePullPolicy: "IfNotPresent"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsGroup: 1001
+            runAsNonRoot: true
+            runAsUser: 1001
+            seLinuxOptions: {}
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: INFLUXDB_HTTP_AUTH_ENABLED
+              value: "true"
+            - name: INFLUXDB_CREATE_USER_TOKEN
+              value: "no"
+            - name: INFLUXDB_ADMIN_USER
+              value: "admin"
+            - name: INFLUXDB_ADMIN_USER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb
+                  key: admin-user-password
+            - name: INFLUXDB_ADMIN_USER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb
+                  key: admin-user-token
+            - name: INFLUXDB_ADMIN_BUCKET
+              value: "primary"
+            - name: INFLUXDB_ADMIN_ORG
+              value: "primary"
+          envFrom:
+          ports:
+            - name: http
+              containerPort: 8086
+              protocol: TCP
+            - name: rpc
+              containerPort: 8088
+              protocol: TCP
+          livenessProbe:
+            failureThreshold: 6
+            initialDelaySeconds: 180
+            periodSeconds: 45
+            successThreshold: 1
+            timeoutSeconds: 30
+            exec:
+              command:
+                - bash
+                - -c
+                - |
+                  . /opt/bitnami/scripts/libinfluxdb.sh
+
+                  influxdb_env
+                  export INFLUX_USERNAME="$INFLUXDB_ADMIN_USER"
+                  export INFLUX_PASSWORD="$INFLUXDB_ADMIN_USER_PASSWORD"
+
+                  timeout 29s influx ping --host http://$POD_IP:8086
+          readinessProbe:
+            failureThreshold: 6
+            initialDelaySeconds: 60
+            periodSeconds: 45
+            successThreshold: 1
+            timeoutSeconds: 30
+            exec:
+              command:
+                - bash
+                - -c
+                - |
+                  . /opt/bitnami/scripts/libinfluxdb.sh
+
+                  influxdb_env
+                  export INFLUX_USERNAME="$INFLUXDB_ADMIN_USER"
+                  export INFLUX_PASSWORD="$INFLUXDB_ADMIN_USER_PASSWORD"
+
+                  timeout 29s influx ping --host http://$POD_IP:8086
+          resources:
+            limits:
+              cpu: 1000m
+              ephemeral-storage: 1024Mi
+              memory: 1024Mi
+            requests:
+              cpu: 100m
+              ephemeral-storage: 50Mi
+              memory: 128Mi
+          volumeMounts:
+            - name: empty-dir
+              mountPath: /tmp
+              subPath: tmp-dir
+            - name: empty-dir
+              mountPath: /opt/bitnami/influxdb/etc
+              subPath: app-conf-dir
+            - name: data
+              mountPath: /bitnami/influxdb
+      volumes:
+        - name: empty-dir
+          emptyDir: {}
+        - name: data
+          persistentVolumeClaim:
+            claimName: influxdb
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /()(.*)
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  name: http
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_Cert_Secret_Name }}
