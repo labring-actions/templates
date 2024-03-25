@@ -6,7 +6,7 @@ spec:
   title: 'influxdb'
   author: 'sealos'
   description: 'Real-time insights from any time series data with a single, purpose-built database. Run at any scale in any environment in the cloud, on-premises, or at the edge.'
-  readme: ''
+  readme: '默认admin用户：admin，默认admin用户密码：passw0rd'
   icon: 'https://avatars.githubusercontent.com/u/5713248?s=200&v=4'
   templateType: inline
   categories:
@@ -19,18 +19,48 @@ spec:
       type: string
       value: influxdb-${{ random(8) }}
   inputs:
-    adminUserPassword:
-      description: 'admin user password'
-      type: string
-      default: 'adminUserPassw0rd'
-      required: true
-    adminUserToken:
-      description: 'admin user token'
-      type: string
-      default: 'adminUserT0ken'
-      required: true
+#    adminUserPassword:
+#      description: 'admin user password'
+#      type: string
+#      default: 'adminUserPassw0rd'
+#      required: true
+#    adminUserToken:
+#      description: 'admin user token'
+#      type: string
+#      default: 'adminUserT0ken'
+#      required: true
 ---
-# Source: influxdb/templates/serviceaccount.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app.kubernetes.io/instance: ${{ defaults.app_name }}
+    app.kubernetes.io/name: ${{ defaults.app_name }}
+    app.kubernetes.io/version: 2.7.5
+type: Opaque
+data:
+  admin-user-password: cGFzc3cwcmQ=
+  admin-user-token: dDBrZW4=
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - port: 8086
+      targetPort: 8086
+      name: http
+    - port: 8088
+      targetPort: 8088
+      name: rpc
+  selector:
+    app: ${{ defaults.app_name }}
+---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -43,98 +73,34 @@ metadata:
     app.kubernetes.io/component: ${{ defaults.app_name }}
 automountServiceAccountToken: false
 ---
-# Source: influxdb/templates/secrets.yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: ${{ defaults.app_name }}
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-    app.kubernetes.io/instance: ${{ defaults.app_name }}
-    app.kubernetes.io/name: ${{ defaults.app_name }}
-    app.kubernetes.io/version: 2.7.5
-type: Opaque
-data:
-  admin-user-password: ${{ base64(inputs.adminUserPassword) }}
-  admin-user-token: ${{ base64(inputs.adminUserToken)}}
----
-# Source: influxdb/templates/pvc.yaml
-kind: PersistentVolumeClaim
-apiVersion: v1
-metadata:
-  name: ${{ defaults.app_name }}
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-    app.kubernetes.io/instance: ${{ defaults.app_name }}
-    app.kubernetes.io/name: ${{ defaults.app_name }}
-    app.kubernetes.io/version: 2.7.5
-    app.kubernetes.io/component: ${{ defaults.app_name }}
-spec:
-  accessModes:
-    - "ReadWriteOnce"
-  resources:
-    requests:
-      storage: "8Gi"
----
-# Source: influxdb/templates/service.yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: ${{ defaults.app_name }}
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-    app.kubernetes.io/instance: ${{ defaults.app_name }}
-    app.kubernetes.io/name: ${{ defaults.app_name }}
-    app.kubernetes.io/version: 2.7.5
-    app.kubernetes.io/component: ${{ defaults.app_name }}
-spec:
-  type: ClusterIP
-  sessionAffinity: None
-  ports:
-    - port: 8086
-      targetPort: http
-      protocol: TCP
-      name: http
-      nodePort: null
-    - port: 8088
-      targetPort: rpc
-      protocol: TCP
-      name: rpc
-      nodePort: null
-  selector:
-    app.kubernetes.io/instance: ${{ defaults.app_name }}
-    app.kubernetes.io/name: ${{ defaults.app_name }}
-    app.kubernetes.io/component: ${{ defaults.app_name }}
----
-# Source: influxdb/templates/deployment.yaml
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: nginx
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+    deploy.cloud.sealos.io/resize: 5Gi
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-    app.kubernetes.io/instance: ${{ defaults.app_name }}
-    app.kubernetes.io/name: ${{ defaults.app_name }}
-    app.kubernetes.io/version: 2.7.5
-    app.kubernetes.io/component: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
 spec:
   replicas: 1
-  strategy:
-    type: RollingUpdate
+  revisionHistoryLimit: 1
   selector:
     matchLabels:
-      cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-      app.kubernetes.io/instance: ${{ defaults.app_name }}
-      app.kubernetes.io/name: ${{ defaults.app_name }}
-      app.kubernetes.io/component: ${{ defaults.app_name }}
+      app: ${{ defaults.app_name }}
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 50%
+  minReadySeconds: 10
+  serviceName: ${{ defaults.app_name }}
   template:
     metadata:
       labels:
-        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-        app.kubernetes.io/instance: ${{ defaults.app_name }}
-        app.kubernetes.io/name: ${{ defaults.app_name }}
-        app.kubernetes.io/version: 2.7.5
-        app.kubernetes.io/component: ${{ defaults.app_name }}
+        app: ${{ defaults.app_name }}
     spec:
       affinity:
         podAntiAffinity:
@@ -161,7 +127,7 @@ spec:
             allowPrivilegeEscalation: false
             capabilities:
               drop:
-              - ALL
+                - ALL
             privileged: false
             readOnlyRootFilesystem: true
             runAsGroup: 1001
@@ -186,12 +152,12 @@ spec:
             - name: INFLUXDB_ADMIN_USER_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: influxdb
+                  name: ${{ defaults.app_name }}
                   key: admin-user-password
             - name: INFLUXDB_ADMIN_USER_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: influxdb
+                  name: ${{ defaults.app_name }}
                   key: admin-user-token
             - name: INFLUXDB_ADMIN_BUCKET
               value: "primary"
@@ -217,11 +183,9 @@ spec:
                 - -c
                 - |
                   . /opt/bitnami/scripts/libinfluxdb.sh
-
                   influxdb_env
                   export INFLUX_USERNAME="$INFLUXDB_ADMIN_USER"
                   export INFLUX_PASSWORD="$INFLUXDB_ADMIN_USER_PASSWORD"
-
                   timeout 29s influx ping --host http://$POD_IP:8086
           readinessProbe:
             failureThreshold: 6
@@ -235,11 +199,9 @@ spec:
                 - -c
                 - |
                   . /opt/bitnami/scripts/libinfluxdb.sh
-
                   influxdb_env
                   export INFLUX_USERNAME="$INFLUXDB_ADMIN_USER"
                   export INFLUX_PASSWORD="$INFLUXDB_ADMIN_USER_PASSWORD"
-
                   timeout 29s influx ping --host http://$POD_IP:8086
           resources:
             limits:
@@ -257,50 +219,55 @@ spec:
             - name: empty-dir
               mountPath: /opt/bitnami/influxdb/etc
               subPath: app-conf-dir
-            - name: data
+            - name: vn-bitnamivn-influxdb
               mountPath: /bitnami/influxdb
       volumes:
         - name: empty-dir
           emptyDir: {}
-        - name: data
-          persistentVolumeClaim:
-            claimName: influxdb
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /bitnami/influxdb
+          value: '5'
+        name: vn-bitnamivn-influxdb
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 5Gi
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: ${{ defaults.app_name }}
+  name: network-eadkuyljeayo
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
     nginx.ingress.kubernetes.io/server-snippet: |
       client_header_buffer_size 64k;
       large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
-    nginx.ingress.kubernetes.io/backend-protocol: HTTP
-    nginx.ingress.kubernetes.io/rewrite-target: /$2
-    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
-    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
-        expires 30d;
-        add_header Cache-Control "public";
-      }
 spec:
   rules:
     - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       http:
         paths:
           - pathType: Prefix
-            path: /()(.*)
+            path: /
             backend:
               service:
                 name: ${{ defaults.app_name }}
                 port:
-                  name: http
+                  number: 8086
   tls:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
