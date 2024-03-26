@@ -4,7 +4,7 @@ metadata:
   name: fastgpt
 spec:
   title: 'FastGPT'
-  url: 'https://ai.fastgpt.in/'
+  url: 'https://fastgpt.in/'
   gitRepo: 'https://github.com/labring/FastGPT'
   author: 'Sealos'
   description: 'FastGPT 是一个基于 LLM 大语言模型的知识库问答系统，提供开箱即用的数据处理、模型调用等能力。同时可以通过 Flow 可视化进行工作流编排，从而实现复杂的问答场景！'
@@ -33,12 +33,12 @@ spec:
       default: ''
       required: true
     base_url:
-      description: 'API 基础地址，官方 Key 不需要改'
+      description: 'API 基础地址，官方 Key 不需要改(如果需要部署OneAPI，可以先部署OneAPI再直接把参数填写过来即可)'
       type: string
       default: 'https://api.openai.com/v1'
       required: true
     api_key:
-      description: 'openai api key'
+      description: 'API 密钥'
       type: string
       default: ''
       required: true
@@ -68,13 +68,14 @@ metadata:
 ---
 
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:latest
+    originImageName: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.7
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
+    deploy.cloud.sealos.io/resize: 1Gi
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
@@ -84,14 +85,22 @@ spec:
   selector:
     matchLabels:
       app: ${{ defaults.app_name }}
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 50%
+  minReadySeconds: 10
+  serviceName: ${{ defaults.app_name }}
   template:
     metadata:
       labels:
         app: ${{ defaults.app_name }}
     spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 10
       containers:
         - name: ${{ defaults.app_name }}
-          image: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:latest
+          image: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.7
           env:
             - name: MONGO_PASSWORD
               valueFrom:
@@ -146,6 +155,18 @@ spec:
             items:
               - key: vn-appvn-datavn-configvn-json
                 path: ./app/data/config.json
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /app/tmp
+          value: '1'
+        name: vn-appvn-tmp
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
 
 ---
 apiVersion: v1
@@ -163,38 +184,23 @@ data:
       },
       "llmModels": [
         {
-          "model": "gpt-3.5-turbo-1106",
+          "model": "gpt-3.5-turbo",
           "name": "gpt-3.5-turbo",
           "maxContext": 16000,
+          "avatar": "/imgs/model/openai.svg",
           "maxResponse": 4000,
           "quoteMaxToken": 13000,
           "maxTemperature": 1.2,
-          "inputPrice": 0,
-          "outputPrice": 0,
-          "censor": false,
-          "vision": false,
-          "datasetProcess": false,
-          "toolChoice": true,
-          "functionCall": false,
-          "customCQPrompt": "",
-          "customExtractPrompt": "",
-          "defaultSystemChatPrompt": "",
-          "defaultConfig": {}
-        },
-        {
-          "model": "gpt-3.5-turbo-16k",
-          "name": "gpt-3.5-turbo-16k",
-          "maxContext": 16000,
-          "maxResponse": 16000,
-          "quoteMaxToken": 13000,
-          "maxTemperature": 1.2,
-          "inputPrice": 0,
-          "outputPrice": 0,
+          "charsPointsPrice": 0,
           "censor": false,
           "vision": false,
           "datasetProcess": true,
+          "usedInClassify": true,
+          "usedInExtractFields": true,
+          "usedInToolCall": true,
+          "usedInQueryExtension": true,
           "toolChoice": true,
-          "functionCall": false,
+          "functionCall": true,
           "customCQPrompt": "",
           "customExtractPrompt": "",
           "defaultSystemChatPrompt": "",
@@ -203,15 +209,19 @@ data:
         {
           "model": "gpt-4-0125-preview",
           "name": "gpt-4-turbo",
+          "avatar": "/imgs/model/openai.svg",
           "maxContext": 125000,
           "maxResponse": 4000,
           "quoteMaxToken": 100000,
           "maxTemperature": 1.2,
-          "inputPrice": 0,
-          "outputPrice": 0,
+          "charsPointsPrice": 0,
           "censor": false,
           "vision": false,
           "datasetProcess": false,
+          "usedInClassify": true,
+          "usedInExtractFields": true,
+          "usedInToolCall": true,
+          "usedInQueryExtension": true,
           "toolChoice": true,
           "functionCall": false,
           "customCQPrompt": "",
@@ -222,15 +232,19 @@ data:
         {
           "model": "gpt-4-vision-preview",
           "name": "gpt-4-vision",
+          "avatar": "/imgs/model/openai.svg",
           "maxContext": 128000,
           "maxResponse": 4000,
           "quoteMaxToken": 100000,
           "maxTemperature": 1.2,
-          "inputPrice": 0,
-          "outputPrice": 0,
+          "charsPointsPrice": 0,
           "censor": false,
-          "vision": false,
+          "vision": true,
           "datasetProcess": false,
+          "usedInClassify": false,
+          "usedInExtractFields": false,
+          "usedInToolCall": false,
+          "usedInQueryExtension": false,
           "toolChoice": true,
           "functionCall": false,
           "customCQPrompt": "",
@@ -243,8 +257,8 @@ data:
         {
           "model": "text-embedding-ada-002",
           "name": "Embedding-2",
-          "inputPrice": 0,
-          "outputPrice": 0,
+          "avatar": "/imgs/model/openai.svg",
+          "charsPointsPrice": 0,
           "defaultToken": 700,
           "maxToken": 3000,
           "weight": 100
@@ -255,23 +269,45 @@ data:
         {
           "model": "tts-1",
           "name": "OpenAI TTS1",
-          "inputPrice": 0,
-          "outputPrice": 0,
+          "charsPointsPrice": 0,
           "voices": [
-            { "label": "Alloy", "value": "alloy", "bufferId": "openai-Alloy" },
-            { "label": "Echo", "value": "echo", "bufferId": "openai-Echo" },
-            { "label": "Fable", "value": "fable", "bufferId": "openai-Fable" },
-            { "label": "Onyx", "value": "onyx", "bufferId": "openai-Onyx" },
-            { "label": "Nova", "value": "nova", "bufferId": "openai-Nova" },
-            { "label": "Shimmer", "value": "shimmer", "bufferId": "openai-Shimmer" }
+            {
+              "label": "Alloy",
+              "value": "alloy",
+              "bufferId": "openai-Alloy"
+            },
+            {
+              "label": "Echo",
+              "value": "echo",
+              "bufferId": "openai-Echo"
+            },
+            {
+              "label": "Fable",
+              "value": "fable",
+              "bufferId": "openai-Fable"
+            },
+            {
+              "label": "Onyx",
+              "value": "onyx",
+              "bufferId": "openai-Onyx"
+            },
+            {
+              "label": "Nova",
+              "value": "nova",
+              "bufferId": "openai-Nova"
+            },
+            {
+              "label": "Shimmer",
+              "value": "shimmer",
+              "bufferId": "openai-Shimmer"
+            }
           ]
         }
       ],
       "whisperModel": {
         "model": "whisper-1",
         "name": "Whisper1",
-        "inputPrice": 0,
-        "outputPrice": 0
+        "charsPointsPrice": 0
       }
     }
 
