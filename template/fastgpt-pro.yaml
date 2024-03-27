@@ -36,12 +36,12 @@ spec:
       default: ''
       required: true
     base_url:
-      description: 'API 基础地址，官方 Key 不需要改(如果需要部署OneAPI，可以先部署OneAPI再直接把参数填写过来即可)'
+      description: 'API 基础地址，官方 Key 不需要改'
       type: string
       default: 'https://api.openai.com/v1'
       required: true
     api_key:
-      description: 'API 密钥'
+      description: 'OpenAI api key'
       type: string
       default: ''
       required: true
@@ -76,14 +76,13 @@ metadata:
 ---
 
 apiVersion: apps/v1
-kind: StatefulSet
+kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.7
+    originImageName: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:latest
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
-    deploy.cloud.sealos.io/resize: 1Gi
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
@@ -93,22 +92,19 @@ spec:
   selector:
     matchLabels:
       app: ${{ defaults.app_name }}
-  updateStrategy:
+  strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxUnavailable: 50%
-  minReadySeconds: 10
-  serviceName: ${{ defaults.app_name }}
+      maxUnavailable: 0
+      maxSurge: 1
   template:
     metadata:
       labels:
         app: ${{ defaults.app_name }}
     spec:
-      automountServiceAccountToken: false
-      terminationGracePeriodSeconds: 10
       containers:
         - name: ${{ defaults.app_name }}
-          image: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.7
+          image: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:latest
           env:
             - name: MONGO_PASSWORD
               valueFrom:
@@ -127,11 +123,11 @@ spec:
             - name: CHAT_API_KEY
               value: ${{ inputs.api_key }}
             - name: DB_MAX_LINK
-              value: '100'
+              value: '30'
             - name: TOKEN_KEY
               value: ${{ defaults.session_secret }}
             - name: ROOT_KEY
-              value: ${{ defaults.root_key }}}
+              value: ${{ defaults.root_key }}
             - name: FILE_TOKEN_KEY
               value: filetoken
             - name: MONGODB_URI
@@ -158,29 +154,8 @@ spec:
           ports:
             - containerPort: 3000
           imagePullPolicy: Always
-          volumeMounts:
-            - name: vn-appvn-datavn-configvn-json
-              mountPath: /app/data/config.json
-              subPath: ./app/data/config.json
-      volumes:
-        - name: vn-appvn-datavn-configvn-json
-          configMap:
-            name: ${{ defaults.app_name }}
-            items:
-              - key: vn-appvn-datavn-configvn-json
-                path: ./app/data/config.json
-  volumeClaimTemplates:
-    - metadata:
-        annotations:
-          path: /app/tmp
-          value: '1'
-        name: vn-appvn-tmp
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 1Gi
+          volumeMounts: []
+      volumes: []
 
 ---
 apiVersion: v1
