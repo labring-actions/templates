@@ -125,9 +125,11 @@ inputs:
 - `${{ SEALOS_NAMESPACE }}` Sealos 用户部署的命名空间。
 - `${{ SEALOS_CLOUD_DOMAIN }}` Sealos 集群的域名后缀。
 - `${{ SEALOS_CERT_SECRET_NAME }}` Sealos 用于存储 TLS 证书的 secret 名称。
+- `${{ SEALOS_SERVICE_ACCOUNT }}` Sealos 用户的 SA。
 
 #### 内置系统函数
 - `${{ random(length) }}` 生成长度为 `length` 的随机字符串。
+- `${{ base64(string) }}` 将字符串 `string` 编码成 base64 格式。
 - TODO: `${{ if() }}` `${{ endif() }}` 条件渲染。
 
 ## 第二部分：`应用程序资源文件`
