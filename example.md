@@ -127,9 +127,11 @@ inputs:
 - `${{ SEALOS_NAMESPACE }}` The namespace where Sealos user is deployed.
 - `${{ SEALOS_CLOUD_DOMAIN }}` The domain suffix of the Sealos cluster.
 - `${{ SEALOS_CERT_SECRET_NAME }}` The name of the secret that Sealos uses to store the tls certificate.
+- `${{ SEALOS_SERVICE_ACCOUNT }}` Sealos user's SA.
 
 #### Built in system functions
 - `${{ random(length) }}` generate a random string of length `length`.
+- `${{ base64(string) }}` encode the string `string` into base64 format.
 - TODO: `${{ if() }}` `${{ endif() }}` Conditional rendering.
 
 ## Part Two: `Application Resource File(s)`
