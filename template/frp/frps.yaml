@@ -1,0 +1,207 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: ${{ defaults.app_name }}
+spec:
+  title: frps
+  url: https://gofrp.org/zh-cn/                          
+  gitRepo: https://github.com/stilleshan/frps
+  author: 白夜
+  description: frp 服务端
+  readme: https://github.com/stilleshan/frps/blob/master/README.md
+  icon: https://raw.githubusercontent.com/fatedier/frp/dev/web/frpc/public/favicon.ico
+  templateType: inline
+  defaults:
+    admin_host:
+      type: string
+      value: ${{ random(8) }}
+    port1_host:
+      type: string
+      value: ${{ random(8) }}
+    app_name:
+      type: string
+      value: frps-${{ random(4) }}
+  inputs:
+    token:
+      description: '连接密钥'
+      type: string
+      default: 'sealos2023'
+      required: true
+    admin_password:
+      description: '管理员密码'
+      type: string
+      default: 'sealos2023'
+      required: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - port: 7500
+      name: ${{ defaults.app_name }}-admin
+    - port: 7000
+      name: ${{ defaults.app_name }}-port1
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+data:
+  vn-frpvn-frpsvn-toml: |-
+    bindAddr = "0.0.0.0"
+    bindPort = 7000
+    transport.tls.force = false
+    transport.maxPoolCount = 100
+    auth.method = "token"
+    auth.token = "${{ inputs.token }}"
+    kcpBindPort = 7000
+    webServer.addr = "0.0.0.0"
+    webServer.port = 7500
+    webServer.user = "admin"
+    webServer.password = "${{ inputs.admin_password }}"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: stilleshan/frps:latest
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+    deploy.cloud.sealos.io/resize: 0Gi
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: stilleshan/frps:latest
+          env: []
+          resources:
+            requests:
+              cpu: 10m
+              memory: 6Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          ports:
+            - containerPort: 7500
+              name: ${{ defaults.app_name }}-admin
+            - containerPort: 7000
+              name: ${{ defaults.app_name }}-port1
+          imagePullPolicy: Always
+          volumeMounts:
+            - name: vn-frpvn-frpsvn-toml
+              mountPath: /frp/frps.toml
+              subPath: ./frp/frps.toml
+      volumes:
+        - name: vn-frpvn-frpsvn-toml
+          configMap:
+            name:  ${{ defaults.app_name }}
+            items:
+              - key: vn-frpvn-frpsvn-toml
+                path: ./frp/frps.toml
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-admin
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.admin_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.admin_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /()(.*)
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 7500
+  tls:
+    - hosts:
+        - ${{ defaults.admin_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-port1
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.port1_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.port1_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /()(.*)
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 7000
+  tls:
+    - hosts:
+        - ${{ defaults.port1_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
