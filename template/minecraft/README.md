@@ -12,11 +12,11 @@
 
 跳转进来之后，点击右上角的「部署应用」开始部署，部署完成后，直接点击应用的「详情」进入该应用的详情页面。
 
-![](https://cdn.jsdelivr.us/gh/yangchuansheng/imghosting-test@main/uPic/2024-03-02-21-03-IPhnsg.png)
+![](https://cdn.jsdelivr.net/gh/yangchuansheng/imghosting-test@main/uPic/2024-03-02-21-03-IPhnsg.png)
 
 等待应用变成 Running 状态，然后点击日志按钮查看日志，只要出现了下面的日志，便是启动成功了：
 
-![](https://cdn.jsdelivr.us/gh/yangchuansheng/imghosting-test@main/uPic/2024-03-02-21-05-ovzT6f.png)
+![](https://cdn.jsdelivr.net/gh/yangchuansheng/imghosting-test@main/uPic/2024-03-02-21-05-ovzT6f.png)
 
 启动成功后，你可以关闭或者最小化「应用管理」App，然后回到「模板市场」的 minecraft 应用界面，拉到最下面的「Others」，你会看到有一个类型叫「Service」的资源，它的描述部分有一个字段是这样写的：`25565:31483/TCP`。25565 后面的端口就是公网端口，比如这里的公网端口就是 31483。
 

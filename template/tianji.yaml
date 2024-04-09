@@ -1,44 +1,48 @@
 apiVersion: app.sealos.io/v1
 kind: Template
 metadata:
-  name: bytebase
+  name: tianji
 spec:
-  title: 'Bytebase'
-  url: 'https://bytebase.com/'
-  gitRepo: 'https://github.com/bytebase/bytebase'
-  author: 'Sealos'
-  description: 'Bytebase is GitLab/GitHub for Database DevOps, built for developers, DBAs and platform teams.'
-  readme: 'https://raw.githubusercontent.com/bytebase/bytebase/main/README.md'
-  icon: 'https://raw.githubusercontent.com/bytebase/bytebase/main/frontend/src/assets/logo-icon.svg'
+  title: 'Tianji'
+  url: 'https://tianji.msgbyte.com/'
+  gitRepo: 'https://github.com/msgbyte/tianji'
+  author: 'moonrailgun'
+  description: 'Tianji: Insight into everything, Website Analytics + Uptime Monitor + Server Status. not only another GA alternatives'
+  readme: 'https://raw.githubusercontent.com/msgbyte/tianji/master/README.md'
+  icon: 'https://tianji.msgbyte.com/img/logo.svg'
   templateType: inline
-  categories:
-    - database
   defaults:
+    app_host:
+      # number or string..
+      type: string
+      value: tianji-${{ random(8) }}
     app_name:
       type: string
-      value: bytebase-${{ random(8) }}
-    app_host:
+      value: tianji-${{ random(8) }}
+  inputs:
+    JWT_SECRET:
+      description: 'replace me with a random string'
       type: string
-      value: ${{ random(8) }}
+      default: 'replace-me-with-a-random-string'
+      required: true
+    ALLOW_REGISTER:
+      description: 'whether allow register account'
+      type: string
+      default: "false"
+      required: false
+    ALLOW_OPENAPI:
+      description: 'whether allow open openapi'
+      type: string
+      default: "true"
+      required: false
 
 ---
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
-    app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-pg
-
----
-
 apiVersion: apps/v1
-kind: StatefulSet
+kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: bytebase/bytebase:2.12.0
+    originImageName: moonrailgun/tianji
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -47,71 +51,50 @@ metadata:
 spec:
   replicas: 1
   revisionHistoryLimit: 1
-  minReadySeconds: 10
-  serviceName: ${{ defaults.app_name }}
   selector:
     matchLabels:
       app: ${{ defaults.app_name }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
   template:
     metadata:
       labels:
         app: ${{ defaults.app_name }}
     spec:
-      terminationGracePeriodSeconds: 10
-      automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: bytebase/bytebase:2.12.0
+          image: moonrailgun/tianji
           env:
             - name: PG_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
-            - name: PG_URL
-              value: >-
-                postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432/postgres
+            - name: DATABASE_URL
+              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432/tianji
+            - name: JWT_SECRET
+              value: ${{ inputs.JWT_SECRET }}
+            - name: ALLOW_REGISTER
+              value: ${{ inputs.ALLOW_REGISTER }}
+            - name: ALLOW_OPENAPI
+              value: ${{ inputs.ALLOW_OPENAPI }}
           resources:
             requests:
-              cpu: 50m
+              cpu: 100m
               memory: 102Mi
             limits:
-              cpu: 500m
-              memory: 1024Mi
+              cpu: 200m
+              memory: 512Mi
           command: []
-          args:
-            - --data
-            - /var/opt/bytebase
-            - --external-url
-            - https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
-            - --port
-            - '8080'
+          args: []
           ports:
-            - containerPort: 8080
-          imagePullPolicy: Always
-          volumeMounts:
-            - name: vn-varvn-optvn-bytebase
-              mountPath: /var/opt/bytebase
-          livenessProbe:
-            httpGet:
-              path: /healthz
-              port: 8080
-            initialDelaySeconds: 300
-            periodSeconds: 300
-            timeoutSeconds: 300
-  volumeClaimTemplates:
-    - metadata:
-        annotations:
-          path: /var/opt/bytebase
-          value: '1'
-        name: vn-varvn-optvn-bytebase
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 1Gi
-
+            - containerPort: 12345
+          imagePullPolicy: IfNotPresent
+          volumeMounts: []
+      volumes: []
 ---
 apiVersion: v1
 kind: Service
@@ -121,10 +104,9 @@ metadata:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 8080
+    - port: 12345
   selector:
     app: ${{ defaults.app_name }}
-
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -135,15 +117,17 @@ metadata:
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
     kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/proxy-body-size: 1g
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
     nginx.ingress.kubernetes.io/server-snippet: |
       client_header_buffer_size 64k;
       large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
     nginx.ingress.kubernetes.io/rewrite-target: /$2
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
     nginx.ingress.kubernetes.io/configuration-snippet: |
       if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
         expires 30d;
@@ -160,12 +144,11 @@ spec:
               service:
                 name: ${{ defaults.app_name }}
                 port:
-                  number: 8080
+                  number: 12345
   tls:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
-
 ---
 apiVersion: apps.kubeblocks.io/v1alpha1
 kind: Cluster
@@ -193,11 +176,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 500m
-          memory: 512Mi
+          cpu: 1000m
+          memory: 1024Mi
         requests:
-          cpu: 50m
-          memory: 51Mi
+          cpu: 100m
+          memory: 102Mi
       serviceAccountName: ${{ defaults.app_name }}-pg
       switchPolicy:
         type: Noop
@@ -208,13 +191,22 @@ spec:
               - ReadWriteOnce
             resources:
               requests:
-                storage: 1Gi
+                storage: 5Gi
             storageClassName: openebs-backup
   terminationPolicy: Delete
   tolerations: []
 
 ---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
 
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -264,30 +256,6 @@ rules:
       - patch
       - update
       - watch
-  - apiGroups:
-      - dataprotection.kubeblocks.io
-    resources:
-      - backups
-    verbs:
-      - create
-      - get
-      - list
-      - patch
-      - update
-      - watch
-      - delete
-  - apiGroups:
-      - dataprotection.kubeblocks.io
-    resources:
-      - backups/status
-    verbs:
-      - create
-      - get
-      - list
-      - patch
-      - update
-      - watch
-      - delete
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -308,6 +276,35 @@ subjects:
     namespace: ${{ SEALOS_NAMESPACE }}
 
 ---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-init
+spec:
+  completions: 1
+  template:
+    spec:
+      containers:
+        - name: pgsql-init
+          image: senzing/postgresql-client:latest
+          env:
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until psql ${DATABASE_URL} -c 'CREATE DATABASE tianji;' &>/dev/null; do sleep 1; done
+      restartPolicy: Never
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+
+---
 apiVersion: app.sealos.io/v1
 kind: App
 metadata:
@@ -318,7 +315,7 @@ spec:
   data:
     url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
   displayType: normal
-  icon: "https://raw.githubusercontent.com/bytebase/bytebase/main/frontend/src/assets/logo-icon.svg"
+  icon: "https://tianji.msgbyte.com/img/logo.svg"
   menuData:
     nameColor: text-black
   name: ${{ defaults.app_name }}

@@ -1,34 +1,34 @@
 apiVersion: app.sealos.io/v1
 kind: Template
 metadata:
-  name: appsmith
+  name: n8n
 spec:
-  title: 'Appsmith'
-  url: 'https://www.appsmith.com/'
-  gitRepo: 'https://github.com/appsmithorg/appsmith'
+  title: 'N8N'
+  url: 'https://n8n.io/'
+  gitRepo: 'https://github.com/n8n-io/n8n'
   author: 'Sealos'
-  description: 'Appsmith is an open-source platform to build, deploy, and maintain internal apps. You can build anything from simple CRUD apps, admin panels, dashboards to custom business apps and complicated multi-step workflows.'
-  readme: 'https://raw.githubusercontent.com/appsmithorg/appsmith/release/README.md'
-  icon: 'https://raw.githubusercontent.com/appsmithorg/appsmith/release/static/logo.png'
+  description: 'Free and source-available fair-code licensed workflow automation tool. Easily automate tasks across different services.'
+  readme: 'https://raw.githubusercontent.com/n8n-io/n8n/master/README.md'
+  icon: 'https://n8n.io/favicon.ico'
   templateType: inline
   categories:
-    - low-code
+    - tool
   defaults:
     app_host:
       # number or string..
       type: string
-      value: ${{ random(8) }}
+      value: n8n-${{ random(8) }}
     app_name:
       type: string
-      value: appsmith-${{ random(8) }}
-  inputs:
+      value: n8n-${{ random(8) }}
 ---
+
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: appsmith/appsmith-ce
+    originImageName: n8nio/n8n:1.33.1
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -49,32 +49,50 @@ spec:
     spec:
       terminationGracePeriodSeconds: 10
       automountServiceAccountToken: false
+      initContainers:
+        - name: take-data-dir-ownership
+          image: alpine
+          command: ["/bin/sh", "-c", "chown 1000:1000 /data"]
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: vn-homevn-nodevn-vn-n8n
+              mountPath: /data
       containers:
         - name: ${{ defaults.app_name }}
-          image: appsmith/appsmith-ce
-          env: []
+          image: n8nio/n8n:1.33.1
+          env:
+            - name: N8N_PORT
+              value: "5678"
+            - name: WEBHOOK_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/
+            - name: QUEUE_HEALTH_CHECK_ACTIVE
+              value: true
           resources:
             requests:
               cpu: 100m
-              memory: 102Mi
+              memory: 250Mi
             limits:
               cpu: 1000m
-              memory: 1024Mi
-          command: []
-          args: []
+              memory: 2500Mi
           ports:
-            - containerPort: 80
-          imagePullPolicy: Always
+            - name: http
+              protocol: TCP
+              containerPort: 5678
+          imagePullPolicy: IfNotPresent
           volumeMounts:
-            - name: vn-appsmith-stacks
-              mountPath: /appsmith-stacks
-      volumes: []
+            - name: vn-homevn-nodevn-vn-n8n
+              mountPath: /home/node/.n8n
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 20
   volumeClaimTemplates:
     - metadata:
         annotations:
-          path: /appsmith-stacks
+          path: /home/node/.n8n
           value: '1'
-        name: vn-appsmith-stacks
+        name: vn-homevn-nodevn-vn-n8n
       spec:
         accessModes:
           - ReadWriteOnce
@@ -91,10 +109,9 @@ metadata:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 80
+    - port: 5678
   selector:
     app: ${{ defaults.app_name }}
-
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -109,11 +126,13 @@ metadata:
     nginx.ingress.kubernetes.io/server-snippet: |
       client_header_buffer_size 64k;
       large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
     nginx.ingress.kubernetes.io/rewrite-target: /$2
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
     nginx.ingress.kubernetes.io/configuration-snippet: |
       if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
         expires 30d;
@@ -130,8 +149,25 @@ spec:
               service:
                 name: ${{ defaults.app_name }}
                 port:
-                  number: 80
+                  number: 5678
   tls:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: "https://n8n.io/favicon.ico"
+  menuData:
+    nameColor: text-black
+  name: ${{ defaults.app_name }}
+  type: iframe

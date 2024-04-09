@@ -1,44 +1,38 @@
 apiVersion: app.sealos.io/v1
 kind: Template
 metadata:
-  name: bytebase
+  name: teable
 spec:
-  title: 'Bytebase'
-  url: 'https://bytebase.com/'
-  gitRepo: 'https://github.com/bytebase/bytebase'
+  title: 'teable'
+  url: 'teable.io'
+  gitRepo: 'https://github.com/teableio/teable'
   author: 'Sealos'
-  description: 'Bytebase is GitLab/GitHub for Database DevOps, built for developers, DBAs and platform teams.'
-  readme: 'https://raw.githubusercontent.com/bytebase/bytebase/main/README.md'
-  icon: 'https://raw.githubusercontent.com/bytebase/bytebase/main/frontend/src/assets/logo-icon.svg'
+  description: '✨ A Super fast, Real-time, Professional, Developer friendly, No code database'
+  readme: 'https://raw.githubusercontent.com/teableio/teable/develop/README.md'
+  icon: 'https://framerusercontent.com/images/x9gZmjwbtvaGd95qbfUmsZ8Jc.png'
   templateType: inline
   categories:
     - database
+    - low-code
   defaults:
-    app_name:
-      type: string
-      value: bytebase-${{ random(8) }}
     app_host:
+      # number or string..
       type: string
       value: ${{ random(8) }}
-
+    app_name:
+      type: string
+      value: teable-${{ random(8) }}
+    time_zone:
+      type: string
+      value: 'Asia/Shanghai'
+  inputs:
 ---
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
-    app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-pg
-
----
-
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: bytebase/bytebase:2.12.0
+    originImageName: ghcr.io/teableio/teable:sha-b40d565
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -59,59 +53,80 @@ spec:
     spec:
       terminationGracePeriodSeconds: 10
       automountServiceAccountToken: false
-      containers:
-        - name: ${{ defaults.app_name }}
-          image: bytebase/bytebase:2.12.0
+      initContainers:
+        - name: db-migrate
+          image: ghcr.io/teableio/teable-db-migrate:sha-b40d565
           env:
+            - name: TZ
+              value: ${{ defaults.time_zone }}
             - name: PG_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
-            - name: PG_URL
-              value: >-
-                postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432/postgres
+            - name: PRISMA_DATABASE_URL
+              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432/teable
           resources:
             requests:
-              cpu: 50m
+              cpu: 100m
               memory: 102Mi
             limits:
-              cpu: 500m
+              cpu: 1000m
               memory: 1024Mi
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: ghcr.io/teableio/teable:sha-b40d565
+          env:
+            - name: TZ
+              value: ${{ defaults.time_zone }}
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PRISMA_DATABASE_URL
+              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432/teable
+            - name: NODE_OPTIONS
+              value: '--max-old-space-size=1024'
+            - name: PUBLIC_ORIGIN
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+          resources:
+            requests:
+              cpu: 200m
+              memory: 400Mi
+            limits:
+              cpu: 2000m
+              memory: 4096Mi
           command: []
-          args:
-            - --data
-            - /var/opt/bytebase
-            - --external-url
-            - https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
-            - --port
-            - '8080'
+          args: []
           ports:
-            - containerPort: 8080
-          imagePullPolicy: Always
+            - containerPort: 3000
+          imagePullPolicy: IfNotPresent
           volumeMounts:
-            - name: vn-varvn-optvn-bytebase
-              mountPath: /var/opt/bytebase
+            - name: vn-appvn-vn-assets
+              mountPath: /app/.assets
           livenessProbe:
             httpGet:
-              path: /healthz
-              port: 8080
-            initialDelaySeconds: 300
-            periodSeconds: 300
-            timeoutSeconds: 300
+              path: /health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 3
+      volumes: []
+      securityContext:
+        fsGroup: 1000
   volumeClaimTemplates:
     - metadata:
         annotations:
-          path: /var/opt/bytebase
+          path: /app/.assets
           value: '1'
-        name: vn-varvn-optvn-bytebase
+        name: vn-appvn-vn-assets
       spec:
         accessModes:
           - ReadWriteOnce
         resources:
           requests:
             storage: 1Gi
-
 ---
 apiVersion: v1
 kind: Service
@@ -121,10 +136,9 @@ metadata:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 8080
+    - port: 3000
   selector:
     app: ${{ defaults.app_name }}
-
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -135,36 +149,41 @@ metadata:
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
     kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/proxy-body-size: 1g
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
     nginx.ingress.kubernetes.io/server-snippet: |
       client_header_buffer_size 64k;
       large_client_header_buffers 4 128k;
     nginx.ingress.kubernetes.io/ssl-redirect: 'false'
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
-    nginx.ingress.kubernetes.io/rewrite-target: /$2
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
-        expires 30d;
-        add_header Cache-Control "public";
-      }
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
 spec:
   rules:
     - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       http:
         paths:
           - pathType: Prefix
-            path: /()(.*)
+            path: /
             backend:
               service:
                 name: ${{ defaults.app_name }}
                 port:
-                  number: 8080
+                  number: 3000
   tls:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
 
 ---
 apiVersion: apps.kubeblocks.io/v1alpha1
@@ -193,11 +212,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 500m
-          memory: 512Mi
+          cpu: 1000m
+          memory: 1024Mi
         requests:
-          cpu: 50m
-          memory: 51Mi
+          cpu: 100m
+          memory: 102Mi
       serviceAccountName: ${{ defaults.app_name }}-pg
       switchPolicy:
         type: Noop
@@ -208,13 +227,11 @@ spec:
               - ReadWriteOnce
             resources:
               requests:
-                storage: 1Gi
+                storage: 5Gi
             storageClassName: openebs-backup
   terminationPolicy: Delete
   tolerations: []
-
 ---
-
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -288,7 +305,30 @@ rules:
       - update
       - watch
       - delete
-
+  - apiGroups:
+      - dataprotection.kubeblocks.io
+    resources:
+      - backups
+    verbs:
+      - create
+      - get
+      - list
+      - patch
+      - update
+      - watch
+      - delete
+  - apiGroups:
+      - dataprotection.kubeblocks.io
+    resources:
+      - backups/status
+    verbs:
+      - create
+      - get
+      - list
+      - patch
+      - update
+      - watch
+      - delete
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -306,7 +346,34 @@ subjects:
   - kind: ServiceAccount
     name: ${{ defaults.app_name }}-pg
     namespace: ${{ SEALOS_NAMESPACE }}
-
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-init
+spec:
+  completions: 1
+  template:
+    spec:
+      containers:
+        - name: pgsql-init
+          image: senzing/postgresql-client:latest
+          env:
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until psql ${DATABASE_URL} -c 'CREATE DATABASE teable;' &>/dev/null; do sleep 1; done
+      restartPolicy: Never
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
 ---
 apiVersion: app.sealos.io/v1
 kind: App
@@ -318,8 +385,8 @@ spec:
   data:
     url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
   displayType: normal
-  icon: "https://raw.githubusercontent.com/bytebase/bytebase/main/frontend/src/assets/logo-icon.svg"
+  icon: "https://framerusercontent.com/images/x9gZmjwbtvaGd95qbfUmsZ8Jc.png"
   menuData:
     nameColor: text-black
-  name: ${{ defaults.app_name }}
-  type: iframe
+  name: teable
+  type: link
