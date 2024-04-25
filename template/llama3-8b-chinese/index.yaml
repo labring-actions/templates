@@ -1,0 +1,79 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: llama3-8b-chinese
+spec:
+  title: 'Llama3-8B 中文版'
+  url: 'https://github.com/llama3-8b-chinese/llama3-8b-chinese'
+  gitRepo: 'https://github.com/llama3-8b-chinese/llama3-8b-chinese'
+  author: 'Sealos'
+  description: 'Llama3-8B 中文版量化模型，提供了与 OpenAI 官方接口对齐的 API。'
+  readme: 'https://huggingface.co/zhouzr/Llama3-8B-Chinese-Chat-GGUF/raw/main/README.md'
+  icon: 'https://raw.githubusercontent.com/labring-actions/templates/main/template/llama3-8b-chinese/logo.jpg'
+  templateType: inline
+  categories:
+    - ai
+  defaults:
+    app_name:
+      type: string
+      value: llama3-8b-chinese-${{ random(8) }}
+  inputs:
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: registry.cn-hangzhou.aliyuncs.com/yangchuansheng/llama-3-8b-chinese:q4_k_m
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      terminationGracePeriodSeconds: 10
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: registry.cn-hangzhou.aliyuncs.com/yangchuansheng/llama-3-8b-chinese:q4_k_m
+          resources:
+            requests:
+              cpu: 800m
+              memory: 102Mi
+            limits:
+              cpu: 8000m
+              memory: 1024Mi
+          command: []
+          args: []
+          ports:
+            - containerPort: 8080
+          imagePullPolicy: IfNotPresent
+          volumeMounts: []
+      volumes: []
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - port: 8080
+  selector:
+    app: ${{ defaults.app_name }}
