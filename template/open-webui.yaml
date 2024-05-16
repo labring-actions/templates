@@ -1,25 +1,25 @@
 apiVersion: app.sealos.io/v1
 kind: Template
 metadata:
-  name: alist
+  name: open-webui
 spec:
-  title: 'alist'
-  url: 'https://github.com/alist-org/alist'
-  gitRepo: 'https://github.com/alist-org/alist'
-  author: '孤城落寞'
-  description: '一个支持多存储的文件列表程序，使用 Gin 和 Solidjs。'
-  readme: 'https://raw.githubusercontent.com/alist-org/alist/main/README_cn.md'
-  icon: 'https://raw.githubusercontent.com/alist-org/logo/main/logo.svg'
+  title: 'open-webui'
+  url: 'https://github.com/open-webui/open-webui'
+  gitRepo: 'https://github.com/open-webui/open-webui'
+  author: 'Sealos'
+  description: 'User-friendly WebUI for LLMs (Formerly Ollama WebUI)'
+  readme: 'https://raw.githubusercontent.com/open-webui/open-webui/main/README.md'
+  icon: 'https://raw.githubusercontent.com/open-webui/open-webui/main/static/logo.svg'
   templateType: inline
   categories:
-    - tool
+    - ai
   defaults:
     app_host:
       type: string
       value: ${{ random(8) }}
     app_name:
       type: string
-      value: alist-${{ random(8) }}
+      value: open-webui-${{ random(8) }}
   inputs:
 
 ---
@@ -28,7 +28,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: xhofe/alist-aria2:latest
+    originImageName: ghcr.io/open-webui/open-webui:v0.1.121
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -49,32 +49,58 @@ spec:
     spec:
       terminationGracePeriodSeconds: 10
       automountServiceAccountToken: false
+      initContainers:
+        - name: init-data
+          image: ghcr.io/open-webui/open-webui:v0.1.121
+          command: ["/bin/bash", "-c", "if [ ! -f /data/config.json ]; then echo 'Cloning data folder'; cp -Rv /app/backend/data/* /data/; echo 'Done'; else echo 'Data folder already exists'; fi"]
+          volumeMounts:
+            - name: vn-data
+              mountPath: "/data"
+        - name: copy-data
+          image: ghcr.io/open-webui/open-webui:v0.1.121
+          command: ["/bin/bash", "-c", "if [ ! -f /app/backend/data/config.json ]; then echo 'Coping data folder'; cp -Rv /data/* /app/backend/data/; echo 'Done'; else echo 'Backend data folder already exists'; fi"]
+          volumeMounts:
+            - name: vn-data
+              mountPath: "/data"
+            - name: vn-appvn-backendvn-data
+              mountPath: /app/backend/data
       containers:
         - name: ${{ defaults.app_name }}
-          image: xhofe/alist-aria2:latest
+          image: ghcr.io/open-webui/open-webui:v0.1.121
           env:
-            - name: TZ
-              value: Asia/Shanghai
+            - name: OLLAMA_BASE_URL
+              value: ''
           resources:
             requests:
-              cpu: 20m
-              memory: 12Mi
-            limits:
               cpu: 200m
-              memory: 128Mi
+              memory: 256Mi
+            limits:
+              cpu: 2000m
+              memory: 2Gi
           command: []
           args: []
           ports:
-            - containerPort: 5244
+            - containerPort: 8080
           imagePullPolicy: IfNotPresent
           volumeMounts:
-            - name: vn-data
-              mountPath: /opt/alist/data
+            - name: vn-appvn-backendvn-data
+              mountPath: /app/backend/data
       volumes: []
   volumeClaimTemplates:
     - metadata:
         annotations:
-          path: /opt/alist/data
+          path: /app/backend/data
+          value: '1'
+        name: vn-appvn-backendvn-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+    - metadata:
+        annotations:
+          path: /data
           value: '1'
         name: vn-data
       spec:
@@ -93,7 +119,7 @@ metadata:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 5244
+    - port: 8080
   selector:
     app: ${{ defaults.app_name }}
 
@@ -107,48 +133,19 @@ metadata:
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
     kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/proxy-body-size: 32m
-    nginx.ingress.kubernetes.io/server-snippet: |
-      client_header_buffer_size 64k;
-      large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
-    nginx.ingress.kubernetes.io/backend-protocol: HTTP
-    nginx.ingress.kubernetes.io/rewrite-target: /$2
-    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
-    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
-        expires 30d;
-        add_header Cache-Control "public";
-      }
 spec:
   rules:
     - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       http:
         paths:
           - pathType: Prefix
-            path: /()(.*)
+            path: /
             backend:
               service:
                 name: ${{ defaults.app_name }}
                 port:
-                  number: 5244
+                  number: 8080
   tls:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
-
----
-apiVersion: app.sealos.io/v1
-kind: App
-metadata:
-  name: ${{ defaults.app_name }}
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-spec:
-  data:
-    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
-  displayType: normal
-  icon: "https://raw.githubusercontent.com/alist-org/logo/main/logo.svg"
-  name: ${{ defaults.app_name }}
-  type: iframe

@@ -1,15 +1,15 @@
 apiVersion: app.sealos.io/v1
 kind: Template
 metadata:
-  name: teable
+  name: metabase
 spec:
-  title: 'teable'
-  url: 'teable.io'
-  gitRepo: 'https://github.com/teableio/teable'
+  title: 'metabase'
+  url: 'metabase.com'
+  gitRepo: 'https://github.com/metabase/metabase'
   author: 'Sealos'
-  description: '✨ A Super fast, Real-time, Professional, Developer friendly, No code database'
-  readme: 'https://raw.githubusercontent.com/teableio/teable/develop/README.md'
-  icon: 'https://framerusercontent.com/images/x9gZmjwbtvaGd95qbfUmsZ8Jc.png'
+  description: 'The simplest, fastest way to get business intelligence and analytics to everyone in your company 😋'
+  readme: 'https://raw.githubusercontent.com/metabase/metabase/master/README.md'
+  icon: 'https://www.metabase.com/images/logo.svg'
   templateType: inline
   categories:
     - database
@@ -21,18 +21,17 @@ spec:
       value: ${{ random(8) }}
     app_name:
       type: string
-      value: teable-${{ random(8) }}
-    time_zone:
-      type: string
-      value: 'Asia/Shanghai'
+      value: metabase-${{ random(8) }}
   inputs:
+
 ---
+
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: ghcr.io/teableio/teable:1.2.0-beta
+    originImageName: metabase/metabase:v0.49.9
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -53,85 +52,67 @@ spec:
     spec:
       terminationGracePeriodSeconds: 10
       automountServiceAccountToken: false
-      initContainers:
-        - name: db-migrate
-          image: ghcr.io/teableio/teable-db-migrate:1.2.0-beta
-          env:
-            - name: TZ
-              value: ${{ defaults.time_zone }}
-            - name: PG_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: password
-            - name: PRISMA_DATABASE_URL
-              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432/teable
-            - name: PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING
-              value: '1'
-          resources:
-            requests:
-              cpu: 100m
-              memory: 102Mi
-            limits:
-              cpu: 1000m
-              memory: 1024Mi
       containers:
         - name: ${{ defaults.app_name }}
-          image: ghcr.io/teableio/teable:1.2.0-beta
+          image: metabase/metabase:v0.49.9
           env:
-            - name: TZ
-              value: ${{ defaults.time_zone }}
-            - name: PG_PASSWORD
+            - name: MB_DB_TYPE
+              value: postgres
+            - name: MB_DB_DBNAME
+              value: metabaseappdb
+            - name: MB_DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: MB_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: MB_DB_PASS
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
-            - name: PRISMA_DATABASE_URL
-              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432/teable
-            - name: NODE_OPTIONS
-              value: '--max-old-space-size=1024'
-            - name: PUBLIC_ORIGIN
-              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
-            - name: PUBLIC_DATABASE_PROXY
-              value: ${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
+            - name: MB_DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
           resources:
+            limits:
+              cpu: 2
+              memory: 2Gi
             requests:
               cpu: 200m
-              memory: 400Mi
-            limits:
-              cpu: 2000m
-              memory: 4096Mi
-          command: []
-          args: []
+              memory: 200Mi
           ports:
             - containerPort: 3000
           imagePullPolicy: IfNotPresent
           volumeMounts:
-            - name: vn-appvn-vn-assets
-              mountPath: /app/.assets
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: 3000
-            initialDelaySeconds: 30
-            periodSeconds: 15
-            timeoutSeconds: 3
-      volumes: []
+            - name: vn-plugins
+              mountPath: /plugins
       securityContext:
-        fsGroup: 1000
+        runAsUser: 2000
+        runAsGroup: 2000
+        fsGroup: 2000
+        fsGroupChangePolicy: "OnRootMismatch"
   volumeClaimTemplates:
     - metadata:
         annotations:
-          path: /app/.assets
+          path: /plugins
           value: '1'
-        name: vn-appvn-vn-assets
+        name: vn-plugins
       spec:
         accessModes:
           - ReadWriteOnce
         resources:
           requests:
             storage: 1Gi
+
 ---
+
 apiVersion: v1
 kind: Service
 metadata:
@@ -143,7 +124,9 @@ spec:
     - port: 3000
   selector:
     app: ${{ defaults.app_name }}
+
 ---
+
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -153,16 +136,6 @@ metadata:
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
     kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/proxy-body-size: 32m
-    nginx.ingress.kubernetes.io/server-snippet: |
-      client_header_buffer_size 64k;
-      large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
-    nginx.ingress.kubernetes.io/backend-protocol: HTTP
-    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
-    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
-    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
-    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
 spec:
   rules:
     - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
@@ -179,7 +152,9 @@ spec:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
 ---
+
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -190,6 +165,7 @@ metadata:
   name: ${{ defaults.app_name }}-pg
 
 ---
+
 apiVersion: apps.kubeblocks.io/v1alpha1
 kind: Cluster
 metadata:
@@ -235,7 +211,9 @@ spec:
             storageClassName: openebs-backup
   terminationPolicy: Delete
   tolerations: []
+
 ---
+
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -253,6 +231,7 @@ rules:
       - '*'
 
 ---
+
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
@@ -293,7 +272,7 @@ spec:
             - /bin/sh
             - -c
             - |
-              until psql ${DATABASE_URL} -c 'CREATE DATABASE teable;' &>/dev/null; do sleep 1; done
+              until psql ${DATABASE_URL} -c 'CREATE DATABASE metabaseappdb;' &>/dev/null; do sleep 1; done
       restartPolicy: Never
   backoffLimit: 0
   ttlSecondsAfterFinished: 300
@@ -308,6 +287,6 @@ spec:
   data:
     url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
   displayType: normal
-  icon: "https://framerusercontent.com/images/x9gZmjwbtvaGd95qbfUmsZ8Jc.png"
-  name: teable
+  icon: "https://www.metabase.com/images/logo.svg"
+  name: metabase
   type: link

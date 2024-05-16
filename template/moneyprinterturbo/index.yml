@@ -1,42 +1,35 @@
 apiVersion: app.sealos.io/v1
 kind: Template
 metadata:
-  name: code-server
+  name: moneyprinterturbo
 spec:
-  title: 'code-server'
-  url: 'https://github.com/coder/code-server'
-  gitRepo: 'https://github.com/coder/code-server'
+  title: 'MoneyPrinterTurbo'
+  url: 'https://github.com/harry0703/MoneyPrinterTurbo'
+  gitRepo: 'https://github.com/harry0703/MoneyPrinterTurbo'
   author: 'Sealos'
-  description: 'VS Code in the browser'
-  readme: 'https://raw.githubusercontent.com/coder/code-server/main/docs/README.md'
-  icon: 'https://raw.githubusercontent.com/coder/code-server/main/src/browser/media/favicon.svg'
+  description: '利用AI大模型，一键生成高清短视频。只需提供一个视频 主题 或 关键词 ，就可以全自动生成视频文案、视频素材、视频字幕、视频背景音乐，然后合成一个高清的短视频。'
+  readme: 'https://raw.githubusercontent.com/harry0703/MoneyPrinterTurbo/main/README.md'
+  icon: 'https://raw.githubusercontent.com/harry0703/MoneyPrinterTurbo/main/sites/docs/.vuepress/public/logo.png'
   templateType: inline
   categories:
     - tool
+    - ai
   defaults:
     app_host:
       # number or string..
       type: string
-      value: ${{ random(8) }}
+      value: moneyprinterturbo-${{ random(8) }}
     app_name:
       type: string
-      value: code-server-${{ random(8) }}
-    time_zone:
-      type: string
-      value: 'Asia/Shanghai'
-  inputs:
-    PASSWORD:
-      description: 'Access Password'
-      type: string
-      default: 'sealos123'
-      required: true
+      value: moneyprinterturbo-${{ random(8) }}
 ---
+
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: codercom/code-server:latest
+    originImageName: ghcr.io/yangchuansheng/moneyprinterturbo:20240510083200
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -50,59 +43,54 @@ spec:
   selector:
     matchLabels:
       app: ${{ defaults.app_name }}
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 1
-      maxSurge: 0
   template:
     metadata:
       labels:
         app: ${{ defaults.app_name }}
     spec:
+      terminationGracePeriodSeconds: 10
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: codercom/code-server:latest
-          env:
-            - name: TZ
-              value: ${{ defaults.time_zone }}
-            - name: PASSWORD
-              value: ${{ inputs.PASSWORD }}
+          image: ghcr.io/yangchuansheng/moneyprinterturbo:20240510083200
           resources:
             requests:
               cpu: 200m
-              memory: 200Mi
+              memory: 408Mi
             limits:
               cpu: 2000m
-              memory: 2Gi
-          command:
-            - /bin/sh
-            - '-c'
-          args:
-            - |
-              mkdir -p /home/coder/workspace && /usr/bin/entrypoint.sh --bind-addr 0.0.0.0:8080 /home/coder/workspace
+              memory: 4096Mi
           ports:
-            - containerPort: 8080
-          imagePullPolicy: Always
+            - name: http
+              protocol: TCP
+              containerPort: 8501
+          imagePullPolicy: IfNotPresent
           volumeMounts:
-            - name: vn-homevn-coder
-              mountPath: /home/coder
-      volumes: []
-      securityContext:
-        fsGroup: 1000
+            - name: vn-moneyprinterturbo-storage
+              mountPath: /MoneyPrinterTurbo/storage
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 20
   volumeClaimTemplates:
     - metadata:
         annotations:
-          path: /home/coder
+          path: /MoneyPrinterTurbo/storage
           value: '1'
-        name: vn-homevn-coder
+        name: vn-moneyprinterturbo-storage
       spec:
         accessModes:
           - ReadWriteOnce
         resources:
           requests:
             storage: 1Gi
+
 ---
 apiVersion: v1
 kind: Service
@@ -112,7 +100,7 @@ metadata:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 8080
+    - port: 8501
   selector:
     app: ${{ defaults.app_name }}
 ---
@@ -129,7 +117,7 @@ metadata:
     nginx.ingress.kubernetes.io/server-snippet: |
       client_header_buffer_size 64k;
       large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
     nginx.ingress.kubernetes.io/rewrite-target: /$2
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
@@ -152,7 +140,7 @@ spec:
               service:
                 name: ${{ defaults.app_name }}
                 port:
-                  number: 8080
+                  number: 8501
   tls:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
@@ -163,10 +151,12 @@ apiVersion: app.sealos.io/v1
 kind: App
 metadata:
   name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   data:
     url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
   displayType: normal
-  icon: 'https://avatars.githubusercontent.com/u/95932066?s=96&v=4'
-  name: Code Server
-  type: iframe
+  icon: "https://raw.githubusercontent.com/harry0703/MoneyPrinterTurbo/main/sites/docs/.vuepress/public/logo.png"
+  name: listmonk
+  type: link
