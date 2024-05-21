@@ -37,6 +37,14 @@ The `gui-registry` is a web UI for managing the registry, offering a user-friend
     docker push registry.cloud.sealos.io/nginx:latest
     ```
 
+4. **Change the root password:**
+    Edit the `registry_htpasswd` file in applaunchpad's registry app to change the `root` password using [Bcrypt](https://en.wikipedia.org/wiki/Bcrypt).
+
+    Note: you can ues https://httpd.apache.org/docs/2.4/programs/htpasswd.html to generate the htpasswd file.
+
+5. **Config the registry**
+    See: https://distribution.github.io/distribution/about/configuration for more configuration
+
 ### Web Management
 
 - **Access Address:** [https://gui-registry.cloud.sealos.io](https://gui-registry.cloud.sealos.io)
