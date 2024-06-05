@@ -1,13 +1,13 @@
 apiVersion: app.sealos.io/v1
 kind: Template
-metadata: 
+metadata:
   name: gitea
 spec:
-  title: 'Gitea'                         
-  url: 'https://gitea.com'                         
-  gitRepo: 'https://github.com/go-gitea/gitea'        
-  author: 'Gitea'                                     
-  description: '一个极易安装，运行非常快速，安装和使用体验良好的自建 Git 服务。'    
+  title: 'Gitea'
+  url: 'https://gitea.com'
+  gitRepo: 'https://github.com/go-gitea/gitea'
+  author: 'Gitea'
+  description: '一个极易安装，运行非常快速，安装和使用体验良好的自建 Git 服务。'
   readme: 'https://jsd.onmicrosoft.cn/gh/go-gitea/gitea@main/README_ZH.md'
   icon: 'https://jsd.onmicrosoft.cn/gh/go-gitea/gitea@main/public/assets/img/gitea.svg'
   templateType: inline
@@ -22,25 +22,16 @@ spec:
       value: ${{ random(8) }}
 ---
 
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
-    app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-mysql
----
+
 
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: gitea/gitea:latest
+    originImageName: gitea/gitea:1.22.0-rootless
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
-    deploy.cloud.sealos.io/resize: 6Gi
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
@@ -65,7 +56,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: gitea/gitea:latest
+          image: gitea/gitea:1.22.0-rootless
           env:
             - name: GITEA__database__DB_TYPE
               value: mysql
@@ -92,17 +83,33 @@ spec:
             - containerPort: 2222
           imagePullPolicy: Always
           volumeMounts:
-            - name: vn-varvn-libvn-${{ defaults.app_name }}
+            - name: vn-varvn-libvn-gitea
               mountPath: /var/lib/gitea
-            - name: vn-etcvn-${{ defaults.app_name }}
+            - name: vn-tmpvn-gitea
+              mountPath: /tmp/gitea
+            - name: vn-etcvn-gitea
               mountPath: /etc/gitea
       volumes: []
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
   volumeClaimTemplates:
     - metadata:
         annotations:
           path: /var/lib/gitea
           value: '5'
-        name: vn-varvn-libvn-${{ defaults.app_name }}
+        name: vn-varvn-libvn-gitea
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 5Gi
+    - metadata:
+        annotations:
+          path: /tmp/gitea
+          value: '5'
+        name: vn-tmpvn-gitea
       spec:
         accessModes:
           - ReadWriteOnce
@@ -113,14 +120,16 @@ spec:
         annotations:
           path: /etc/gitea
           value: '1'
-        name: vn-etcvn-${{ defaults.app_name }}
+        name: vn-etcvn-gitea
       spec:
         accessModes:
           - ReadWriteOnce
         resources:
           requests:
             storage: 1Gi
+
 ---
+
 apiVersion: v1
 kind: Service
 metadata:
@@ -137,7 +146,9 @@ spec:
       name: ${{ defaults.app_name }}-ssh-port
   selector:
     app: ${{ defaults.app_name }}
+
 ---
+
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -147,16 +158,6 @@ metadata:
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
     kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/proxy-body-size: 32m
-    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
-    nginx.ingress.kubernetes.io/backend-protocol: HTTP
-    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
-    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
-    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
-    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
-    nginx.ingress.kubernetes.io/server-snippet: |
-      client_header_buffer_size 64k;
-      large_client_header_buffers 4 128k;
 spec:
   rules:
     - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
@@ -173,7 +174,56 @@ spec:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
 ---
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-mysql
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-mysql
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-mysql
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-mysql
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-mysql
+
+---
+
 apiVersion: apps.kubeblocks.io/v1alpha1
 kind: Cluster
 metadata:
@@ -217,37 +267,3 @@ spec:
             storageClassName: openebs-backup
   terminationPolicy: Delete
   tolerations: []
----
-
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
-    app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-mysql
-rules:
-  - apiGroups:
-      - '*'
-    resources:
-      - '*'
-    verbs:
-      - '*'
-
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
-    app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-mysql
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: ${{ defaults.app_name }}-mysql
-subjects:
-  - kind: ServiceAccount
-    name: ${{ defaults.app_name }}-mysql
