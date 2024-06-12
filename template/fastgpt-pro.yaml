@@ -143,6 +143,8 @@ spec:
               value: /favicon.ico
             - name: PRO_URL
               value: http://${{ defaults.app_name }}-pro.${{ SEALOS_NAMESPACE }}.svc.cluster.local:3000
+            - name: SANDBOX_URL
+              value: http://${{ defaults.app_name }}-sandbox.${{ SEALOS_NAMESPACE }}.svc.cluster.local:3000
           resources:
             requests:
               cpu: 100m
@@ -267,6 +269,8 @@ spec:
             - name: PG_URL
               value: >-
                 postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432/postgres
+            - name: SANDBOX_URL
+              value: http://${{ defaults.app_name }}-sandbox.${{ SEALOS_NAMESPACE }}.svc.cluster.local:3000
           resources:
             requests:
               cpu: 100m
@@ -351,6 +355,69 @@ data:
     {
       "license": "${{ inputs.license }}"
     }
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fastgpt-sandbox
+  labels:
+    cloud.sealos.io/app-deploy-manager: fastgpt-sandbox
+spec:
+  ports:
+    - port: 3000
+      targetPort: 3000
+      name: kngaitvrwrov
+  selector:
+    app: fastgpt-sandbox
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fastgpt-sandbox
+  annotations:
+    originImageName: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-sandbox:v4.8.3
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+    deploy.cloud.sealos.io/resize: 0Gi
+  labels:
+    cloud.sealos.io/app-deploy-manager: fastgpt-sandbox
+    app: fastgpt-sandbox
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: fastgpt-sandbox
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: fastgpt-sandbox
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: fastgpt-sandbox
+          image: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-sandbox:v4.8.3
+          env: []
+          resources:
+            requests:
+              cpu: 50m
+              memory: 102Mi
+            limits:
+              cpu: 500m
+              memory: 1024Mi
+          ports:
+            - containerPort: 3000
+              name: kngaitvrwrov
+          imagePullPolicy: Always
+          volumeMounts: []
+      volumes: []
 
 ---
 apiVersion: apps.kubeblocks.io/v1alpha1

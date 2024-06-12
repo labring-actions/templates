@@ -72,7 +72,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.8.1
+    originImageName: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.8.3
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -92,7 +92,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.8.1
+          image: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.8.3
           env:
             - name: MONGO_PASSWORD
               valueFrom:
@@ -124,6 +124,8 @@ spec:
             - name: PG_URL
               value: >-
                 postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432/postgres
+            - name: SANDBOX_URL
+              value: http://${{ defaults.app_name }}-sandbox.${{ SEALOS_NAMESPACE }}.svc.cluster.local:3000
           resources:
             requests:
               cpu: 50m
@@ -237,7 +239,7 @@ data:
       "vectorModels": [
         {
           "model": "text-embedding-3-large",
-          "name": "Embedding-2",
+          "name": "text-embedding-3-large",
           "avatar": "/imgs/model/openai.svg",
           "charsPointsPrice": 0,
           "defaultToken": 512,
@@ -251,7 +253,7 @@ data:
         },
         {
           "model": "text-embedding-3-small",
-          "name": "Embedding-2",
+          "name": "text-embedding-3-small",
           "avatar": "/imgs/model/openai.svg",
           "charsPointsPrice": 0,
           "defaultToken": 512,
@@ -262,7 +264,7 @@ data:
         },
         {
           "model": "text-embedding-ada-002",
-          "name": "Embedding-2",
+          "name": "text-embedding-ada-002",
           "avatar": "/imgs/model/openai.svg",
           "charsPointsPrice": 0,
           "defaultToken": 512,
@@ -368,6 +370,69 @@ spec:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fastgpt-sandbox
+  labels:
+    cloud.sealos.io/app-deploy-manager: fastgpt-sandbox
+spec:
+  ports:
+    - port: 3000
+      targetPort: 3000
+      name: kngaitvrwrov
+  selector:
+    app: fastgpt-sandbox
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fastgpt-sandbox
+  annotations:
+    originImageName: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-sandbox:v4.8.3
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+    deploy.cloud.sealos.io/resize: 0Gi
+  labels:
+    cloud.sealos.io/app-deploy-manager: fastgpt-sandbox
+    app: fastgpt-sandbox
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: fastgpt-sandbox
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: fastgpt-sandbox
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: fastgpt-sandbox
+          image: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-sandbox:v4.8.3
+          env: []
+          resources:
+            requests:
+              cpu: 50m
+              memory: 102Mi
+            limits:
+              cpu: 500m
+              memory: 1024Mi
+          ports:
+            - containerPort: 3000
+              name: kngaitvrwrov
+          imagePullPolicy: Always
+          volumeMounts: []
+      volumes: []
 
 ---
 apiVersion: apps.kubeblocks.io/v1alpha1
