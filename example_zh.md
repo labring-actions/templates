@@ -865,7 +865,57 @@ spec:
 ...
 ```
 
-#### TODO: `Minio`
+#### `存储桶`
+
+我们使用对象存储提供存储桶资源支持。您可以直接使用以下代码来部署存储桶：
+
+```yaml
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}
+spec:
+  policy: private
+```
+
+#### 如何访问应用程序的存储桶
+
+存储桶的访问密钥和访问地址存放在一个 secret 中。可以通过以下代码将其添加到环境变量中。
+
+```yaml
+...
+spec:
+  containers:
+    - name: ${{ defaults.app_name }}
+      ...
+      env:
+        - name: ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+              key: accessKey
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+              key: secretKey
+        - name: EXTERNAL_ENDPOINT
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+              key: external
+        - name: INTERNAL_ENDPOINT
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+              key: internal
+        - name: BUCKET_NAME
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+              key: bucket
+...
+```
 
 ### 说明: 系统底层处理逻辑
 
