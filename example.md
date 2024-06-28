@@ -843,7 +843,59 @@ spec:
 ...
 ```
 
-#### TODO: `Minio`
+#### `Object Storage`
+
+We use object storage to provide bucket resource support. You can deploy a bucket directly using the following code:
+
+```yaml
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}
+spec:
+  policy: private
+```
+
+There are three types of policies: private (Private Bucket, Not Open), publicRead (Shared Bucket, Open for Public Read), and publicReadwrite (Shared Bucket, Open for Public Read and Write).
+
+#### How to access the application's bucket
+
+The bucket's access key and endpoint are stored in a single secret. You can add it to the environment variable with the following code.
+
+```yaml
+...
+spec:
+  containers:
+    - name: ${{ defaults.app_name }}
+      ...
+      env:
+        - name: ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+              key: accessKey
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+              key: secretKey
+        - name: EXTERNAL_ENDPOINT
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+              key: external
+        - name: INTERNAL_ENDPOINT
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+              key: internal
+        - name: BUCKET_NAME
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+              key: bucket
+...
+```
 
 ### Explanation: System Underlying Processing Logic
 
