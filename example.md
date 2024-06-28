@@ -843,7 +843,7 @@ spec:
 ...
 ```
 
-#### `Bucket`
+#### `Object Storage`
 
 We use object storage to provide bucket resource support. You can deploy a bucket directly using the following code:
 
@@ -855,6 +855,8 @@ metadata:
 spec:
   policy: private
 ```
+
+There are three types of policies: private (Private Bucket, Not Open), publicRead (Shared Bucket, Open for Public Read), and publicReadwrite (Shared Bucket, Open for Public Read and Write).
 
 #### How to access the application's bucket
 
