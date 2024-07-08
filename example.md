@@ -226,7 +226,7 @@ spec:
           args: []
           ports:
             - containerPort: 3000
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           volumeMounts: []
       volumes: []
 
