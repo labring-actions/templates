@@ -1185,24 +1185,24 @@ graph TD
     style K fill:#87CEEB,stroke:#333,stroke-width:2px
     style L fill:#FFA07A,stroke:#333,stroke-width:2px
 
-    subgraph "1. Parse Template CR"
-        A[Get Template CR file] --> B[Parse defaults]
+    subgraph sub1[ ]
+        A[1. Get Template CR file] --> B[Parse defaults]
         B -- Only allow using built-in system variables and functions --> C[Parse inputs]
         C -- Allow using built-in system variables, functions, and defaults --> D[Template CR parsing completed]
     end
-    D --> E[Parse application resource files]
-    subgraph "2. Parse Application Resource Files"
-        E --> F[Conditional Rendering]
+    subgraph sub2[ ]
+        E[2. Parse application resource files] --> F[Conditional Rendering]
         F -- Selectively render code blocks based on the truth value of expressions --> G[Variable Parsing]
         G -- Replace placeholders using defaults, inputs, and built-in variables/functions --> H[Application resource file parsing completed]
     end
-    H --> I[Render Form and YAML file lists]
-    subgraph "3. Render Form and YAML file lists"
-        I --> J[Form conditional rendering]
+    subgraph sub3[ ]
+        I[3. Render Form and YAML file lists] --> J[Form conditional rendering]
         J -- Selectively render form items based on the truth value of expressions --> K[Form changes trigger re-rendering]
         K -- Re-execute step 2, parse application resource files --> L[Rendering completed]
     end
-
+    
+    sub1 --> sub2
+    sub2 --> sub3
 ```
 
 </details>

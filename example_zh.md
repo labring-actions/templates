@@ -1210,23 +1210,24 @@ graph TD
     style K fill:#87CEEB,stroke:#333,stroke-width:2px
     style L fill:#FFA07A,stroke:#333,stroke-width:2px
 
-    subgraph "1. 解析 Template CR"
-        A[获取 Template CR 文件] --> B[解析 defaults]
+    subgraph sub1[ ]
+        A[1. 获取 Template CR 文件] --> B[解析 defaults]
         B -- 仅允许使用内置系统变量和函数 --> C[解析 inputs]
         C -- 允许使用内置系统变量、函数和 defaults --> D[Template CR 解析完毕]
     end
-    D --> E[解析应用程序资源文件]
-    subgraph "2. 解析应用程序资源文件"
-        E --> F[条件渲染]
+    subgraph sub2[ ]
+        E[2. 解析应用程序资源文件] --> F[条件渲染]
         F -- 根据表达式真假选择性渲染代码块 --> G[变量解析]
         G -- 使用 defaults、inputs 和内置变量/函数替换占位符 --> H[应用程序资源文件解析完毕]
     end
-    H --> I[渲染 Form 表单和 YAML 文件列表]
-    subgraph "3. 渲染 Form 表单和 YAML 文件列表"
-        I --> J[Form 表单条件渲染]
+    subgraph sub3[ ]
+        I[3. 渲染 Form 表单和 YAML 文件列表] --> J[Form 表单条件渲染]
         J -- 根据表达式真假选择性渲染表单项 --> K[Form 变更触发重新渲染]
         K -- 重新执行步骤 2 --> L[渲染完毕]
     end
+    
+    sub1 --> sub2
+    sub2 --> sub3
 ```
 
 </details>
