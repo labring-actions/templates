@@ -1141,7 +1141,7 @@ The Sealos template engine follows a specific order during the rendering process
 <summary>The following flowchart details the entire rendering process</summary>
 
 ```mermaid
-graph TD
+graph TB
   subgraph father[ ]
     style A fill:#FFD700,stroke:#333,stroke-width:2px
     style B fill:#87CEEB,stroke:#333,stroke-width:2px
