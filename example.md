@@ -1158,18 +1158,18 @@ graph TB
 
     subgraph sub1[ ]
         A[1. Get Template CR file] --> B[Parse defaults]
-        B -- Only allow using built-in system variables and functions --> C[Parse inputs]
-        C -- Allow using built-in system variables, functions, and defaults --> D[Template CR parsing completed]
+        B -- Only allow using<br> built-in system variables<br> and functions --> C[Parse inputs]
+        C -- Allow using built-in<br> system variables,<br> functions, and defaults --> D[Template CR parsing completed]
     end
     subgraph sub2[ ]
         E[2. Parse application resource files] --> F[Conditional Rendering]
-        F -- Selectively render code blocks based on the truth value of expressions --> G[Variable Parsing]
-        G -- Replace placeholders using defaults, inputs, and built-in variables/functions --> H[Application resource file parsing completed]
+        F -- Selectively render code<br> blocks based on the truth<br> value of expressions --> G[Variable Parsing]
+        G -- Replace placeholders using<br> defaults, inputs, and<br> built-in variables/functions --> H[Application resource file parsing completed]
     end
     subgraph sub3[ ]
         I[3. Render Form and YAML file lists] --> J[Form conditional rendering]
-        J -- Selectively render form items based on the truth value of expressions --> K[Form changes trigger re-rendering]
-        K -- Re-execute step 2, parse application resource files --> L[Rendering completed]
+        J -- Selectively render form<br> items based on the truth<br> value of expressions --> K[Form changes trigger re-rendering]
+        K -- Re-execute step 2, parse<br> application resource files --> L[Rendering completed]
     end
     
     sub1 --> sub2
