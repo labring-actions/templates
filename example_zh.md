@@ -89,7 +89,7 @@ spec:
 | `required`    | 输入是否必需。 |
 | `type`        | 必须是 `string` \| `number` \| `choice` \| `boolean` 中的一个 |
 | `options`?    | 当类型为 `choice` 时，设置可用选项列表。 |
-| `if`?    | JavaScript 表达式，控制是否启用此选项。 |
+| `if`?         | JavaScript 表达式，控制是否启用此选项。 |
 
 如上所示的输入将在前端呈现为表单输入：
 
@@ -132,14 +132,14 @@ Sealos 模板引擎使用 `${{ expression }}` 的语法来解析表达式。
 
 Sealos 提供了一些内置的系统变量和函数，方便用户在模板中使用。
 
-**内置系统变量:**
+#### 内置系统变量
 
 - `${{ SEALOS_NAMESPACE }}` Sealos 用户部署的命名空间。
 - `${{ SEALOS_CLOUD_DOMAIN }}` Sealos 集群的域名后缀。
 - `${{ SEALOS_CERT_SECRET_NAME }}` Sealos 用于存储 TLS 证书的 secret 名称。
 - `${{ SEALOS_SERVICE_ACCOUNT }}` Sealos 用户的 SA。
 
-**内置系统函数:**
+#### 内置系统函数
 
 - `${{ random(length) }}` 生成长度为 `length` 的随机字符串。
 - `${{ base64(expression) }}` 将表达式结果编码成 base64 格式。
@@ -149,7 +149,239 @@ Sealos 提供了一些内置的系统变量和函数，方便用户在模板中�
 > 注意
 >
 > 不能通过 `${{ inputs.enabled }}` 来判断是否启用某个选项，因为 `enabled` 是一个字符串，不是布尔值。
-> 应该使用 `${{ inputs.enabled === 'true' }}` 来判断是否启用某个选项。
+>
+> 需要使用 `${{ inputs.enabled === 'true' }}` 来判断是否启用某个选项。
+
+#### 条件渲染
+
+Sealos 模板引擎支持使用 `${{ if(expression) }}`、`${{ elif(expression) }}`、`${{ else() }}` 和 `${{ endif() }}` 进行条件渲染。
+
+- 条件渲染是一种特殊的内置系统函数
+- 条件语句必须单独占一行，不能与其他内容在同一行。
+- 条件表达式必须返回布尔值 (`true` 或 `false`)，否则会被强制转换为布尔值。
+
+**示例:**
+
+```yaml
+${{ if(inputs.enableIngress === 'true') }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+...
+${{ endif() }}
+```
+
+这段代码表示，只有当 `inputs.enableIngress` 为 `true` 时，才会渲染 Ingress 资源。
+
+<details>
+
+<summary>一个相对完整的例子</summary>
+
+```yaml
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: chatgpt-next-web
+spec:
+  title: 'chatgpt-next-web'
+  url: 'https://github.com/Yidadaa/ChatGPT-Next-Web'
+  gitRepo: 'https://github.com/Yidadaa/ChatGPT-Next-Web'
+  author: 'Sealos'
+  description: '一键免费部署你的跨平台私人 ChatGPT 应用'
+  readme: 'https://raw.githubusercontent.com/Yidadaa/ChatGPT-Next-Web/main/README.md'
+  icon: 'https://raw.githubusercontent.com/Yidadaa/ChatGPT-Next-Web/main/docs/images/icon.svg'
+  templateType: inline
+  categories:
+    - ai
+  defaults:
+    app_host:
+      type: string
+      value: ${{ random(8) }}
+    app_name:
+      type: string
+      value: chatgpt-next-web-${{ random(8) }}
+  inputs:
+    DOMAIN:
+      description: "自定义域名，需要cname到: ${{ defaults.app_host + '.' + SEALOS_CLOUD_DOMAIN }}"
+      type: string
+      default: ''
+      required: false
+    OPENAI_API_KEY:
+      description: '这是你在 OpenAI 账户页面申请的 API 密钥，使用英文逗号隔开多个 key，这样可以随机轮询这些 key'
+      type: string
+      default: ''
+      required: true
+    CODE:
+      description: '设置页面中的访问密码，可以使用逗号隔开多个密码'
+      type: string
+      default: ''
+      required: false
+    BASE_URL:
+      description: '如果你手动配置了 OpenAI 接口代理，可以使用此配置项来覆盖默认的 OpenAI API 请求基础 URL'
+      type: string
+      default: 'https://api.openai.com'
+      required: false
+    HIDE_USER_API_KEY:
+      description: '如果你不想让用户自行填入 API Key，将勾选'
+      type: boolean
+      default: 'false'
+      required: false
+    AUZRE_ENABLE:
+      description: '启用 Azure'
+      type: boolean
+      default: 'false'
+      required: false
+    AZURE_API_KEY:
+      description: 'Azure 密钥'
+      type: string
+      default: ''
+      required: true
+      if: inputs.AUZRE_ENABLE === 'true'
+    AZURE_URL:
+      description: 'Azure 部署地址'
+      type: string
+      default: 'https://{azure-resource-url}/openai/deployments/{deploy-name}'
+      required: true
+      if: inputs.AUZRE_ENABLE === 'true'
+    AZURE_API_VERSION:
+      description: 'Azure API 版本'
+      type: string
+      default: ''
+      required: true
+      if: inputs.AUZRE_ENABLE === 'true'
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: yidadaa/chatgpt-next-web:v2.12.4
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: yidadaa/chatgpt-next-web:v2.12.4
+          env:
+            - name: OPENAI_API_KEY
+              value: ${{ inputs.OPENAI_API_KEY }}
+            - name: CODE
+              value: ${{ inputs.CODE }}
+            - name: BASE_URL
+              value: ${{ inputs.BASE_URL }}
+            ${{ if(inputs.HIDE_USER_API_KEY === 'true') }}
+            - name: HIDE_USER_API_KEY
+              value: '1'
+            ${{ endif() }}
+            ${{ if(inputs.AUZRE_ENABLE === 'true') }}
+            - name: AZURE_URL
+              value: ${{ inputs.AZURE_URL }}
+            - name: AZURE_API_KEY
+              value: ${{ inputs.AZURE_API_KEY }}
+            - name: AZURE_API_VERSION
+              value: ${{ inputs.AZURE_API_VERSION }}
+            ${{ endif() }}
+          ports:
+            - containerPort: 3000
+          imagePullPolicy: IfNotPresent
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - port: 3000
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+spec:
+  rules:
+    - host: ${{ inputs.DOMAIN || defaults.app_host + '.' + SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /()(.*)
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 3000
+  tls:
+    - hosts:
+        - ${{ inputs.DOMAIN || defaults.app_host + '.' + SEALOS_CLOUD_DOMAIN }}
+      secretName: "${{ inputs.DOMAIN ? defaults.app_name + '-cert' : SEALOS_CERT_SECRET_NAME }}"
+
+---
+${{ if(inputs.DOMAIN !== '') }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: admin@sealos.io
+    privateKeySecretRef:
+      name: letsencrypt-prod
+    solvers:
+      - http01:
+          ingress:
+            class: nginx
+            serviceType: ClusterIP
+${{ endif() }}
+
+---
+${{ if(inputs.DOMAIN !== '') }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ${{ defaults.app_name }}-cert
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  secretName: ${{ defaults.app_name }}-cert
+  dnsNames:
+    - ${{ inputs.DOMAIN }}
+  issuerRef:
+    name: ${{ defaults.app_name }}
+    kind: Issuer
+${{ endif() }}
+```
+
+</details>
 
 ## 第二部分：`应用程序资源文件`
 
@@ -955,9 +1187,7 @@ CRD本身会完全按照 `app.sealos.io/v1, Kind=Template` 的模板格式与字
 
 其中 `app_name` 为用户部署的应用的名称, 默认是以一个随机数作为结尾,比如 `fastgpt-zu1n048s`.
 
-## 第三部分：`条件渲染与变量`
-
-### 渲染过程详解
+## 第三部分：`渲染过程详解`
 
 Sealos 模板引擎在渲染过程中遵循特定的顺序，确保变量和条件语句能够被正确解析。
 
@@ -967,22 +1197,35 @@ Sealos 模板引擎在渲染过程中遵循特定的顺序，确保变量和条�
 
 ```mermaid
 graph TD
+    style A fill:#FFD700,stroke:#333,stroke-width:2px
+    style B fill:#87CEEB,stroke:#333,stroke-width:2px
+    style C fill:#87CEEB,stroke:#333,stroke-width:2px
+    style D fill:#FFA07A,stroke:#333,stroke-width:2px
+    style E fill:#FFD700,stroke:#333,stroke-width:2px
+    style F fill:#87CEEB,stroke:#333,stroke-width:2px
+    style G fill:#87CEEB,stroke:#333,stroke-width:2px
+    style H fill:#FFA07A,stroke:#333,stroke-width:2px
+    style I fill:#FFD700,stroke:#333,stroke-width:2px
+    style J fill:#87CEEB,stroke:#333,stroke-width:2px
+    style K fill:#87CEEB,stroke:#333,stroke-width:2px
+    style L fill:#FFA07A,stroke:#333,stroke-width:2px
+
     subgraph "1. 解析 Template CR"
-        A[获取 Template CR 文件] --> B{解析 defaults}
-        B -- 仅允许使用内置系统变量和函数 --> C{解析 inputs}
+        A[获取 Template CR 文件] --> B[解析 defaults]
+        B -- 仅允许使用内置系统变量和函数 --> C[解析 inputs]
         C -- 允许使用内置系统变量、函数和 defaults --> D[Template CR 解析完毕]
     end
-    D --> E{解析应用程序资源文件}
+    D --> E[解析应用程序资源文件]
     subgraph "2. 解析应用程序资源文件"
-        E --> F{条件渲染}
-        F -- 根据表达式真假选择性渲染代码块 --> G{变量解析}
+        E --> F[条件渲染]
+        F -- 根据表达式真假选择性渲染代码块 --> G[变量解析]
         G -- 使用 defaults、inputs 和内置变量/函数替换占位符 --> H[应用程序资源文件解析完毕]
     end
-    H --> I{渲染 Form 表单和 YAML 文件列表}
+    H --> I[渲染 Form 表单和 YAML 文件列表]
     subgraph "3. 渲染 Form 表单和 YAML 文件列表"
-        I --> J{Form 表单条件渲染}
-        J -- 根据表达式真假选择性渲染表单项 --> K{Form 变更触发重新渲染}
-        K -- 重新执行步骤 2，解析应用程序资源文件 --> L[渲染完毕]
+        I --> J[Form 表单条件渲染]
+        J -- 根据表达式真假选择性渲染表单项 --> K[Form 变更触发重新渲染]
+        K -- 重新执行步骤 2 --> L[渲染完毕]
     end
 ```
 
@@ -991,13 +1234,13 @@ graph TD
 - 解析 Template CR
   - 首先，系统读取 `Template CR` 文件
   - 然后，解析 `spec.defaults` 字段，该字段定义了模板的默认值。
-    - 在 `defaults` 字段中，只允许使用预定义的[内置系统变量](#内置系统变量和函数)和[内置系统函数](#内置系统变量和函数)。
+    - 在 `defaults` 字段中，只允许使用预定义的[内置系统变量](#内置系统变量)和[内置系统函数](#内置系统函数)。
   - 接着，解析 `spec.inputs` 字段，该字段定义了用户需要填写的参数。
     - 在 `inputs` 字段中，除了可以使用内置系统变量和函数外，还可以引用 `defaults` 中定义的变量。
 - 解析应用程序资源文件
   - 此阶段表达式中能引用 `内置系统变量` `内置系统函数` 以及 `defaults` `inputs`
   - 首先，进行[条件渲染](#条件渲染)，根据条件表达式的真假，选择性地渲染代码块。
-  - 然后，进行[变量解析](#内置系统变量和函数)，使用 `defaults`、`inputs` 和内置变量/函数替换资源文件中的占位符。
+  - 然后，进行[变量解析](#内置系统变量)，使用 `defaults`、`inputs` 和内置变量/函数替换资源文件中的占位符。
 - 渲染 Form 表单和 YAML 文件列表
   - 最后，系统根据解析后的 `inputs` 字段渲染 Form 表单，用户可以在表单中填写自定义参数。
     - 此阶段表达式中能引用 `内置系统变量` `内置系统函数` 以及 `defaults` `inputs`
@@ -1009,289 +1252,5 @@ graph TD
 
 > 注意：
 >
-> 1. 当用户在输入框中输入信息时，不会重新解析 `Template CR` 内容，
+> 当用户在输入框中输入信息时，不会重新解析 `Template CR` 内容，
 > 也就原本的表达式不会重新运算，如 `value: ${{ random(8) }}`。
->
-> 2. 仅在 `在线调试模板` 中更改了 `开发` 的内容才会触发重新解析。
-
-### 条件渲染
-
-Sealos 模板引擎支持使用 `${{ if(expression) }}`、`${{ elif(expression) }}`、`${{ else() }}` 和 `${{ endif() }}` 进行条件渲染。
-
-- 条件语句必须单独占一行，不能与其他内容在同一行。
-- 条件表达式必须返回布尔值 (`true` 或 `false`)，否则会被强制转换为布尔值。
-
-**示例:**
-
-```yaml
-${{ if(inputs.enableIngress === 'true') }}
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-...
-${{ endif() }}
-```
-
-这段代码表示，只有当 `inputs.enableIngress` 为 `true` 时，才会渲染 Ingress 资源。
-
-<details>
-
-<summary>一个相对完整的例子</summary>
-
-```yaml
-apiVersion: app.sealos.io/v1
-kind: Template
-metadata:
-  name: chatgpt-next-web
-spec:
-  title: 'chatgpt-next-web'
-  url: 'https://github.com/Yidadaa/ChatGPT-Next-Web'
-  gitRepo: 'https://github.com/Yidadaa/ChatGPT-Next-Web'
-  author: 'Sealos'
-  description: '一键免费部署你的跨平台私人 ChatGPT 应用'
-  readme: 'https://raw.githubusercontent.com/Yidadaa/ChatGPT-Next-Web/main/README.md'
-  icon: 'https://raw.githubusercontent.com/Yidadaa/ChatGPT-Next-Web/main/docs/images/icon.svg'
-  templateType: inline
-  categories:
-    - ai
-  defaults:
-    app_host:
-      type: string
-      value: ${{ random(8) }}
-    app_name:
-      type: string
-      value: chatgpt-next-web-${{ random(8) }}
-  inputs:
-    DOMAIN:
-      description: "自定义域名，需要cname到: ${{ defaults.app_host + '.' + SEALOS_CLOUD_DOMAIN }}"
-      type: string
-      default: ''
-      required: false
-    OPENAI_API_KEY:
-      description: '这是你在 OpenAI 账户页面申请的 API 密钥，使用英文逗号隔开多个 key，这样可以随机轮询这些 key'
-      type: string
-      default: ''
-      required: true
-    CODE:
-      description: '设置页面中的访问密码，可以使用逗号隔开多个密码'
-      type: string
-      default: ''
-      required: false
-    BASE_URL:
-      description: '如果你手动配置了 OpenAI 接口代理，可以使用此配置项来覆盖默认的 OpenAI API 请求基础 URL'
-      type: string
-      default: 'https://api.openai.com'
-      required: false
-    OPENAI_ORG_ID:
-      description: '指定 OpenAI 中的组织 ID'
-      type: string
-      default: ''
-      required: false
-    HIDE_USER_API_KEY:
-      description: '如果你不想让用户自行填入 API Key，将勾选'
-      type: boolean
-      default: 'false'
-      required: false
-    DISABLE_GPT4:
-      description: '如果你不想让用户使用 GPT-4，将勾选'
-      type: boolean
-      default: 'false'
-      required: false
-    HIDE_BALANCE_QUERY:
-      description: '如果你想启用余额查询功能，将勾选'
-      type: boolean
-      default: 'false'
-      required: false
-    AUZRE_ENABLE:
-      description: '启用 Azure'
-      type: boolean
-      default: 'false'
-      required: false
-    AZURE_API_KEY:
-      description: 'Azure 密钥'
-      type: string
-      default: ''
-      required: true
-      if: inputs.AUZRE_ENABLE === 'true'
-    AZURE_URL:
-      description: 'Azure 部署地址'
-      type: string
-      default: 'https://{azure-resource-url}/openai/deployments/{deploy-name}'
-      required: true
-      if: inputs.AUZRE_ENABLE === 'true'
-    AZURE_API_VERSION:
-      description: 'Azure API 版本'
-      type: string
-      default: ''
-      required: true
-      if: inputs.AUZRE_ENABLE === 'true'
-
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: ${{ defaults.app_name }}
-  annotations:
-    originImageName: yidadaa/chatgpt-next-web:v2.12.4
-    deploy.cloud.sealos.io/minReplicas: '1'
-    deploy.cloud.sealos.io/maxReplicas: '1'
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-    app: ${{ defaults.app_name }}
-spec:
-  replicas: 1
-  revisionHistoryLimit: 1
-  selector:
-    matchLabels:
-      app: ${{ defaults.app_name }}
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 1
-      maxSurge: 0
-  template:
-    metadata:
-      labels:
-        app: ${{ defaults.app_name }}
-    spec:
-      automountServiceAccountToken: false
-      containers:
-        - name: ${{ defaults.app_name }}
-          image: yidadaa/chatgpt-next-web:v2.12.4
-          env:
-            - name: OPENAI_API_KEY
-              value: ${{ inputs.OPENAI_API_KEY }}
-            - name: CODE
-              value: ${{ inputs.CODE }}
-            - name: BASE_URL
-              value: ${{ inputs.BASE_URL }}
-            - name: OPENAI_ORG_ID
-              value: ${{ inputs.OPENAI_ORG_ID }}
-            ${{ if(inputs.HIDE_USER_API_KEY === 'true') }}
-            - name: HIDE_USER_API_KEY
-              value: '1'
-            ${{ endif() }}
-            ${{ if(inputs.DISABLE_GPT4 === 'true') }}
-            - name: DISABLE_GPT4
-              value: '1'
-            ${{ endif() }}
-            ${{ if(inputs.HIDE_BALANCE_QUERY === 'true') }}
-            - name: HIDE_BALANCE_QUERY
-              value: '1'
-            ${{ endif() }}
-            ${{ if(inputs.AUZRE_ENABLE === 'true') }}
-            - name: AZURE_URL
-              value: ${{ inputs.AZURE_URL }}
-            - name: AZURE_API_KEY
-              value: ${{ inputs.AZURE_API_KEY }}
-            - name: AZURE_API_VERSION
-              value: ${{ inputs.AZURE_API_VERSION }}
-            ${{ endif() }}
-          resources:
-            requests:
-              cpu: 100m
-              memory: 102Mi
-            limits:
-              cpu: 1000m
-              memory: 1024Mi
-          command: []
-          args: []
-          ports:
-            - containerPort: 3000
-          imagePullPolicy: IfNotPresent
-          volumeMounts: []
-      volumes: []
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: ${{ defaults.app_name }}
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-spec:
-  ports:
-    - port: 3000
-  selector:
-    app: ${{ defaults.app_name }}
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: ${{ defaults.app_name }}
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
-  annotations:
-    kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/proxy-body-size: 32m
-    nginx.ingress.kubernetes.io/server-snippet: |
-      client_header_buffer_size 64k;
-      large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
-    nginx.ingress.kubernetes.io/backend-protocol: HTTP
-    nginx.ingress.kubernetes.io/rewrite-target: /$2
-    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
-    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
-    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
-    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
-        expires 30d;
-        add_header Cache-Control "public";
-      }
-spec:
-  rules:
-    - host: ${{ inputs.DOMAIN || defaults.app_host + '.' + SEALOS_CLOUD_DOMAIN }}
-      http:
-        paths:
-          - pathType: Prefix
-            path: /()(.*)
-            backend:
-              service:
-                name: ${{ defaults.app_name }}
-                port:
-                  number: 3000
-  tls:
-    - hosts:
-        - ${{ inputs.DOMAIN || defaults.app_host + '.' + SEALOS_CLOUD_DOMAIN }}
-      secretName: "${{ inputs.DOMAIN ? defaults.app_name + '-cert' : SEALOS_CERT_SECRET_NAME }}"
-
----
-${{ if(inputs.DOMAIN !== '') }}
-apiVersion: cert-manager.io/v1
-kind: Issuer
-metadata:
-  name: ${{ defaults.app_name }}
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-spec:
-  acme:
-    server: https://acme-v02.api.letsencrypt.org/directory
-    email: admin@sealos.io
-    privateKeySecretRef:
-      name: letsencrypt-prod
-    solvers:
-      - http01:
-          ingress:
-            class: nginx
-            serviceType: ClusterIP
-${{ endif() }}
-
----
-${{ if(inputs.DOMAIN !== '') }}
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: ${{ defaults.app_name }}-cert
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-spec:
-  secretName: ${{ defaults.app_name }}-cert
-  dnsNames:
-    - ${{ inputs.DOMAIN }}
-  issuerRef:
-    name: ${{ defaults.app_name }}
-    kind: Issuer
-${{ endif() }}
-```
-
-</details>

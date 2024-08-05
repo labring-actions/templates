@@ -91,7 +91,7 @@ Any characters enclosed in `${{ }}` are variables, and the variables are divided
 | `required`    | Whether the input is required. |
 | `type`        | Must be one of `string` \| `number` \| `choice` \| `boolean` |
 | `options`?    | When type is `choice`, set list of available options. |
-| `if`?    | JavaScript expression, control whether this option is enabled. |
+| `if`?         | JavaScript expression, control whether this option is enabled. |
 
 Inputs as demoed above will be rendered as form inputs in the frontend:
 
@@ -132,14 +132,14 @@ Sealos template engine uses the syntax of `${{ expression }}` to parse expressio
 - `expression` is a valid JavaScript expression.
 - The expression can access Sealos built-in variables and functions.
 
-**Built-in System Variables:**
+#### Built-in System Variables
 
 - `${{ SEALOS_NAMESPACE }}` The namespace where Sealos user is deployed.
 - `${{ SEALOS_CLOUD_DOMAIN }}` The domain suffix of the Sealos cluster.
 - `${{ SEALOS_CERT_SECRET_NAME }}` The name of the secret that Sealos uses to store the tls certificate.
 - `${{ SEALOS_SERVICE_ACCOUNT }}` Sealos user's SA.
 
-**Built-in System Functions:**
+#### Built-in System Functions
 
 - `${{ random(length) }}`: Generates a random string of length `length`.
 - `${{ base64(expression) }}`: Encodes the result of the expression into base64 format.
@@ -149,7 +149,237 @@ Sealos template engine uses the syntax of `${{ expression }}` to parse expressio
 > Note:
 >
 > You cannot use `${{ inputs.enabled }}` to determine whether to enable an option because `enabled` is a string, not a boolean.
+>
 > You should use `${{ inputs.enabled === 'true' }}` to determine whether to enable an option.
+
+#### Conditional Rendering
+
+The Sealos template engine supports conditional rendering using `${{ if(expression) }}`, `${{ elif(expression) }}`, `${{ else() }}`, and `${{ endif() }}`.
+
+- Conditional rendering is a special built-in system function
+- Conditional statements must be on a separate line and cannot be on the same line as other content.
+- Conditional expressions must return a boolean value (`true` or `false`), otherwise they will be coerced into a boolean value.
+
+**Example:**
+
+```yaml
+${{ if(inputs.enableIngress === 'true') }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+...
+${{ endif() }}
+```
+
+This code snippet indicates that the Ingress resource will only be rendered if `inputs.enableIngress` is `true`.
+
+<details>
+
+<summary>A more complete example</summary>
+
+```yaml
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: chatgpt-next-web
+spec:
+  title: 'chatgpt-next-web'
+  url: 'https://github.com/Yidadaa/ChatGPT-Next-Web'
+  gitRepo: 'https://github.com/Yidadaa/ChatGPT-Next-Web'
+  author: 'Sealos'
+  description: 'One-click free deployment of your cross-platform private ChatGPT application'
+  readme: 'https://raw.githubusercontent.com/Yidadaa/ChatGPT-Next-Web/main/README.md'
+  icon: 'https://raw.githubusercontent.com/Yidadaa/ChatGPT-Next-Web/main/docs/images/icon.svg'
+  templateType: inline
+  categories:
+    - ai
+  defaults:
+    app_host:
+      type: string
+      value: ${{ random(8) }}
+    app_name:
+      type: string
+      value: chatgpt-next-web-${{ random(8) }}
+  inputs:
+    DOMAIN:
+      description: "Custom domain name, needs to be CNAME to: ${{ defaults.app_host + '.' + SEALOS_CLOUD_DOMAIN }}"
+      type: string
+      default: ''
+      required: false
+    OPENAI_API_KEY:
+      description: 'This is the API key you applied for on the OpenAI account page. Use English commas to separate multiple keys, so that these keys can be randomly polled'
+      type: string
+      default: ''
+      required: true
+    CODE:
+      description: 'Set the access password in the page, you can use commas to separate multiple passwords'
+      type: string
+      default: ''
+      required: false
+    BASE_URL:
+      description: 'If you manually configured the OpenAI interface proxy, you can use this configuration item to override the default OpenAI API request base URL'
+      type: string
+      default: 'https://api.openai.com'
+      required: false
+    HIDE_USER_API_KEY:
+      description: 'If you don't want users to fill in the API Key by themselves, check it'
+      type: boolean
+      default: 'false'
+      required: false
+    AUZRE_ENABLE:
+      description: 'Enable Azure'
+      type: boolean
+      default: 'false'
+      required: false
+    AZURE_API_KEY:
+      description: 'Azure key'
+      type: string
+      default: ''
+      required: true
+      if: inputs.AUZRE_ENABLE === 'true'
+    AZURE_URL:
+      description: 'Azure deployment address'
+      type: string
+      default: 'https://{azure-resource-url}/openai/deployments/{deploy-name}'
+      required: true
+      if: inputs.AUZRE_ENABLE === 'true'
+    AZURE_API_VERSION:
+      description: 'Azure API version'
+      type: string
+      default: ''
+      required: true
+      if: inputs.AUZRE_ENABLE === 'true'
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: yidadaa/chatgpt-next-web:v2.12.4
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: yidadaa/chatgpt-next-web:v2.12.4
+          env:
+            - name: OPENAI_API_KEY
+              value: ${{ inputs.OPENAI_API_KEY }}
+            - name: CODE
+              value: ${{ inputs.CODE }}
+            - name: BASE_URL
+              value: ${{ inputs.BASE_URL }}
+            ${{ if(inputs.HIDE_USER_API_KEY === 'true') }}
+            - name: HIDE_USER_API_KEY
+              value: '1'
+            ${{ endif() }}
+            ${{ if(inputs.AUZRE_ENABLE === 'true') }}
+            - name: AZURE_URL
+              value: ${{ inputs.AZURE_URL }}
+            - name: AZURE_API_KEY
+              value: ${{ inputs.AZURE_API_KEY }}
+            - name: AZURE_API_VERSION
+              value: ${{ inputs.AZURE_API_VERSION }}
+            ${{ endif() }}
+          ports:
+            - containerPort: 3000
+          imagePullPolicy: IfNotPresent
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - port: 3000
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+spec:
+  rules:
+    - host: ${{ inputs.DOMAIN || defaults.app_host + '.' + SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /()(.*)
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 3000
+  tls:
+    - hosts:
+        - ${{ inputs.DOMAIN || defaults.app_host + '.' + SEALOS_CLOUD_DOMAIN }}
+      secretName: "${{ inputs.DOMAIN ? defaults.app_name + '-cert' : SEALOS_CERT_SECRET_NAME }}"
+
+---
+${{ if(inputs.DOMAIN !== '') }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: admin@sealos.io
+    privateKeySecretRef:
+      name: letsencrypt-prod
+    solvers:
+      - http01:
+          ingress:
+            class: nginx
+            serviceType: ClusterIP
+${{ endif() }}
+
+---
+${{ if(inputs.DOMAIN !== '') }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ${{ defaults.app_name }}-cert
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  secretName: ${{ defaults.app_name }}-cert
+  dnsNames:
+    - ${{ inputs.DOMAIN }}
+  issuerRef:
+    name: ${{ defaults.app_name }}
+    kind: Issuer
+${{ endif() }}
+```
+
+</details>
 
 ## Part Two: `Application Resource File(s)`
 
@@ -932,9 +1162,7 @@ For all resources deployed through the templates, including system resources suc
 
 Where `app_name` is the name of the application deployed by the user, which is by default a random string, such as `fastgpt-zu1n048s`.
 
-## Part Three: `Conditional Rendering and Variables`
-
-### Rendering Process Explained
+## Part Three: `Rendering Process Explained`
 
 The Sealos template engine follows a specific order during the rendering process to ensure that variables and conditional statements are parsed correctly.
 
@@ -944,23 +1172,37 @@ The Sealos template engine follows a specific order during the rendering process
 
 ```mermaid
 graph TD
+    style A fill:#FFD700,stroke:#333,stroke-width:2px
+    style B fill:#87CEEB,stroke:#333,stroke-width:2px
+    style C fill:#87CEEB,stroke:#333,stroke-width:2px
+    style D fill:#FFA07A,stroke:#333,stroke-width:2px
+    style E fill:#FFD700,stroke:#333,stroke-width:2px
+    style F fill:#87CEEB,stroke:#333,stroke-width:2px
+    style G fill:#87CEEB,stroke:#333,stroke-width:2px
+    style H fill:#FFA07A,stroke:#333,stroke-width:2px
+    style I fill:#FFD700,stroke:#333,stroke-width:2px
+    style J fill:#87CEEB,stroke:#333,stroke-width:2px
+    style K fill:#87CEEB,stroke:#333,stroke-width:2px
+    style L fill:#FFA07A,stroke:#333,stroke-width:2px
+
     subgraph "1. Parse Template CR"
-        A[Get Template CR file] --> B{Parse defaults}
-        B -- Only allow using built-in system variables and functions --> C{Parse inputs}
+        A[Get Template CR file] --> B[Parse defaults]
+        B -- Only allow using built-in system variables and functions --> C[Parse inputs]
         C -- Allow using built-in system variables, functions, and defaults --> D[Template CR parsing completed]
     end
-    D --> E{Parse application resource files}
+    D --> E[Parse application resource files]
     subgraph "2. Parse Application Resource Files"
-        E --> F{Conditional Rendering}
-        F -- Selectively render code blocks based on the truth value of expressions --> G{Variable Parsing}
+        E --> F[Conditional Rendering]
+        F -- Selectively render code blocks based on the truth value of expressions --> G[Variable Parsing]
         G -- Replace placeholders using defaults, inputs, and built-in variables/functions --> H[Application resource file parsing completed]
     end
-    H --> I{Render Form and YAML file lists}
+    H --> I[Render Form and YAML file lists]
     subgraph "3. Render Form and YAML file lists"
-        I --> J{Form conditional rendering}
-        J -- Selectively render form items based on the truth value of expressions --> K{Form changes trigger re-rendering}
+        I --> J[Form conditional rendering]
+        J -- Selectively render form items based on the truth value of expressions --> K[Form changes trigger re-rendering]
         K -- Re-execute step 2, parse application resource files --> L[Rendering completed]
     end
+
 ```
 
 </details>
@@ -968,13 +1210,13 @@ graph TD
 - **Parse Template CR**
   - First, the system reads the `Template CR` file.
   - Then, it parses the `spec.defaults` field, which defines the default values for the template.
-    - In the `defaults` field, only predefined [built-in system variables](#built-in-system-variables-and-functions) and [built-in system functions](#built-in-system-variables-and-functions) are allowed.
+    - In the `defaults` field, only predefined [built-in system variables](#built-in-system-variables) and [built-in system functions](#built-in-system-functions) are allowed.
   - Next, it parses the `spec.inputs` field, which defines the parameters that the user needs to fill in.
     - In the `inputs` field, in addition to using built-in system variables and functions, you can also reference variables defined in `defaults`.
 - **Parse Application Resource Files**
   - In this stage, the expressions can reference `built-in system variables`, `built-in system functions`, `defaults`, and `inputs`.
   - Firstly, [conditional rendering](#conditional-rendering) is performed, selectively rendering code blocks based on the truth value of conditional expressions.
-  - Then, [variable parsing](#built-in-system-variables-and-functions) is performed, using `defaults`, `inputs`, and built-in variables/functions to replace placeholders in the resource files.
+  - Then, [variable parsing](#built-in-system-variables) is performed, using `defaults`, `inputs`, and built-in variables/functions to replace placeholders in the resource files.
 - **Render Form and YAML File Lists**
   - Finally, the system renders the Form based on the parsed `inputs` field, allowing users to fill in custom parameters.
     - In this stage, the expressions can reference `built-in system variables`, `built-in system functions`, `defaults`, and `inputs`.
@@ -986,289 +1228,5 @@ graph TD
 
 > Note:
 >
-> 1. When the user enters information in the input box, the `Template CR` content will not be re-parsed,
+> When the user enters information in the input box, the `Template CR` content will not be re-parsed,
 > meaning that the original expression will not be re-evaluated, such as `value: ${{ random(8) }}`.
->
-> 2. Only changing the content in "Development" under "Debug Template Online" will trigger a re-parse.
-
-### Conditional Rendering
-
-The Sealos template engine supports conditional rendering using `${{ if(expression) }}`, `${{ elif(expression) }}`, `${{ else() }}`, and `${{ endif() }}`.
-
-- Conditional statements must be on a separate line and cannot be on the same line as other content.
-- Conditional expressions must return a boolean value (`true` or `false`), otherwise they will be coerced into a boolean value.
-
-**Example:**
-
-```yaml
-${{ if(inputs.enableIngress === 'true') }}
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-...
-${{ endif() }}
-```
-
-This code snippet indicates that the Ingress resource will only be rendered if `inputs.enableIngress` is `true`.
-
-<details>
-
-<summary>A more complete example</summary>
-
-```yaml
-apiVersion: app.sealos.io/v1
-kind: Template
-metadata:
-  name: chatgpt-next-web
-spec:
-  title: 'chatgpt-next-web'
-  url: 'https://github.com/Yidadaa/ChatGPT-Next-Web'
-  gitRepo: 'https://github.com/Yidadaa/ChatGPT-Next-Web'
-  author: 'Sealos'
-  description: 'One-click free deployment of your cross-platform private ChatGPT application'
-  readme: 'https://raw.githubusercontent.com/Yidadaa/ChatGPT-Next-Web/main/README.md'
-  icon: 'https://raw.githubusercontent.com/Yidadaa/ChatGPT-Next-Web/main/docs/images/icon.svg'
-  templateType: inline
-  categories:
-    - ai
-  defaults:
-    app_host:
-      type: string
-      value: ${{ random(8) }}
-    app_name:
-      type: string
-      value: chatgpt-next-web-${{ random(8) }}
-  inputs:
-    DOMAIN:
-      description: "Custom domain name, needs to be CNAME to: ${{ defaults.app_host + '.' + SEALOS_CLOUD_DOMAIN }}"
-      type: string
-      default: ''
-      required: false
-    OPENAI_API_KEY:
-      description: 'This is the API key you applied for on the OpenAI account page. Use English commas to separate multiple keys, so that these keys can be randomly polled'
-      type: string
-      default: ''
-      required: true
-    CODE:
-      description: 'Set the access password in the page, you can use commas to separate multiple passwords'
-      type: string
-      default: ''
-      required: false
-    BASE_URL:
-      description: 'If you manually configured the OpenAI interface proxy, you can use this configuration item to override the default OpenAI API request base URL'
-      type: string
-      default: 'https://api.openai.com'
-      required: false
-    OPENAI_ORG_ID:
-      description: 'Specify the organization ID in OpenAI'
-      type: string
-      default: ''
-      required: false
-    HIDE_USER_API_KEY:
-      description: 'If you don't want users to fill in the API Key by themselves, check it'
-      type: boolean
-      default: 'false'
-      required: false
-    DISABLE_GPT4:
-      description: 'If you don't want users to use GPT-4, check it'
-      type: boolean
-      default: 'false'
-      required: false
-    HIDE_BALANCE_QUERY:
-      description: 'If you want to enable the balance query function, check it'
-      type: boolean
-      default: 'false'
-      required: false
-    AUZRE_ENABLE:
-      description: 'Enable Azure'
-      type: boolean
-      default: 'false'
-      required: false
-    AZURE_API_KEY:
-      description: 'Azure key'
-      type: string
-      default: ''
-      required: true
-      if: inputs.AUZRE_ENABLE === 'true'
-    AZURE_URL:
-      description: 'Azure deployment address'
-      type: string
-      default: 'https://{azure-resource-url}/openai/deployments/{deploy-name}'
-      required: true
-      if: inputs.AUZRE_ENABLE === 'true'
-    AZURE_API_VERSION:
-      description: 'Azure API version'
-      type: string
-      default: ''
-      required: true
-      if: inputs.AUZRE_ENABLE === 'true'
-
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: ${{ defaults.app_name }}
-  annotations:
-    originImageName: yidadaa/chatgpt-next-web:v2.12.4
-    deploy.cloud.sealos.io/minReplicas: '1'
-    deploy.cloud.sealos.io/maxReplicas: '1'
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-    app: ${{ defaults.app_name }}
-spec:
-  replicas: 1
-  revisionHistoryLimit: 1
-  selector:
-    matchLabels:
-      app: ${{ defaults.app_name }}
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 1
-      maxSurge: 0
-  template:
-    metadata:
-      labels:
-        app: ${{ defaults.app_name }}
-    spec:
-      automountServiceAccountToken: false
-      containers:
-        - name: ${{ defaults.app_name }}
-          image: yidadaa/chatgpt-next-web:v2.12.4
-          env:
-            - name: OPENAI_API_KEY
-              value: ${{ inputs.OPENAI_API_KEY }}
-            - name: CODE
-              value: ${{ inputs.CODE }}
-            - name: BASE_URL
-              value: ${{ inputs.BASE_URL }}
-            - name: OPENAI_ORG_ID
-              value: ${{ inputs.OPENAI_ORG_ID }}
-            ${{ if(inputs.HIDE_USER_API_KEY === 'true') }}
-            - name: HIDE_USER_API_KEY
-              value: '1'
-            ${{ endif() }}
-            ${{ if(inputs.DISABLE_GPT4 === 'true') }}
-            - name: DISABLE_GPT4
-              value: '1'
-            ${{ endif() }}
-            ${{ if(inputs.HIDE_BALANCE_QUERY === 'true') }}
-            - name: HIDE_BALANCE_QUERY
-              value: '1'
-            ${{ endif() }}
-            ${{ if(inputs.AUZRE_ENABLE === 'true') }}
-            - name: AZURE_URL
-              value: ${{ inputs.AZURE_URL }}
-            - name: AZURE_API_KEY
-              value: ${{ inputs.AZURE_API_KEY }}
-            - name: AZURE_API_VERSION
-              value: ${{ inputs.AZURE_API_VERSION }}
-            ${{ endif() }}
-          resources:
-            requests:
-              cpu: 100m
-              memory: 102Mi
-            limits:
-              cpu: 1000m
-              memory: 1024Mi
-          command: []
-          args: []
-          ports:
-            - containerPort: 3000
-          imagePullPolicy: IfNotPresent
-          volumeMounts: []
-      volumes: []
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: ${{ defaults.app_name }}
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-spec:
-  ports:
-    - port: 3000
-  selector:
-    app: ${{ defaults.app_name }}
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: ${{ defaults.app_name }}
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
-  annotations:
-    kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/proxy-body-size: 32m
-    nginx.ingress.kubernetes.io/server-snippet: |
-      client_header_buffer_size 64k;
-      large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
-    nginx.ingress.kubernetes.io/backend-protocol: HTTP
-    nginx.ingress.kubernetes.io/rewrite-target: /$2
-    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
-    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
-    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
-    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
-        expires 30d;
-        add_header Cache-Control "public";
-      }
-spec:
-  rules:
-    - host: ${{ inputs.DOMAIN || defaults.app_host + '.' + SEALOS_CLOUD_DOMAIN }}
-      http:
-        paths:
-          - pathType: Prefix
-            path: /()(.*)
-            backend:
-              service:
-                name: ${{ defaults.app_name }}
-                port:
-                  number: 3000
-  tls:
-    - hosts:
-        - ${{ inputs.DOMAIN || defaults.app_host + '.' + SEALOS_CLOUD_DOMAIN }}
-      secretName: "${{ inputs.DOMAIN ? defaults.app_name + '-cert' : SEALOS_CERT_SECRET_NAME }}"
-
----
-${{ if(inputs.DOMAIN !== '') }}
-apiVersion: cert-manager.io/v1
-kind: Issuer
-metadata:
-  name: ${{ defaults.app_name }}
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-spec:
-  acme:
-    server: https://acme-v02.api.letsencrypt.org/directory
-    email: admin@sealos.io
-    privateKeySecretRef:
-      name: letsencrypt-prod
-    solvers:
-      - http01:
-          ingress:
-            class: nginx
-            serviceType: ClusterIP
-${{ endif() }}
-
----
-${{ if(inputs.DOMAIN !== '') }}
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: ${{ defaults.app_name }}-cert
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-spec:
-  secretName: ${{ defaults.app_name }}-cert
-  dnsNames:
-    - ${{ inputs.DOMAIN }}
-  issuerRef:
-    name: ${{ defaults.app_name }}
-    kind: Issuer
-${{ endif() }}
-```
-
-</details>
