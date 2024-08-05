@@ -1143,18 +1143,18 @@ The Sealos template engine follows a specific order during the rendering process
 ```mermaid
 graph TB
   subgraph father[ ]
-    style A fill:#FFD700,stroke:#333,stroke-width:2px
-    style B fill:#87CEEB,stroke:#333,stroke-width:2px
-    style C fill:#87CEEB,stroke:#333,stroke-width:2px
-    style D fill:#FFA07A,stroke:#333,stroke-width:2px
-    style E fill:#FFD700,stroke:#333,stroke-width:2px
-    style F fill:#87CEEB,stroke:#333,stroke-width:2px
-    style G fill:#87CEEB,stroke:#333,stroke-width:2px
-    style H fill:#FFA07A,stroke:#333,stroke-width:2px
-    style I fill:#FFD700,stroke:#333,stroke-width:2px
-    style J fill:#87CEEB,stroke:#333,stroke-width:2px
-    style K fill:#87CEEB,stroke:#333,stroke-width:2px
-    style L fill:#FFA07A,stroke:#333,stroke-width:2px
+    style A fill:#FFD700,stroke:#333,stroke-width:2px,color:#000
+    style B fill:#1E90FF,stroke:#333,stroke-width:2px,color:#FFF
+    style C fill:#1E90FF,stroke:#333,stroke-width:2px,color:#FFF
+    style D fill:#FF6347,stroke:#333,stroke-width:2px,color:#FFF
+    style E fill:#FFD700,stroke:#333,stroke-width:2px,color:#000
+    style F fill:#1E90FF,stroke:#333,stroke-width:2px,color:#FFF
+    style G fill:#1E90FF,stroke:#333,stroke-width:2px,color:#FFF
+    style H fill:#FF6347,stroke:#333,stroke-width:2px,color:#FFF
+    style I fill:#FFD700,stroke:#333,stroke-width:2px,color:#000
+    style J fill:#1E90FF,stroke:#333,stroke-width:2px,color:#FFF
+    style K fill:#1E90FF,stroke:#333,stroke-width:2px,color:#FFF
+    style L fill:#FF6347,stroke:#333,stroke-width:2px,color:#FFF
 
     subgraph sub1[ ]
         A[1. Get Template CR file] --> B[Parse defaults]
