@@ -125,6 +125,13 @@ inputs:
 </tr>
 </table>
 
+#### Usage of `if` parameter in `Inputs`
+
+- The form supports dynamic rendering, where the `if` parameter controls whether a form item is displayed.
+- The content of the `if` parameter is an expression, do not use `${{ }}` to wrap it.
+- When the result of the expression is `true`, the parameter is rendered; when the result is `false`, the parameter is not rendered, and the corresponding `required` parameter will not take effect.
+- If the result is not a boolean value, it will be coerced into a boolean value.
+
 ### Built-in system variables and functions
 
 Sealos template engine uses the syntax of `${{ expression }}` to parse expressions.
@@ -159,6 +166,8 @@ The Sealos template engine supports conditional rendering using `${{ if(expressi
 - Conditional rendering is a special built-in system function
 - Conditional statements must be on a separate line and cannot be on the same line as other content.
 - Conditional expressions must return a boolean value (`true` or `false`), otherwise they will be coerced into a boolean value.
+- Allow rendering across yaml lists.
+- `Template CR` does not support conditional rendering.
 
 **Example:**
 
@@ -329,10 +338,8 @@ spec:
           ingress:
             class: nginx
             serviceType: ClusterIP
-${{ endif() }}
 
 ---
-${{ if(inputs.DOMAIN !== '') }}
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -1192,10 +1199,6 @@ graph TB
 - **Render Form and YAML File Lists**
   - Finally, the system renders the Form based on the parsed `inputs` field, allowing users to fill in custom parameters.
     - In this stage, the expressions can reference `built-in system variables`, `built-in system functions`, `defaults`, and `inputs`.
-  - The form also supports conditional rendering, where the `if` parameter controls whether a form item is displayed.
-    - The content of the `if` parameter is an expression, do not use `${{ }}` to wrap it.
-    - When the result of the expression is `true`, the parameter is rendered; when the result is `false`, the parameter is not rendered, and the corresponding `required` parameter will not take effect.
-    - If the result is not a boolean value, it will be coerced into a boolean value.
   - When the `Form` changes, it triggers a re-rendering of the `YAML` file list.
 
 > Note:

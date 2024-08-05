@@ -123,6 +123,13 @@ inputs:
 </tr>
 </table>
 
+#### `Inputs` 中 `if` 参数的用法
+
+- 表单支持动态渲染，通过 `if` 参数控制表单项是否开启。
+- 参数的内容是表达式，不要使用 `${{ }}` 包裹。
+- 表达式的结果为 `true` 时，渲染该参数；结果为 `false` 时，不渲染该参数，且对应的 `required` 参数也不会生效。
+- 如果结果不是布尔值时，会被强制转换为布尔值。
+
 ### 内置系统变量和函数
 
 Sealos 模板引擎使用 `${{ expression }}` 的语法来解析表达式。
@@ -159,6 +166,8 @@ Sealos 模板引擎支持使用 `${{ if(expression) }}`、`${{ elif(expression) 
 - 条件渲染是一种特殊的内置系统函数
 - 条件语句必须单独占一行，不能与其他内容在同一行。
 - 条件表达式必须返回布尔值 (`true` 或 `false`)，否则会被强制转换为布尔值。
+- 允许跨 yaml 列表渲染。
+- `Template CR` 不支持条件渲染。
 
 **示例:**
 
@@ -331,10 +340,8 @@ spec:
           ingress:
             class: nginx
             serviceType: ClusterIP
-${{ endif() }}
 
 ---
-${{ if(inputs.DOMAIN !== '') }}
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -1217,10 +1224,6 @@ graph TB
 - 渲染 Form 表单和 YAML 文件列表
   - 最后，系统根据解析后的 `inputs` 字段渲染 Form 表单，用户可以在表单中填写自定义参数。
     - 此阶段表达式中能引用 `内置系统变量` `内置系统函数` 以及 `defaults` `inputs`
-  - 表单也支持条件渲染，通过 `if` 参数控制表单项是否显示。
-    - 参数的内容是表达式，不要使用 `${{ }}` 包裹
-    - 表达式的结果为 `true` 时，渲染该参数；结果为 `false` 时，不渲染该参数，且对应的 `required` 参数也不会生效。
-    - 如果结果不是布尔值时，会被强制转换为布尔值。
   - 当 `Form` 变更时会触发重新渲染 `YAML` 文件列表。
 
 > 注意：
