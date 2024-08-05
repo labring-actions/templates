@@ -210,16 +210,6 @@ spec:
       type: string
       default: ''
       required: true
-    CODE:
-      description: '设置页面中的访问密码，可以使用逗号隔开多个密码'
-      type: string
-      default: ''
-      required: false
-    BASE_URL:
-      description: '如果你手动配置了 OpenAI 接口代理，可以使用此配置项来覆盖默认的 OpenAI API 请求基础 URL'
-      type: string
-      default: 'https://api.openai.com'
-      required: false
     HIDE_USER_API_KEY:
       description: '如果你不想让用户自行填入 API Key，将勾选'
       type: boolean
@@ -242,12 +232,6 @@ spec:
       default: 'https://{azure-resource-url}/openai/deployments/{deploy-name}'
       required: true
       if: inputs.AUZRE_ENABLE === 'true'
-    AZURE_API_VERSION:
-      description: 'Azure API 版本'
-      type: string
-      default: ''
-      required: true
-      if: inputs.AUZRE_ENABLE === 'true'
 
 ---
 apiVersion: apps/v1
@@ -256,8 +240,6 @@ metadata:
   name: ${{ defaults.app_name }}
   annotations:
     originImageName: yidadaa/chatgpt-next-web:v2.12.4
-    deploy.cloud.sealos.io/minReplicas: '1'
-    deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
@@ -267,11 +249,6 @@ spec:
   selector:
     matchLabels:
       app: ${{ defaults.app_name }}
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 1
-      maxSurge: 0
   template:
     metadata:
       labels:
@@ -284,10 +261,6 @@ spec:
           env:
             - name: OPENAI_API_KEY
               value: ${{ inputs.OPENAI_API_KEY }}
-            - name: CODE
-              value: ${{ inputs.CODE }}
-            - name: BASE_URL
-              value: ${{ inputs.BASE_URL }}
             ${{ if(inputs.HIDE_USER_API_KEY === 'true') }}
             - name: HIDE_USER_API_KEY
               value: '1'
@@ -297,12 +270,9 @@ spec:
               value: ${{ inputs.AZURE_URL }}
             - name: AZURE_API_KEY
               value: ${{ inputs.AZURE_API_KEY }}
-            - name: AZURE_API_VERSION
-              value: ${{ inputs.AZURE_API_VERSION }}
             ${{ endif() }}
           ports:
             - containerPort: 3000
-          imagePullPolicy: IfNotPresent
 ---
 apiVersion: v1
 kind: Service
@@ -1196,7 +1166,8 @@ Sealos 模板引擎在渲染过程中遵循特定的顺序，确保变量和条�
 <summary>以下流程图详细展示了整个渲染过程</summary>
 
 ```mermaid
-graph TD
+graph TB
+  subgraph father[ ]
     style A fill:#FFD700,stroke:#333,stroke-width:2px
     style B fill:#87CEEB,stroke:#333,stroke-width:2px
     style C fill:#87CEEB,stroke:#333,stroke-width:2px
@@ -1228,6 +1199,7 @@ graph TD
     
     sub1 --> sub2
     sub2 --> sub3
+  end
 ```
 
 </details>

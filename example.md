@@ -210,16 +210,6 @@ spec:
       type: string
       default: ''
       required: true
-    CODE:
-      description: 'Set the access password in the page, you can use commas to separate multiple passwords'
-      type: string
-      default: ''
-      required: false
-    BASE_URL:
-      description: 'If you manually configured the OpenAI interface proxy, you can use this configuration item to override the default OpenAI API request base URL'
-      type: string
-      default: 'https://api.openai.com'
-      required: false
     HIDE_USER_API_KEY:
       description: 'If you don't want users to fill in the API Key by themselves, check it'
       type: boolean
@@ -242,12 +232,6 @@ spec:
       default: 'https://{azure-resource-url}/openai/deployments/{deploy-name}'
       required: true
       if: inputs.AUZRE_ENABLE === 'true'
-    AZURE_API_VERSION:
-      description: 'Azure API version'
-      type: string
-      default: ''
-      required: true
-      if: inputs.AUZRE_ENABLE === 'true'
 
 ---
 apiVersion: apps/v1
@@ -256,8 +240,6 @@ metadata:
   name: ${{ defaults.app_name }}
   annotations:
     originImageName: yidadaa/chatgpt-next-web:v2.12.4
-    deploy.cloud.sealos.io/minReplicas: '1'
-    deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
@@ -267,11 +249,6 @@ spec:
   selector:
     matchLabels:
       app: ${{ defaults.app_name }}
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 1
-      maxSurge: 0
   template:
     metadata:
       labels:
@@ -284,10 +261,6 @@ spec:
           env:
             - name: OPENAI_API_KEY
               value: ${{ inputs.OPENAI_API_KEY }}
-            - name: CODE
-              value: ${{ inputs.CODE }}
-            - name: BASE_URL
-              value: ${{ inputs.BASE_URL }}
             ${{ if(inputs.HIDE_USER_API_KEY === 'true') }}
             - name: HIDE_USER_API_KEY
               value: '1'
@@ -297,12 +270,9 @@ spec:
               value: ${{ inputs.AZURE_URL }}
             - name: AZURE_API_KEY
               value: ${{ inputs.AZURE_API_KEY }}
-            - name: AZURE_API_VERSION
-              value: ${{ inputs.AZURE_API_VERSION }}
             ${{ endif() }}
           ports:
             - containerPort: 3000
-          imagePullPolicy: IfNotPresent
 ---
 apiVersion: v1
 kind: Service
@@ -1172,6 +1142,7 @@ The Sealos template engine follows a specific order during the rendering process
 
 ```mermaid
 graph TD
+  subgraph father[ ]
     style A fill:#FFD700,stroke:#333,stroke-width:2px
     style B fill:#87CEEB,stroke:#333,stroke-width:2px
     style C fill:#87CEEB,stroke:#333,stroke-width:2px
@@ -1203,6 +1174,7 @@ graph TD
     
     sub1 --> sub2
     sub2 --> sub3
+  end
 ```
 
 </details>
