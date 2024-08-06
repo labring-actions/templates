@@ -4,10 +4,10 @@ metadata:
   name: teable
 spec:
   title: 'teable'
-  url: 'teable.io'
+  url: 'teable.cn'
   gitRepo: 'https://github.com/teableio/teable'
   author: 'Sealos'
-  description: '✨ A Super fast, Real-time, Professional, Developer friendly, No code database'
+  description: '企业级高性能多维表格 - 无限行数+自动工化作流+精细权限'
   readme: 'https://raw.githubusercontent.com/teableio/teable/develop/README.md'
   icon: 'https://framerusercontent.com/images/x9gZmjwbtvaGd95qbfUmsZ8Jc.png'
   templateType: inline
@@ -22,17 +22,20 @@ spec:
     app_name:
       type: string
       value: teable-${{ random(8) }}
-    time_zone:
+    jwt_secret:
       type: string
-      value: 'Asia/Shanghai'
+      value: ${{ random(16) }}
+    session_secret:
+      type: string
+      value: ${{ random(16) }}
   inputs:
 ---
 apiVersion: apps/v1
-kind: StatefulSet
+kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: ghcr.io/teableio/teable:1.3.0-beta.0
+    originImageName: registry.cn-shenzhen.aliyuncs.com/teable/teable-ee:0.1.0-alpha-1.3.1-build.19
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -42,7 +45,6 @@ spec:
   replicas: 1
   revisionHistoryLimit: 1
   minReadySeconds: 10
-  serviceName: ${{ defaults.app_name }}
   selector:
     matchLabels:
       app: ${{ defaults.app_name }}
@@ -55,17 +57,20 @@ spec:
       automountServiceAccountToken: false
       initContainers:
         - name: db-migrate
-          image: ghcr.io/teableio/teable-db-migrate:1.3.0-beta.0
+          image: registry.cn-shenzhen.aliyuncs.com/teable/teable-db-migrate-ee:0.1.0-alpha-1.3.1-build.19
           env:
-            - name: TZ
-              value: ${{ defaults.time_zone }}
             - name: PG_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
             - name: PRISMA_DATABASE_URL
-              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432/teable
+              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:$(PG_PORT)/teable
             - name: PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING
               value: '1'
           resources:
@@ -77,23 +82,87 @@ spec:
               memory: 1024Mi
       containers:
         - name: ${{ defaults.app_name }}
-          image: ghcr.io/teableio/teable:1.3.0-beta.0
+          image: registry.cn-shenzhen.aliyuncs.com/teable/teable-ee:0.1.0-alpha-1.3.1-build.19
           env:
-            - name: TZ
-              value: ${{ defaults.time_zone }}
             - name: PG_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
             - name: PRISMA_DATABASE_URL
-              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432/teable
-            - name: NODE_OPTIONS
-              value: '--max-old-space-size=1024'
+              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:$(PG_PORT)/teable
             - name: PUBLIC_ORIGIN
               value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
-            - name: PUBLIC_DATABASE_PROXY
-              value: ${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
+            # - name: PUBLIC_DATABASE_PROXY
+            #   value: ${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:$(PG_PORT)
+            - name: BACKEND_JWT_SECRET
+              value: ${{ defaults.jwt_secret }}
+            - name: BACKEND_SESSION_SECRET
+              value: ${{ defaults.session_secret }}
+            - name: BACKEND_STORAGE_PROVIDER
+              value: minio
+            - name: BACKEND_STORAGE_PUBLIC_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-public
+                  key: bucket
+            - name: BACKEND_STORAGE_PRIVATE_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-private
+                  key: bucket
+            - name: BACKEND_STORAGE_MINIO_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            - name: BACKEND_STORAGE_MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: BACKEND_STORAGE_MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: BACKEND_STORAGE_MINIO_PORT
+              value: "443"
+            - name: BACKEND_STORAGE_MINIO_USE_SSL
+              value: 'true'
+            - name: STORAGE_PREFIX
+              value: https://$(BACKEND_STORAGE_MINIO_ENDPOINT)
+            - name: BACKEND_CACHE_PROVIDER
+              value: redis
+            - name: REDIS_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-conn-credential
+                  key: host
+            - name: REDIS_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-conn-credential
+                  key: port
+            - name: REDIS_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-conn-credential
+                  key: username
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-conn-credential
+                  key: password
+            - name: BACKEND_CACHE_REDIS_URI
+              value: redis://$(REDIS_USERNAME):$(REDIS_PASSWORD)@$(REDIS_HOST).${{ SEALOS_NAMESPACE }}.svc:$(REDIS_PORT)/1
+            - name: NEXT_ENV_IMAGES_ALL_REMOTE
+              value: 'true'
           resources:
             requests:
               cpu: 200m
@@ -101,36 +170,18 @@ spec:
             limits:
               cpu: 2000m
               memory: 4096Mi
-          command: []
-          args: []
           ports:
             - containerPort: 3000
           imagePullPolicy: IfNotPresent
-          volumeMounts:
-            - name: vn-appvn-vn-assets
-              mountPath: /app/.assets
           livenessProbe:
             httpGet:
               path: /health
               port: 3000
             initialDelaySeconds: 30
-            periodSeconds: 15
+            periodSeconds: 30
             timeoutSeconds: 3
-      volumes: []
       securityContext:
         fsGroup: 1000
-  volumeClaimTemplates:
-    - metadata:
-        annotations:
-          path: /app/.assets
-          value: '1'
-        name: vn-appvn-vn-assets
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 1Gi
 ---
 apiVersion: v1
 kind: Service
@@ -297,7 +348,135 @@ spec:
       restartPolicy: Never
   backoffLimit: 0
   ttlSecondsAfterFinished: 300
+
 ---
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-redis
+
+---
+
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: redis
+    clusterversion.kubeblocks.io/name: redis-7.0.6
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+  annotations: {}
+  name: ${{ defaults.app_name }}-redis
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: redis
+  clusterVersionRef: redis-7.0.6
+  componentSpecs:
+    - componentDefRef: redis
+      monitor: true
+      name: redis
+      replicas: 1
+      resources:
+        limits:
+          cpu: 1000m
+          memory: 1024Mi
+        requests:
+          cpu: 100m
+          memory: 102Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 3Gi
+            storageClassName: openebs-backup
+    - componentDefRef: redis-sentinel
+      monitor: true
+      name: redis-sentinel
+      replicas: 1
+      resources:
+        limits:
+          cpu: 100m
+          memory: 100Mi
+        requests:
+          cpu: 100m
+          memory: 100Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
+  terminationPolicy: Delete
+  tolerations: []
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-redis
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-redis
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-redis
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-redis
+    namespace: ${{ SEALOS_NAMESPACE }}
+
+---
+
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}-private
+spec:
+  policy: private
+
+---
+
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}-public
+spec:
+  policy: publicRead
+
+---
+
 apiVersion: app.sealos.io/v1
 kind: App
 metadata:
