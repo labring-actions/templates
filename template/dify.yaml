@@ -441,7 +441,7 @@ spec:
 ---
 
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}-sandbox
   annotations:
@@ -454,6 +454,8 @@ metadata:
 spec:
   replicas: 1
   revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: ${{ defaults.app_name }}-sandbox
   selector:
     matchLabels:
       app: ${{ defaults.app_name }}-sandbox
@@ -462,6 +464,7 @@ spec:
       labels:
         app: ${{ defaults.app_name }}-sandbox
     spec:
+      terminationGracePeriodSeconds: 10
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}-sandbox
@@ -479,12 +482,29 @@ spec:
             requests:
               cpu: 100m
               memory: 128Mi
+              ephemeral-storage: 200Mi
             limits:
-              cpu: 500m
+              cpu: 1
               memory: 1Gi
+              ephemeral-storage: 200Mi
           ports:
             - containerPort: 8194
           imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: vn-dependencies
+              mountPath: /dependencies
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /dependencies
+          value: '1'
+        name: vn-dependencies
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
 ---
 
 apiVersion: v1
