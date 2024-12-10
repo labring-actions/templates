@@ -1,0 +1,130 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: grafana
+spec:
+  title: 'Grafana'
+  url: 'https://grafana.com'
+  gitRepo: 'https://github.com/grafana/grafana'
+  author: 'Grafana Labs'
+  description: '🚀 The open and composable observability and data visualization platform. Visualize metrics, logs, and traces from multiple sources like Prometheus, Loki, Elasticsearch, InfluxDB, Postgres and many more.'
+  readme: 'https://raw.githubusercontent.com/grafana/grafana/main/README.md'
+  icon: 'https://raw.githubusercontent.com/grafana/grafana/main/public/img/grafana_icon.svg'
+  templateType: inline
+  defaults:
+    app_host:
+      type: string
+      value: grafana-${{ random(8) }}
+    app_name:
+      type: string
+      value: grafana-${{ random(8) }}
+    admin_password:
+      type: string
+      value: admin-${{ random(12) }}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: grafana/grafana:latest
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: grafana/grafana:latest
+          env:
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              value: ${{ defaults.admin_password }}
+            - name: GF_SERVER_ROOT_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          ports:
+            - containerPort: 3000
+          volumeMounts:
+            - mountPath: /var/lib/grafana
+              name: grafana-storage
+          imagePullPolicy: IfNotPresent
+      volumes:
+        - name: grafana-storage
+          emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - port: 3000
+      targetPort: 3000
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 3000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+    username: "admin"
+    password: ${{ defaults.admin_password }}
+  displayType: normal
+  icon: "https://raw.githubusercontent.com/grafana/grafana/main/public/img/grafana_icon.svg"
+  name: ${{ defaults.app_name }}
+  type: iframe
