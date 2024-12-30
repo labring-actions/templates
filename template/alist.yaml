@@ -3,7 +3,7 @@ kind: Template
 metadata:
   name: alist
 spec:
-  title: 'alist'
+  title: 'AList'
   url: 'https://github.com/alist-org/alist'
   gitRepo: 'https://github.com/alist-org/alist'
   author: '孤城落寞'
@@ -27,6 +27,17 @@ spec:
       type: string
       value: alist-${{ random(8) }}
   inputs:
+    USERNAME:
+      description: '默认用户名'
+      type: choice
+      options:
+        - admin
+      required: true
+    PASSWORD:
+        description: "默认密码"
+        type: string
+        default: ""
+        required: true
 
 ---
 apiVersion: apps/v1
@@ -34,7 +45,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: xhofe/alist-aria2:latest
+    originImageName: xhofe/alist-aria2:v3.41.0
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -57,10 +68,16 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: xhofe/alist-aria2:latest
+          image: xhofe/alist-aria2:v3.41.0
           env:
             - name: TZ
               value: Asia/Shanghai
+            - name: PUID
+              value: '0'
+            - name: PGID
+              value: '0'
+            - name: UMASK
+              value: '022'
           resources:
             requests:
               cpu: 20m
@@ -117,11 +134,12 @@ metadata:
     nginx.ingress.kubernetes.io/server-snippet: |
       client_header_buffer_size 64k;
       large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
-    nginx.ingress.kubernetes.io/rewrite-target: /$2
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
     nginx.ingress.kubernetes.io/configuration-snippet: |
       if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
         expires 30d;
@@ -133,7 +151,7 @@ spec:
       http:
         paths:
           - pathType: Prefix
-            path: /()(.*)
+            path: /
             backend:
               service:
                 name: ${{ defaults.app_name }}
@@ -156,5 +174,66 @@ spec:
     url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
   displayType: normal
   icon: "https://raw.githubusercontent.com/alist-org/logo/main/logo.svg"
+  name: AList
+  type: link
+
+# Add these before the Job resource
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
   name: ${{ defaults.app_name }}
-  type: iframe
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}
+rules:
+- apiGroups: ["apps"]
+  resources: ["statefulsets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["pods/exec"]
+  verbs: ["create"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}
+subjects:
+- kind: ServiceAccount
+  name: ${{ defaults.app_name }}
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-password
+spec:
+  completions: 1
+  template:
+    spec:
+      containers:
+        - name: ${{ defaults.app_name }}-password
+          image: bitnami/kubectl
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until kubectl exec statefulset/${{ defaults.app_name }} -- curl -I http://127.0.0.1:5244 &>/dev/null; do sleep 1; done
+              kubectl exec statefulset/${{ defaults.app_name }} -- ./alist admin set ${{ inputs.PASSWORD }}
+      restartPolicy: Never
+      serviceAccountName: ${{ defaults.app_name }}
+      serviceAccount:  ${{ defaults.app_name }}
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
