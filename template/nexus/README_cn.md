@@ -6,27 +6,27 @@
 
 部署完成后，点击【详情】进入应用详情页面：
 
-![nexus-detail](./images/nexus-detail.png)
+![nexus-detail](images/nexus-detail.png)
 
 等待应用状态变成 running，然后点击实例右侧的日志按钮查看日志：
 
-![nexus-log](./images/nexus-log.png)
+![nexus-log](images/nexus-log.png)
 
 等待日志中出现 `Started Sonatype Nexus OSS` 字样，表示应用启动成功。
 
-![nexus-log-success](./images/nexus-log-success.png)
+![nexus-log-success](images/nexus-log-success.png)
 
 接下来点击实例右侧的文件管理按钮，进入文件管理页面：
 
-![nexus-file-manager](./images/nexus-file-manager.png)
+![nexus-file-manager](images/nexus-file-manager.png)
 
 找到 `admin.password` 文件，点击文件右侧的下载按钮，下载文件：
 
-![nexus-admin-password](./images/nexus-admin-password.png)
+![nexus-admin-password](images/nexus-admin-password.png)
 
 下载完成后，打开文件，复制文件中的密码，即为默认密码。
 
-![nexus-admin-password-copy](./images/nexus-admin-password-copy.png)
+![nexus-admin-password-copy](images/nexus-admin-password-copy.png)
 
 ## 简介
 
@@ -36,7 +36,7 @@ Sonatype Nexus Repository 是一个强大的软件仓库管理工具，主要用
 - 作为私有仓库使用，提供组织内部的组件共享
 - 作为代理仓库，缓存远程仓库的资源
 
-![nexus](./images/nexus.png)
+![nexus](images/nexus.png)
 
 ### 主要特性
 
