@@ -1,0 +1,1588 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: supabase
+spec:
+  title: 'Supabase'
+  url: 'https://github.com/supabase-community/supabase-kubernetes'
+  gitRepo: 'https://github.com/supabase-community/supabase-kubernetes'
+  author: 'sealos'
+  description: 'A complete, production-ready Supabase deployment with PostgreSQL database, Auth, REST API, Realtime, and Storage.'
+  icon: 'https://raw.githubusercontent.com/supabase/supabase/master/packages/common/assets/images/supabase-logo.png'
+  templateType: inline
+  categories:
+    - low-code
+  defaults:
+    app_host:
+      type: string
+      value: ${{ random(8) }}
+    app_name:
+      type: string
+      value: supabase-${{ random(8) }}
+    anon_key:
+      type: string
+      value: ${{ random(32) }}
+    service_key:
+      type: string
+      value: ${{ random(32) }}
+    logflare_api_key:
+      type: string
+      value: ${{ random(32) }}
+    jwt_secret:
+      type: string
+      value: ${{ random(32) }}
+    service_role_key:
+      type: string
+      value: ${{ random(32) }}
+  inputs:
+    EXTERNAL_EMAIL_ENABLED:
+      description: 'check if you want to enable external email'
+      type: boolean
+      default: 'false'
+      required: false
+    GOTRUE_SMTP_ADMIN_EMAIL:
+      description: 'smtp email address'
+      type: string
+      default: ''
+      required: true
+      if: inputs.EXTERNAL_EMAIL_ENABLED === 'true'
+    GOTRUE_SMTP_HOST:
+      description: 'smtp host'
+      type: string
+      default: ''
+      required: true
+      if: inputs.EXTERNAL_EMAIL_ENABLED === 'true'
+    GOTRUE_SMTP_PORT:
+      description: 'smtp port'
+      type: string
+      default: ''
+      required: true
+      if: inputs.EXTERNAL_EMAIL_ENABLED === 'true'
+    GOTRUE_SMTP_SENDER_NAME:
+      description: 'smtp sender name'
+      type: string
+      default: ''
+      required: true
+      if: inputs.EXTERNAL_EMAIL_ENABLED === 'true'
+    GOTRUE_SMTP_USER:
+      description: 'smtp username'
+      type: string
+      default: ''
+      required: true
+      if: inputs.EXTERNAL_EMAIL_ENABLED === 'true'
+    GOTRUE_SMTP_PASS:
+      description: 'smtp password'
+      type: string
+      default: ''
+      required: true
+      if: inputs.EXTERNAL_EMAIL_ENABLED === 'true'
+
+---
+# Object Storage Bucket
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}-private
+spec:
+  policy: private
+
+---
+# PostgreSQL Database
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-14.8.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+  annotations: {}
+  name: ${{ defaults.app_name }}-pg
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-14.8.0
+  componentSpecs:
+    - componentDefRef: postgresql
+      monitor: true
+      name: postgresql
+      replicas: 1
+      resources:
+        limits:
+          cpu: 1000m
+          memory: 1024Mi
+        requests:
+          cpu: 100m
+          memory: 102Mi
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+  terminationPolicy: Delete
+  tolerations: []
+
+---
+# Database Initialization Job
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-init
+spec:
+  completions: 1
+  template:
+    spec:
+      containers:
+        - name: pgsql-init
+          image: senzing/postgresql-client:2.2.4
+          env:
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgresql://$(PG_USERNAME):$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
+          command:
+            - /bin/sh
+            - -c
+            - |
+          until psql ${DATABASE_URL} -c '\l' &>/dev/null; do
+            echo "Waiting for PostgreSQL to be ready..."
+            sleep 3
+          done
+          echo "Creating Supabase admin user and database..."
+          psql ${DATABASE_URL} -c "CREATE DATABASE supabase;"
+          echo "Creating auth schema and extensions..."
+          psql ${DATABASE_URL}/supabase -c >-
+            "CREATE SCHEMA IF NOT EXISTS auth;"
+          psql ${DATABASE_URL}/supabase -c >-
+            "CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\" WITH SCHEMA public;"
+          psql ${DATABASE_URL}/supabase -c >-
+            "CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;"
+          echo "Database initialization completed successfully!"
+
+---
+# Studio UI Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-studio
+  annotations:
+    originImageName: supabase/studio:20240326-5e5586d
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-studio
+    app: ${{ defaults.app_name }}-studio
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-studio
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-studio
+    spec:
+      terminationGracePeriodSeconds: 10
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-studio
+          image: supabase/studio:20240326-5e5586d
+          env:
+            - name: STUDIO_DEFAULT_ORGANIZATION
+              value: Default Organization
+            - name: STUDIO_DEFAULT_PROJECT
+              value: Default Project
+            - name: SUPABASE_PUBLIC_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: STUDIO_PORT
+              value: 3000
+            - name: NEXT_PUBLIC_ENABLE_LOGS
+              value: "true"
+            - name: NEXT_ANALYTICS_BACKEND_PROVIDER
+              value: postgres
+            - name: STUDIO_PG_META_URL
+              value: http://${{ defaults.app_name }}-meta.${{ SEALOS_NAMESPACE }}.svc.cluster.local:8080
+            - name: SUPABASE_ANON_KEY
+              value: ${{ defaults.anon_key }}
+            - name: SUPABASE_SERVICE_KEY
+              value: ${{ defaults.service_key }}
+            - name: LOGFLARE_URL
+              value: http://${{ defaults.app_name }}-analytics.${{ SEALOS_NAMESPACE }}.svc.cluster.local:4000
+            - name: LOGFLARE_API_KEY
+              value: ${{ defaults.logflare_api_key }}
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 2000m
+              memory: 2048Mi
+          ports:
+            - containerPort: 3000
+          imagePullPolicy: IfNotPresent
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-studio
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-studio
+spec:
+  ports:
+    - port: 3000
+  selector:
+    app: ${{ defaults.app_name }}-studio
+
+---
+# Auth Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-auth
+  originImageName: supabase/gotrue:v2.143.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-auth
+    app: ${{ defaults.app_name }}-auth
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-auth
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-auth
+    spec:
+      terminationGracePeriodSeconds: 10
+      automountServiceAccountToken: false
+      initContainers:
+        - name: init-db
+          image: senzing/postgresql-client:2.2.4
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgresql://$(PG_USERNAME):$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
+            command: ["/bin/sh", "-c"]
+            args:
+              - |
+                until pg_isready $(DATABASE_URL); do
+                echo "Waiting for database to start..."
+                sleep 2
+                done
+              - echo "Database is ready"
+      containers:
+        - name: ${{ defaults.app_name }}-auth
+          image: supabase/gotrue:v2.143.0
+          env:
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: DB_NAME
+              value: supabase
+            - name: DB_DRIVER
+              value: postgres
+            - name: DB_SSL
+              value: disable
+            - name: GOTRUE_DB_DATABASE_URL
+              value: $(DB_DRIVER)://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?search_path=auth&sslmode=$(DB_SSL)
+            - name: GOTRUE_DB_DRIVER
+              value: $(DB_DRIVER)
+            - name: GOTRUE_JWT_SECRET
+              value: ${{ defaults.jwt_secret }}
+            - name: API_EXTERNAL_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: GOTRUE_API_HOST
+              value: "0.0.0.0"
+            - name: GOTRUE_API_PORT
+              value: "9999"
+            - name: GOTRUE_SITE_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: GOTRUE_URI_ALLOW_LIST
+              value: "*"
+            - name: GOTRUE_DISABLE_SIGNUP
+              value: "false"
+            - name: GOTRUE_JWT_DEFAULT_GROUP_NAME
+              value: authenticated
+            - name: GOTRUE_JWT_ADMIN_ROLES
+              value: service_role
+            - name: GOTRUE_JWT_AUD
+              value: authenticated
+            - name: GOTRUE_JWT_EXP
+              value: 3600
+            ${{ if(inputs.EMAIL_ENABLE === 'true') }}
+            - name: GOTRUE_EXTERNAL_EMAIL_ENABLED
+              value: "true"
+            - name: GOTRUE_MAILER_AUTOCONFIRM
+              value: "true"
+            - name: GOTRUE_SMTP_ADMIN_EMAIL
+              value: ${{ inputs.GOTRUE_SMTP_ADMIN_EMAIL }}
+            - name: GOTRUE_SMTP_HOST
+              value: ${{ inputs.GOTRUE_SMTP_HOST }}
+            - name: GOTRUE_SMTP_PORT
+              value: ${{ inputs.GOTRUE_SMTP_PORT }}
+            - name: GOTRUE_SMTP_SENDER_NAME
+              value: ${{ inputs.GOTRUE_SMTP_SENDER_NAME }}
+            - name: GOTRUE_SMTP_USER
+              value: ${{ inputs.GOTRUE_SMTP_USER }}
+            - name: GOTRUE_SMTP_PASS
+              value: ${{ inputs.GOTRUE_SMTP_PASS }}
+            ${{ else() }}
+            - name: GOTRUE_EXTERNAL_EMAIL_ENABLED
+              value: "false"
+            ${{ endif() }}
+            - name: GOTRUE_EXTERNAL_PHONE_ENABLED
+              value: "false"
+            - name: GOTRUE_SMS_AUTOCONFIRM
+              value: "false"
+            - name: GOTRUE_MAILER_URLPATHS_INVITE
+              value: ""/auth/v1/verify"
+            - name: GOTRUE_MAILER_URLPATHS_CONFIRMATION
+              value: ""/auth/v1/verify"
+            - name: GOTRUE_MAILER_URLPATHS_RECOVERY
+              value: ""/auth/v1/verify"
+            - name: GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE
+              value: ""/auth/v1/verify"
+          ports:
+            - containerPort: 9999
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 2000m
+              memory: 2048Mi
+          imagePullPolicy: IfNotPresent
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-auth
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-auth
+spec:
+  ports:
+    - port: 9999
+  selector:
+    app: ${{ defaults.app_name }}-auth
+
+---
+# REST API Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-rest
+  annotations:
+    originImageName: postgrest/postgrest:v12.0.1
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-rest
+    app: ${{ defaults.app_name }}-rest
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-rest
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-rest
+    spec:
+      terminationGracePeriodSeconds: 10
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-rest
+          image: postgrest/postgrest:v12.0.1
+          env:
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: DB_NAME
+              value: supabase
+            - name: DB_DRIVER
+              value: postgres
+            - name: DB_SSL
+              value: disable
+            - name: PGRST_DB_URI
+              value: $(DB_DRIVER)://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?sslmode=$(DB_SSL)
+            - name: PGRST_DB_SCHEMAS
+              value: "public,storage,graphql_public"
+            - name: PGRST_DB_ANON_ROLE
+              value: "anon"
+            - name: PGRST_DB_USE_LEGACY_GUCS
+              value: "false"
+            - name: PGRST_JWT_SECRET
+              value: ${{ defaults.jwt_secret }}
+            - name: PGRST_APP_SETTINGS_JWT_SECRET
+              value: ${{ defaults.jwt_secret }}
+            - name: PGRST_APP_SETTINGS_JWT_EXP
+              value: "3600"
+          ports:
+            - containerPort: 3000
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 2000m
+              memory: 2048Mi
+          imagePullPolicy: IfNotPresent
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-rest
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-rest
+spec:
+  ports:
+    - port: 3000
+  selector:
+    app: ${{ defaults.app_name }}-rest
+
+---
+# Realtime Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-realtime
+  originImageName: supabase/realtime:v2.27.5
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-realtime
+    app: ${{ defaults.app_name }}-realtime
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-realtime
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-realtime
+    spec:
+      terminationGracePeriodSeconds: 10
+      automountServiceAccountToken: false
+      initContainers:
+        - name: init-db
+          image: senzing/postgresql-client:2.2.4
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgresql://$(PG_USERNAME):$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
+            command: ["/bin/sh", "-c"]
+            args:
+              - |
+                until pg_isready $(DATABASE_URL); do
+                echo "Waiting for database to start..."
+                sleep 2
+                done
+              - echo "Database is ready"
+      containers:
+        - name: ${{ defaults.app_name }}-realtime
+          image: supabase/realtime:v2.27.5
+          command: ["/bin/sh"]
+          args: ["-c", "/app/bin/migrate && /app/bin/realtime eval 'Realtime.Release.seeds(Realtime.Repo)' && /app/bin/server"]
+          env:
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: DB_NAME
+              value: supabase
+            - name: DB_DRIVER
+              value: postgres
+            - name: DB_SSL
+              value: disable
+            - name: DB_AFTER_CONNECT_QUERY
+              value: "SET search_path TO _realtime"
+            - name: DB_ENC_KEY
+              value: supabaserealtime
+            - name: JWT_SECRET
+              value: ${{ defaults.jwt_secret }}
+            - name: API_JWT_SECRET
+              value: ${{ defaults.jwt_secret }}
+            - name: PORT
+              value: "4000"
+            - name: FLY_ALLOC_ID
+              value: fly123
+            - name: FLY_APP_NAME
+              value: realtime
+            - name: SECRET_KEY_BASE
+              value: UpNVntn3cDxHJpq99YMc1T1AQgQpc8kfYTuRgBiYa15BLrx8etQoXz3gZv1/u2oq
+            - name: ERL_AFLAGS
+              value: -proto_dist inet_tcp
+            - name: ENABLE_TAILSCALE
+              value: "false"
+            - name: DNS_NODES
+              value: "''"
+          ports:
+            - containerPort: 4000
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-realtime
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-realtime
+spec:
+  ports:
+    - port: 4000
+  selector:
+    app: ${{ defaults.app_name }}-realtime
+
+---
+# Meta Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-meta
+  originImageName: supabase/postgres-meta:v0.80.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-meta
+    app: ${{ defaults.app_name }}-meta
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-meta
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-meta
+    spec:
+      terminationGracePeriodSeconds: 10
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-meta
+          image: supabase/postgres-meta:v0.80.0
+          env:
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: DB_NAME
+              value: supabase
+            - name: DB_DRIVER
+              value: postgres
+            - name: DB_SSL
+              value: disable
+            - name: PG_META_DB_HOST
+              value: $(DB_HOST)
+            - name: PG_META_DB_PORT
+              value: $(DB_PORT)
+            - name: PG_META_DB_NAME
+              value: $(DB_NAME)
+            - name: PG_META_DB_USER
+              value: $(DB_USER)
+            - name: PG_META_DB_PASSWORD
+              value: $(DB_PASSWORD)
+            - name: PG_META_DB_SSL_MODE
+              value: $(DB_SSL)
+            - name: PG_META_PORT
+              value: 8080
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 2000m
+              memory: 2048Mi
+          imagePullPolicy: IfNotPresent
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-meta
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-meta
+spec:
+  ports:
+    - port: 8080
+  selector:
+    app: ${{ defaults.app_name }}-meta
+
+---
+# Storage Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-storage
+  originImageName: supabase/storage-api:v0.46.4
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-storage
+    app: ${{ defaults.app_name }}-storage
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-storage
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-storage
+    spec:
+      terminationGracePeriodSeconds: 10
+      automountServiceAccountToken: false
+      initContainers:
+        - name: init-db
+          image: senzing/postgresql-client:2.2.4
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgresql://$(PG_USERNAME):$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
+            command: ["/bin/sh", "-c"]
+            args:
+              - |
+                until pg_isready $(DATABASE_URL); do
+                echo "Waiting for database to start..."
+                sleep 2
+                done
+              - echo "Database is ready"
+      containers:
+        - name: ${{ defaults.app_name }}-storage
+          image: supabase/storage-api:v0.46.4
+          env:
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: DB_NAME
+              value: supabase
+            - name: DB_DRIVER
+              value: postgres
+            - name: DB_SSL
+              value: disable
+            - name: DATABASE_URL
+              value: $(DB_DRIVER)://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?search_path=auth&sslmode=$(DB_SSL)
+            - name: PGOPTIONS
+              value: -c search_path=storage,public
+            - name: PGRST_JWT_SECRET
+              value: ${{ defaults.jwt_secret }}
+            - name: ANON_KEY
+              value: ${{ defaults.anon_key }}
+            - name: SERVICE_KEY
+              value: ${{ defaults.service_key }}
+            - name: IMGPROXY_URL
+              value: http://${{ defaults.app_name }}-imgproxy.${{ SEALOS_NAMESPACE }}.svc:8080
+            - name: POSTGREST_URL
+              value: http://${{ defaults.app_name }}-rest.${{ SEALOS_NAMESPACE }}.svc:3000
+            - name: FILE_SIZE_LIMIT
+              value: "52428800"
+            - name: STORAGE_BACKEND
+              value: "s3"
+            - name: TENANT_ID
+              value: stub
+            - name: REGION
+              value: stub
+            - name: GLOBAL_S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-private
+                  key: bucket
+            - name: GLOBAL_S3_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            - name: GLOBAL_S3_PROTOCOL
+              value: http
+            - name: GLOBAL_S3_FORCE_PATH_STYLE
+              value: "true"
+            - name: AWS_DEFAULT_REGION
+              value: "stub"
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+          ports:
+            - containerPort: 5000
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 2000m
+              memory: 2048Mi
+          imagePullPolicy: IfNotPresent
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-storage
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-storage
+spec:
+  ports:
+    - port: 5000
+  selector:
+    app: ${{ defaults.app_name }}-storage
+
+---
+# Image Proxy Service
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-imgproxy
+  annotations:
+    originImageName: darthsim/imgproxy:v3.8.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-imgproxy
+    app: ${{ defaults.app_name }}-imgproxy
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: ${{ defaults.app_name }}-imgproxy
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-imgproxy
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-imgproxy
+    spec:
+      terminationGracePeriodSeconds: 10
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-imgproxy
+          image: darthsim/imgproxy:v3.8.0
+          env:
+            - name: IMGPROXY_BIND
+              value: ":5001"
+            - name: IMGPROXY_LOCAL_FILESYSTEM_ROOT
+              value: "/imgproxy"
+            - name: IMGPROXY_USE_ETAG
+              value: "true"
+            - name: IMGPROXY_ENABLE_WEBP_DETECTION
+              value: "true"
+          ports:
+            - containerPort: 5001
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 2000m
+              memory: 2048Mi
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: vn-imgproxy
+              mountPath: /imgproxy
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /imgproxy
+          value: '10'
+        name: vn-imgproxy
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-imgproxy
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-imgproxy
+spec:
+  ports:
+    - port: 5001
+  selector:
+    app: ${{ defaults.app_name }}-imgproxy
+
+---
+# Analytics Provisioning
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-analytics
+  originImageName: supabase/logflare:1.4.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-analytics
+    app: ${{ defaults.app_name }}-analytics
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-analytics
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-analytics
+    spec:
+      terminationGracePeriodSeconds: 10
+      automountServiceAccountToken: false
+      initContainers:
+        - name: init-db
+          image: senzing/postgresql-client:2.2.4
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgresql://$(PG_USERNAME):$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
+            command: ["/bin/sh", "-c"]
+            args:
+              - |
+                until pg_isready $(DATABASE_URL); do
+                echo "Waiting for database to start..."
+                sleep 2
+                done
+              - echo "Database is ready"
+      containers:
+        - name: ${{ defaults.app_name }}-analytics
+          image: supabase/logflare:1.4.0
+          env:
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: DB_NAME
+              value: supabase
+            - name: DB_DRIVER
+              value: postgres
+            - name: DB_SSL
+              value: disable
+            - name: DB_SCHEMA
+              value: _analytics
+            - name: POSTGRES_BACKEND_URL
+              value: $(DB_DRIVER)://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)
+            - name: POSTGRES_BACKEND_SCHEMA
+              value: $(DB_SCHEMA)
+            - name: LOGFLARE_API_KEY
+              value: ${{ defaults.logflare_api_key }}
+            - name: FEATURE_FLAG_OVERRIDE
+              value: multibackend=true
+            - name: LOGFLARE_FEATURE_FLAG_OVERRIDE
+              value: $(FEATURE_FLAG_OVERRIDE)
+            - name: LOGFLARE_SINGLE_TENANT
+              value: "true"
+            - name: LOGFLARE_SUPABASE_MODE
+              value: "true"
+          ports:
+            - containerPort: 4000
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 2000m
+              memory: 2048Mi
+          imagePullPolicy: IfNotPresent
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-analytics
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-analytics
+spec:
+  ports:
+    - port: 4000
+  selector:
+    app: ${{ defaults.app_name }}-analytics
+
+---
+# Vector Provisioning
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-vector
+  annotations:
+    originImageName: timberio/vector:0.34.0-alpine
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-vector
+    app: ${{ defaults.app_name }}-vector
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: ${{ defaults.app_name }}-vector
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-vector
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-vector
+    spec:
+      terminationGracePeriodSeconds: 10
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-vector
+          image: timberio/vector:0.34.0-alpine
+          env:
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: DB_DRIVER
+              value: postgres
+            - name: DB_SSL
+              value: disable
+          ports:
+            - containerPort: 9001
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 2000m
+              memory: 2048Mi
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: vn-varvn-logvn-pods
+              mountPath: /var/log/pods
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /var/log/pods
+          value: '1'
+        name: vn-varvn-logvn-pods
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-vector
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-vector
+spec:
+  ports:
+    - port: 9001
+  selector:
+    app: ${{ defaults.app_name }}-vector
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+data:
+  secret.sh: |
+    #!/bin/sh
+    cat << EOF
+    {
+      "logflare_api_key": {
+        "value": "${{ defaults.logflare_api_key }}",
+        "error": null
+      }
+    }
+    EOF
+  vector.yml: |
+    secret:
+      credentials:
+        type: exec
+        command:
+          - /etc/vector/secret.sh
+
+    api:
+      enabled: true
+      address: 0.0.0.0:9001
+
+    sources:
+      kubernetes_host:
+        type: kubernetes_logs
+        extra_label_selector: app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/name!=${{ defaults.app_name }}-vector
+
+    transforms:
+      project_logs:
+        type: remap
+        inputs:
+          - kubernetes_host
+        source: |-
+          .project = "default"
+          .event_message = del(.message)
+          .appname = del(.kubernetes.container_name)
+          del(.file)
+          del(.kubernetes)
+          del(.source_type)
+          del(.stream)
+      router:
+        type: route
+        inputs:
+          - project_logs
+        route:
+          kong: '.appname == {{ include "supabase.kong.name" . | quote }}'
+          auth: '.appname == {{ include "supabase.auth.name" . | quote }}'
+          rest: '.appname == {{ include "supabase.rest.name" . | quote }}'
+          realtime: '.appname == {{ include "supabase.realtime.name" . | quote }}'
+          storage: '.appname == {{ include "supabase.storage.name" . | quote }}'
+          functions: '.appname == {{ include "supabase.functions.name" . | quote }}'
+          db: '.appname == {{ include "supabase.db.name" . | quote }}'
+      # Ignores non nginx errors since they are related with kong booting up
+      kong_logs:
+        type: remap
+        inputs:
+          - router.kong
+        source: |-
+          req, err = parse_nginx_log(.event_message, "combined")
+          if err == null {
+              .timestamp = req.timestamp
+              .metadata.request.headers.referer = req.referer
+              .metadata.request.headers.user_agent = req.agent
+              .metadata.request.headers.cf_connecting_ip = req.client
+              .metadata.request.method = req.method
+              .metadata.request.path = req.path
+              .metadata.request.protocol = req.protocol
+              .metadata.response.status_code = req.status
+          }
+          if err != null {
+            abort
+          }
+      # Ignores non nginx errors since they are related with kong booting up
+      kong_err:
+        type: remap
+        inputs:
+          - router.kong
+        source: |-
+          .metadata.request.method = "GET"
+          .metadata.response.status_code = 200
+          parsed, err = parse_nginx_log(.event_message, "error")
+          if err == null {
+              .timestamp = parsed.timestamp
+              .severity = parsed.severity
+              .metadata.request.host = parsed.host
+              .metadata.request.headers.cf_connecting_ip = parsed.client
+              url, err = split(parsed.request, " ")
+              if err == null {
+                  .metadata.request.method = url[0]
+                  .metadata.request.path = url[1]
+                  .metadata.request.protocol = url[2]
+              }
+          }
+          if err != null {
+            abort
+          }
+      # Gotrue logs are structured json strings which frontend parses directly. But we keep metadata for consistency.
+      auth_logs:
+        type: remap
+        inputs:
+          - router.auth
+        source: |-
+          parsed, err = parse_json(.event_message)
+          if err == null {
+              .metadata.timestamp = parsed.time
+              .metadata = merge!(.metadata, parsed)
+          }
+      # PostgREST logs are structured so we separate timestamp from message using regex
+      rest_logs:
+        type: remap
+        inputs:
+          - router.rest
+        source: |-
+          parsed, err = parse_regex(.event_message, r'^(?P<time>.*): (?P<msg>.*)$')
+          if err == null {
+              .event_message = parsed.msg
+              .timestamp = parse_timestamp!(parsed.time, format: "%e/%b/%Y %R %:z")
+              .metadata.host = .project
+          }
+      # Realtime logs are structured so we parse the severity level using regex (ignore time because it has no date)
+      realtime_logs:
+        type: remap
+        inputs:
+          - router.realtime
+        source: |-
+          .metadata.project = del(.project)
+          .metadata.external_id = .metadata.project
+          parsed, err = parse_regex(.event_message, r'^(?P<time>\d+:\d+:\d+\.\d+) \[(?P<level>\w+)\] (?P<msg>.*)$')
+          if err == null {
+              .event_message = parsed.msg
+              .metadata.level = parsed.level
+          }
+      # Storage logs may contain json objects so we parse them for completeness
+      storage_logs:
+        type: remap
+        inputs:
+          - router.storage
+        source: |-
+          .metadata.project = del(.project)
+          .metadata.tenantId = .metadata.project
+          parsed, err = parse_json(.event_message)
+          if err == null {
+              .event_message = parsed.msg
+              .metadata.level = parsed.level
+              .metadata.timestamp = parsed.time
+              .metadata.context[0].host = parsed.hostname
+              .metadata.context[0].pid = parsed.pid
+          }
+      # Postgres logs some messages to stderr which we map to warning severity level
+      db_logs:
+        type: remap
+        inputs:
+          - router.db
+        source: |-
+          .metadata.host = "db-default"
+          .metadata.parsed.timestamp = .timestamp
+
+          parsed, err = parse_regex(.event_message, r'.*(?P<level>INFO|NOTICE|WARNING|ERROR|LOG|FATAL|PANIC?):.*', numeric_groups: true)
+
+          if err != null || parsed == null {
+            .metadata.parsed.error_severity = "info"
+          }
+          if parsed != null {
+          .metadata.parsed.error_severity = parsed.level
+          }
+          if .metadata.parsed.error_severity == "info" {
+              .metadata.parsed.error_severity = "log"
+          }
+          .metadata.parsed.error_severity = upcase!(.metadata.parsed.error_severity)
+
+    {{- if .Values.analytics.enabled }}
+    sinks:
+      logflare_auth:
+        type: 'http'
+        inputs:
+          - auth_logs
+        encoding:
+          codec: 'json'
+        method: 'post'
+        request:
+          retry_max_duration_secs: 10
+        uri: 'http://${{ defaults.app_name }}-analytics.${{ SEALOS_NAMESPACE }}.svc.cluster.local:4000/api/logs?source_name=gotrue.logs.prod&api_key=SECRET[credentials.logflare_api_key]'
+      logflare_realtime:
+        type: 'http'
+        inputs:
+          - realtime_logs
+        encoding:
+          codec: 'json'
+        method: 'post'
+        request:
+          retry_max_duration_secs: 10
+        uri: 'http://${{ defaults.app_name }}-analytics.${{ SEALOS_NAMESPACE }}.svc.cluster.local:4000/api/logs?source_name=realtime.logs.prod&api_key=SECRET[credentials.logflare_api_key]'
+      logflare_rest:
+        type: 'http'
+        inputs:
+          - rest_logs
+        encoding:
+          codec: 'json'
+        method: 'post'
+        request:
+          retry_max_duration_secs: 10
+        uri: 'http://${{ defaults.app_name }}-analytics.${{ SEALOS_NAMESPACE }}.svc.cluster.local:4000/api/logs?source_name=postgREST.logs.prod&api_key=SECRET[credentials.logflare_api_key]'
+      logflare_db:
+        type: 'http'
+        inputs:
+          - db_logs
+        encoding:
+          codec: 'json'
+        method: 'post'
+        request:
+          retry_max_duration_secs: 10
+        # We must route the sink through kong because ingesting logs before logflare is fully initialised will
+        # lead to broken queries from studio. This works by the assumption that containers are started in the
+        # following order: vector > db > logflare > kong
+        uri: 'http://{{ include "supabase.kong.fullname" . }}:{{ .Values.kong.service.port }}/analytics/v1/api/logs?source_name=postgres.logs&api_key=SECRET[credentials.logflare_api_key]'
+      logflare_functions:
+        type: 'http'
+        inputs:
+          - router.functions
+        encoding:
+          codec: 'json'
+        method: 'post'
+        request:
+          retry_max_duration_secs: 10
+        uri: 'http://${{ defaults.app_name }}-analytics.${{ SEALOS_NAMESPACE }}.svc.cluster.local:4000/api/logs?source_name=deno-relay-logs&api_key=SECRET[credentials.logflare_api_key]'
+      logflare_storage:
+        type: 'http'
+        inputs:
+          - storage_logs
+        encoding:
+          codec: 'json'
+        method: 'post'
+        request:
+          retry_max_duration_secs: 10
+        uri: 'http://${{ defaults.app_name }}-analytics.${{ SEALOS_NAMESPACE }}.svc.cluster.local:4000/api/logs?source_name=storage.logs.prod.2&api_key=SECRET[credentials.logflare_api_key]'
+      logflare_kong:
+        type: 'http'
+        inputs:
+          - kong_logs
+          - kong_err
+        encoding:
+          codec: 'json'
+        method: 'post'
+        request:
+          retry_max_duration_secs: 10
+        uri: 'http://${{ defaults.app_name }}-analytics.${{ SEALOS_NAMESPACE }}.svc.cluster.local:4000/api/logs?source_name=cloudflare.logs.prod&api_key=SECRET[credentials.logflare_api_key]'
+    {{- end }}
+---
+
+# Functions Provisioning
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-functions
+  originImageName: supabase/edge-runtime:v1.41.2
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-functions
+    app: ${{ defaults.app_name }}-functions
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-functions
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-functions
+    spec:
+      terminationGracePeriodSeconds: 10
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-functions
+          image: supabase/edge-runtime:v1.41.2
+          env:
+          ports:
+            - containerPort: 9000
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 2000m
+              memory: 2048Mi
+          imagePullPolicy: IfNotPresent
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-functions
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-functions
+spec:
+  ports:
+    - port: 9000
+  selector:
+    app: ${{ defaults.app_name }}-functions
+
+---
+# Ingress Configuration
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-ingress
+  labels:
+    app: ${{ defaults.app_name }}-ingress
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - path: /()(.*)
+            pathType: Prefix
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-studio
+                port:
+                  number: 3000
+          - path: /auth(/|$)(.*)
+            pathType: Prefix
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-auth
+                port:
+                  number: 9999
+          - path: /rest(/|$)(.*)
+            pathType: Prefix
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-rest
+                port:
+                  number: 3000
+          - path: /realtime(/|$)(.*)
+            pathType: Prefix
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-realtime
+                port:
+                  number: 4000
+          - path: /storage(/|$)(.*)
+            pathType: Prefix
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-storage
+                port:
+                  number: 5000
+          - path: /meta(/|$)(.*)
+            pathType: Prefix
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-meta
+                port:
+                  number: 8080
