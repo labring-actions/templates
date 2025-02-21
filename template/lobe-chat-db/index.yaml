@@ -1,31 +1,75 @@
 apiVersion: app.sealos.io/v1
 kind: Template
 metadata:
-  name: logto
+  name: lobe-chat-db
 spec:
-  title: 'Logto'
-  url: 'https://logto.io/'
-  gitRepo: 'https://github.com/logto-io/logto'
+  title: 'Lobe Chat Database Version'
+  url: 'https://github.com/lobehub/lobe-chat'
+  gitRepo: 'https://github.com/lobehub/lobe-chat'
   author: 'Sealos'
-  description: 'Logto is an open-source Identity and Access Management (IAM) platform designed to streamline Customer Identity and Access Management (CIAM) and Workforce Identity Management.'
-  readme: 'https://raw.githubusercontent.com/logto-io/logto/refs/heads/master/README.md'
-  icon: 'https://logto.io/assets/favicon-BhRIFdsJ.ico'
+  description: 'An open-source, modern-design ChatGPT/LLMs UI/Framework. Supports speech-synthesis, multi-modal, and extensible (function call) plugin system.'
+  readme: 'https://raw.githubusercontent.com/labring-actions/templates/main/lobe-chat-db/README.md'
+  icon: 'https://lobehub.com/_next/static/media/logo.98482105.png'
   templateType: inline
   locale: en
   i18n:
     zh:
-      title: 'Logto'
-      description: 'Logto 是一个开源的 身份与访问管理（IAM）平台，是 Auth0 的开源替代方案，旨在帮助开发者快速构建安全、可扩展的登录注册系统和用户身份体系。'
+      title: 'Lobe Chat 数据库版'
+      description: 'Lobe Chat 是一款现代化设计的开源 ChatGPT/LLMs 聊天应用与开发框架，支持语音合成、多模态、可扩展的（function call）插件系统。'
+      readme: 'https://raw.githubusercontent.com/labring-actions/templates/main/lobe-chat-db/README_cn.md'
   categories:
-    - tool
+    - ai
   defaults:
-    app_host:
-      # number or string..
-      type: string
-      value: logto-${{ random(8) }}
     app_name:
       type: string
-      value: logto-${{ random(8) }}
+      value: lobe-chat-db-${{ random(8) }}
+    app_host:
+      type: string
+      value: ${{ random(8) }}
+  inputs:
+    AUTH_LOGTO_ID:
+      description: 'The Client ID of the Logto application.'
+      type: string
+      default: ''
+      required: true
+    AUTH_LOGTO_SECRET:
+      description: 'The Client Secret of the Logto application.'
+      type: string
+      default: ''
+      required: true
+    AUTH_LOGTO_ISSUER:
+      description: 'The OpenID Connect issuer of the Logto application.'
+      type: string
+      default: ''
+      required: true
+    OPENAI_API_KEY:
+      description: 'This is the API key you apply on the OpenAI account page'
+      type: string
+      default: ''
+      required: false
+    OPENAI_PROXY_URL:
+      description: 'If you manually configure the OpenAI interface proxy, you can use this configuration item to override the default OpenAI API request base URL'
+      type: string
+      default: 'https://api.openai.com/v1'
+      required: false
+    ACCESS_CODE:
+      description: 'Add a password to access this service; you can set a long password to avoid leaking. If this value contains a comma, it is a password array.'
+      type: string
+      default: ''
+      required: false
+    OPENAI_MODEL_LIST:
+      description: 'Used to control the model list. Use + to add a model, - to hide a model, and model_name=display_name to customize the display name of a model, separated by commas.'
+      type: string
+      default: ''
+      required: false
+
+---
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}-private
+spec:
+  policy: private
 
 ---
 apiVersion: v1
@@ -143,7 +187,7 @@ spec:
             - /bin/sh
             - -c
             - |
-              until psql ${DATABASE_URL} -c 'CREATE DATABASE logto;' &>/dev/null; do sleep 1; done
+              until psql ${DATABASE_URL} -c 'CREATE DATABASE lobechat;' &>/dev/null; do sleep 1; done
       restartPolicy: Never
   backoffLimit: 0
   ttlSecondsAfterFinished: 300
@@ -154,7 +198,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: svhd/logto:1.24
+    originImageName: lobehub/lobe-chat-database:1.62.3
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -169,8 +213,8 @@ spec:
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxUnavailable: 0
-      maxSurge: 1
+      maxUnavailable: 1
+      maxSurge: 0
   template:
     metadata:
       labels:
@@ -179,11 +223,32 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: svhd/logto:1.24
-          command: ["sh", "-c", "npm run cli db seed -- --swe && npm start"]
+          image: lobehub/lobe-chat-database:1.62.3
           env:
-            - name: TRUST_PROXY_HEADER
-              value: "1"
+            - name: OPENAI_API_KEY
+              value: ${{ inputs.OPENAI_API_KEY }}
+            - name: OPENAI_PROXY_URL
+              value: ${{ inputs.OPENAI_PROXY_URL }}
+            - name: ACCESS_CODE
+              value: ${{ inputs.ACCESS_CODE }}
+            - name: OPENAI_MODEL_LIST
+              value: ${{ inputs.OPENAI_MODEL_LIST }}
+            - name: APP_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: KEY_VAULTS_SECRET
+              value: KZXS2Wucm5ok3wckaTK2EJa9U+7b9I1rIqx98PV4X18=
+            - name: NEXT_AUTH_SECRET
+              value: KZXS2Wucm5ok3wckaTK2EJa9U+7b9I1rIqx98PV4X18=
+            - name: NEXT_AUTH_SSO_PROVIDERS
+              value: logto
+            - name: AUTH_LOGTO_ID
+              value: ${{ inputs.AUTH_LOGTO_ID }}
+            - name: AUTH_LOGTO_SECRET
+              value: ${{ inputs.AUTH_LOGTO_SECRET }}
+            - name: AUTH_LOGTO_ISSUER
+              value: ${{ inputs.AUTH_LOGTO_ISSUER }}
+            - name: NEXTAUTH_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/api/auth
             - name: DATABASE_PORT
               valueFrom:
                 secretKeyRef:
@@ -199,29 +264,54 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
-            - name: DB_URL
-              value: "postgres://$(DATABASE_USER):$(DATABASE_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:$(DATABASE_PORT)/logto"
-            - name: ENDPOINT
-              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
-            - name: ADMIN_ENDPOINT
-              value: https://${{ defaults.app_host }}-admin.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: DATABASE_URL
+              value: "postgres://$(DATABASE_USER):$(DATABASE_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:$(DATABASE_PORT)/lobechat"
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-private
+                  key: bucket
+            - name: BACKEND_STORAGE_MINIO_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: internal
+            - name: S3_ENDPOINT
+              value: "http://$(BACKEND_STORAGE_MINIO_ENDPOINT)"
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            - name: S3_PUBLIC_DOMAIN
+              value: "http://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)"
+            - name: S3_ENABLE_PATH_STYLE
+              value: "1"  
           resources:
             requests:
-              cpu: 100m
-              memory: 25Mi
+              cpu: 50m
+              memory: 50Mi
             limits:
-              cpu: 1000m
-              memory: 256Mi
-          readinessProbe:
-            failureThreshold: 30
-            httpGet:
-              path: /
-              port: 3001
-              scheme: HTTP
-            periodSeconds: 10
-            successThreshold: 1
-            timeoutSeconds: 1
+              cpu: 500m
+              memory: 512Mi
+          command: []
+          args: []
+          ports:
+            - containerPort: 3210
           imagePullPolicy: IfNotPresent
+          volumeMounts: []
+      volumes: []
+
 
 ---
 apiVersion: v1
@@ -232,14 +322,10 @@ metadata:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
-    - name: http
-      targetPort: 3001
-      port: 3001
-    - name: admin
-      targetPort: 3002
-      port: 3002
+    - port: 3210
   selector:
     app: ${{ defaults.app_name }}
+
 
 ---
 apiVersion: networking.k8s.io/v1
@@ -255,7 +341,7 @@ metadata:
     nginx.ingress.kubernetes.io/server-snippet: |
       client_header_buffer_size 64k;
       large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
@@ -277,65 +363,8 @@ spec:
               service:
                 name: ${{ defaults.app_name }}
                 port:
-                  number: 3001
+                  number: 3210
   tls:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
-
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: ${{ defaults.app_name }}-admin
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}-admin
-  annotations:
-    kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/proxy-body-size: 32m
-    nginx.ingress.kubernetes.io/server-snippet: |
-      client_header_buffer_size 64k;
-      large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
-    nginx.ingress.kubernetes.io/backend-protocol: HTTP
-    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
-    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
-    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
-    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
-        expires 30d;
-        add_header Cache-Control "public";
-      }
-spec:
-  rules:
-    - host: ${{ defaults.app_host }}-admin.${{ SEALOS_CLOUD_DOMAIN }}
-      http:
-        paths:
-          - pathType: Prefix
-            path: /
-            backend:
-              service:
-                name: ${{ defaults.app_name }}
-                port:
-                  number: 3002
-  tls:
-    - hosts:
-        - ${{ defaults.app_host }}-admin.${{ SEALOS_CLOUD_DOMAIN }}
-      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
-
----
-apiVersion: app.sealos.io/v1
-kind: App
-metadata:
-  name: ${{ defaults.app_name }}
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-spec:
-  data:
-    url: https://${{ defaults.app_host }}-admin.${{ SEALOS_CLOUD_DOMAIN }}
-  displayType: normal
-  icon: "https://logto.io/assets/favicon-BhRIFdsJ.ico"
-  name: "Logto"
-  type: link
