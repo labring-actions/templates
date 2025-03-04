@@ -1,0 +1,889 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: wrenai
+spec:
+  title: 'WrenAI'
+  url: 'https://github.com/Canner/WrenAI'
+  gitRepo: 'https://github.com/Canner/WrenAI'
+  author: 'sealos'
+  description: '🤖 Open-source GenBI AI Agent that empowers data-driven teams to chat with their data to generate Text-to-SQL, charts, spreadsheets, reports, and BI. 📈📊📋🧑‍💻'
+  icon: 'https://raw.githubusercontent.com/Canner/WrenAI/refs/heads/main/wren-ui/public/images/logo.svg'
+  templateType: inline
+  categories:
+    - low-code
+    - ai
+  defaults:
+    app_host:
+      type: string
+      value: wrenai-${{ random(8) }}
+    app_name:
+      type: string
+      value: wrenai-${{ random(8) }}
+    posthog_api_key:
+      type: string
+      value: ${{ random(16) }}
+    user_uuid:
+      type: string
+      value: ${{ random(32) }}
+  inputs:
+    openai_api_key:
+      description: 'OpenAI API Key'
+      type: string
+      required: false
+    embedder_openai_api_key:
+      description: 'OpenAI API Key for Embedder'
+      type: string
+      required: false
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-ai-service
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-ai-service
+data:
+  vn-appvn-datavn-configvn-yaml: |
+    type: llm
+    provider: litellm_llm
+    timeout: 120
+    models:
+    - model: gpt-4o-mini-2024-07-18
+      api_base: https://api.openai.com/v1
+      api_key_name: LLM_OPENAI_API_KEY
+      kwargs:
+        temperature: 0
+        n: 1
+        seed: 0
+        max_tokens: 4096
+    - model: gpt-4o-2024-08-06
+      api_base: https://api.openai.com/v1
+      api_key_name: LLM_OPENAI_API_KEY
+      kwargs:
+        temperature: 0
+        n: 1
+        seed: 0
+        max_tokens: 4096
+    - model: o3-mini-2025-01-31
+      api_base: https://api.openai.com/v1
+      api_key_name: LLM_OPENAI_API_KEY
+      kwargs:
+        n: 1
+        seed: 0
+        max_completion_tokens: 4096
+        reasoning_effort: low
+
+    ---
+    type: embedder
+    provider: litellm_embedder
+    models:
+    - model: text-embedding-3-large
+      api_base: https://api.openai.com/v1
+      api_key_name: EMBEDDER_OPENAI_API_KEY
+      timeout: 120
+
+    ---
+    type: engine
+    provider: wren_ui
+    endpoint: http://${{ defaults.app_name }}-ui:3000
+
+    ---
+    type: document_store
+    provider: qdrant
+    location: http://${{ defaults.app_name }}-qdrant:6333
+    embedding_model_dim: 3072
+    timeout: 120
+    recreate_index: true
+
+    ---
+    type: pipeline
+    pipes:
+      - name: db_schema_indexing
+        embedder: litellm_embedder.text-embedding-3-large
+        document_store: qdrant
+      - name: historical_question_indexing
+        embedder: litellm_embedder.text-embedding-3-large
+        document_store: qdrant
+      - name: table_description_indexing
+        embedder: litellm_embedder.text-embedding-3-large
+        document_store: qdrant
+      - name: db_schema_retrieval
+        llm: litellm_llm.gpt-4o-mini-2024-07-18
+        embedder: litellm_embedder.text-embedding-3-large
+        document_store: qdrant
+      - name: historical_question_retrieval
+        embedder: litellm_embedder.text-embedding-3-large
+        document_store: qdrant
+      - name: sql_generation
+        llm: litellm_llm.gpt-4o-mini-2024-07-18
+        engine: wren_ui
+      - name: sql_correction
+        llm: litellm_llm.gpt-4o-mini-2024-07-18
+        engine: wren_ui
+      - name: followup_sql_generation
+        llm: litellm_llm.gpt-4o-mini-2024-07-18
+        engine: wren_ui
+      - name: sql_summary
+        llm: litellm_llm.gpt-4o-mini-2024-07-18
+      - name: sql_answer
+        llm: litellm_llm.gpt-4o-mini-2024-07-18
+      - name: sql_breakdown
+        llm: litellm_llm.gpt-4o-mini-2024-07-18
+        engine: wren_ui
+      - name: sql_expansion
+        llm: litellm_llm.gpt-4o-mini-2024-07-18
+        engine: wren_ui
+      - name: semantics_description
+        llm: litellm_llm.gpt-4o-mini-2024-07-18
+      - name: relationship_recommendation
+        llm: litellm_llm.gpt-4o-mini-2024-07-18
+        engine: wren_ui
+      - name: question_recommendation
+        llm: litellm_llm.gpt-4o-mini-2024-07-18
+      - name: question_recommendation_db_schema_retrieval
+        llm: litellm_llm.gpt-4o-mini-2024-07-18
+        embedder: litellm_embedder.text-embedding-3-large
+        document_store: qdrant
+      - name: question_recommendation_sql_generation
+        llm: litellm_llm.gpt-4o-mini-2024-07-18
+        engine: wren_ui
+      - name: intent_classification
+        llm: litellm_llm.gpt-4o-mini-2024-07-18
+        embedder: litellm_embedder.text-embedding-3-large
+        document_store: qdrant
+      - name: data_assistance
+        llm: litellm_llm.gpt-4o-mini-2024-07-18
+      - name: sql_pairs_indexing
+        document_store: qdrant
+        embedder: litellm_embedder.text-embedding-3-large
+      - name: sql_pairs_retrieval
+        document_store: qdrant
+        embedder: litellm_embedder.text-embedding-3-large
+        llm: litellm_llm.gpt-4o-mini-2024-07-18
+      - name: preprocess_sql_data
+        llm: litellm_llm.gpt-4o-mini-2024-07-18
+      - name: sql_executor
+        engine: wren_ui
+      - name: chart_generation
+        llm: litellm_llm.gpt-4o-mini-2024-07-18
+      - name: chart_adjustment
+        llm: litellm_llm.gpt-4o-mini-2024-07-18
+      - name: sql_question_generation
+        llm: litellm_llm.gpt-4o-mini-2024-07-18
+      - name: sql_generation_reasoning
+        llm: litellm_llm.gpt-4o-mini-2024-07-18
+      - name: sql_regeneration
+        llm: litellm_llm.gpt-4o-mini-2024-07-18
+        engine: wren_ui
+
+    ---
+    settings:
+      engine_timeout: 30
+      column_indexing_batch_size: 50
+      table_retrieval_size: 10
+      table_column_retrieval_size: 100
+      allow_using_db_schemas_without_pruning: false
+      query_cache_maxsize: 1000
+      query_cache_ttl: 3600
+      langfuse_host: https://cloud.langfuse.com
+      langfuse_enable: false
+      logging_level: DEBUG
+      development: false
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-ai-service
+  annotations:
+    originImageName: ghcr.io/canner/wren-ai-service:0.15.17
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-ai-service
+    app: ${{ defaults.app_name }}-ai-service
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-ai-service
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-ai-service
+    spec:
+      terminationGracePeriodSeconds: 10
+      automountServiceAccountToken: false
+      containers:
+      - name: ${{ defaults.app_name }}-ai-service
+        image: ghcr.io/canner/wren-ai-service:0.15.17
+        env:
+          - name: WREN_AI_SERVICE_PORT
+            value: 5555
+          - name: LLM_OPENAI_API_KEY
+            value: ${{ inputs.openai_api_key }}
+          - name: EMBEDDER_OPENAI_API_KEY
+            value: ${{ inputs.embedder_openai_api_key }}
+          - name: QDRANT_HOST
+            value: ${{ defaults.app_name }}-qdrant
+          - name: LOGGING_LEVEL
+            value: INFO
+          - name: WREN_UI_ENDPOINT
+            value: http://${{ defaults.app_name }}-ui:3000
+          - name: PYTHONUNBUFFERED
+            value: "1"
+          - name: LANGFUSE_PUBLIC_KEY
+            value: ""
+          - name: LANGFUSE_SECRET_KEY
+            value: ""
+          - name: CONFIG_PATH
+            value: /app/data/config.yaml
+        resources:
+          requests:
+            cpu: 200m
+            memory: 200Mi
+          limits:
+            cpu: 2
+            memory: 2Gi
+        ports:
+          - containerPort: 5555
+        imagePullPolicy: IfNotPresent
+        volumeMounts:
+          - name: vn-appvn-datavn-configvn-yaml
+            mountPath: /app/data/config.yaml
+            subPath: ./app/data/config.yaml
+      volumes:
+        - name: vn-appvn-datavn-configvn-yaml
+          configMap:
+            name: ${{ defaults.app_name }}-ai-service
+            items:
+              - key: vn-appvn-datavn-configvn-yaml
+                path: ./app/data/config.yaml
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-ai-service
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-ai-service
+spec:
+  ports:
+    - port: 5555
+  selector:
+    app: ${{ defaults.app_name }}-ai-service
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-engine
+  annotations:
+    originImageName: ghcr.io/canner/wren-engine:0.14.3
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-engine
+    app: ${{ defaults.app_name }}-engine
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-engine
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-engine
+    spec:
+      terminationGracePeriodSeconds: 10
+      automountServiceAccountToken: false
+      initContainers:
+        - name: bootstrap
+          image: ghcr.io/canner/wren-bootstrap:0.1.5
+          env:
+            - name: DATA_PATH
+              value: /app/data
+          volumeMounts:
+            - name: vn-appvn-data
+              mountPath: /app/data
+          command:
+            - /bin/sh
+            - /app/init.sh
+      containers:
+      - name: ${{ defaults.app_name }}-engine
+        image: ghcr.io/canner/wren-engine:0.14.3
+        env:
+          - name: LLM_OPENAI_API_KEY
+            value: ${{ inputs.openai_api_key }}
+          - name: EMBEDDER_OPENAI_API_KEY
+            value: ${{ inputs.embedder_openai_api_key }}
+        resources:
+          requests:
+            cpu: 200m
+            memory: 400Mi
+          limits:
+            cpu: 2000m
+            memory: 4096Mi
+        ports:
+          - name: http-port
+            containerPort: 8080
+          - name: sql-port
+            containerPort: 7432
+        volumeMounts:
+          - name: vn-appvn-data
+            mountPath: /usr/src/app/etc
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /app/data
+          value: '1'
+        name: vn-appvn-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-engine
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-engine
+spec:
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http-port
+    - port: 7432
+      targetPort: 7432
+      name: sql-port
+  selector:
+    app: ${{ defaults.app_name }}-engine
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-ibis-server
+  annotations:
+    originImageName: ghcr.io/canner/wren-engine-ibis:0.14.3
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-ibis-server
+    app: ${{ defaults.app_name }}-ibis-server
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-ibis-server
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-ibis-server
+    spec:
+      terminationGracePeriodSeconds: 10
+      automountServiceAccountToken: false
+      containers:
+      - name: ${{ defaults.app_name }}-ibis-server
+        image: ghcr.io/canner/wren-engine-ibis:0.14.3
+        env:
+          - name: WREN_ENGINE_ENDPOINT
+            value: http://${{ defaults.app_name }}-engine:8080
+          - name: LOGGING_LEVEL
+            value: INFO
+        resources:
+          requests:
+            cpu: 100m
+            memory: 102Mi
+          limits:
+            cpu: 1000m
+            memory: 1024Mi
+        ports:
+          - containerPort: 8000
+        imagePullPolicy: IfNotPresent
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-ibis-server
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-ibis-server
+spec:
+  ports:
+    - port: 8000
+  selector:
+    app: ${{ defaults.app_name }}-ibis-server
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-qdrant
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-qdrant
+data:
+  vn-qdrantvn-configvn-initializevn-sh: |
+    #!/bin/sh
+    SET_INDEX=${HOSTNAME##*-}
+    echo "Starting initializing for pod $SET_INDEX"
+    if [ "$SET_INDEX" = "0" ]; then
+      exec ./entrypoint.sh --uri 'http://${{ defaults.app_name }}-qdrant-0.${{ defaults.app_name }}-qdrant:6335'
+    else
+      exec ./entrypoint.sh --bootstrap 'http://${{ defaults.app_name }}-qdrant-0.${{ defaults.app_name }}-qdrant:6335' --uri 'http://${{ defaults.app_name }}-qdrant-'"$SET_INDEX"'.${{ defaults.app_name }}-qdrant:6335'
+    fi
+  vn-qdrantvn-configvn-productionvn-yaml: |
+    cluster:
+      enabled: false
+      p2p:
+        port: 6335
+      consensus:
+        tick_period_ms: 100
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-qdrant
+  annotations:
+    originImageName: qdrant/qdrant:v1.13.4
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-qdrant
+    app: ${{ defaults.app_name }}-qdrant
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-qdrant
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-qdrant
+    spec:
+      terminationGracePeriodSeconds: 10
+      automountServiceAccountToken: false
+      initContainers:
+        - name: ensure-dir-ownership
+          image: qdrant/qdrant:v1.13.4
+          env:
+            - name: DATA_PATH
+              value: /app/data
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_URL
+              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:$(PG_PORT)/wrenai
+          volumeMounts:
+            - name: vn-qdrantvn-storage
+              mountPath: /qdrant/storage
+            - name: vn-qdrantvn-snapshots
+              mountPath: /qdrant/snapshots
+          command:
+            - /bin/sh
+            - -c
+            - chown -R 1000:3000 /qdrant/storage /qdrant/snapshots
+          imagePullPolicy: IfNotPresent
+      containers:
+        - name: ${{ defaults.app_name }}-qdrant
+          image: qdrant/qdrant:v1.13.4
+          env: 
+            - name: QDRANT_INIT_FILE_PATH
+              value: /qdrant/init/.qdrant-initialized
+          command: 
+            - /bin/bash
+            - -c
+          args: 
+            - ./config/initialize.sh
+          resources:
+            requests:
+              cpu: 200m
+              memory: 400Mi
+            limits:
+              cpu: 2000m
+              memory: 4096Mi
+          ports:
+            - name: http
+              containerPort: 6333
+            - name: grpc
+              containerPort: 6334
+            - name: p2p
+              containerPort: 6335
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 2000
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: vn-qdrantvn-storage
+              mountPath: /qdrant/storage
+            - name: vn-qdrantvn-snapshots
+              mountPath: /qdrant/snapshots
+            - name: vn-qdrantvn-configvn-initializevn-sh
+              mountPath: /qdrant/config/initialize.sh
+              subPath: ./qdrant/config/initialize.sh
+            - name: vn-qdrantvn-configvn-productionvn-yaml
+              mountPath: /qdrant/config/production.yaml
+              subPath: ./qdrant/config/production.yaml
+            - name: vn-qdrantvn-init
+              mountPath: /qdrant/init
+          imagePullPolicy: IfNotPresent
+      securityContext:
+        fsGroup: 3000
+        fsGroupChangePolicy: Always
+      volumes:
+        - name: vn-qdrantvn-configvn-initializevn-sh
+          configMap:
+            name: ${{ defaults.app_name }}-qdrant
+            defaultMode: 493 # default 420 means 0644,493 means 0755
+            items:
+              - key: vn-qdrantvn-configvn-initializevn-sh
+                path: ./qdrant/config/initialize.sh
+        - name: vn-qdrantvn-configvn-productionvn-yaml
+          configMap:
+            name: ${{ defaults.app_name }}-qdrant
+            items:
+              - key: vn-qdrantvn-configvn-productionvn-yaml
+                path: ./qdrant/config/production.yaml
+        - name: vn-qdrantvn-init
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /qdrant/storage
+          value: '3'
+        name: vn-qdrantvn-storage
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 3Gi
+    - metadata:
+        annotations:
+          path: /qdrant/snapshots
+          value: '3'
+        name: vn-qdrantvn-snapshots
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 3Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-qdrant
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-qdrant
+spec:
+  ports:
+    - port: 6333
+      targetPort: 6333
+      name: http
+    - port: 6334
+      targetPort: 6334
+      name: grpc
+    - port: 6335
+      targetPort: 6335
+      name: p2p
+  selector:
+    app: ${{ defaults.app_name }}-qdrant
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-qdrant-headless
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-qdrant
+spec:
+  ports:
+    - port: 6335
+      targetPort: 6335
+      name: p2p
+  selector:
+    app: ${{ defaults.app_name }}-qdrant
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-ui
+  annotations:
+    originImageName: ghcr.io/canner/wren-ui:0.20.1
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-ui
+    app: ${{ defaults.app_name }}-ui
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-ui
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-ui
+    spec:
+      terminationGracePeriodSeconds: 10
+      automountServiceAccountToken: false
+      containers:
+      - name: ${{ defaults.app_name }}-ui
+        image: ghcr.io/canner/wren-ui:0.20.1
+        env:
+          - name: DB_TYPE
+            value: pg
+          - name: WREN_ENGINE_ENDPOINT
+            value: http://${{ defaults.app_name }}-engine:8080
+          - name: WREN_AI_ENDPOINT
+            value: http://${{ defaults.app_name }}-ai-service:5555
+          - name: GENERATION_MODEL
+            value: gpt-4o-mini-2024-07-18
+          - name: PG_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: ${{ defaults.app_name }}-pg-conn-credential
+                key: password
+          - name: PG_PORT
+            valueFrom:
+              secretKeyRef:
+                name: ${{ defaults.app_name }}-pg-conn-credential
+                key: port
+          - name: PG_URL
+            value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:$(PG_PORT)/wrenai
+          # telemetry
+          - name: WREN_ENGINE_PORT
+            value: 8080
+          - name: WREN_AI_SERVICE_VERSION
+            value: 0.15.17
+          - name: WREN_UI_VERSION
+            value: 0.15.17
+          - name: WREN_ENGINE_VERSION
+            value: 0.14.3
+          - name: USER_UUID
+            value: ${{ defaults.user_uuid }}
+          - name: TELEMETRY_ENABLED
+            value: "false"
+          # client side
+          - name: NEXT_PUBLIC_USER_UUID
+            value: $(USER_UUID)
+          - name: NEXT_PUBLIC_TELEMETRY_ENABLED
+            value: "false"
+          # configs
+          - name: WREN_PRODUCT_VERSION
+            value: 0.15.3
+          - name: IBIS_SERVER_ENDPOINT
+            value: http://${{ defaults.app_name }}-ibis-server:8000
+        resources:
+          requests:
+            cpu: 100m
+            memory: 100Mi
+          limits:
+            cpu: 1000m
+            memory: 1000Mi
+        ports:
+          - containerPort: 3000
+        imagePullPolicy: IfNotPresent
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-ui
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-ui
+spec:
+  ports:
+  - port: 3000
+  selector:
+    app: ${{ defaults.app_name }}-ui
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-ui
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-ui
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-ui
+                port:
+                  number: 3000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-14.8.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+  annotations: {}
+  name: ${{ defaults.app_name }}-pg
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-14.8.0
+  componentSpecs:
+    - componentDefRef: postgresql
+      monitor: true
+      name: postgresql
+      replicas: 1
+      resources:
+        limits:
+          cpu: 1000m
+          memory: 1024Mi
+        requests:
+          cpu: 100m
+          memory: 102Mi
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 5Gi
+
+  terminationPolicy: Delete
+  tolerations: []
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-init
+spec:
+  completions: 1
+  template:
+    spec:
+      containers:
+        - name: pgsql-init
+          image: senzing/postgresql-client:2.2.4
+          env:
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until psql ${DATABASE_URL} -c 'CREATE DATABASE wrenai;' &>/dev/null; do sleep 1; done
+      restartPolicy: Never
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}-ui
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-ui
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: "https://raw.githubusercontent.com/Canner/WrenAI/refs/heads/main/wren-ui/public/images/logo.svg"
+  name: "WrenAI"
+  type: link
