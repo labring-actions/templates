@@ -1,0 +1,501 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: perplexica
+spec:
+  title: 'Perplexica'
+  url: 'https://github.com/ItzCrazyKns/Perplexica'
+  gitRepo: 'https://github.com/ItzCrazyKns/Perplexica'
+  author: 'Sealos'
+  description: 'Perplexica is an open-source AI-powered searching tool or an AI-powered search engine that goes deep into the internet to find answers.'
+  readme: 'https://raw.githubusercontent.com/ItzCrazyKns/Perplexica/master/README.md'
+  icon: 'https://raw.githubusercontent.com/ItzCrazyKns/Perplexica/master/ui/app/favicon.ico'
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      title: 'Perplexica'
+      description: 'Perplexica 是一个开源的 AI 驱动搜索引擎，可以作为 Perplexity AI 的替代品。'
+  categories:
+    - ai
+  defaults:
+    app_name:
+      type: string
+      value: perplexica-${{ random(8) }}
+    app_host:
+      type: string
+      value: perplexica-${{ random(8) }}
+  inputs:
+    OPENAI_API_KEY:
+      description: 'The API Key of the OpenAI-compatible service'
+      type: string
+      default: ''
+      required: true
+    OPENAI_API_URL:
+      description: 'The API URL of the OpenAI-compatible service (e.g. "https://api.openai.com/v1" for official API, or custom endpoint URL that follows OpenAI API format/structure)'
+      type: string
+      default: 'https://api.openai.com/v1'
+      required: true
+    OPENAI_MODEL_NAME:
+      description: 'The model name of the OpenAI-compatible service'
+      type: string
+      default: ''
+      required: true
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-searxng
+data:
+  vn-etcvn-searxngvn-limitervn-toml: |-
+    [botdetection.ip_limit]
+    # activate link_token method in the ip_limit method
+    link_token = true
+  vn-etcvn-searxngvn-settingsvn-yml: |-
+    use_default_settings: true
+    
+    general:
+      instance_name: 'searxng'
+    
+    search:
+      autocomplete: 'google'
+      formats:
+        - html
+        - json
+    
+    server:
+      secret_key: 'a2fb23f1b02e6ee49875b09826990de2e6bd908b6638e9g10277d415f6ab852b' # Is overwritten by ${SEARXNG_SECRET}
+    
+    engines:
+      - name: bing
+        disabled: false
+  vn-etcvn-searxngvn-uwsgivn-ini: |-
+    [uwsgi]
+    # Who will run the code
+    uid = searxng
+    gid = searxng
+    
+    # Number of workers (usually CPU count)
+    # default value: %k (= number of CPU core, see Dockerfile)
+    workers = %k
+    
+    # Number of threads per worker
+    # default value: 4 (see Dockerfile)
+    threads = 4
+    
+    # The right granted on the created socket
+    chmod-socket = 666
+    
+    # Plugin to use and interpreter config
+    single-interpreter = true
+    master = true
+    plugin = python3
+    lazy-apps = true
+    enable-threads = 4
+    
+    # Module to import
+    module = searx.webapp
+    
+    # Virtualenv and python path
+    pythonpath = /usr/local/searxng/
+    chdir = /usr/local/searxng/searx/
+    
+    # automatically set processes name to something meaningful
+    auto-procname = true
+    
+    # Disable request logging for privacy
+    disable-logging = true
+    log-5xx = true
+    
+    # Set the max size of a request (request-body excluded)
+    buffer-size = 8192
+    
+    # No keep alive
+    # See https://github.com/searx/searx-docker/issues/24
+    add-header = Connection: close
+    
+    # uwsgi serves the static files
+    static-map = /static=/usr/local/searxng/searx/static
+    # expires set to one day
+    static-expires = /* 86400
+    static-gzip-all = True
+    offload-threads = 4
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-searxng
+  annotations:
+    originImageName: searxng/searxng:2025.2.20-28d1240fc
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-searxng
+    app: ${{ defaults.app_name }}-searxng
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-searxng
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-searxng
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-searxng
+          image: searxng/searxng:2025.2.20-28d1240fc
+          resources:
+            requests:
+              cpu: 50m
+              memory: 204Mi
+            limits:
+              cpu: 500m
+              memory: 2048Mi
+          command: []
+          args: []
+          ports:
+            - containerPort: 8080
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: vn-etcvn-searxngvn-limitervn-toml
+              mountPath: /etc/searxng/limiter.toml
+              subPath: ./etc/searxng/limiter.toml
+            - name: vn-etcvn-searxngvn-settingsvn-yml
+              mountPath: /etc/searxng/settings.yml
+              subPath: ./etc/searxng/settings.yml
+            - name: vn-etcvn-searxngvn-uwsgivn-ini
+              mountPath: /etc/searxng/uwsgi.ini
+              subPath: ./etc/searxng/uwsgi.ini
+      volumes:
+        - name: vn-etcvn-searxngvn-limitervn-toml
+          configMap:
+            name: ${{ defaults.app_name }}-searxng
+            items:
+              - key: vn-etcvn-searxngvn-limitervn-toml
+                path: ./etc/searxng/limiter.toml
+        - name: vn-etcvn-searxngvn-settingsvn-yml
+          configMap:
+            name: ${{ defaults.app_name }}-searxng
+            items:
+              - key: vn-etcvn-searxngvn-settingsvn-yml
+                path: ./etc/searxng/settings.yml
+        - name: vn-etcvn-searxngvn-uwsgivn-ini
+          configMap:
+            name: ${{ defaults.app_name }}-searxng
+            items:
+              - key: vn-etcvn-searxngvn-uwsgivn-ini
+                path: ./etc/searxng/uwsgi.ini
+
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-searxng
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-searxng
+spec:
+  ports:
+    - port: 8080
+  selector:
+    app: ${{ defaults.app_name }}-searxng
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-backend
+data:
+  vn-homevn-perplexicavn-configvn-toml: |-
+    [GENERAL]
+    PORT = 3001 # Port to run the server on
+    SIMILARITY_MEASURE = "cosine" # "cosine" or "dot"
+    KEEP_ALIVE = "5m" # How long to keep Ollama models loaded into memory. (Instead of using -1 use "-1m")
+    
+    [MODELS.OPENAI]
+    API_KEY = ""
+    
+    [MODELS.GROQ]
+    API_KEY = ""
+    
+    [MODELS.ANTHROPIC]
+    API_KEY = ""
+    
+    [MODELS.GEMINI]
+    API_KEY = ""
+    
+    [MODELS.CUSTOM_OPENAI]
+    API_KEY = "${{ inputs.OPENAI_API_KEY }}"
+    API_URL = "${{ inputs.OPENAI_API_URL }}"
+    MODEL_NAME = "${{ inputs.OPENAI_MODEL_NAME }}"
+    
+    [MODELS.OLLAMA]
+    API_URL = "" # Ollama API URL - http://host.docker.internal:11434
+    
+    [API_ENDPOINTS]
+    SEARXNG = "http://${{ defaults.app_name }}-searxng:8080" # SearxNG API URL
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-backend
+  annotations:
+    originImageName: itzcrazykns1337/perplexica-backend:v1.10.0-rc3
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-backend
+    app: ${{ defaults.app_name }}-backend
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: ${{ defaults.app_name }}-backend
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-backend
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-backend
+    spec:
+      terminationGracePeriodSeconds: 10
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-backend
+          image: itzcrazykns1337/perplexica-backend:v1.10.0-rc3
+          env:
+            - name: SEARXNG_API_URL
+              value: http://${{ defaults.app_name }}-searxng:8080
+          resources:
+            requests:
+              cpu: 50m
+              memory: 25Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          ports:
+            - name: http
+              protocol: TCP
+              containerPort: 3001
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: vn-homevn-perplexicavn-data
+              mountPath: /home/perplexica/data
+            - name: vn-homevn-perplexicavn-uploads
+              mountPath: /home/perplexica/uploads
+            - name: vn-homevn-perplexicavn-configvn-toml
+              mountPath: /home/perplexica/config.toml
+              subPath: ./home/perplexica/config.toml
+      volumes:
+        - name: vn-homevn-perplexicavn-configvn-toml
+          configMap:
+            name: ${{ defaults.app_name }}-backend
+            items:
+              - key: vn-homevn-perplexicavn-configvn-toml
+                path: ./home/perplexica/config.toml
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /home/perplexica/data
+          value: '1'
+        name: vn-homevn-perplexicavn-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+    - metadata:
+        annotations:
+          path: /home/perplexica/uploads
+          value: '1'
+        name: vn-homevn-perplexicavn-uploads
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-backend
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-backend
+spec:
+  ports:
+    - port: 3001
+  selector:
+    app: ${{ defaults.app_name }}-backend
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-backend
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-backend
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}-backend
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}-backend.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-backend
+                port:
+                  number: 3001
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}-backend.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: itzcrazykns1337/perplexica-frontend:v1.10.0-rc3
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: itzcrazykns1337/perplexica-frontend:v1.10.0-rc3
+          env:
+            - name: NEXT_PUBLIC_API_URL
+              value: https://${{ defaults.app_host }}-backend.${{ SEALOS_CLOUD_DOMAIN }}/api
+            - name: NEXT_PUBLIC_WS_URL
+              value: https://${{ defaults.app_host }}-backend.${{ SEALOS_CLOUD_DOMAIN }}
+          resources:
+            requests:
+              cpu: 50m
+              memory: 102Mi
+              ephemeral-storage: 300Mi
+            limits:
+              cpu: 500m
+              memory: 1024Mi
+              ephemeral-storage: 300Mi
+          command: ["sh", "-c", "yarn build && yarn start"]
+          args: []
+          ports:
+            - containerPort: 3000
+          readinessProbe:
+            failureThreshold: 30
+            httpGet:
+              path: /
+              port: 3000
+              scheme: HTTP
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          imagePullPolicy: IfNotPresent
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - port: 3000
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 3000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}

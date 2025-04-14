@@ -1,0 +1,289 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: asktable
+spec:
+  title: 'AskTable'
+  url: 'https://asktable.com/'
+  gitRepo: 'https://github.com/DataMini/asktable-all-in-one'
+  author: 'DataMini'
+  description: 'AskTable 是一款全新的 AI 经营分析软件，支持集成到企微、OA、BI 等应用，希望成为最懂您企业的 AI。'
+  readme: 'https://raw.githubusercontent.com/DataMini/asktable-all-in-one/main/README.md'
+  icon: 'https://cloud.asktable.com/favicon.jpg'
+  templateType: inline
+  locale: zh
+  categories:
+    - ai
+    - database
+  defaults:
+    app_name:
+      type: string
+      value: asktable-${{ random(8) }}
+    app_host:
+      type: string
+      value: ${{ random(8) }}
+  inputs:
+    ADMIN_EMAIL:
+      description: '管理员账号的邮箱。'
+      type: string
+      default: 'admin@asktable.com'
+      required: false
+    ADMIN_PASSWORD:
+      description: '管理员账号的密码。'
+      type: string
+      default: 'admin'
+      required: false
+    LLM_BASE_URL:
+      description: '用于访问大语言模型的 API 地址，比如“https://api.openai.com/v1”。默认使用 AskTable 模型API地址。'
+      type: string
+      default: 'https://aiproxy.asktable.com/v1'
+      required: false
+    LLM_API_KEY:
+      description: '用于访问大语言模型的 API 密钥。若没有，可在 https://cloud.asktable.com/ 免费申请。'
+      type: string
+      default: ''
+      required: true
+
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: 'https://cloud.asktable.com/favicon.jpg'
+  name: "AskTable"
+  type: iframe
+
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: registry.cn-shanghai.aliyuncs.com/datamini/asktable-all-in-one:latest
+          env:
+            - name: BASE_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: MYSQL_HOST
+              value: ${{ defaults.app_name }}-mysql-mysql.${{ SEALOS_NAMESPACE }}.svc
+            - name: MYSQL_USER
+              value: root
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: password
+            - name: MYSQL_DB
+              value: mydb
+            - name: LLM_API_KEY
+              value: ${{ inputs.LLM_API_KEY }}
+            - name: LLM_BASE_URL
+              value: ${{ inputs.LLM_BASE_URL }}
+            - name: AUTH_EMAIL_INIT_ADMIN_EMAIL
+              value: ${{ inputs.ADMIN_EMAIL }}
+            - name: AUTH_EMAIL_INIT_ADMIN_PASSWORD
+              value: ${{ inputs.ADMIN_PASSWORD }}
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 1024Mi
+          volumeMounts:
+            - name: asktable-data
+              mountPath: /asktable
+      volumes: []
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /asktable
+          value: '1'
+        name: asktable-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 2Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+spec:
+  selector:
+    app: ${{ defaults.app_name }}
+  ports:
+    - port: 80
+      targetPort: 80
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  annotations:
+    higress.io/response-header-control-remove: X-Frame-Options
+    higress.io/response-header-control-update: |
+      Content-Security-Policy "default-src * blob: data: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; img-src * data: blob: resource: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; connect-src * wss: blob: resource:; style-src 'self' 'unsafe-inline' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource: *.baidu.com *.bdstatic.com; frame-src 'self' *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} mailto: tel: weixin: mtt: *.baidu.com; frame-ancestors 'self' https://${{ SEALOS_CLOUD_DOMAIN }} https://*.${{ SEALOS_CLOUD_DOMAIN }}"
+      X-Xss-Protection "1; mode=block"
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/proxy-body-size: 64m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/client-max-body-size: 64m
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_clear_headers "X-Frame-Options:";
+      more_set_headers "Content-Security-Policy: default-src * blob: data: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; img-src * data: blob: resource: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; connect-src * wss: blob: resource:; style-src 'self' 'unsafe-inline' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource: *.baidu.com *.bdstatic.com; frame-src 'self' *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} mailto: tel: weixin: mtt: *.baidu.com; frame-ancestors 'self' https://${{ SEALOS_CLOUD_DOMAIN }} https://*.${{ SEALOS_CLOUD_DOMAIN }}";
+      more_set_headers "X-Xss-Protection: 1; mode=block";
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: apecloud-mysql
+    clusterversion.kubeblocks.io/name: ac-mysql-8.0.30
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+  name: ${{ defaults.app_name }}-mysql
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: apecloud-mysql
+  clusterVersionRef: ac-mysql-8.0.30
+  componentSpecs:
+    - componentDefRef: mysql
+      monitor: true
+      name: mysql
+      replicas: 1
+      resources:
+        limits:
+          cpu: 1000m
+          memory: 1024Mi
+        requests:
+          cpu: 100m
+          memory: 102Mi
+      serviceAccountName: ${{ defaults.app_name }}-mysql
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 3Gi
+
+  terminationPolicy: Delete
+  tolerations: []
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-mysql
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-mysql
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-mysql
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-mysql
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-mysql

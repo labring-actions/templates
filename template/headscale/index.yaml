@@ -8,9 +8,15 @@ spec:
   gitRepo: 'https://github.com/juanfont/headscale'
   author: 'Sealos'
   description: 'An open source, self-hosted implementation of the Tailscale control server.'
-  readme: 'https://raw.githubusercontent.com/juanfont/headscale/main/README.md'
+  readme: 'https://raw.githubusercontent.com/juanfont/headscale/refs/heads/main/README.md'
   icon: 'https://raw.githubusercontent.com/juanfont/headscale/main/docs/logo/headscale3-dots.svg'
   templateType: inline
+  locale: en
+  i18n:
+    zh:
+      title: 'Headscale'
+      description: '一个自托管的开源 Tailscale 控制服务器实现。'
+      readme: 'https://raw.githubusercontent.com/labring-actions/templates/main/template/headscale/README.md'
   categories:
     - tool
   defaults:
@@ -20,9 +26,42 @@ spec:
     app_suffix:
       type: string
       value: ${{ random(8) }}
-    app_name1:
-      type: string
-      value: headscale-${{ random(8) }}
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: headscale-${{ defaults.app_suffix }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: headscale-${{ defaults.app_suffix }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: headplane-${{ defaults.app_suffix }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: headscale-${{ defaults.app_suffix }}
+rules:
+- apiGroups: ['']
+  resources: ['pods']
+  verbs: ['get', 'list']
+- apiGroups: ['apps']
+  resources: ['deployments']
+  verbs: ['get', 'list']
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: headplane-${{ defaults.app_suffix }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: headscale-${{ defaults.app_suffix }}
+roleRef:
+    apiGroup: rbac.authorization.k8s.io
+    kind: Role
+    name: headplane-${{ defaults.app_suffix }}
+subjects:
+- kind: ServiceAccount
+  name: headscale-${{ defaults.app_suffix }}
 
 ---
 apiVersion: apps/v1
@@ -30,7 +69,7 @@ kind: StatefulSet
 metadata:
   name: headscale-${{ defaults.app_suffix }}
   annotations:
-    originImageName: headscale/headscale:0.23.0-alpha2
+    originImageName: headscale/headscale:0.24.1-debug
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -50,29 +89,90 @@ spec:
         app: headscale-${{ defaults.app_suffix }}
     spec:
       terminationGracePeriodSeconds: 10
-      automountServiceAccountToken: false
+      automountServiceAccountToken: true
+      shareProcessNamespace: true
+      serviceAccountName: headscale-${{ defaults.app_suffix }}
+      initContainers:
+        - name: copy-config
+          image: alpine
+          command: ["/bin/sh", "-c", "if [ ! -f /etc/headscale/config.yaml ]; then cp /tmp/config.yaml /etc/headscale/config.yaml; fi"]
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: vn-etcvn-headscale
+              mountPath: /etc/headscale
+            - name: vn-etcvn-headscalevn-configvn-yaml
+              mountPath: /tmp/config.yaml
+              subPath: ./tmp/config.yaml
       containers:
         - name: headscale-${{ defaults.app_suffix }}
-          image: headscale/headscale:0.23.0-alpha2
+          image: headscale/headscale:0.24.1-debug
           command: ["headscale", "serve"]
           resources:
             requests:
-              cpu: 10m
-              memory: 6Mi
-            limits:
-              cpu: 100m
+              cpu: 50m
               memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
           ports:
             - name: http
               protocol: TCP
               containerPort: 8080
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           volumeMounts:
             - name: vn-varvn-libvn-headscale
               mountPath: /var/lib/headscale
+            - name: vn-etcvn-headscale
+              mountPath: /etc/headscale
+            - name: vn-etcvn-headscalevn-derpvn-yaml
+              mountPath: /etc/headscale/derp.yaml
+              subPath: ./etc/headscale/derp.yaml
             - name: vn-etcvn-headscalevn-configvn-yaml
-              mountPath: /etc/headscale/config.yaml
-              subPath: ./etc/headscale/config.yaml
+              mountPath: /tmp/config.yaml
+              subPath: ./tmp/config.yaml
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 30
+            timeoutSeconds: 5
+            periodSeconds: 15
+        - name: headscale-headplane-${{ defaults.app_suffix }}
+          image: ghcr.io/tale/headplane:0.3.9
+          env:
+            - name: COOKIE_SECRET
+              value: 'abcdefghijklmnopqrstuvwxyz'
+            - name: HEADSCALE_INTEGRATION
+              value: 'kubernetes'
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+              # Only set this to false if you aren't behind a reverse proxy
+            - name: COOKIE_SECURE
+              value: 'true'
+            - name: ROOT_API_KEY
+              value: '1234567890'
+            - name: DISABLE_API_KEY_LOGIN
+              value: 'true'
+            - name: HEADSCALE_URL
+              value: 'https://headscale-${{ defaults.app_suffix }}.${{ SEALOS_CLOUD_DOMAIN }}'
+          resources:
+            requests:
+              cpu: 10m
+              memory: 25Mi
+            limits:
+              cpu: 100m
+              memory: 256Mi
+          ports:
+            - name: http
+              protocol: TCP
+              containerPort: 3000
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: vn-varvn-libvn-headscale
+              mountPath: /var/lib/headscale
+            - name: vn-etcvn-headscale
+              mountPath: /etc/headscale
             - name: vn-etcvn-headscalevn-derpvn-yaml
               mountPath: /etc/headscale/derp.yaml
               subPath: ./etc/headscale/derp.yaml
@@ -88,7 +188,7 @@ spec:
             name: headscale-${{ defaults.app_suffix }}
             items:
               - key: vn-etcvn-headscalevn-configvn-yaml
-                path: ./etc/headscale/config.yaml
+                path: ./tmp/config.yaml
         - name: vn-etcvn-headscalevn-derpvn-yaml
           configMap:
             name: headscale-${{ defaults.app_suffix }}
@@ -101,6 +201,17 @@ spec:
           path: /var/lib/headscale
           value: '1'
         name: vn-varvn-libvn-headscale
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+    - metadata:
+        annotations:
+          path: /etc/headscale
+          value: '1'
+        name: vn-etcvn-headscale
       spec:
         accessModes:
           - ReadWriteOnce
@@ -126,6 +237,9 @@ spec:
     - name: metrics
       targetPort: 9090
       port: 9090
+    - name: headplane
+      targetPort: 3000
+      port: 3000
   selector:
     app: headscale-${{ defaults.app_suffix }}
 
@@ -136,7 +250,7 @@ metadata:
   name: headscale-${{ defaults.app_suffix }}
 data:
   vn-etcvn-headscalevn-configvn-yaml: |-
-    # headscale will look for a configuration file named `config.yaml` (or `config.json`)   in the following order:
+    # headscale will look for a configuration file named `config.yaml` (or `config.json`) in the following     order:
     #
     # - `/etc/headscale`
     # - `~/.headscale`
@@ -147,7 +261,7 @@ data:
     #
     # https://myheadscale.example.com:443
     #
-    server_url: https://headscale-${{ defaults.app_suffix }}.${{ SEALOS_CLOUD_DOMAIN }}
+    server_url: https://headscale-rewcdzwp.sealoshzh.site
     
     # Address to listen to / bind to on the server
     #
@@ -191,12 +305,17 @@ data:
     # It must be within IP ranges supported by the Tailscale
     # client - i.e., subnets of 100.64.0.0/10 and fd7a:115c:a1e0::/48.
     # See below:
-    # IPv6: https://github.com/tailscale/tailscale/blob/  22ebb25e833264f58d7c3f534a8b166894a89536/net/tsaddr/tsaddr.go#LL81C52-L81C71
-    # IPv4: https://github.com/tailscale/tailscale/blob/  22ebb25e833264f58d7c3f534a8b166894a89536/net/tsaddr/tsaddr.go#L33
+    # IPv6: https://github.com/tailscale/tailscale/blob/22ebb25e833264f58d7c3f534a8b166894a89536/net/tsaddr/    tsaddr.go#LL81C52-L81C71
+    # IPv4: https://github.com/tailscale/tailscale/blob/22ebb25e833264f58d7c3f534a8b166894a89536/net/tsaddr/    tsaddr.go#L33
     # Any other range is NOT supported, and it will cause unexpected issues.
-    ip_prefixes:
-      - fd7a:115c:a1e0::/48
-      - 100.64.0.0/10
+    prefixes:
+      v6: fd7a:115c:a1e0::/48
+      v4: 100.64.0.0/10
+    
+      # Strategy used for allocation of IPs to nodes, available options:
+      # - sequential (default): assigns the next free IP from the previous given IP.
+      # - random: assigns the next free IP from a pseudo-random IP generator (crypto/rand).
+      allocation: sequential
     
     # DERP is a relay system that Tailscale uses when a direct
     # connection cannot be established.
@@ -231,6 +350,16 @@ data:
         #
         private_key_path: /var/lib/headscale/derp_server_private.key
     
+        # This flag can be used, so the DERP map entry for the embedded DERP server is not written automatically,
+        # it enables the creation of your very own DERP map entry using a locally available file with the parameter DERP.paths
+        # If you enable the DERP server and set this to false, it is required to add the DERP server to the DERP map using DERP.paths
+        automatically_add_embedded_derp_region: true
+    
+        # For better connection stability (especially when using an Exit-Node and DNS is not working),
+        # it is possible to optionally add the public IPv4 and IPv6 address to the Derp-Map using:
+        ipv4: 1.2.3.4
+        ipv6: 2001:db8::1
+    
       # List of externally available DERP maps encoded in JSON
       urls:
         - https://controlplane.tailscale.com/derpmap/default
@@ -260,30 +389,32 @@ data:
     # Time before an inactive ephemeral node is deleted?
     ephemeral_node_inactivity_timeout: 30m
     
-    # Period to check for node updates within the tailnet. A value too low will severely   affect
-    # CPU consumption of Headscale. A value too high (over 60s) will cause problems
-    # for the nodes, as they won't get updates or keep alive messages frequently enough.
-    # In case of doubts, do not touch the default 10s.
-    node_update_check_interval: 10s
+    database:
+      type: sqlite
     
-    # SQLite config
-    db_type: sqlite3
+      # SQLite config
+      sqlite:
+        path: /var/lib/headscale/db.sqlite
     
-    # For production:
-    db_path: /var/lib/headscale/db.sqlite
+        # Enable WAL mode for SQLite. This is recommended for production environments.
+        # https://www.sqlite.org/wal.html
+        write_ahead_log: true
     
-    # # Postgres config
-    # If using a Unix socket to connect to Postgres, set the socket path in the 'host'   field and leave 'port' blank.
-    # db_type: postgres
-    # db_host: localhost
-    # db_port: 5432
-    # db_name: headscale
-    # db_user: foo
-    # db_pass: bar
+      # # Postgres config
+      # postgres:
+      #   # If using a Unix socket to connect to Postgres, set the socket path in the 'host' field and leave 'port' blank.
+      #   host: localhost
+      #   port: 5432
+      #   name: headscale
+      #   user: foo
+      #   pass: bar
+      #   max_open_conns: 10
+      #   max_idle_conns: 10
+      #   conn_max_idle_time_secs: 3600
     
-    # If other 'sslmode' is required instead of 'require(true)' and 'disabled(false)', set   the 'sslmode' you need
-    # in the 'db_ssl' field. Refers to https://www.postgresql.org/docs/current/libpq-  ssl.html Table 34.1.
-    # db_ssl: false
+      #   # If other 'sslmode' is required instead of 'require(true)' and 'disabled(false)', set the 'sslmode' you need
+      #   # in the 'ssl' field. Refers to https://www.postgresql.org/docs/current/libpq-ssl.html Table 34.1.
+      #   ssl: false
     
     ### TLS configuration
     #
@@ -324,10 +455,17 @@ data:
       format: text
       level: info
     
-    # Path to a file containg ACL policies.
-    # ACLs can be defined as YAML or HUJSON.
-    # https://tailscale.com/kb/1018/acls/
-    acl_policy_path: ""
+    ## Policy
+    # headscale supports Tailscale's ACL policies.
+    # Please have a look to their KB to better
+    # understand the concepts: https://tailscale.com/kb/1018/acls/
+    policy:
+      # The mode can be "file" or "database" that defines
+      # where the ACL policies are stored and read from.
+      mode: database
+      # If the mode is set to "file", the path to a
+      # HuJSON file containing ACL policies.
+      path: ""
     
     ## DNS
     #
@@ -338,59 +476,69 @@ data:
     # - https://tailscale.com/kb/1081/magicdns/
     # - https://tailscale.com/blog/2021-09-private-dns-with-magicdns/
     #
-    dns_config:
-      # Whether to prefer using Headscale provided DNS or use local.
-      override_local_dns: true
+    # Please note that for the DNS configuration to have any effect,
+    # clients must have the `--accept-dns=true` option enabled. This is the
+    # default for the Tailscale client. This option is enabled by default
+    # in the Tailscale client.
+    #
+    # Setting _any_ of the configuration and `--accept-dns=true` on the
+    # clients will integrate with the DNS manager on the client or
+    # overwrite /etc/resolv.conf.
+    # https://tailscale.com/kb/1235/resolv-conf
+    #
+    # If you want stop Headscale from managing the DNS configuration
+    # all the fields under `dns` should be set to empty values.
+    dns:
+      # Whether to use [MagicDNS](https://tailscale.com/kb/1081/magicdns/).
+      magic_dns: true
+    
+      # Defines the base domain to create the hostnames for MagicDNS.
+      # This domain _must_ be different from the server_url domain.
+      # `base_domain` must be a FQDN, without the trailing dot.
+      # The FQDN of the hosts will be
+      # `hostname.base_domain` (e.g., _myhost.example.com_).
+      base_domain: example.com
     
       # List of DNS servers to expose to clients.
       nameservers:
-        - 1.1.1.1
+        global:
+          - 1.1.1.1
+          - 1.0.0.1
+          - 2606:4700:4700::1111
+          - 2606:4700:4700::1001
     
-      # NextDNS (see https://tailscale.com/kb/1218/nextdns/).
-      # "abc123" is example NextDNS ID, replace with yours.
-      #
-      # With metadata sharing:
-      # nameservers:
-      #   - https://dns.nextdns.io/abc123
-      #
-      # Without metadata sharing:
-      # nameservers:
-      #   - 2a07:a8c0::ab:c123
-      #   - 2a07:a8c1::ab:c123
+          # NextDNS (see https://tailscale.com/kb/1218/nextdns/).
+          # "abc123" is example NextDNS ID, replace with yours.
+          # - https://dns.nextdns.io/abc123
     
-      # Split DNS (see https://tailscale.com/kb/1054/dns/),
-      # list of search domains and the DNS to query for each one.
-      #
-      # restricted_nameservers:
-      #   foo.bar.com:
-      #     - 1.1.1.1
-      #   darp.headscale.net:
-      #     - 1.1.1.1
-      #     - 8.8.8.8
+        # Split DNS (see https://tailscale.com/kb/1054/dns/),
+        # a map of domains and which DNS server to use for each.
+        split:
+          {}
+          # foo.bar.com:
+          #   - 1.1.1.1
+          # darp.headscale.net:
+          #   - 1.1.1.1
+          #   - 8.8.8.8
     
-      # Search domains to inject.
-      domains: []
+      # Set custom DNS search domains. With MagicDNS enabled,
+      # your tailnet base_domain is always the first search domain.
+      search_domains: []
     
       # Extra DNS records
-      # so far only A-records are supported (on the tailscale side)
-      # See https://github.com/juanfont/headscale/blob/main/docs/dns-records.md#Limitations
-      # extra_records:
+      # so far only A and AAAA records are supported (on the tailscale side)
+      # See: docs/ref/dns.md
+      extra_records: []
       #   - name: "grafana.myvpn.example.com"
       #     type: "A"
       #     value: "100.64.0.3"
       #
       #   # you can also put it in one line
       #   - { name: "prometheus.myvpn.example.com", type: "A", value: "100.64.0.3" }
-    
-      # Whether to use [MagicDNS](https://tailscale.com/kb/1081/magicdns/).
-      # Only works if there is at least a nameserver defined.
-      magic_dns: true
-    
-      # Defines the base domain to create the hostnames for MagicDNS.
-      # `base_domain` must be a FQDNs, without the trailing dot.
-      # The FQDN of the hosts will be
-      # `hostname.user.base_domain` (e.g., _myhost.myuser.example.com_).
-      base_domain: example.com
+      #
+      # Alternatively, extra DNS records can be loaded from a JSON file.
+      # Headscale processes this file on each change.
+      # extra_records_path: /var/lib/headscale/extra-records.json
     
     # Unix socket used for the CLI to connect without authentication
     # Note: for production you will want to set this to something like:
@@ -423,14 +571,14 @@ data:
     #   # Note: enabling this will cause `oidc.expiry` to be ignored.
     #   use_expiry_from_token: false
     #
-    #   # Customize the scopes used in the OIDC flow, defaults to "openid", "profile" and   "email" and add custom query
-    #   # parameters to the Authorize Endpoint request. Scopes default to "openid",   "profile" and "email".
+    #   # Customize the scopes used in the OIDC flow, defaults to "openid", "profile" and "email" and add     custom query
+    #   # parameters to the Authorize Endpoint request. Scopes default to "openid", "profile" and "email".
     #
     #   scope: ["openid", "profile", "email", "custom"]
     #   extra_params:
     #     domain_hint: example.com
     #
-    #   # List allowed principal domains and/or users. If an authenticated user's domain   is not in this list, the
+    #   # List allowed principal domains and/or users. If an authenticated user's domain is not in this list,     the
     #   # authentication request will be rejected.
     #
     #   allowed_domains:
@@ -441,15 +589,15 @@ data:
     #   allowed_users:
     #     - alice@example.com
     #
-    #   # If `strip_email_domain` is set to `true`, the domain part of the username email   address will be removed.
-    #   # This will transform `first-name.last-name@example.com` to the user `first-  name.last-name`
-    #   # If `strip_email_domain` is set to `false` the domain part will NOT be removed   resulting to the following
+    #   # If `strip_email_domain` is set to `true`, the domain part of the username email address will be     removed.
+    #   # This will transform `first-name.last-name@example.com` to the user `first-name.last-name`
+    #   # If `strip_email_domain` is set to `false` the domain part will NOT be removed resulting to the     following
     #   user: `first-name.last-name.example.com`
     #
     #   strip_email_domain: true
     
     # Logtail configuration
-    # Logtail is Tailscales logging and auditing infrastructure, it allows the control   panel
+    # Logtail is Tailscales logging and auditing infrastructure, it allows the control panel
     # to instruct tailscale nodes to log their activity to a remote server.
     logtail:
       # Enable logtail for this headscales clients.
@@ -457,12 +605,54 @@ data:
       # disabled by default. Enabling this will make your clients send logs to Tailscale Inc.
       enabled: false
     
-    # Enabling this option makes devices prefer a random port for WireGuard traffic over   the
+    # Enabling this option makes devices prefer a random port for WireGuard traffic over the
     # default static port 41641. This option is intended as a workaround for some buggy
     # firewall devices. See https://tailscale.com/kb/1181/firewalls/ for more information.
-    randomize_client_port: true
+    randomize_client_port: false
   vn-etcvn-headscalevn-derpvn-yaml: |-
     regions:
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: headscale-headplane-${{ defaults.app_suffix }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: headscale-${{ defaults.app_suffix }}
+    cloud.sealos.io/app-deploy-manager-domain: headscale-${{ defaults.app_suffix }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: headscale-${{ defaults.app_suffix }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /admin
+            backend:
+              service:
+                name: headscale-${{ defaults.app_suffix }}
+                port:
+                  number: 3000
+  tls:
+    - hosts:
+        - headscale-${{ defaults.app_suffix }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
 
 ---
 apiVersion: networking.k8s.io/v1
@@ -474,15 +664,16 @@ metadata:
     cloud.sealos.io/app-deploy-manager-domain: headscale-${{ defaults.app_suffix }}
   annotations:
     kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/proxy-body-size: 1g
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
     nginx.ingress.kubernetes.io/server-snippet: |
       client_header_buffer_size 64k;
       large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
-    nginx.ingress.kubernetes.io/proxy-ssl-verify: 'off'
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
     nginx.ingress.kubernetes.io/configuration-snippet: |
       if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
         expires 30d;
@@ -509,18 +700,60 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: ${{ defaults.app_name1 }}
+  name: headscale-redirect-${{ defaults.app_suffix }}
   labels:
     cloud.sealos.io/app-deploy-manager: headscale-${{ defaults.app_suffix }}
-    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_name1 }}
+    cloud.sealos.io/app-deploy-manager-domain: headscale-redirect-${{ defaults.app_suffix }}
   annotations:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/proxy-body-size: 32m
-    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    higress.io/temporal-redirect: 'https://headscale-${{ defaults.app_suffix }}.${{ SEALOS_CLOUD_DOMAIN }}/admin'
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+spec:
+  rules:
+    - host: headscale-${{ defaults.app_suffix }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Exact
+            path: /
+            backend:
+              service:
+                name: headscale-${{ defaults.app_suffix }}
+                port:
+                  number: 8080
+  tls:
+    - hosts:
+        - headscale-${{ defaults.app_suffix }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: headscale-grpc-${{ defaults.app_suffix }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: headscale-${{ defaults.app_suffix }}
+    cloud.sealos.io/app-deploy-manager-domain: headscale-grpc-${{ defaults.app_suffix }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
     nginx.ingress.kubernetes.io/backend-protocol: GRPC
 spec:
   rules:
-    - host: ${{ defaults.app_name1 }}.${{ SEALOS_CLOUD_DOMAIN }}
+    - host: headscale-grpc-${{ defaults.app_suffix }}.${{ SEALOS_CLOUD_DOMAIN }}
       http:
         paths:
           - pathType: Prefix
@@ -532,104 +765,20 @@ spec:
                   number: 50443
   tls:
     - hosts:
-        - ${{ defaults.app_name1 }}.${{ SEALOS_CLOUD_DOMAIN }}
+        - headscale-grpc-${{ defaults.app_suffix }}.${{ SEALOS_CLOUD_DOMAIN }}
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
 
 ---
-apiVersion: apps/v1
-kind: Deployment
+apiVersion: app.sealos.io/v1
+kind: App
 metadata:
-  name: headscale-admin-${{ defaults.app_suffix }}
-  annotations:
-    originImageName: goodieshq/headscale-admin:latest
-    deploy.cloud.sealos.io/minReplicas: '1'
-    deploy.cloud.sealos.io/maxReplicas: '1'
+  name: headscale-${{ defaults.app_suffix }}
   labels:
-    cloud.sealos.io/app-deploy-manager: headscale-admin-${{ defaults.app_suffix }}
-    app: headscale-admin-${{ defaults.app_suffix }}
+    cloud.sealos.io/app-deploy-manager: headscale-${{ defaults.app_suffix }}
 spec:
-  replicas: 1
-  revisionHistoryLimit: 1
-  selector:
-    matchLabels:
-      app: headscale-admin-${{ defaults.app_suffix }}
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 1
-      maxSurge: 0
-  template:
-    metadata:
-      labels:
-        app: headscale-admin-${{ defaults.app_suffix }}
-    spec:
-      automountServiceAccountToken: false
-      containers:
-        - name: headscale-admin-${{ defaults.app_suffix }}
-          image: goodieshq/headscale-admin:latest
-          resources:
-            requests:
-              cpu: 50m
-              memory: 51Mi
-            limits:
-              cpu: 500m
-              memory: 512Mi
-          ports:
-            - containerPort: 80
-          imagePullPolicy: Always
-          volumeMounts: []
-      volumes: []
-
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: headscale-admin-${{ defaults.app_suffix }}
-  labels:
-    cloud.sealos.io/app-deploy-manager: headscale-admin-${{ defaults.app_suffix }}
-spec:
-  ports:
-    - port: 80
-  selector:
-    app: headscale-admin-${{ defaults.app_suffix }}
-
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: headscale-admin-${{ defaults.app_suffix }}
-  labels:
-    cloud.sealos.io/app-deploy-manager: headscale-admin-${{ defaults.app_suffix }}
-    cloud.sealos.io/app-deploy-manager-domain: headscale-admin-${{ defaults.app_suffix }}
-  annotations:
-    kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/proxy-body-size: 1g
-    nginx.ingress.kubernetes.io/server-snippet: |
-      client_header_buffer_size 64k;
-      large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
-    nginx.ingress.kubernetes.io/backend-protocol: HTTP
-    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
-    nginx.ingress.kubernetes.io/proxy-ssl-verify: 'off'
-    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
-        expires 30d;
-        add_header Cache-Control "public";
-      }
-spec:
-  rules:
-    - host: headscale-${{ defaults.app_suffix }}.${{ SEALOS_CLOUD_DOMAIN }}
-      http:
-        paths:
-          - pathType: Prefix
-            path: /admin
-            backend:
-              service:
-                name: headscale-admin-${{ defaults.app_suffix }}
-                port:
-                  number: 80
-  tls:
-    - hosts:
-        - headscale-${{ defaults.app_suffix }}.${{ SEALOS_CLOUD_DOMAIN }}
-      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+  data:
+    url: https://headscale-${{ defaults.app_suffix }}.${{ SEALOS_CLOUD_DOMAIN }}/admin
+  displayType: normal
+  icon: "https://raw.githubusercontent.com/juanfont/headscale/main/docs/logo/headscale3-dots.svg"
+  name: "Headscale"
+  type: link

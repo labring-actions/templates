@@ -1,0 +1,174 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: wechat2rss
+spec:
+  title: 'Wechat2RSS'
+  url: 'https://wechat2rss.xlab.app/'
+  gitRepo: 'https://github.com/ttttmr/Wechat2RSS'
+  author: 'ttttmr'
+  description: '自建微信公众号RSS服务'
+  readme: 'https://raw.githubusercontent.com/ttttmr/Wechat2RSS/refs/heads/master/deploy/index.md'
+  icon: 'https://wechat2rss.xlab.app/image/logo.png'
+  templateType: inline
+  locale: zh
+  defaults:
+    app_name:
+      type: string
+      value: wechat2rss-${{ random(8) }}
+    app_host:
+      type: string
+      value: ${{ random(8) }}
+  inputs:
+    LIC_EMAIL:
+      description: '邮箱'
+      type: string
+      required: true
+    LIC_CODE:
+      description: '激活码'
+      type: string
+      required: true
+    RSS_HOST:
+      description: '服务域名'
+      type: string
+      default: ${{ defaults.app_host + '.' + SEALOS_CLOUD_DOMAIN }}
+      required: true
+    RSS_HTTPS:
+      description: '开启HTTPS'
+      type: choice
+      default: '1'
+      options:
+        - '1'
+        - '0'
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ttttmr/wechat2rss:latest
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: ttttmr/wechat2rss:latest
+          env:
+            - name: LIC_EMAIL
+              value: ${{ inputs.LIC_EMAIL }}
+            - name: LIC_CODE
+              value: ${{ inputs.LIC_CODE }}
+            - name: RSS_HOST
+              value: ${{ inputs.RSS_HOST }}
+            - name: RSS_HTTPS
+              value: ${{ inputs.RSS_HTTPS }}
+            - name: RSS_TOKEN
+              value: ${{ inputs.RSS_TOKEN }}
+          resources:
+            requests:
+              cpu: 50m
+              memory: 51Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          command: []
+          args: []
+          ports:
+            - containerPort: 8080
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: vn-data
+              mountPath: /wechat2rss
+      volumes: []
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /wechat2rss
+          value: '1'
+        name: vn-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - port: 8080
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /()(.*)
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 8080
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: "https://wechat2rss.xlab.app/image/logo.png"
+  name: ${{ defaults.app_name }}
+  type: iframe

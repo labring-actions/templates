@@ -1,0 +1,476 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: overleaf
+spec:
+  title: 'Overleaf'
+  url: 'https://github.com/overleaf/overleaf'
+  gitRepo: 'https://github.com/overleaf/overleaf'
+  author: 'Sealos'
+  description: 'Overleaf is an open-source online real-time collaborative LaTeX editor.'
+  readme: 'https://raw.githubusercontent.com/overleaf/overleaf/main/README.md'
+  icon: 'https://avatars.githubusercontent.com/u/6359919?s=48&v=4'
+  templateType: inline
+  categories:
+    - tool
+  defaults:
+    app_host:
+      # number or string..
+      type: string
+      value: overleaf-${{ random(8) }}
+    app_name:
+      type: string
+      value: overleaf-${{ random(8) }}
+  inputs:
+    OVERLEAF_SITE_LANGUAGE:
+      description: "Set language"
+      type: string
+      default: "zh-CN"
+      required: false
+    OVERLEAF_APP_NAME:
+      description: ""
+      type: string
+      default: "Overleaf Community Edition"
+      required: false
+    ENABLED_LINKED_FILE_TYPES:
+      description: ""
+      type: string
+      default: "project_file,project_output_file"
+      required: false
+    ENABLE_CONVERSIONS:
+      description: "Enables Thumbnail generation using ImageMagick"
+      type: string
+      default: "true"
+      required: false
+    EMAIL_CONFIRMATION_DISABLED:
+      description: "Disables email confirmation requirementk"
+      type: string
+      default: "true"
+      required: false
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: sharelatex/sharelatex:5.0.6
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      terminationGracePeriodSeconds: 10
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: sharelatex/sharelatex:5.0.6
+          env:
+            - name: OVERLEAF_MONGO_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mongo-conn-credential
+                  key: password
+            - name: OVERLEAF_MONGO_URL
+              value: >-
+                mongodb://root:$(OVERLEAF_MONGO_PASS)@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017/sharelatex?authSource=admin
+            - name: OVERLEAF_REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis
+            - name: OVERLEAF_REDIS_PORT
+              value: '6379'
+            - name: OVERLEAF_REDIS_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-conn-credential
+                  key: password
+            - name: OVERLEAF_LISTEN_IP
+              value: "0.0.0.0"
+            - name: OVERLEAF_SITE_LANGUAGE
+              value: ${{ inputs.OVERLEAF_SITE_LANGUAGE }}
+            - name: OVERLEAF_APP_NAME
+              value: ${{ inputs.OVERLEAF_APP_NAME }}
+            - name: ENABLED_LINKED_FILE_TYPES
+              value: ${{ inputs.ENABLED_LINKED_FILE_TYPES }}
+            - name: ENABLE_CONVERSIONS
+              value: ${{ inputs.ENABLE_CONVERSIONS }}
+            - name: EMAIL_CONFIRMATION_DISABLED
+              value: ${{ inputs.EMAIL_CONFIRMATION_DISABLED }}
+            - name: TEXMFVAR
+              value: /var/lib/overleaf/tmp/texmf-var
+            - name: OVERLEAF_APP_NAME
+              value: ${{ inputs.OVERLEAF_APP_NAME }}
+            - name: OVERLEAF_BEHIND_PROXY
+              value: "true"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 1280Mi
+          ports:
+            - name: http
+              protocol: TCP
+              containerPort: 80
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: vn-varvn-libvn-overleaf
+              mountPath: /var/lib/overleaf
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /var/lib/overleaf
+          value: '1'
+        name: vn-varvn-libvn-overleaf
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - port: 80
+  selector:
+    app: ${{ defaults.app_name }}
+
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    higress.io/response-header-control-remove: X-Frame-Options
+    higress.io/response-header-control-update: |
+      Content-Security-Policy "default-src * blob: data: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; img-src * data: blob: resource: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; connect-src * wss: blob: resource:; style-src 'self' 'unsafe-inline' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource: *.baidu.com *.bdstatic.com; frame-src 'self' *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} mailto: tel: weixin: mtt: *.baidu.com; frame-ancestors 'self' https://${{ SEALOS_CLOUD_DOMAIN }} https://*.${{ SEALOS_CLOUD_DOMAIN }}"
+      X-Xss-Protection "1; mode=block"
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_clear_headers "X-Frame-Options:";
+      more_set_headers "Content-Security-Policy: default-src * blob: data: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; img-src * data: blob: resource: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; connect-src * wss: blob: resource:; style-src 'self' 'unsafe-inline' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource: *.baidu.com *.bdstatic.com; frame-src 'self' *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} mailto: tel: weixin: mtt: *.baidu.com; frame-ancestors 'self' https://${{ SEALOS_CLOUD_DOMAIN }} https://*.${{ SEALOS_CLOUD_DOMAIN }}";
+      more_set_headers "X-Xss-Protection: 1; mode=block";
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /()(.*)
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-redirect
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    higress.io/response-header-control-remove: X-Frame-Options
+    higress.io/response-header-control-update: |
+      Content-Security-Policy "default-src * blob: data: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; img-src * data: blob: resource: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; connect-src * wss: blob: resource:; style-src 'self' 'unsafe-inline' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource: *.baidu.com *.bdstatic.com; frame-src 'self' *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} mailto: tel: weixin: mtt: *.baidu.com; frame-ancestors 'self' https://${{ SEALOS_CLOUD_DOMAIN }} https://*.${{ SEALOS_CLOUD_DOMAIN }}"
+      X-Xss-Protection "1; mode=block"
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/rewrite-target: /launchpad
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_clear_headers "X-Frame-Options:";
+      more_set_headers "Content-Security-Policy: default-src * blob: data: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; img-src * data: blob: resource: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; connect-src * wss: blob: resource:; style-src 'self' 'unsafe-inline' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource: *.baidu.com *.bdstatic.com; frame-src 'self' *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} mailto: tel: weixin: mtt: *.baidu.com; frame-ancestors 'self' https://${{ SEALOS_CLOUD_DOMAIN }} https://*.${{ SEALOS_CLOUD_DOMAIN }}";
+      more_set_headers "X-Xss-Protection: 1; mode=block";
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Exact
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: "https://avatars.githubusercontent.com/u/6359919?s=48&v=4"
+  name: Overleaf
+  type: iframe
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-mongo
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: mongodb
+    clusterversion.kubeblocks.io/name: mongodb-5.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
+  annotations: {}
+  name: ${{ defaults.app_name }}-mongo
+  generation: 1
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: mongodb
+  clusterVersionRef: mongodb-5.0
+  backup:
+    enabled: true
+    cronExpression: 0 18 * * *
+    method: backupTool
+    pitrEnabled: false
+    retentionPeriod: 7d
+  componentSpecs:
+    - componentDefRef: mongodb
+      monitor: true
+      name: mongodb
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-mongo
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 3Gi
+
+  terminationPolicy: Delete
+  tolerations: []
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-mongo
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-mongo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-mongo
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-mongo
+    namespace: ${{ SEALOS_NAMESPACE }}
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-redis
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: redis
+    clusterversion.kubeblocks.io/name: redis-7.0.6
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+  annotations: {}
+  name: ${{ defaults.app_name }}-redis
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: redis
+  clusterVersionRef: redis-7.0.6
+  componentSpecs:
+    - componentDefRef: redis
+      monitor: true
+      name: redis
+      replicas: 1
+      resources:
+        limits:
+          cpu: 1000m
+          memory: 1024Mi
+        requests:
+          cpu: 100m
+          memory: 102Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 3Gi
+
+    - componentDefRef: redis-sentinel
+      monitor: true
+      name: redis-sentinel
+      replicas: 1
+      resources:
+        limits:
+          cpu: 100m
+          memory: 100Mi
+        requests:
+          cpu: 100m
+          memory: 100Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
+  terminationPolicy: Delete
+  tolerations: []
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-redis
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-redis
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-redis
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-redis
+    namespace: ${{ SEALOS_NAMESPACE }}

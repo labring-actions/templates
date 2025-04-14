@@ -11,6 +11,7 @@ spec:
   readme: 'https://raw.githubusercontent.com/halo-dev/halo/main/README.md'
   icon: 'https://www.halo.run/logo'
   templateType: inline
+  locale: zh
   categories:
     - blog
   defaults:
@@ -40,7 +41,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: halohub/halo:2.11
+    originImageName: halohub/halo:2.18.0
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -63,24 +64,18 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: halohub/halo:2.11
+          image: halohub/halo:2.18.0
           env:
             - name: PG_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
-            - name: spring.sql.init.platform
-              value: postgresql
-            - name: spring.r2dbc.url
-              value: >-
-                r2dbc:pool:postgresql://${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432/halo
-            - name: spring.r2dbc.username
-              value: root
-            - name: spring.r2dbc.password
-              value: $PG_PASSWORD
-            - name: halo.external-url
-              value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
           resources:
             requests:
               cpu: 100m
@@ -89,10 +84,15 @@ spec:
               cpu: 1000m
               memory: 1024Mi
           command: []
-          args: []
+          args:
+            - --spring.r2dbc.url=r2dbc:pool:postgresql://${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432/halo
+            - --spring.r2dbc.username=$(PG_USERNAME)
+            - --spring.r2dbc.password=$(PG_PASSWORD)
+            - --spring.sql.init.platform=postgresql
+            - --halo.external-url=https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
           ports:
             - containerPort: 8090
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           volumeMounts:
             - name: vn-rootvn-vn-halo2
               mountPath: /root/.halo2
@@ -214,7 +214,7 @@ spec:
             resources:
               requests:
                 storage: 3Gi
-            storageClassName: openebs-backup
+
   terminationPolicy: Delete
   tolerations: []
 ---
@@ -251,3 +251,50 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: ${{ defaults.app_name }}-pg
+
+---
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+spec:
+  completions: 1
+  template:
+    spec:
+      containers:
+        - name: pgsql-init
+          image: senzing/postgresql-client:2.2.4
+          env:
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: DATABASE_URL
+              value: postgresql://$(PG_USERNAME):$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:$(PG_PORT)
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until psql ${DATABASE_URL} -c 'CREATE DATABASE halo;' &>/dev/null; do sleep 1; done
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 50m
+              memory: 51Mi
+      restartPolicy: Never
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300

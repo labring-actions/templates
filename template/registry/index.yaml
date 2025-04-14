@@ -1,0 +1,314 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: registry
+spec:
+  gitRepo: https://github.com/distribution/distribution
+  templateType: inline
+  title: registry
+  url: https://distribution.github.io/distribution
+  author: sealos
+  description: >-
+    registry is an implementation of the OCI Distribution Specification.
+    gui-registry is a web UI for registry.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/main/template/registry/README.md
+  icon: https://avatars.githubusercontent.com/u/78096003?s=48&v=4
+  defaults:
+    app_name:
+      type: string
+      value: registry-${{ random(8) }}
+    app_host:
+      type: string
+      value: ${{ random(8) }}
+  input: null
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: registry:2.8.3
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  minReadySeconds: 10
+  serviceName: registry
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: registry:2.8.3
+          env: []
+          resources:
+            requests:
+              cpu: 50m
+              memory: 25Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          ports:
+            - containerPort: 5000
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: vn-etcvn-dockervn-registryvn-configvn-yml
+              mountPath: /etc/docker/registry/config.yml
+              subPath: ./etc/docker/registry/config.yml
+            - name: vn-etcvn-registryvn-htpasswd
+              mountPath: /etc/registry/htpasswd
+              subPath: ./etc/registry/htpasswd
+            - name: vn-varvn-libvn-registry
+              mountPath: /var/lib/registry
+      volumes:
+        - name: vn-etcvn-dockervn-registryvn-configvn-yml
+          configMap:
+            name: ${{ defaults.app_name }}
+            items:
+              - key: vn-etcvn-dockervn-registryvn-configvn-yml
+                path: ./etc/docker/registry/config.yml
+        - name: vn-etcvn-registryvn-htpasswd
+          configMap:
+            name: ${{ defaults.app_name }}
+            items:
+              - key: vn-etcvn-registryvn-htpasswd
+                path: ./etc/registry/htpasswd
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /var/lib/registry
+          value: '5'
+        name: vn-varvn-libvn-registry
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 5Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+data:
+  vn-etcvn-dockervn-registryvn-configvn-yml: |-
+    version: 0.1
+    log:
+      fields:
+        service: registry
+    storage:
+      filesystem:
+        rootdirectory: /var/lib/registry
+      delete:
+        enabled: true
+    http:
+      addr: :5000
+      debug:
+        addr: :5001
+        prometheus:
+          enabled: true
+          path: /metrics
+      headers:
+        X-Content-Type-Options: [nosniff]
+        Access-Control-Allow-Origin: ['https://gui-${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}']
+        Access-Control-Allow-Methods: ['HEAD', 'GET', 'OPTIONS', 'DELETE']
+        Access-Control-Allow-Headers: ['Authorization', 'Accept', 'Cache-Control']
+        Access-Control-Max-Age: [1728000]
+        Access-Control-Allow-Credentials: [true]
+        Access-Control-Expose-Headers: ['Docker-Content-Digest']
+    proxy:
+      on: true
+    health:
+      storagedriver:
+        enabled: true
+        interval: 10s
+        threshold: 3
+    auth:
+      htpasswd:
+        realm: "Registry Realm"
+        path: /etc/registry/htpasswd
+  vn-etcvn-registryvn-htpasswd: root:$2y$05$CXZgu7SFjg4UsH1JsFyi0OtLtPv0ghFbL/BYLAURxuWrJK.61fRL2
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - port: 5000
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_name }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 4g
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /()(.*)
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 5000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName:  ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gui-${{ defaults.app_name }}
+  annotations:
+    originImageName: joxit/docker-registry-ui:2.5.6-debian
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: gui-${{ defaults.app_name }}
+    app: gui-${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: gui-${{ defaults.app_name }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: gui-${{ defaults.app_name }}
+    spec:
+      containers:
+        - name: gui-${{ defaults.app_name }}
+          image: joxit/docker-registry-ui:2.5.6-debian
+          env:
+            - name: REGISTRY_TITLE
+              value: Sealos-Registry-GUI
+            - name: SINGLE_REGISTRY
+              value: 'true'
+            - name: DELETE_IMAGES
+              value: 'true'
+            - name: SHOW_CONTENT_DIGEST
+              value: 'true'
+            - name: NGINX_PROXY_PASS_URL
+              value: http://${{ defaults.app_name }}.${{ SEALOS_NAMESPACE }}.svc.cluster.local:5000
+            - name: SHOW_CATALOG_NB_TAGS
+              value: 'true'
+            - name: CATALOG_MIN_BRANCHES
+              value: '1'
+            - name: CATALOG_MAX_BRANCHES
+              value: '1'
+            - name: TAGLIST_PAGE_SIZE
+              value: '100'
+            - name: REGISTRY_SECURED
+              value: 'false'
+            - name: CATALOG_ELEMENTS_LIMIT
+              value: '1000'
+          resources:
+            requests:
+              cpu: 50m
+              memory: 25Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          ports:
+            - containerPort: 80
+          imagePullPolicy: IfNotPresent
+          volumeMounts: []
+      volumes: []
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gui-${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: gui-${{ defaults.app_name }}
+spec:
+  ports:
+    - port: 80
+  selector:
+    app: gui-${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gui-${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: gui-${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: gui-${{ defaults.app_name }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 4g
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: gui-${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /()(.*)
+            backend:
+              service:
+                name: gui-${{ defaults.app_name }}
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - gui-${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName:  ${{ SEALOS_CERT_SECRET_NAME }}

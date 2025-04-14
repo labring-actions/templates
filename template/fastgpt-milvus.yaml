@@ -1,0 +1,510 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: fastgpt-milvus
+spec:
+  title: 'FastGPT-Milvus'
+  url: 'https://ai.fastgpt.in/'
+  gitRepo: 'https://github.com/labring/FastGPT'
+  author: 'Sealos'
+  description: 'FastGPT 是一个基于 LLM 大语言模型的知识库问答系统，提供开箱即用的数据处理、模型调用等能力。同时可以通过 Flow 可视化进行工作流编排，从而实现复杂的问答场景！'
+  readme: 'https://raw.githubusercontent.com/labring/FastGPT/main/README.md'
+  icon: 'https://raw.githubusercontent.com/labring/FastGPT/main/.github/imgs/logo.svg'
+  templateType: inline
+  locale: zh
+  i18n:
+    en:
+      description: 'A free, open-source, and powerful AI knowledge base platform, offers out-of-the-box data processing, model invocation, RAG retrieval, and visual AI workflows. Easily build complex LLM applications.'
+      readme: 'https://raw.githubusercontent.com/labring/FastGPT/main/README_en.md'
+  categories:
+    - ai
+  defaults:
+    app_name:
+      type: string
+      value: fastgpt-${{ random(8) }}
+    app_host:
+      type: string
+      value: ${{ random(8) }}
+    session_secret:
+      type: string
+      value: ${{ random(8) }}
+    root_key:
+      type: string
+      value: ${{ random(8) }}
+  inputs:
+    root_password:
+      description: 'root user''s password，username is: root'
+      type: string
+      default: ''
+      required: true
+    base_url:
+      description: 'API 基础地址，如果需要部署OneAPI，可以部署完再填写该地址'
+      type: string
+      default: 'https://api.openai.com/v1'
+      required: true
+    api_key:
+      description: 'API密钥'
+      type: string
+      default: ''
+      required: true
+
+---
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-mongo
+
+---
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-milvus
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-milvus
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-milvus
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.8.22
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.8.22
+          env:
+            - name: MONGO_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mongo-conn-credential
+                  key: password
+            - name: MILVUS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-milvus-conn-credential
+                  key: password
+            - name: FE_DOMAIN
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: DEFAULT_ROOT_PSW
+              value: ${{ inputs.root_password }}
+            - name: OPENAI_BASE_URL
+              value: ${{ inputs.base_url }}
+            - name: CHAT_API_KEY
+              value: ${{ inputs.api_key }}
+            - name: DB_MAX_LINK
+              value: '100'
+            - name: TOKEN_KEY
+              value: ${{ defaults.session_secret }}
+            - name: ROOT_KEY
+              value: ${{ defaults.root_key }}}
+            - name: FILE_TOKEN_KEY
+              value: filetoken
+            - name: MONGODB_URI
+              value: >-
+                mongodb://root:$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017/fastgpt?authSource=admin
+            - name: MILVUS_ADDRESS
+              value: http://${{ defaults.app_name }}-milvus-milvus.${{ SEALOS_NAMESPACE }}.svc.cluster.local:19530
+            - name: MILVUS_TOKEN
+              value: root:$(MILVUS_PASSWORD)
+            - name: SANDBOX_URL
+              value: http://${{ defaults.app_name }}-sandbox.${{ SEALOS_NAMESPACE }}.svc.cluster.local:3000
+            - name: LOG_LEVEL
+              value: info
+            - name: STORE_LOG_LEVEL
+              value: warn
+            - name: WORKFLOW_MAX_RUN_TIMES
+              value: '500'
+            - name: WORKFLOW_MAX_LOOP_TIMES
+              value: '50'
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 2Gi
+          command: []
+          args: []
+          ports:
+            - containerPort: 3000
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: vn-appvn-datavn-configvn-json
+              mountPath: /app/data/config.json
+              subPath: ./app/data/config.json
+      volumes:
+        - name: vn-appvn-datavn-configvn-json
+          configMap:
+            name: ${{ defaults.app_name }}
+            items:
+              - key: vn-appvn-datavn-configvn-json
+                path: ./app/data/config.json
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+data:
+  vn-appvn-datavn-configvn-json: |
+    {
+      "feConfigs": {
+        "lafEnv": "https://laf.dev" 
+      },
+      "systemEnv": {
+        "vectorMaxProcess": 15, 
+        "qaMaxProcess": 15, 
+        "tokenWorkers": 30,
+        "pgHNSWEfSearch": 100 
+      }
+    }
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - port: 3000
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 3000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-sandbox
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-sandbox
+spec:
+  ports:
+    - port: 3000
+  selector:
+    app: ${{ defaults.app_name }}-sandbox
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-sandbox
+  annotations:
+    originImageName: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-sandbox:v4.8.22
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+    deploy.cloud.sealos.io/resize: 0Gi
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-sandbox
+    app: ${{ defaults.app_name }}-sandbox
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-sandbox
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-sandbox
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-sandbox
+          image: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-sandbox:v4.8.22
+          env: []
+          resources:
+            requests:
+              cpu: 50m
+              memory: 102Mi
+            limits:
+              cpu: 500m
+              memory: 1024Mi
+          ports:
+            - containerPort: 3000
+          imagePullPolicy: IfNotPresent
+          volumeMounts: []
+      volumes: []
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: mongodb
+    clusterversion.kubeblocks.io/name: mongodb-5.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
+  name: ${{ defaults.app_name }}-mongo
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: mongodb
+  clusterVersionRef: mongodb-5.0
+  backup:
+    enabled: true
+    cronExpression: 0 18 * * *
+    method: backupTool
+    pitrEnabled: false
+    retentionPeriod: 7d
+  componentSpecs:
+    - componentDefRef: mongodb
+      monitor: true
+      name: mongodb
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 1Gi
+        requests:
+          cpu: 50m
+          memory: 128Mi
+      serviceAccountName: ${{ defaults.app_name }}-mongo
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 5Gi
+  terminationPolicy: Delete
+  tolerations: []
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-mongo
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-mongo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-mongo
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-mongo
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: milvus
+    clusterversion.kubeblocks.io/name: milvus-2.4.5
+    sealos-db-provider-cr: ${{ defaults.app_name }}-milvus
+  name: ${{ defaults.app_name }}-milvus
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: milvus
+  clusterVersionRef: milvus-2.4.5
+  backup:
+    enabled: true
+    cronExpression: 0 18 * * *
+    method: backupTool
+    pitrEnabled: false
+    retentionPeriod: 7d
+  componentSpecs:
+    - componentDefRef: milvus
+      monitor: true
+      name: milvus
+      noCreatePDB: false
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 1Gi
+        requests:
+          cpu: 50m
+          memory: 128Mi
+      rsmTransformPolicy: ToSts
+      serviceAccountName: ${{ defaults.app_name }}-milvus
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 5Gi
+    - componentDefRef: etcd
+      monitor: true
+      name: etcd
+      noCreatePDB: false
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 1Gi
+        requests:
+          cpu: 50m
+          memory: 128Mi
+      rsmTransformPolicy: ToSts
+      serviceAccountName: ${{ defaults.app_name }}-milvus
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 3Gi
+    - componentDefRef: minio
+      monitor: true
+      name: minio
+      noCreatePDB: false
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 1Gi
+        requests:
+          cpu: 50m
+          memory: 128Mi
+      rsmTransformPolicy: ToSts
+      serviceAccountName: ${{ defaults.app_name }}-milvus
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 3Gi
+  terminationPolicy: Delete
+  tolerations: []
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-milvus
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-milvus
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-milvus
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-milvus
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-milvus
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-milvus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-milvus
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-milvus

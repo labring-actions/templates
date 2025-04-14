@@ -1,0 +1,239 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: alist
+spec:
+  title: 'AList'
+  url: 'https://github.com/alist-org/alist'
+  gitRepo: 'https://github.com/alist-org/alist'
+  author: '孤城落寞'
+  description: 'A file list/WebDAV program that supports multiple storages, powered by Gin and Solidjs.'
+  readme: 'https://raw.githubusercontent.com/alist-org/alist/main/README.md'
+  icon: 'https://raw.githubusercontent.com/alist-org/logo/main/logo.svg'
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      title: 'alist'
+      description: '一个支持多种存储的文件列表/WebDAV程序，由 Gin 和 Solidjs 提供支持。'
+      readme: 'https://raw.githubusercontent.com/alist-org/alist/main/README_cn.md'
+  categories:
+    - tool
+  defaults:
+    app_host:
+      type: string
+      value: ${{ random(8) }}
+    app_name:
+      type: string
+      value: alist-${{ random(8) }}
+  inputs:
+    USERNAME:
+      description: '默认用户名'
+      type: choice
+      options:
+        - admin
+      required: true
+    PASSWORD:
+        description: "默认密码"
+        type: string
+        default: ""
+        required: true
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: xhofe/alist-aria2:v3.41.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      terminationGracePeriodSeconds: 10
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: xhofe/alist-aria2:v3.41.0
+          env:
+            - name: TZ
+              value: Asia/Shanghai
+            - name: PUID
+              value: '0'
+            - name: PGID
+              value: '0'
+            - name: UMASK
+              value: '022'
+          resources:
+            requests:
+              cpu: 20m
+              memory: 12Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          command: []
+          args: []
+          ports:
+            - containerPort: 5244
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: vn-data
+              mountPath: /opt/alist/data
+      volumes: []
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /opt/alist/data
+          value: '1'
+        name: vn-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - port: 5244
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 5244
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: "https://raw.githubusercontent.com/alist-org/logo/main/logo.svg"
+  name: AList
+  type: link
+
+# Add these before the Job resource
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}
+rules:
+- apiGroups: ["apps"]
+  resources: ["statefulsets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["pods/exec"]
+  verbs: ["create"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}
+subjects:
+- kind: ServiceAccount
+  name: ${{ defaults.app_name }}
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-password
+spec:
+  completions: 1
+  template:
+    spec:
+      containers:
+        - name: ${{ defaults.app_name }}-password
+          image: bitnami/kubectl
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until kubectl exec statefulset/${{ defaults.app_name }} -- curl -I http://127.0.0.1:5244 &>/dev/null; do sleep 1; done
+              kubectl exec statefulset/${{ defaults.app_name }} -- ./alist admin set ${{ inputs.PASSWORD }}
+      restartPolicy: Never
+      serviceAccountName: ${{ defaults.app_name }}
+      serviceAccount:  ${{ defaults.app_name }}
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300

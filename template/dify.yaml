@@ -8,9 +8,14 @@ spec:
   gitRepo: 'https://github.com/langgenius/dify'
   author: 'Sealos'
   description: "Dify is an open-source LLM app development platform."
-  readme: 'https://raw.githubusercontent.com/langgenius/dify/main/README_CN.md'
+  readme: 'https://raw.githubusercontent.com/langgenius/dify/main/README.md'
   icon: 'https://avatars.githubusercontent.com/u/127165244?s=200&v=4'
   templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: "Dify 是一个开源的 LLM 应用开发平台"
+      readme: 'https://raw.githubusercontent.com/langgenius/dify/main/README_CN.md'
   categories:
     - ai
   defaults:
@@ -26,6 +31,12 @@ spec:
     secret_key:
       type: string
       value: sk-${{ random(45) }}
+    inner_api_key:
+      type: string
+      value: sk-${{ random(32) }}
+    plugin_daemon_key:
+      type: string
+      value: sk-${{ random(32) }}
   inputs:
     init_password:
       description: 'admin init password'
@@ -39,7 +50,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}-api
   annotations:
-    originImageName: langgenius/dify-api:0.6.5
+    originImageName: langgenius/dify-api:1.1.3
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -60,9 +71,45 @@ spec:
     spec:
       terminationGracePeriodSeconds: 10
       automountServiceAccountToken: false
+      initContainers:
+        - name: wait-db
+          image: senzing/postgresql-client:2.2.4
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: DATABASE_URL
+              value: postgresql://$(PG_USERNAME):$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:$(PG_PORT)
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until pg_isready -d $(DATABASE_URL); do
+                echo "Waiting for database to start..."
+                sleep 2
+              done
+              echo "Database is ready"
+              until psql ${DATABASE_URL} -lqt | cut -d \| -f 1 | grep -qw dify; do
+                echo "Waiting for dify database to be created..."
+                sleep 5
+              done
+              echo "Dify database is ready"
       containers:
         - name: ${{ defaults.app_name }}-api
-          image: langgenius/dify-api:0.6.5
+          image: langgenius/dify-api:1.1.3
           env:
             - name: MODE
               value: api
@@ -78,8 +125,8 @@ spec:
               value: https://${{ defaults.app_host_api }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: SERVICE_API_URL
               value: https://${{ defaults.app_host_api }}.${{ SEALOS_CLOUD_DOMAIN }}
-            - name: APP_WEB_URL
-              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: APP_API_URL
+              value: https://${{ defaults.app_host_api }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: FILES_URL
               value: ''
             - name: MIGRATION_ENABLED
@@ -137,7 +184,11 @@ spec:
             - name: CONSOLE_CORS_ALLOW_ORIGINS
               value: '*'
             - name: STORAGE_TYPE
-              value: '*'
+              value: 'opendal'
+            - name: OPENDAL_SCHEME
+              value: 'fs'
+            - name: OPENDAL_FS_ROOT
+              value: 'storage'
             - name: STORAGE_LOCAL_PATH
               value: '/app/api/storage'
             - name: VECTOR_STORE
@@ -174,13 +225,35 @@ spec:
               value: '30'
             - name: CODE_MAX_NUMBER_ARRAY_LENGTH
               value: '1000'
+            - name: CONSOLE_API_URL
+              value: https://${{ defaults.app_host_api }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: CONSOLE_WEB_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: APP_WEB_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: SERVICE_API_URL
+              value: https://${{ defaults.app_host_api }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: PLUGIN_DAEMON_URL
+              value: http://${{ defaults.app_name }}-plugin-daemon:5002
+            - name: PLUGIN_DAEMON_KEY
+              value: ${{ defaults.plugin_daemon_key }}
+            - name: PLUGIN_REMOTE_INSTALL_HOST
+              value: ${{ defaults.app_name }}-plugin-daemon
+            - name: PLUGIN_REMOTE_INSTALL_PORT
+              value: '5003'
+            - name: PLUGIN_MAX_PACKAGE_SIZE
+              value: '52428800'
+            - name: INNER_API_KEY_FOR_PLUGIN
+              value: ${{ defaults.inner_api_key }}
           resources:
             requests:
               cpu: 200m
               memory: 256Mi
+              ephemeral-storage: 200Mi
             limits:
-              cpu: 2000m
+              cpu: 1000m
               memory: 2Gi
+              ephemeral-storage: 200Mi
           ports:
             - containerPort: 5001
           imagePullPolicy: IfNotPresent
@@ -188,7 +261,7 @@ spec:
             - name: vn-appvn-apivn-storage
               mountPath: /app/api/storage
         - name: ${{ defaults.app_name }}-worker
-          image: langgenius/dify-api:0.6.5
+          image: langgenius/dify-api:1.1.3
           env:
             - name: MODE
               value: worker
@@ -249,7 +322,11 @@ spec:
             - name: CONSOLE_CORS_ALLOW_ORIGINS
               value: '*'
             - name: STORAGE_TYPE
-              value: '*'
+              value: 'opendal'
+            - name: OPENDAL_SCHEME
+              value: 'fs'
+            - name: OPENDAL_FS_ROOT
+              value: 'storage'
             - name: STORAGE_LOCAL_PATH
               value: '/app/api/storage'
             - name: VECTOR_STORE
@@ -268,13 +345,35 @@ spec:
               value: http://$(WEAVIATE_HOST):$(WEAVIATE_PORT)
             - name: WEAVIATE_API_KEY
               value: ""
+            - name: CONSOLE_API_URL
+              value: https://${{ defaults.app_host_api }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: CONSOLE_WEB_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: APP_WEB_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: SERVICE_API_URL
+              value: https://${{ defaults.app_host_api }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: PLUGIN_DAEMON_URL
+              value: http://${{ defaults.app_name }}-plugin-daemon:5002
+            - name: PLUGIN_DAEMON_KEY
+              value: ${{ defaults.plugin_daemon_key }}
+            - name: PLUGIN_REMOTE_INSTALL_HOST
+              value: ${{ defaults.app_name }}-plugin-daemon
+            - name: PLUGIN_REMOTE_INSTALL_PORT
+              value: '5003'
+            - name: PLUGIN_MAX_PACKAGE_SIZE
+              value: '52428800'
+            - name: INNER_API_KEY_FOR_PLUGIN
+              value: ${{ defaults.inner_api_key }}
           resources:
             requests:
               cpu: 200m
               memory: 256Mi
+              ephemeral-storage: 200Mi
             limits:
-              cpu: 2000m
+              cpu: 1000m
               memory: 2Gi
+              ephemeral-storage: 200Mi
           ports:
             - containerPort: 5001
           imagePullPolicy: IfNotPresent
@@ -318,6 +417,20 @@ metadata:
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host_api }}
   annotations:
     kubernetes.io/ingress.class: nginx
+    higress.io/response-header-control-remove: X-Frame-Options
+    higress.io/response-header-control-update: |
+      Content-Security-Policy "default-src * blob: data: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; img-src * data: blob: resource: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; connect-src * wss: blob: resource:; style-src 'self' 'unsafe-inline' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource: *.baidu.com *.bdstatic.com; frame-src 'self' *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} mailto: tel: weixin: mtt: *.baidu.com; frame-ancestors 'self' https://${{ SEALOS_CLOUD_DOMAIN }} https://*.${{ SEALOS_CLOUD_DOMAIN }}"
+      X-Xss-Protection "1; mode=block"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_clear_headers "X-Frame-Options:";
+      more_set_headers "Content-Security-Policy: default-src * blob: data: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; img-src * data: blob: resource: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; connect-src * wss: blob: resource:; style-src 'self' 'unsafe-inline' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource: *.baidu.com *.bdstatic.com; frame-src 'self' *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} mailto: tel: weixin: mtt: *.baidu.com; frame-ancestors 'self' https://${{ SEALOS_CLOUD_DOMAIN }} https://*.${{ SEALOS_CLOUD_DOMAIN }}";
+      more_set_headers "X-Xss-Protection: 1; mode=block";
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "PUT, GET, POST, DELETE, PATCH, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "https://${{ SEALOS_CLOUD_DOMAIN }}, https://*.${{ SEALOS_CLOUD_DOMAIN }}"
+    nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "DNT, Keep-Alive, User-Agent, X-Requested-With, If-Modified-Since, Cache-Control, Content-Type, Range, Authorization, X-App-Code"
+    nginx.ingress.kubernetes.io/cors-max-age: "600"
 spec:
   rules:
     - host: ${{ defaults.app_host_api }}.${{ SEALOS_CLOUD_DOMAIN }}
@@ -342,7 +455,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-web
   annotations:
-    originImageName: langgenius/dify-web:0.6.5
+    originImageName: langgenius/dify-web:1.1.3
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -360,23 +473,69 @@ spec:
         app: ${{ defaults.app_name }}-web
     spec:
       automountServiceAccountToken: false
+      initContainers:
+        - name: wait-db
+          image: senzing/postgresql-client:2.2.4
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: DATABASE_URL
+              value: postgresql://$(PG_USERNAME):$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:$(PG_PORT)
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until pg_isready -d $(DATABASE_URL); do
+                echo "Waiting for database to start..."
+                sleep 2
+              done
+              echo "Database is ready"
+              until psql ${DATABASE_URL} -lqt | cut -d \| -f 1 | grep -qw dify; do
+                echo "Waiting for dify database to be created..."
+                sleep 5
+              done
+              echo "Dify database is ready"
       containers:
         - name: ${{ defaults.app_name }}-web
-          image: langgenius/dify-web:0.6.5
+          image: langgenius/dify-web:1.1.3
           env:
             - name: EDITION
               value: SELF_HOSTED
             - name: CONSOLE_API_URL
               value: https://${{ defaults.app_host_api }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: CONSOLE_WEB_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: APP_API_URL
               value: https://${{ defaults.app_host_api }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: APP_WEB_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: SERVICE_API_URL
+              value: https://${{ defaults.app_host_api }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: MARKETPLACE_API_URL
+              value: https://marketplace.dify.ai
+            - name: MARKETPLACE_URL
+              value: https://marketplace.dify.ai
           resources:
             requests:
               cpu: 100m
-              memory: 128Mi
+              memory: 256Mi
             limits:
-              cpu: 1000m
-              memory: 1Gi
+              cpu: 1
+              memory: 2Gi
           ports:
             - containerPort: 3000
           imagePullPolicy: IfNotPresent
@@ -424,11 +583,11 @@ spec:
 ---
 
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}-sandbox
   annotations:
-    originImageName: langgenius/dify-sandbox@sha256:a65421948deb729ebca926e9bea802c82f2174fdb7bcaac368252a45c0f9a722
+    originImageName: langgenius/dify-sandbox:0.2.11
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -437,6 +596,8 @@ metadata:
 spec:
   replicas: 1
   revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: ${{ defaults.app_name }}-sandbox
   selector:
     matchLabels:
       app: ${{ defaults.app_name }}-sandbox
@@ -445,10 +606,11 @@ spec:
       labels:
         app: ${{ defaults.app_name }}-sandbox
     spec:
+      terminationGracePeriodSeconds: 10
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}-sandbox
-          image: langgenius/dify-sandbox@sha256:a65421948deb729ebca926e9bea802c82f2174fdb7bcaac368252a45c0f9a722
+          image: langgenius/dify-sandbox:0.2.11
           env:
             - name: API_KEY
               value: dify-sandbox
@@ -456,16 +618,35 @@ spec:
               value: 'release'
             - name: WORKER_TIMEOUT
               value: '15'
+            - name: ENABLE_NETWORK
+              value: 'true'
           resources:
             requests:
               cpu: 100m
               memory: 128Mi
+              ephemeral-storage: 200Mi
             limits:
-              cpu: 1000m
+              cpu: 1
               memory: 1Gi
+              ephemeral-storage: 200Mi
           ports:
             - containerPort: 8194
           imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: vn-dependencies
+              mountPath: /dependencies
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /dependencies
+          value: '1'
+        name: vn-dependencies
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
 ---
 
 apiVersion: v1
@@ -479,6 +660,190 @@ spec:
     - port: 8194
   selector:
     app: ${{ defaults.app_name }}-sandbox
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-plugin-daemon
+  annotations:
+    originImageName: langgenius/dify-plugin-daemon:0.0.6-local
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-plugin-daemon
+    app: ${{ defaults.app_name }}-plugin-daemon
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: ${{ defaults.app_name }}-plugin-daemon
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-plugin-daemon
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-plugin-daemon
+    spec:
+      terminationGracePeriodSeconds: 10
+      automountServiceAccountToken: false
+      initContainers:
+        - name: wait-db
+          image: senzing/postgresql-client:2.2.4
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: DATABASE_URL
+              value: postgresql://$(PG_USERNAME):$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:$(PG_PORT)
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until pg_isready -d $(DATABASE_URL); do
+                echo "Waiting for database to start..."
+                sleep 2
+              done
+              echo "Database is ready"
+              until psql ${DATABASE_URL} -lqt | cut -d \| -f 1 | grep -qw dify; do
+                echo "Waiting for dify database to be created..."
+                sleep 5
+              done
+              echo "Dify database is ready"
+      containers:
+        - name: ${{ defaults.app_name }}-plugin-daemon
+          image: langgenius/dify-plugin-daemon:0.0.6-local
+          env:
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: DB_DATABASE
+              value: dify
+            - name: REDIS_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-conn-credential
+                  key: host
+            - name: REDIS_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-conn-credential
+                  key: port
+            - name: REDIS_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-conn-credential
+                  key: username
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-conn-credential
+                  key: password
+            - name: REDIS_USE_SSL
+              value: 'false'
+            - name: REDIS_DB
+              value: '0'
+            - name: DB_DATABASE
+              value: dify_plugin
+            - name: SERVER_PORT
+              value: '5002'
+            - name: SERVER_KEY
+              value: ${{ defaults.plugin_daemon_key }}
+            - name: MAX_PLUGIN_PACKAGE_SIZE
+              value: '52428800'
+            - name: PPROF_ENABLED
+              value: 'false'
+            - name: DIFY_INNER_API_URL
+              value: http://${{ defaults.app_name }}-api:5001
+            - name: DIFY_INNER_API_KEY
+              value: ${{ defaults.inner_api_key }}
+            - name: PLUGIN_REMOTE_INSTALLING_HOST
+              value: localhost
+            - name: PLUGIN_REMOTE_INSTALLING_PORT
+              value: '5003'
+            - name: PLUGIN_WORKING_PATH
+              value: /app/storage/cwd
+            - name: FORCE_VERIFYING_SIGNATURE
+              value: 'true'
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 200Mi
+            limits:
+              cpu: 1
+              memory: 1Gi
+              ephemeral-storage: 200Mi
+          ports:
+            - name: server-port
+              containerPort: 5002
+            - name: remote-port
+              containerPort: 5003
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: vn-appvn-storage
+              mountPath: /app/storage
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /app/storage
+          value: '1'
+        name: vn-appvn-storage
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-plugin-daemon
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-plugin-daemon
+spec:
+  ports:
+    - name: server-port
+      port: 5002
+      containerPort: 5002
+    - name: remote-port
+      port: 5003
+      containerPort: 5003
+  selector:
+    app: ${{ defaults.app_name }}-plugin-daemon
 
 ---
 
@@ -561,11 +926,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 1000m
-          memory: 1Gi
+          cpu: 2
+          memory: 4Gi
         requests:
-          cpu: 100m
-          memory: 128Mi
+          cpu: 200m
+          memory: 400Mi
       serviceAccountName: ${{ defaults.app_name }}-pg
       switchPolicy:
         type: Noop
@@ -577,7 +942,7 @@ spec:
             resources:
               requests:
                 storage: 3Gi
-            storageClassName: openebs-backup
+
   terminationPolicy: Delete
   tolerations: []
 
@@ -593,7 +958,7 @@ spec:
     spec:
       containers:
         - name: pgsql-init
-          image: senzing/postgresql-client:latest
+          image: senzing/postgresql-client:2.2.4
           env:
             - name: PG_USERNAME
               valueFrom:
@@ -617,6 +982,7 @@ spec:
             - -c
             - |
               until psql ${DATABASE_URL} -c 'CREATE DATABASE dify;' &>/dev/null; do sleep 1; done
+              until psql ${DATABASE_URL} -c 'CREATE DATABASE dify_plugin;' &>/dev/null; do sleep 1; done
           resources:
             limits:
               cpu: 500m
@@ -703,11 +1069,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 1000m
-          memory: 1024Mi
+          cpu: 1
+          memory: 4Gi
         requests:
           cpu: 100m
-          memory: 102Mi
+          memory: 400Mi
       serviceAccountName: ${{ defaults.app_name }}-redis
       switchPolicy:
         type: Noop
@@ -719,7 +1085,7 @@ spec:
             resources:
               requests:
                 storage: 3Gi
-            storageClassName: openebs-backup
+
     - componentDefRef: redis-sentinel
       monitor: true
       name: redis-sentinel
@@ -807,11 +1173,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: '1'
-          memory: 1Gi
+          cpu: 2
+          memory: 4Gi
         requests:
-          cpu: 100m
-          memory: 128Mi
+          cpu: 200m
+          memory: 400Mi
       rsmTransformPolicy: ToSts
       serviceAccountName: ${{ defaults.app_name }}-weaviate
       volumeClaimTemplates:

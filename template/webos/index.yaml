@@ -1,0 +1,174 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: webos
+spec:
+  title: 'Webos'
+  url: 'https://os.tenfell.cn/'
+  gitRepo: 'https://github.com/fs185085781/webos'
+  author: 'Sealos'
+  description: 'Webos 是一个支持挂载各种云盘的私有云盘/企业网盘，仿 win11 界面，无需下载客户端。'
+  readme: 'https://raw.githubusercontent.com/fs185085781/webos/main/README.md'
+  icon: 'https://raw.githubusercontent.com/fs185085781/webos/main/api/src/main/resources/logo.png'
+  templateType: inline
+  locale: zh
+  categories:
+    - tool
+  defaults:
+    app_host:
+      # number or string..
+      type: string
+      value: webos-${{ random(8) }}
+    app_name:
+      type: string
+      value: webos-${{ random(8) }}
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: fs185085781/webos:v1.4.1
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      terminationGracePeriodSeconds: 10
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: fs185085781/webos:v1.4.1
+          resources:
+            requests:
+              cpu: 20m
+              memory: 51Mi
+              ephemeral-storage: "400Mi"
+            limits:
+              cpu: 200m
+              memory: 512Mi
+              ephemeral-storage: "400Mi"
+          ports:
+            - name: http
+              protocol: TCP
+              containerPort: 8088
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: vn-webosvn-apivn-rootpath
+              mountPath: /webos/api/rootPath
+            - name: vn-webosvn-webvn-apps
+              mountPath: /webos/web/apps
+          livenessProbe:
+            tcpSocket:
+              port: 8088
+            initialDelaySeconds: 20
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /webos/api/rootPath
+          value: '1'
+        name: vn-webosvn-apivn-rootpath
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+    - metadata:
+        annotations:
+          path: /webos/web/apps
+          value: '1'
+        name: vn-webosvn-webvn-apps
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - port: 8088
+  selector:
+    app: ${{ defaults.app_name }}
+
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /()(.*)
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 8088
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: "https://raw.githubusercontent.com/fs185085781/webos/main/api/src/main/resources/logo.png"
+  name: Webos
+  type: link

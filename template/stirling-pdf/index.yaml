@@ -1,0 +1,303 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: s-pdf
+spec:
+  title: 'Stirling-PDF'
+  url: 'https://github.com/Stirling-Tools/Stirling-PDF'
+  gitRepo: 'https://github.com/Stirling-Tools/Stirling-PDF'
+  author: 'Sealos'
+  description: '1 Locally hosted web application that allows you to perform various operations on PDF files.'
+  readme: 'https://raw.githubusercontent.com/Stirling-Tools/Stirling-PDF/main/README.md'
+  icon: 'https://avatars.githubusercontent.com/u/139791695?s=48&v=4'
+  templateType: inline
+  categories:
+    - tool
+  defaults:
+    app_host:
+      # number or string..
+      type: string
+      value: s-pdf-${{ random(8) }}
+    app_name:
+      type: string
+      value: s-pdf-${{ random(8) }}
+  inputs:
+    DOCKER_ENABLE_SECURITY:
+      description: "download security jar (required as true for auth login)"
+      type: string
+      default: "false"
+      required: false
+    SECURITY_ENABLELOGIN:
+      description: "set to 'true' to enable login"
+      type: string
+      default: "false"
+      required: false
+    LANGS:
+      description: "define custom font libraries to install for use for document conversions"
+      type: string
+      default: "en_GB,en_US,zh_CN,zh_TW"
+      required: false
+    INSTALL_BOOK_AND_ADVANCED_HTML_OPS:
+      description: "download calibre onto stirling-pdf enabling pdf to/from book and advanced html conversion"
+      type: string
+      default: "true"
+      required: false
+    SYSTEM_DEFAULTLOCALE:
+      description: "Set the default language"
+      type: string
+      default: "zh_CN"
+      required: false
+    UI_APPNAME:
+      description: "Application's visible name"
+      type: string
+      default: "Stirling-PDF"
+      required: false
+    UI_HOMEDESCRIPTION:
+      description: "Short description or tagline shown on homepage"
+      type: string
+      default: "Demo site for Stirling-PDF"
+      required: false
+    UI_APPNAMENAVBAR:
+      description: "Name displayed on the navigation bar"
+      type: string
+      default: "Stirling-PDF"
+      required: false
+    METRICS_ENABLED:
+      description: "enable Info APIs (`/api/*`) endpoints"
+      type: string
+      default: "true"
+      required: false
+    SYSTEM_GOOGLEVISIBILITY:
+      description: "allow Google visibility (via robots.txt)"
+      type: string
+      default: "true"
+      required: false
+---
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+data:
+  vn-etcvn-apkvn-repositories: |-
+    https://mirrors.ustc.edu.cn/alpine/v3.20/main
+    https://mirrors.ustc.edu.cn/alpine/v3.20/community
+    @testing https://mirrors.ustc.edu.cn/alpine/edge/main
+    @testing https://mirrors.ustc.edu.cn/alpine/edge/community
+    @testing https://mirrors.ustc.edu.cn/alpine/edge/testing
+---
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: frooodle/s-pdf:0.26.1-fat
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      terminationGracePeriodSeconds: 10
+      automountServiceAccountToken: false
+      initContainers:
+        - name: take-data-dir-ownership
+          image: alpine
+          command: ["/bin/sh", "-c", "chown -R 1000:1000 /tmp"]
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: vn-tmp
+              mountPath: /tmp
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: frooodle/s-pdf:0.26.1-fat
+          env:
+            - name: DOCKER_ENABLE_SECURITY
+              value: ${{ inputs.DOCKER_ENABLE_SECURITY }}
+            - name: SECURITY_ENABLELOGIN
+              value: ${{ inputs.SECURITY_ENABLELOGIN }}
+            - name: LANGS
+              value: ${{ inputs.LANGS }}
+            - name: INSTALL_BOOK_AND_ADVANCED_HTML_OPS
+              value: ${{ inputs.INSTALL_BOOK_AND_ADVANCED_HTML_OPS }}
+            - name: SYSTEM_DEFAULTLOCALE
+              value: ${{ inputs.SYSTEM_DEFAULTLOCALE }}
+            - name: UI_APPNAME
+              value: ${{ inputs.UI_APPNAME }}
+            - name: UI_HOMEDESCRIPTION
+              value: ${{ inputs.UI_HOMEDESCRIPTION }}
+            - name: UI_APPNAMENAVBAR
+              value: ${{ inputs.UI_APPNAMENAVBAR }}
+            - name: METRICS_ENABLED
+              value: ${{ inputs.METRICS_ENABLED }}
+            - name: SYSTEM_GOOGLEVISIBILITY
+              value: ${{ inputs.SYSTEM_GOOGLEVISIBILITY }}
+          resources:
+            requests:
+              cpu: 100m
+              memory: 307Mi
+              ephemeral-storage: "200Mi"
+            limits:
+              cpu: 1000m
+              memory: 3072Mi
+              ephemeral-storage: "200Mi"
+          ports:
+            - name: http
+              protocol: TCP
+              containerPort: 8080
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: vn-usrvn-sharevn-tessdata
+              mountPath: /usr/share/tessdata
+            - name: vn-configs
+              mountPath: /configs
+            - name: vn-etcvn-apkvn-repositories
+              mountPath: /etc/apk/repositories
+              subPath: ./etc/apk/repositories
+            - name: vn-tmp
+              mountPath: /tmp
+          livenessProbe:
+            exec:
+              command:
+              - /bin/sh
+              - -c
+              - curl -f http://localhost:8080/api/v1/info/status | grep -q 'UP'
+            initialDelaySeconds: 20
+          readinessProbe:
+            exec:
+              command:
+              - /bin/sh
+              - -c
+              - curl -f http://localhost:8080/api/v1/info/status | grep -q 'UP'
+            initialDelaySeconds: 20
+      volumes:
+        - name: vn-etcvn-apkvn-repositories
+          configMap:
+            name: ${{ defaults.app_name }}
+            items:
+              - key: vn-etcvn-apkvn-repositories
+                path: ./etc/apk/repositories
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /usr/share/tessdata
+          value: '1'
+        name: vn-usrvn-sharevn-tessdata
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+    - metadata:
+        annotations:
+          path: /configs
+          value: '1'
+        name: vn-configs
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+    - metadata:
+        annotations:
+          path: /tmp
+          value: '1'
+        name: vn-tmp
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - port: 8080
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    higress.io/response-header-control-remove: X-Frame-Options
+    higress.io/response-header-control-update: |
+      Content-Security-Policy "default-src * blob: data: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; img-src * data: blob: resource: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; connect-src * wss: blob: resource:; style-src 'self' 'unsafe-inline' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource: *.baidu.com *.bdstatic.com; frame-src 'self' *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} mailto: tel: weixin: mtt: *.baidu.com; frame-ancestors 'self' https://${{ SEALOS_CLOUD_DOMAIN }} https://*.${{ SEALOS_CLOUD_DOMAIN }}"
+      X-Xss-Protection "1; mode=block"
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_clear_headers "X-Frame-Options:";
+      more_set_headers "Content-Security-Policy: default-src * blob: data: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; img-src * data: blob: resource: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; connect-src * wss: blob: resource:; style-src 'self' 'unsafe-inline' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource: *.baidu.com *.bdstatic.com; frame-src 'self' *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} mailto: tel: weixin: mtt: *.baidu.com; frame-ancestors 'self' https://${{ SEALOS_CLOUD_DOMAIN }} https://*.${{ SEALOS_CLOUD_DOMAIN }}";
+      more_set_headers "X-Xss-Protection: 1; mode=block";
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /()(.*)
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 8080
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: "https://avatars.githubusercontent.com/u/139791695?s=48&v=4"
+  name: "Stirling-PDF"
+  type: iframe
