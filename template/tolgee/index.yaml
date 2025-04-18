@@ -1,0 +1,395 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: tolgee
+spec:
+  title: 'Tolgee'
+  url: 'https://tolgee.io/'
+  gitRepo: 'https://github.com/tolgee-io/tolgee'
+  author: 'Sealos'
+  description: 'Tolgee is an open-source localization platform developers enjoy to working with.'
+  readme: 'https://raw.githubusercontent.com/tolgee/tolgee-platform/refs/heads/main/README.md'
+  icon: 'https://user-images.githubusercontent.com/18496315/188628892-33fcc282-26f1-4035-8105-95952bd93de9.svg'
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      title: 'Tolgee'
+      description: 'Tolgee 是一个开源的本地化平台，专为开发者设计，支持上下文直接翻译、一键生成翻译截图、生产环境实时编辑，并集成多种机器翻译服务（如 DeepL、Google Translate），提供翻译记忆与自动化功能，简化多语言应用的开发流程。'
+  categories:
+    - tool
+  defaults:
+    app_host:
+      # number or string..
+      type: string
+      value: tolgee-${{ random(8) }}
+    app_name:
+      type: string
+      value: tolgee-${{ random(8) }}
+  inputs:
+    TOLGEE_AUTHENTICATION_INITIAL_USERNAME:
+      description: 'The initial username for Tolgee authentication.'
+      type: string
+      default: 'admin'
+      required: true
+    TOLGEE_AUTHENTICATION_INITIAL_PASSWORD:
+      description: 'The initial password for Tolgee authentication.'
+      type: string
+      default: 'admin'
+      required: true
+    TOLGEE_SMTP_AUTH:
+      description: 'true: Enable SMTP authentication, false: Disable SMTP authentication'
+      type: choice
+      options:
+        - "true"
+        - "false"
+      required: false
+    TOLGEE_SMTP_FROM:
+      description: 'The email address to send emails from.'
+      type: string
+      default: ''
+      required: false
+    TOLGEE_SMTP_HOST:
+      description: 'The SMTP host to send emails from.'
+      type: string
+      default: ''
+      required: false
+    TOLGEE_SMTP_PORT:
+      description: 'The SMTP port to send emails from.'
+      type: string
+      default: ''
+      required: false
+    TOLGEE_SMTP_USERNAME:
+      description: 'The SMTP user to send emails from.'
+      type: string
+      default: ''
+      required: false
+    TOLGEE_SMTP_PASSWORD:
+      description: 'The SMTP password to send emails from.'
+      type: string
+      default: ''
+      required: false
+    TOLGEE_SMTP_SSL_ENABLED:
+      description: 'true: Enable SMTP SSL, false: Disable SMTP SSL'
+      type: choice
+      options:
+        - "true"
+        - "false"
+      required: false
+
+---
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}-private
+spec:
+  policy: private
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-14.8.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+  annotations: {}
+  name: ${{ defaults.app_name }}-pg
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-14.8.0
+  componentSpecs:
+    - componentDefRef: postgresql
+      monitor: true
+      name: postgresql
+      replicas: 1
+      resources:
+        limits:
+          cpu: 1000m
+          memory: 1024Mi
+        requests:
+          cpu: 100m
+          memory: 102Mi
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 5Gi
+
+  terminationPolicy: Delete
+  tolerations: []
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+spec:
+  completions: 1
+  template:
+    spec:
+      containers:
+        - name: pgsql-init
+          image: senzing/postgresql-client:2.2.4
+          env:
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until psql ${DATABASE_URL} -c 'CREATE DATABASE tolgee;' &>/dev/null; do sleep 1; done
+      restartPolicy: Never
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: tolgee/tolgee:v3.113.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: tolgee/tolgee:v3.113.0
+          env:
+            - name: DATABASE_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: spring.datasource.username
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: spring.datasource.password
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: spring.datasource.url
+              value: "jdbc:postgresql://${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:$(DATABASE_PORT)/tolgee"
+            - name: TOLGEE_AUTHENTICATION_ENABLED
+              value: "true"
+            - name: TOLGEE_AUTHENTICATION_INITIAL_PASSWORD
+              value: "${{ inputs.TOLGEE_AUTHENTICATION_INITIAL_PASSWORD }}"
+            - name: TOLGEE_AUTHENTICATION_INITIAL_USERNAME
+              value: "${{ inputs.TOLGEE_AUTHENTICATION_INITIAL_USERNAME }}"
+            - name: TOLGEE_AUTHENTICATION_JWT_SECRET
+              value: "04613dcd4a41394b5804cb1eda64a976108c5bc82f58aa0c93adfcfa2c0a5c9fa7f7b5b18857364ceae980ac1dee620a418d8c38fe0dfb2aaf3040dd24b27ea9051c4003c8383d1fec130b2485e0c50eda4b2a08e3c81ca8930e6b1685706ad909c62213fb0164829a51c587531651ca08edf1dad6cb67015f72879ebff92d694e202998796b868f86a99e7ad2477673929f77ef7ea8e6564bab22cbb28e54022b40fdd67e91951046d60648f7362a1ae0f412011ea8f0a6107efa584544ecec9f7a420beac6661e4719906ee5dbf9ae069514385026a69852f5e19e3a2ad711cdd97943b516535925c4c8998fd2db831ec44db630cb3134b36667db991f33d6"
+            - name: TOLGEE_FILE_STORAGE_S3_ENABLED
+              value: "true"
+            - name: TOLGEE_FILE_STORAGE_S3_BUCKET_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-private
+                  key: bucket
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            - name: TOLGEE_FILE_STORAGE_S3_ENDPOINT
+              value: "https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)"
+            - name: TOLGEE_FILE_STORAGE_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: TOLGEE_FILE_STORAGE_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: TOLGEE_FILE_STORAGE_S3_SIGNING_REGION
+              value: us-west-1
+            - name: TOLGEE_SMTP_AUTH
+              value: "${{ inputs.TOLGEE_SMTP_AUTH }}"
+            - name: TOLGEE_SMTP_FROM
+              value: "${{ inputs.TOLGEE_SMTP_FROM }}"
+            - name: TOLGEE_SMTP_HOST
+              value: "${{ inputs.TOLGEE_SMTP_HOST }}"
+            - name: TOLGEE_SMTP_PORT
+              value: "${{ inputs.TOLGEE_SMTP_PORT }}"
+            - name: TOLGEE_SMTP_USERNAME
+              value: "${{ inputs.TOLGEE_SMTP_USERNAME }}"
+            - name: TOLGEE_SMTP_PASSWORD
+              value: "${{ inputs.TOLGEE_SMTP_PASSWORD }}"
+            - name: TOLGEE_SMTP_SSL_ENABLED
+              value: "${{ inputs.TOLGEE_SMTP_SSL_ENABLED }}"
+          resources:
+            requests:
+              cpu: 20m
+              memory: 102Mi
+            limits:
+              cpu: 200m
+              memory: 1024Mi
+          readinessProbe:
+            failureThreshold: 30
+            httpGet:
+              path: /
+              port: 8080
+              scheme: HTTP
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+          imagePullPolicy: IfNotPresent
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - name: http
+      targetPort: 8080
+      port: 8080
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 8080
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: "https://user-images.githubusercontent.com/18496315/188628892-33fcc282-26f1-4035-8105-95952bd93de9.svg"
+  name: "Tolgee"
+  type: link

@@ -31,13 +31,16 @@ spec:
     root_key:
       type: string
       value: ${{ random(8) }}
+    aiproxy_key:
+      type: string
+      value: ${{ random(8) }}
   inputs:
     root_password:
       description: 'root user''s password，username is: root'
       type: string
       default: ''
       required: true
-    base_url: #
+    base_url:
       description: 'API 基础地址，如果需要部署OneAPI，可以部署完再填写该地址'
       type: string
       default: 'https://api.openai.com/v1'
@@ -77,7 +80,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.9.1
+    originImageName: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.9.3
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -97,7 +100,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.9.1
+          image: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.9.3
           env:
             - name: MONGO_PASSWORD
               valueFrom:
@@ -116,7 +119,7 @@ spec:
             - name: AIPROXY_API_ENDPOINT
               value: http://${{ defaults.app_name }}-aiproxy.${{ SEALOS_NAMESPACE }}.svc:3000
             - name: AIPROXY_API_TOKEN
-              value: aiproxy
+              value: ${{ defaults.aiproxy_key }}
             - name: OPENAI_BASE_URL
               value: ${{ inputs.base_url }}
             - name: CHAT_API_KEY
@@ -249,8 +252,6 @@ metadata:
 spec:
   ports:
     - port: 3000
-      targetPort: 3000
-      name: ${{ random(12) }}
   selector:
     app: ${{ defaults.app_name }}-aiproxy
 ---
@@ -259,7 +260,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-aiproxy
   annotations:
-    originImageName: ghcr.io/labring/sealos-aiproxy-service:latest
+    originImageName: ghcr.io/labring/aiproxy:v0.1.7
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
     deploy.cloud.sealos.io/resize: 0Gi
@@ -285,17 +286,22 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}-aiproxy
-          image: ghcr.io/labring/sealos-aiproxy-service:latest
+          image: ghcr.io/labring/aiproxy:v0.1.7
           env:
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
             - name: ADMIN_KEY
-              value: aiproxy
+              value: ${{ defaults.aiproxy_key }}
             - name: LOG_DETAIL_STORAGE_HOURS
               value: '1'
             - name: DISABLE_MODEL_CONFIG
               value: 'true'
             - name: SQL_DSN
               value: >-
-                postgresql://postgres:mcxqkljr@aiproxy-postgresql.ns-czrn86r1.svc:5432/postgres
+                postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432/postgres
             - name: TZ
               value: Asia/Shanghai
           resources:
@@ -331,7 +337,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-sandbox
   annotations:
-    originImageName: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-sandbox:v4.9.1
+    originImageName: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-sandbox:v4.9.3
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
     deploy.cloud.sealos.io/resize: 0Gi
@@ -357,7 +363,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}-sandbox
-          image: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-sandbox:v4.9.1
+          image: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-sandbox:v4.9.3
           env: []
           resources:
             requests:
