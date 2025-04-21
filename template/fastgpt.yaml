@@ -40,16 +40,6 @@ spec:
       type: string
       default: ''
       required: true
-    base_url:
-      description: 'API 基础地址，如果需要部署OneAPI，可以部署完再填写该地址'
-      type: string
-      default: 'https://api.openai.com/v1'
-      required: true
-    api_key:
-      description: 'API密钥'
-      type: string
-      default: ''
-      required: true
 
 ---
 
@@ -75,12 +65,23 @@ metadata:
 
 ---
 
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-redis
+
+---
+
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.9.3
+    originImageName: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.9.6
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -100,7 +101,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.9.3
+          image: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.9.6
           env:
             - name: MONGO_PASSWORD
               valueFrom:
@@ -111,6 +112,11 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-conn-credential
                   key: password
             - name: FE_DOMAIN
               value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
@@ -138,6 +144,9 @@ spec:
             - name: PG_URL
               value: >-
                 postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432/postgres
+            - name: REDIS_URL
+              value: >-
+                redis://default:$(REDIS_PASSWORD)@${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc:6379
             - name: SANDBOX_URL
               value: http://${{ defaults.app_name }}-sandbox.${{ SEALOS_NAMESPACE }}.svc.cluster.local:3000
             - name: LOG_LEVEL
@@ -181,7 +190,8 @@ data:
   vn-appvn-datavn-configvn-json: |
     {
       "feConfigs": {
-        "lafEnv": "https://laf.dev" 
+        "lafEnv": "https://laf.dev" ,
+        "mcpServerProxyEndpoint": "http://${{ defaults.app_host }}-mcp-server.${{ SEALOS_CLOUD_DOMAIN }}"
       },
       "systemEnv": {
         "vectorMaxProcess": 15, 
@@ -192,6 +202,9 @@ data:
     }
 
 ---
+
+
+
 apiVersion: v1
 kind: Service
 metadata:
@@ -337,7 +350,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-sandbox
   annotations:
-    originImageName: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-sandbox:v4.9.3
+    originImageName: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-sandbox:v4.9.6
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
     deploy.cloud.sealos.io/resize: 0Gi
@@ -363,7 +376,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}-sandbox
-          image: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-sandbox:v4.9.3
+          image: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-sandbox:v4.9.6
           env: []
           resources:
             requests:
@@ -377,6 +390,104 @@ spec:
           imagePullPolicy: IfNotPresent
           volumeMounts: []
       volumes: []
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-mcp-server
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-mcp-server
+spec:
+  ports:
+    - port: 3000
+  selector:
+    app: ${{ defaults.app_name }}-mcp-server
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-mcp-server
+  annotations:
+    originImageName: ghcr.io/labring/fastgpt-mcp_server:v4.9.6
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+    deploy.cloud.sealos.io/resize: 0Gi
+  labels:
+    app: ${{ defaults.app_name }}-mcp-server
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-mcp-server
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-mcp-server
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-mcp-server
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-mcp-server
+          image: ghcr.io/labring/fastgpt-mcp_server:v4.9.6
+          env: 
+          - name: FASTGPT_ENDPOINT
+            value: http://${{ defaults.app_name }}.${{ SEALOS_NAMESPACE }}.svc.cluster.local:3000
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 1024Mi
+          ports:
+            - containerPort: 3000
+          imagePullPolicy: IfNotPresent
+          volumeMounts: []
+      volumes: []
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-mcp-server
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-mcp-server
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}-mcp-server
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}-mcp-server.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-mcp-server
+                port:
+                  number: 3000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
 
 ---
 apiVersion: apps.kubeblocks.io/v1alpha1
@@ -552,3 +663,103 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: redis
+    clusterversion.kubeblocks.io/name: redis-7.0.6
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+  annotations: {}
+  name: ${{ defaults.app_name }}-redis
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: redis
+  clusterVersionRef: redis-7.0.6
+  backup:
+    enabled: true
+    cronExpression: 0 18 * * *
+    method: backupTool
+    pitrEnabled: false
+    retentionPeriod: 7d
+  componentSpecs:
+    - componentDefRef: redis
+      monitor: true
+      name: redis
+      replicas: 1
+      resources:
+        limits:
+          cpu: 1000m
+          memory: 1024Mi
+        requests:
+          cpu: 1000m
+          memory: 1024Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 3Gi
+            storageClassName: openebs-backup
+    - componentDefRef: redis-sentinel
+      monitor: true
+      name: redis-sentinel
+      replicas: 1
+      resources:
+        limits:
+          cpu: 100m
+          memory: 100Mi
+        requests:
+          cpu: 100m
+          memory: 100Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
+
+  terminationPolicy: Delete
+  tolerations: []
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-redis
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-redis
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-redis
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-redis
