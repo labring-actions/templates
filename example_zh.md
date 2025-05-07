@@ -561,6 +561,48 @@ spec:
 
 请注意，出于安全目的，`host` 字段需要随机设置。您可以将 `${{ random(8) }}` 设置为 `defaults.app_host`，然后使用 `${{ defaults.app_host }}`。
 
+### 解释：`NodePort 类型的 Service`
+
+如果应用程序需要通过 NodePort 类型的 Service 暴露服务，需要遵循以下命名规则：Service 名称应以 `-nodeport` 为后缀。例如：
+
+<details>
+
+<summary>Demo</summary>
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-nodeport
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: NodePort
+  ports:
+    - protocol: UDP
+      port: 21116
+      targetPort: 21116
+      name: "rendezvous-udp"
+    - protocol: TCP
+      port: 21116
+      targetPort: 21116
+      name: "rendezvous-tcp"
+    - protocol: TCP
+      port: 21117
+      targetPort: 21117
+      name: "relay"
+    - protocol: TCP
+      port: 21115
+      targetPort: 21115
+      name: "heartbeat"
+  selector:
+    app: ${{ defaults.app_name }}
+```
+
+</details>
+
+这种命名规则（`${{ defaults.app_name }}-nodeport`）对于 NodePort 类型的 Service 是必需的，以便系统能够正确识别和处理这种类型的资源。
+
 ### 解释：`底层依赖`
 
 几乎所有应用程序都需要底层依赖，例如 `database`、`cache`、`object storage` 等。您可以添加以下代码来部署我们提供的一些底层依赖：
@@ -812,8 +854,9 @@ spec:
             storageClassName: openebs-backup
   terminationPolicy: Delete
   tolerations: []
-  ---
-  apiVersion: v1
+
+---
+apiVersion: v1
 kind: ServiceAccount
 metadata:
   labels:

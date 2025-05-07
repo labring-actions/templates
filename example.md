@@ -535,6 +535,46 @@ spec:
 
 Please note that the `host` field needs to be randomly set for security purpose. You can use `${{ random(8) }}` set to `defaults.app_host` and use `${{ defaults.app_host }}` then.
 
+### Explain: `NodePort Type Services`
+
+If your application needs to expose services through a NodePort type Service, you should follow this naming convention: the Service name should be suffixed with `-nodeport`. For example:
+
+<details>
+
+<summary>Demo</summary>
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-nodeport
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: NodePort
+  ports:
+    - protocol: UDP
+      port: 21116
+      targetPort: 21116
+      name: "rendezvous-udp"
+    - protocol: TCP
+      port: 21116
+      targetPort: 21116
+      name: "rendezvous-tcp"
+    - protocol: TCP
+      port: 21117
+      targetPort: 21117
+      name: "relay"
+    - protocol: TCP
+      port: 21115
+      targetPort: 21115
+      name: "heartbeat"
+  selector:
+    app: ${{ defaults.app_name }}
+```
+
+</details>
+
 ### Explain: `Underlying Requirements`
 
 Almost all applications needs underlying requirements, such as `database`, `cache`, `object storage` etc. You can add the following code to deploy some underlying requirements we provided:
