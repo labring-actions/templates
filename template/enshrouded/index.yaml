@@ -23,21 +23,21 @@ spec:
       value: enshrouded-${{ random(8) }}
   inputs:
     SERVER_NAME:
-      description: "私服名称"
+      description: '私服名称'
       type: string
-      default: ""
+      default: ''
       required: false
     SERVER_PASSWORD:
-      description: "私服密码"
+      description: '私服密码'
       type: string
-      default: ""
+      default: ''
       required: false
 
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: ${{ defaults.app_name }}-external
+  name: ${{ defaults.app_name }}-nodeport
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
@@ -83,48 +83,53 @@ spec:
       initContainers:
         - name: take-data-dir-ownership
           image: alpine
-          command: ["/bin/sh", "-c", "mkdir -p /opt/enshrouded; chown -R 4711:4711 /opt/enshrouded; chmod -R 0777 /opt/enshrouded"]
+          command:
+            [
+              '/bin/sh',
+              '-c',
+              'mkdir -p /opt/enshrouded; chown -R 4711:4711 /opt/enshrouded; chmod -R 0777 /opt/enshrouded',
+            ]
           imagePullPolicy: IfNotPresent
           volumeMounts:
             - name: vn-optvn-enshrouded
               mountPath: /opt/enshrouded
         - name: switch-ports
-          image: bitnami/kubectl  # 一个包含 kubectl 工具的镜像
+          image: bitnami/kubectl # 一个包含 kubectl 工具的镜像
           env:
-          - name: APP_NAME
-            valueFrom:
-              fieldRef:
-                fieldPath: metadata.labels['app']
+            - name: APP_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['app']
           command:
-          - sh
-          - -c
-          - |
-            echo "APP_NAME=$APP_NAME"
-            if [ -f /opt/enshrouded/gameport ]; then
-                echo "Game port already set"
-                . /opt/enshrouded/gameport
-                . /opt/enshrouded/queryport
-            else
-                echo "Setting game port"
-                GAME_PORT=`kubectl get svc ${APP_NAME}-external -o=jsonpath='{.spec.ports[?(@.name=="game")].nodePort}'`
-                QUERY_PORT=`kubectl get svc ${APP_NAME}-external -o=jsonpath='{.spec.ports[?(@.name=="query")].nodePort}'`
+            - sh
+            - -c
+            - |
+              echo "APP_NAME=$APP_NAME"
+              if [ -f /opt/enshrouded/gameport ]; then
+                  echo "Game port already set"
+                  . /opt/enshrouded/gameport
+                  . /opt/enshrouded/queryport
+              else
+                  echo "Setting game port"
+                  GAME_PORT=`kubectl get svc ${APP_NAME}-external -o=jsonpath='{.spec.ports[?(@.name=="game")].nodePort}'`
+                  QUERY_PORT=`kubectl get svc ${APP_NAME}-external -o=jsonpath='{.spec.ports[?(@.name=="query")].nodePort}'`
 
-                echo "GAME_PORT=$GAME_PORT QUERY_PORT=$QUERY_PORT"
-                echo "GAME_PORT=$GAME_PORT" > /opt/enshrouded/gameport
-                echo "QUERY_PORT=$QUERY_PORT" > /opt/enshrouded/queryport
-            fi
+                  echo "GAME_PORT=$GAME_PORT QUERY_PORT=$QUERY_PORT"
+                  echo "GAME_PORT=$GAME_PORT" > /opt/enshrouded/gameport
+                  echo "QUERY_PORT=$QUERY_PORT" > /opt/enshrouded/queryport
+              fi
 
-            kubectl patch svc ${APP_NAME}-external -p '{"spec":{"type":"ClusterIP"}}'
+              kubectl patch svc ${APP_NAME}-external -p '{"spec":{"type":"ClusterIP"}}'
 
-            kubectl patch svc ${{ defaults.app_name }}-external --type='json' -p="[{\"op\": \"replace\", \"path\": \"/spec/type\", \"value\": \"NodePort\"}, {\"op\": \"replace\", \"path\": \"/spec/ports/0/nodePort\", \"value\": $GAME_PORT}, {\"op\": \"replace\", \"path\": \"/spec/ports/0/targetPort\", \"value\": $GAME_PORT}, {\"op\": \"replace\", \"path\": \"/spec/ports/0/name\", \"value\": game}, {\"op\": \"replace\", \"path\": \"/spec/ports/1/nodePort\", \"value\": $QUERY_PORT}, {\"op\": \"replace\", \"path\": \"/spec/ports/1/targetPort\", \"value\": $QUERY_PORT}, {\"op\": \"replace\", \"path\": \"/spec/ports/1/name\", \"value\": query}]"
+              kubectl patch svc ${{ defaults.app_name }}-external --type='json' -p="[{\"op\": \"replace\", \"path\": \"/spec/type\", \"value\": \"NodePort\"}, {\"op\": \"replace\", \"path\": \"/spec/ports/0/nodePort\", \"value\": $GAME_PORT}, {\"op\": \"replace\", \"path\": \"/spec/ports/0/targetPort\", \"value\": $GAME_PORT}, {\"op\": \"replace\", \"path\": \"/spec/ports/0/name\", \"value\": game}, {\"op\": \"replace\", \"path\": \"/spec/ports/1/nodePort\", \"value\": $QUERY_PORT}, {\"op\": \"replace\", \"path\": \"/spec/ports/1/targetPort\", \"value\": $QUERY_PORT}, {\"op\": \"replace\", \"path\": \"/spec/ports/1/name\", \"value\": query}]"
 
-            echo "Game port set to $GAME_PORT"
-            echo "Query port set to $QUERY_PORT"
+              echo "Game port set to $GAME_PORT"
+              echo "Query port set to $QUERY_PORT"
 
-            if [ -f /opt/enshrouded/server/enshrouded_server.json ]; then
-                sed -i "s/\"gamePort\": [0-9]\+,$/\"gamePort\": $GAME_PORT,/" /opt/enshrouded/server/enshrouded_server.json
-                sed -i "s/\"queryPort\": [0-9]\+,$/\"queryPort\": $QUERY_PORT,/" /opt/enshrouded/server/enshrouded_server.json
-            fi
+              if [ -f /opt/enshrouded/server/enshrouded_server.json ]; then
+                  sed -i "s/\"gamePort\": [0-9]\+,$/\"gamePort\": $GAME_PORT,/" /opt/enshrouded/server/enshrouded_server.json
+                  sed -i "s/\"queryPort\": [0-9]\+,$/\"queryPort\": $QUERY_PORT,/" /opt/enshrouded/server/enshrouded_server.json
+              fi
           volumeMounts:
             - name: vn-optvn-enshrouded
               mountPath: /opt/enshrouded
@@ -145,7 +150,7 @@ spec:
             # - name: SERVER_QUERYPORT
             #   value: "15637"
             - name: SERVER_SLOT_COUNT
-              value: "16"
+              value: '16'
             - name: SERVER_PASSWORD
               value: ${{ inputs.SERVER_PASSWORD }}
             - name: SERVER_NAME
@@ -173,7 +178,7 @@ spec:
       securityContext:
         runAsUser: 0
       serviceAccountName: ${{ SEALOS_SERVICE_ACCOUNT }}
-      serviceAccount:  ${{ SEALOS_SERVICE_ACCOUNT }}
+      serviceAccount: ${{ SEALOS_SERVICE_ACCOUNT }}
   volumeClaimTemplates:
     - metadata:
         annotations:
@@ -207,6 +212,6 @@ spec:
               kubectl rollout restart statefulset ${{ defaults.app_name }}
       restartPolicy: Never
       serviceAccountName: ${{ SEALOS_SERVICE_ACCOUNT }}
-      serviceAccount:  ${{ SEALOS_SERVICE_ACCOUNT }}
+      serviceAccount: ${{ SEALOS_SERVICE_ACCOUNT }}
   backoffLimit: 0
   ttlSecondsAfterFinished: 300
