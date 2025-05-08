@@ -1,0 +1,611 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: rybbit
+spec:
+  title: 'Rybbit'
+  url: 'https://rybbit.io/'
+  gitRepo: 'https://github.com/rybbit-io/rybbit'
+  author: 'Sealos'
+  description: 'Rybbit is the modern open source and privacy friendly alternative to Google Analytics.'
+  readme: 'https://raw.githubusercontent.com/rybbit-io/rybbit/refs/heads/master/README.md'
+  icon: 'https://avatars.githubusercontent.com/u/208537280?s=48&v=4'
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: 'Rybbit 是一款开源、注重隐私、比 Google Analytics 更直观的下一代替代品，用于网络和产品分析，并且易于安装和使用。'
+  categories:
+    - tool
+  defaults:
+    app_host:
+      # number or string..
+      type: string
+      value: rybbit-${{ random(8) }}
+    app_name:
+      type: string
+      value: rybbit-${{ random(8) }}
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-14.8.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+  annotations: {}
+  name: ${{ defaults.app_name }}-pg
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-14.8.0
+  componentSpecs:
+    - componentDefRef: postgresql
+      monitor: true
+      name: postgresql
+      replicas: 1
+      resources:
+        limits:
+          cpu: 1000m
+          memory: 1024Mi
+        requests:
+          cpu: 100m
+          memory: 102Mi
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 3Gi
+
+  terminationPolicy: Delete
+  tolerations: []
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+spec:
+  completions: 1
+  template:
+    spec:
+      containers:
+        - name: pgsql-init
+          image: senzing/postgresql-client:2.2.4
+          env:
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until psql ${DATABASE_URL} -c 'CREATE DATABASE analytics;' &>/dev/null; do sleep 1; done
+      restartPolicy: Never
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-clickhouse
+data:
+  vn-etcvn-clickhouse-servervn-configvn-dvn-enable-jsonvn-xml: |-
+    <clickhouse>
+        <settings>
+            <enable_json_type>1</enable_json_type>
+        </settings>
+    </clickhouse>
+  vn-etcvn-clickhouse-servervn-configvn-dvn-logging-rulesvn-xml: |-
+    <clickhouse>
+      <logger>
+          <level>warning</level>
+          <console>true</console>
+      </logger>
+      <query_thread_log remove="remove"/>
+      <query_log remove="remove"/>
+      <text_log remove="remove"/>
+      <trace_log remove="remove"/>
+      <metric_log remove="remove"/>
+      <asynchronous_metric_log remove="remove"/>
+      <session_log remove="remove"/>
+      <part_log remove="remove"/>
+    </clickhouse>
+  vn-etcvn-clickhouse-servervn-configvn-dvn-networkvn-xml: |-
+    <clickhouse>
+        <listen_host>0.0.0.0</listen_host>
+    </clickhouse>
+  vn-etcvn-clickhouse-servervn-usersvn-dvn-user-loggingvn-xml: |-
+    <clickhouse>
+      <profiles>
+        <default>
+          <log_queries>0</log_queries>
+          <log_query_threads>0</log_query_threads>
+        </default>
+      </profiles>
+    </clickhouse>
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-clickhouse
+  annotations:
+    originImageName: clickhouse/clickhouse-server:25.4.2
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-clickhouse
+    app: ${{ defaults.app_name }}-clickhouse
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: ${{ defaults.app_name }}-clickhouse
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-clickhouse
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-clickhouse
+    spec:
+      terminationGracePeriodSeconds: 10
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-clickhouse
+          image: clickhouse/clickhouse-server:25.4.2
+          env:
+            - name: CLICKHOUSE_DB
+              value: analytics
+            - name: CLICKHOUSE_USER
+              value: default
+            - name: CLICKHOUSE_PASSWORD
+              value: frog
+          resources:
+            requests:
+              cpu: 100m
+              memory: 204Mi
+            limits:
+              cpu: 1000m
+              memory: 2048Mi
+          imagePullPolicy: IfNotPresent
+          readinessProbe:
+            failureThreshold: 30
+            httpGet:
+              path: /ping
+              port: 8123
+              scheme: HTTP
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          volumeMounts:
+            - name: vn-etcvn-clickhouse-servervn-configvn-dvn-enable-jsonvn-xml
+              mountPath: /etc/clickhouse-server/config.d/enable_json.xml
+              subPath: ./etc/clickhouse-server/config.d/enable_json.xml
+            - name: vn-etcvn-clickhouse-servervn-configvn-dvn-logging-rulesvn-xml
+              mountPath: /etc/clickhouse-server/config.d/logging_rules.xml
+              subPath: ./etc/clickhouse-server/config.d/logging_rules.xml
+            - name: vn-etcvn-clickhouse-servervn-configvn-dvn-networkvn-xml
+              mountPath: /etc/clickhouse-server/config.d/network.xml
+              subPath: ./etc/clickhouse-server/config.d/network.xml
+            - name: vn-etcvn-clickhouse-servervn-usersvn-dvn-user-loggingvn-xml
+              mountPath: /etc/clickhouse-server/users.d/user_logging.xml
+              subPath: ./etc/clickhouse-server/users.d/user_logging.xml
+            - name: vn-varvn-libvn-clickhouse
+              mountPath: /var/lib/clickhouse
+      volumes:
+        - name: vn-etcvn-clickhouse-servervn-configvn-dvn-enable-jsonvn-xml
+          configMap:
+            name: ${{ defaults.app_name }}-clickhouse
+            items:
+              - key: vn-etcvn-clickhouse-servervn-configvn-dvn-enable-jsonvn-xml
+                path: ./etc/clickhouse-server/config.d/enable_json.xml
+        - name: vn-etcvn-clickhouse-servervn-configvn-dvn-logging-rulesvn-xml
+          configMap:
+            name: ${{ defaults.app_name }}-clickhouse
+            items:
+              - key: vn-etcvn-clickhouse-servervn-configvn-dvn-logging-rulesvn-xml
+                path: ./etc/clickhouse-server/config.d/logging_rules.xml
+        - name: vn-etcvn-clickhouse-servervn-configvn-dvn-networkvn-xml
+          configMap:
+            name: ${{ defaults.app_name }}-clickhouse
+            items:
+              - key: vn-etcvn-clickhouse-servervn-configvn-dvn-networkvn-xml
+                path: ./etc/clickhouse-server/config.d/network.xml
+        - name: vn-etcvn-clickhouse-servervn-usersvn-dvn-user-loggingvn-xml
+          configMap:
+            name: ${{ defaults.app_name }}-clickhouse
+            items:
+              - key: vn-etcvn-clickhouse-servervn-usersvn-dvn-user-loggingvn-xml
+                path: ./etc/clickhouse-server/users.d/user_logging.xml
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /var/lib/clickhouse
+          value: '1'
+        name: vn-varvn-libvn-clickhouse
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-clickhouse
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-clickhouse
+spec:
+  ports:
+    - name: http
+      targetPort: 8123
+      port: 8123
+    - name: admin
+      targetPort: 9000
+      port: 9000
+  selector:
+    app: ${{ defaults.app_name }}-clickhouse
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-backend
+  annotations:
+    originImageName: ghcr.io/rybbit-io/rybbit-backend:sha-a863cc3
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-backend
+    app: ${{ defaults.app_name }}-backend
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-backend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-backend
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:14-alpine
+          command: ['sh', '-c', 
+            'until pg_isready -h $POSTGRES_HOST -p $POSTGRES_PORT -U $POSTGRES_USER; do echo waiting for postgres; sleep 2; done;']
+          env:
+            - name: POSTGRES_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: POSTGRES_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+      containers:
+        - name: ${{ defaults.app_name }}-backend
+          image: ghcr.io/rybbit-io/rybbit-backend:sha-a863cc3
+          env:
+            - name: NODE_ENV
+              value: 'production'
+            - name: CLICKHOUSE_HOST
+              value: 'http://${{ defaults.app_name }}-clickhouse.${{ SEALOS_NAMESPACE }}.svc.cluster.local:8123'
+            - name: CLICKHOUSE_DB
+              value: 'analytics'
+            - name: CLICKHOUSE_PASSWORD
+              value: 'frog'
+            - name: POSTGRES_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: POSTGRES_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: POSTGRES_DB
+              value: 'analytics'
+            - name: BETTER_AUTH_SECRET
+              value: 'iu6lZsxtU4c0AfGJsD7Jrr3eafD11Ah7'
+            - name: DISABLE_SIGNUP
+              value: 'false'
+            - name: BASE_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+          resources:
+            requests:
+              cpu: 20m
+              memory: 25Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          ports:
+            - name: http
+              protocol: TCP
+              containerPort: 3001
+          imagePullPolicy: IfNotPresent
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-backend
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-backend
+spec:
+  ports:
+    - name: http
+      targetPort: 3001
+      port: 3001
+  selector:
+    app: ${{ defaults.app_name }}-backend
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-backend
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-backend
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}-backend
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: "/$1"
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /api/(.*)
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-backend
+                port:
+                  number: 3001
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-client
+  annotations:
+    originImageName: ghcr.io/rybbit-io/rybbit-client:sha-a863cc3
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-client
+    app: ${{ defaults.app_name }}-client
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-client
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-client
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-client
+          image: ghcr.io/rybbit-io/rybbit-client:sha-a863cc3
+          env:
+            - name: NODE_ENV
+              value: 'production'
+            - name: NEXT_PUBLIC_BACKEND_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+          resources:
+            requests:
+              cpu: 20m
+              memory: 12Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          ports:
+            - name: http
+              protocol: TCP
+              containerPort: 3002
+          imagePullPolicy: IfNotPresent
+          readinessProbe:
+            failureThreshold: 30
+            httpGet:
+              path: /
+              port: 3002
+              scheme: HTTP
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-client
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-client
+spec:
+  ports:
+    - name: http
+      targetPort: 3002
+      port: 3002
+  selector:
+    app: ${{ defaults.app_name }}-client
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-client
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-client
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}-client
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-client
+                port:
+                  number: 3002
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: "https://avatars.githubusercontent.com/u/208537280?s=48&v=4"
+  name: "Rybbit"
+  type: link
