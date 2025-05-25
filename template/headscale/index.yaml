@@ -26,6 +26,9 @@ spec:
     app_suffix:
       type: string
       value: ${{ random(8) }}
+    cookie_secret:
+      type: string
+      value: ${{ random(32) }}
 
 ---
 apiVersion: v1
@@ -69,7 +72,7 @@ kind: StatefulSet
 metadata:
   name: headscale-${{ defaults.app_suffix }}
   annotations:
-    originImageName: headscale/headscale:0.24.1-debug
+    originImageName: headscale/headscale:0.26.0-debug
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -100,12 +103,12 @@ spec:
           volumeMounts:
             - name: vn-etcvn-headscale
               mountPath: /etc/headscale
-            - name: vn-etcvn-headscalevn-configvn-yaml
+            - name: vn-tmpvn-configvn-yaml
               mountPath: /tmp/config.yaml
               subPath: ./tmp/config.yaml
       containers:
         - name: headscale-${{ defaults.app_suffix }}
-          image: headscale/headscale:0.24.1-debug
+          image: headscale/headscale:0.26.0-debug
           command: ["headscale", "serve"]
           resources:
             requests:
@@ -127,9 +130,12 @@ spec:
             - name: vn-etcvn-headscalevn-derpvn-yaml
               mountPath: /etc/headscale/derp.yaml
               subPath: ./etc/headscale/derp.yaml
-            - name: vn-etcvn-headscalevn-configvn-yaml
+            - name: vn-tmpvn-configvn-yaml
               mountPath: /tmp/config.yaml
               subPath: ./tmp/config.yaml
+            - name: vn-etcvn-headscalevn-headplanevn-yaml
+              mountPath: /etc/headscale/headplane.yaml
+              subPath: ./etc/headscale/headplane.yaml
           livenessProbe:
             tcpSocket:
               port: http
@@ -137,25 +143,25 @@ spec:
             timeoutSeconds: 5
             periodSeconds: 15
         - name: headscale-headplane-${{ defaults.app_suffix }}
-          image: ghcr.io/tale/headplane:0.3.9
+          image: ghcr.io/tale/headplane@sha256:7a42306bada55d274962c2ab6a566f4c9eaeb373d74ae2300c014fab7638a2f9
           env:
-            - name: COOKIE_SECRET
-              value: 'abcdefghijklmnopqrstuvwxyz'
-            - name: HEADSCALE_INTEGRATION
-              value: 'kubernetes'
-            - name: POD_NAME
+            - name: HEADPLANE_CONFIG_PATH
+              value: /etc/headscale/headplane.yaml
+            - name: HEADPLANE_LOAD_ENV_OVERRIDES
+              value: 'true'
+            - name: HEADPLANE_INTEGRATION__KUBERNETES__POD_NAME
               valueFrom:
                 fieldRef:
+                  apiVersion: v1
                   fieldPath: metadata.name
-              # Only set this to false if you aren't behind a reverse proxy
-            - name: COOKIE_SECURE
+            - name: HEADPLANE_INTEGRATION__KUBERNETES__ENABLED
               value: 'true'
-            - name: ROOT_API_KEY
-              value: '1234567890'
-            - name: DISABLE_API_KEY_LOGIN
-              value: 'true'
-            - name: HEADSCALE_URL
+            - name: HEADPLANE_HEADSCALE__URL
               value: 'https://headscale-${{ defaults.app_suffix }}.${{ SEALOS_CLOUD_DOMAIN }}'
+            - name: HEADPLANE_HEADSCALE__PUBLIC_URL
+              value: 'https://headscale-${{ defaults.app_suffix }}.${{ SEALOS_CLOUD_DOMAIN }}'
+            - name: HEADPLANE_SERVER__COOKIE_SECRET
+              value: '${{ defaults.cookie_secret }}'
           resources:
             requests:
               cpu: 10m
@@ -176,6 +182,9 @@ spec:
             - name: vn-etcvn-headscalevn-derpvn-yaml
               mountPath: /etc/headscale/derp.yaml
               subPath: ./etc/headscale/derp.yaml
+            - name: vn-etcvn-headscalevn-headplanevn-yaml
+              mountPath: /etc/headscale/headplane.yaml
+              subPath: ./etc/headscale/headplane.yaml
           livenessProbe:
             tcpSocket:
               port: http
@@ -183,11 +192,11 @@ spec:
             timeoutSeconds: 5
             periodSeconds: 15
       volumes:
-        - name: vn-etcvn-headscalevn-configvn-yaml
+        - name: vn-tmpvn-configvn-yaml
           configMap:
             name: headscale-${{ defaults.app_suffix }}
             items:
-              - key: vn-etcvn-headscalevn-configvn-yaml
+              - key: vn-tmpvn-configvn-yaml
                 path: ./tmp/config.yaml
         - name: vn-etcvn-headscalevn-derpvn-yaml
           configMap:
@@ -195,6 +204,13 @@ spec:
             items:
               - key: vn-etcvn-headscalevn-derpvn-yaml
                 path: ./etc/headscale/derp.yaml
+        - name: vn-etcvn-headscalevn-headplanevn-yaml
+          configMap:
+            name: headscale-${{ defaults.app_suffix }}
+            items:
+              - key: vn-etcvn-headscalevn-headplanevn-yaml
+                path: ./etc/headscale/headplane.yaml
+            defaultMode: 420
   volumeClaimTemplates:
     - metadata:
         annotations:
@@ -249,7 +265,7 @@ kind: ConfigMap
 metadata:
   name: headscale-${{ defaults.app_suffix }}
 data:
-  vn-etcvn-headscalevn-configvn-yaml: |-
+  vn-tmpvn-configvn-yaml: |-
     # headscale will look for a configuration file named `config.yaml` (or `config.json`) in the following     order:
     #
     # - `/etc/headscale`
@@ -611,6 +627,122 @@ data:
     randomize_client_port: false
   vn-etcvn-headscalevn-derpvn-yaml: |-
     regions:
+  vn-etcvn-headscalevn-headplanevn-yaml: |-
+    # Configuration for the Headplane server and web application
+    server:
+      host: "0.0.0.0"
+      port: 3000
+
+      # The secret used to encode and decode web sessions
+      # Ensure that this is exactly 32 characters long
+      cookie_secret: "zOn4cMlwBCvRtRjYmypgJlxIcf8A5pjD"
+
+      # Should the cookies only work over HTTPS?
+      # Set to false if running via HTTP without a proxy
+      # (I recommend this is true in production)
+      cookie_secure: true
+
+    # Headscale specific settings to allow Headplane to talk
+    # to Headscale and access deep integration features
+    headscale:
+      # The URL to your Headscale instance
+      # (All API requests are routed through this URL)
+      # (THIS IS NOT the gRPC endpoint, but the HTTP endpoint)
+      #
+      # IMPORTANT: If you are using TLS this MUST be set to `https://`
+      url: "http://headscale:5000"
+
+      # If you use the TLS configuration in Headscale, and you are not using
+      # Let's Encrypt for your certificate, pass in the path to the certificate.
+      # (This has no effect `url` does not start with `https://`)
+      # tls_cert_path: "/var/lib/headplane/tls.crt"
+
+      # Optional, public URL if they differ
+      # This affects certain parts of the web UI
+      # public_url: "https://headscale.example.com"
+
+      # Path to the Headscale configuration file
+      # This is optional, but HIGHLY recommended for the best experience
+      # If this is read only, Headplane will show your configuration settings
+      # in the Web UI, but they cannot be changed.
+      config_path: "/etc/headscale/config.yaml"
+
+      # Headplane internally validates the Headscale configuration
+      # to ensure that it changes the configuration in a safe way.
+      # If you want to disable this validation, set this to false.
+      config_strict: true
+
+    # Integration configurations for Headplane to interact with Headscale
+    # Only one of these should be enabled at a time or you will get errors
+    integration:
+      docker:
+        enabled: false
+        # Preferred method: use container_label to dynamically discover the Headscale container.
+        container_label: "headscale"
+        # Optional fallback: directly specify the container name (or ID)
+        # of the container running Headscale
+        container_name: "headscale"
+
+        # The path to the Docker socket (do not change this if you are unsure)
+        # Docker socket paths must start with unix:// or tcp:// and at the moment
+        # https connections are not supported.
+        socket: "unix:///var/run/docker.sock"
+      # Please refer to docs/integration/Kubernetes.md for more information
+      # on how to configure the Kubernetes integration. There are requirements in
+      # order to allow Headscale to be controlled by Headplane in a cluster.
+      kubernetes:
+        enabled: false
+        # Validates the manifest for the Pod to ensure all of the criteria
+        # are set correctly. Turn this off if you are having issues with
+        # shareProcessNamespace not being validated correctly.
+        validate_manifest: true
+        # This should be the name of the Pod running Headscale and Headplane.
+        # If this isn't static you should be using the Kubernetes Downward API
+        # to set this value (refer to docs/Integrated-Mode.md for more info).
+        pod_name: "headscale"
+
+      # Proc is the "Native" integration that only works when Headscale and
+      # Headplane are running outside of a container. There is no configuration,
+      # but you need to ensure that the Headplane process can terminate the
+      # Headscale process.
+      #
+      # (If they are both running under systemd as sudo, this will work).
+      proc:
+        enabled: false
+
+    # OIDC Configuration for simpler authentication
+    # (This is optional, but recommended for the best experience)
+    oidc:
+      issuer: "https://accounts.google.com"
+      client_id: "your-client-id"
+
+      # The client secret for the OIDC client
+      # Either this or `client_secret_path` must be set for OIDC to work
+      client_secret: "<your-client-secret>"
+      # You can alternatively set `client_secret_path` to read the secret from disk.
+      # The path specified can resolve environment variables, making integration
+      # with systemd's `LoadCredential` straightforward:
+      # client_secret_path: "${CREDENTIALS_DIRECTORY}/oidc_client_secret"
+
+      disable_api_key_login: false
+      token_endpoint_auth_method: "client_secret_post"
+
+      # If you are using OIDC, you need to generate an API key
+      # that can be used to authenticate other sessions when signing in.
+      #
+      # This can be done with `headscale apikeys create --expiration 999d`
+      headscale_api_key: "<your-headscale-api-key>"
+
+      # Optional, but highly recommended otherwise Headplane
+      # will attempt to automatically guess this from the issuer
+      #
+      # This should point to your publicly accessibly URL
+      # for your Headplane instance with /admin/oidc/callback
+      redirect_uri: "http://localhost:3000/admin/oidc/callback"
+
+      # Stores the users and their permissions for Headplane
+      # This is a path to a JSON file, default is specified below.
+      user_storage_file: "/var/lib/headplane/users.json"
 
 ---
 apiVersion: networking.k8s.io/v1
@@ -712,7 +844,7 @@ metadata:
       large_client_header_buffers 4 128k;
     nginx.ingress.kubernetes.io/ssl-redirect: 'true'
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
-    higress.io/temporal-redirect: 'https://headscale-${{ defaults.app_suffix }}.${{ SEALOS_CLOUD_DOMAIN }}/admin'
+    nginx.ingress.kubernetes.io/temporal-redirect: 'https://headscale-${{ defaults.app_suffix }}.${{ SEALOS_CLOUD_DOMAIN }}/admin/'
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
