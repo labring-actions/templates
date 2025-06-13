@@ -1,0 +1,206 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: stalwart  # 模板的唯一标识
+spec:
+  title: 'Stalwart Mail Server'  
+  url: 'https://stalw.art/'                              
+  gitRepo: 'https://github.com/stalwartlabs/stalwart'                          
+  author: 'KDsean'                           
+  description: 'Secure, scalable mail & collaboration server with comprehensive protocol support(IMAP, JMAP, SMTP, CalDAV, CardDAV, WebDAV)'
+  readme: 'https://github.com/stalwartlabs/stalwart/blob/main/README.md'
+  icon: 'https://raw.githubusercontent.com/stalwartlabs/stalwart/main/img/logo-red.svg'
+  templateType: inline
+  locale: en   # 本模板语言环境为英文
+  categories:
+    - tool   # 工具类
+    - mail   # 邮件类
+    - server  # 服务器类
+  # 默认变量设置，可用于下方资源定义中引用
+  defaults:
+    app_host:
+      type: string
+      value: ${{ random(8) }} # 随机生成的8位字符串，用作访问子域名
+    app_name:
+      type: string
+      value: stalwart-${{ random(8) }} # 应用名称默认值，带随机后缀
+   # 用户自定义输入参数定义（部署时填写）
+  inputs:
+    volume_size:
+      description: '邮件数据存储大小(GiB)'
+      type: string
+      default: '5'  # 默认5GB存储
+      required: false
+    domain:
+      description: '主邮件域名'
+      type: string
+      required: true  # 必须提供
+    admin_email:
+      description: '初始管理员邮箱(必须属于您的域名)'
+      type: string
+      default: 'admin@${{ inputs.domain }}'  # 自动生成管理员邮箱
+      required: true
+    admin_password:
+      description: '初始管理员密码'
+      type: string
+      default: ${{ random(12) }}  # 随机12位密码
+      required: false
+    smtp_relay:
+      description: 'SMTP中继主机'
+      type: string
+      required: false
+---
+
+# 定义一个 StatefulSet（有状态服务），用于部署主应用容器
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: stalwartlabs/stalwart:latest # 应用的 Docker 镜像地址，
+    deploy.cloud.sealos.io/minReplicas: '1' # 最小副本数
+    deploy.cloud.sealos.io/maxReplicas: '1' # 最大副本数
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }} # Sealos管理标签
+    app: ${{ defaults.app_name }}  # 应用标签
+spec:
+  replicas: 1                             # 副本数设置为1（单实例）
+  revisionHistoryLimit: 1                 # 保留历史版本数量
+  minReadySeconds: 30                     # 容器就绪后至少保持30秒才视为可用
+  serviceName: ${{ defaults.app_name }}   # 关联的 Service 名称
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}       # Pod 标签选择器标签
+  strategy:
+    type: Recreate  # 重建策略，更新时删除旧 Pod 再创建新 Pod
+  template:                               # Pod 模板定义
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      terminationGracePeriodSeconds: 60    # 关闭的等待时间
+      automountServiceAccountToken: false  # 不挂载默认 ServiceAccount token，提高安全性
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: stalwartlabs/stalwart:latest   # 应用镜像地址
+          env:  # 环境变量配置
+            - name: STALWART_HOSTNAME  # 邮件服务器主机名
+              value: mail.${{ inputs.domain }}
+            - name: STALWART_DOMAIN    # 主域名
+              value: ${{ inputs.domain }}
+            - name: STALWART_ADMIN_EMAIL     # 管理员邮箱
+              value: ${{ inputs.admin_email }}
+            - name: STALWART_ADMIN_PASSWORD  # 管理员密码
+              value: ${{ inputs.admin_password }}
+            - name: STALWART_JMAP_URL
+              value: https://${{ defaults.app_host }}.${{ system.domain }}/jmap/
+            - name: STALWART_WEBADMIN_URL
+              value: https://${{ defaults.app_host }}.${{ system.domain }}/admin/
+            - name: STALWART_SMTP_RELAY      # SMTP中继配置
+              value: ${{ inputs.smtp_relay }}  
+          resources:                           # 资源限制
+            requests:                          # 最小资源请求
+              cpu: 100m                        # 0.1核CPU
+              memory: 102Mi                    # 100MB内存
+            limits:                            # 最大资源限制
+              cpu: 1000m                       # 单核CPU
+              memory: 1024Mi                   # 1GB内存
+          ports: # 暴露端口
+            - name: smtp  # SMTP标准端口
+              containerPort: 25
+            - name: submission  # 邮件提交端口
+              containerPort: 587
+            - name: imap  # IMAP标准端口
+              containerPort: 143
+            - name: imaps  # IMAP SSL端口
+              containerPort: 993
+            - name: jmap  # JMAP/管理端口
+              containerPort: 8009
+          volumeMounts:  # 卷挂载
+            - name: mail-data  # 邮件数据卷
+              mountPath: /var/lib/stalwart
+            - name: config  # 配置卷
+              mountPath: /etc/stalwart
+          readinessProbe:  # 就绪探针
+            httpGet:
+              path: /health  # 健康检查路径
+              port: 8009  # JMAP端口
+            initialDelaySeconds: 30  # 初始延迟
+            periodSeconds: 10  # 检查间隔
+          livenessProbe:  # 存活探针
+            httpGet:
+              path: /health
+              port: 8009
+            initialDelaySeconds: 60
+            periodSeconds: 15
+      volumes:  # 临时卷
+        - name: config  # 配置目录
+          emptyDir: {}  # 空目录卷
+  volumeClaimTemplates:                        # 定义持久卷声明模板
+    - metadata:
+        annotations:
+          path: /opt/stalwart-mail
+          value: '1'
+        name: mail-data
+      spec:
+        accessModes:
+          - ReadWriteOnce                      # 访问模式：单节点读写
+        resources:
+          requests:
+            storage: ${{ inputs.volume_size }}Gi  # 用户输入或默认的卷大小
+
+---
+# 定义一个 ClusterIP 类型的 Service，暴露容器端口用于内部通信
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - name: smtp
+      port: 25
+      targetPort: 25
+    - name: smtp-tls
+      port: 587
+      targetPort: 587
+    - name: imap
+      port: 143
+      targetPort: 143
+    - name: imaps
+      port: 993
+      targetPort: 993
+    - name: jmap
+      port: 8009
+      targetPort: 8009
+  selector:
+    app: ${{ defaults.app_name }} # 选择器匹配Pod
+  type: LoadBalancer   # 暴露为公网服务，便于邮件客户端连接
+
+# 入口配置(Ingress)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:  # Nginx注解
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"  # 最大上传50MB
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "1800"  # 读超时30分钟
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "1800"  # 写超时30分钟
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"  # 自动TLS证书
+spec:
+  rules:  # 路由规则
+    - host: ${{ defaults.app_host }}.${{ system.domain }}  # 访问域名
+      http:
+        paths:
+          - path: /  # 所有路径
+            pathType: Prefix
+            backend:
+              service:
+                name: ${{ defaults.app_name }}  # 后端服务
+                port:
+                  number: 8009  # JMAP端口
+  tls:  # TLS配置
+    - hosts:
+        - ${{ defaults.app_host }}.${{ system.domain }}  # 证书域名
+      secretName: ${{ defaults.app_name }}-tls  # 证书存储名称
