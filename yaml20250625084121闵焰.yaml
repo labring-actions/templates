@@ -1,0 +1,187 @@
+apiVersion: app.sealos.io/v1
+kind: Instance
+metadata:
+  name: kaneo-dctnjlgm
+  labels:
+    cloud.sealos.io/deploy-on-sealos: kaneo-dctnjlgm
+spec:
+  gitRepo: https://github.com/usekaneo
+  templateType: inline
+  categories:
+    - full-stack
+  defaults:
+    app_host:
+      type: string
+      value: mrsceohf
+    app_name:
+      type: string
+      value: kaneo-dctnjlgm
+  inputs: {}
+  author: Sealos
+  title: Kaneo
+  url: https://github.com/usekaneo
+  readme: https://github.com/usekaneo/README.md
+  icon: https://example.com/kaneo-logo.png
+  description: A full-stack application with backend and frontend services.
+  draft: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kaneo-dctnjlgm-backend
+  annotations:
+    originImageName: ghcr.io/usekaneo/api:latest
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: kaneo-dctnjlgm
+    app: kaneo-dctnjlgm-backend
+    cloud.sealos.io/deploy-on-sealos: kaneo-dctnjlgm
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  selector:
+    matchLabels:
+      app: kaneo-dctnjlgm-backend
+  template:
+    metadata:
+      labels:
+        app: kaneo-dctnjlgm-backend
+    spec:
+      terminationGracePeriodSeconds: 10
+      automountServiceAccountToken: false
+      containers:
+        - name: backend
+          image: ghcr.io/usekaneo/api:latest
+          env:
+            - name: JWT_ACCESS
+              value: xE5MTir9bogis656nhXGEFYZ7h25efu8PNFkq3R7Xpu4Qxjx5N7j4UnPBr68c6ka
+            - name: DB_PATH
+              value: /app/apps/api/data/kaneo.db
+          ports:
+            - containerPort: 1337
+          resources:
+            requests:
+              cpu: 100m
+              memory: 102Mi
+            limits:
+              cpu: 1000m
+              memory: 1024Mi
+          volumeMounts:
+            - name: data-volume
+              mountPath: /app/apps/api/data
+      volumes:
+        - name: data-volume
+          persistentVolumeClaim:
+            claimName: kaneo-dctnjlgm-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kaneo-dctnjlgm-backend
+  labels:
+    cloud.sealos.io/app-deploy-manager: kaneo-dctnjlgm
+    cloud.sealos.io/deploy-on-sealos: kaneo-dctnjlgm
+spec:
+  ports:
+    - port: 1337
+      targetPort: 1337
+  selector:
+    app: kaneo-dctnjlgm-backend
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kaneo-dctnjlgm-frontend
+  annotations:
+    originImageName: ghcr.io/usekaneo/web:latest
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: kaneo-dctnjlgm
+    app: kaneo-dctnjlgm-frontend
+    cloud.sealos.io/deploy-on-sealos: kaneo-dctnjlgm
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  selector:
+    matchLabels:
+      app: kaneo-dctnjlgm-frontend
+  template:
+    metadata:
+      labels:
+        app: kaneo-dctnjlgm-frontend
+    spec:
+      terminationGracePeriodSeconds: 10
+      automountServiceAccountToken: false
+      containers:
+        - name: frontend
+          image: ghcr.io/usekaneo/web:latest
+          ports:
+            - containerPort: 5173
+          resources:
+            requests:
+              cpu: 100m
+              memory: 102Mi
+            limits:
+              cpu: 1000m
+              memory: 1024Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kaneo-dctnjlgm-frontend
+  labels:
+    cloud.sealos.io/app-deploy-manager: kaneo-dctnjlgm
+    cloud.sealos.io/deploy-on-sealos: kaneo-dctnjlgm
+spec:
+  ports:
+    - port: 5173
+      targetPort: 5173
+  selector:
+    app: kaneo-dctnjlgm-frontend
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kaneo-dctnjlgm-frontend
+  labels:
+    cloud.sealos.io/app-deploy-manager: kaneo-dctnjlgm
+    cloud.sealos.io/app-deploy-manager-domain: mrsceohf
+    cloud.sealos.io/deploy-on-sealos: kaneo-dctnjlgm
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+spec:
+  rules:
+    - host: mrsceohf.sealoshzh.site
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: kaneo-dctnjlgm-frontend
+                port:
+                  number: 5173
+  tls:
+    - hosts:
+        - mrsceohf.sealoshzh.site
+      secretName: wildcard-cert
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kaneo-dctnjlgm-data
+  labels:
+    cloud.sealos.io/deploy-on-sealos: kaneo-dctnjlgm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
