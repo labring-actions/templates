@@ -1,22 +1,17 @@
 apiVersion: app.sealos.io/v1
 kind: Template
 metadata:
-  name: alist
+  name: openlist
 spec:
-  title: 'AList'
-  url: 'https://github.com/alist-org/alist'
-  gitRepo: 'https://github.com/alist-org/alist'
-  author: '孤城落寞'
-  description: 'A file list/WebDAV program that supports multiple storages, powered by Gin and Solidjs.'
-  readme: 'https://raw.githubusercontent.com/alist-org/alist/main/README.md'
-  icon: 'https://raw.githubusercontent.com/alist-org/logo/main/logo.svg'
+  title: 'OpenList'
+  url: 'https://doc.oplist.org'
+  gitRepo: 'https://github.com/OpenListTeam/OpenList'
+  author: 'Sealos'
+  description: 'OpenList 是一个有韧性、长期治理、社区驱动的 AList 分支，旨在防御基于信任的开源攻击。'
+  readme: 'https://raw.githubusercontent.com/OpenListTeam/OpenList/refs/heads/main/README_cn.md'
+  icon: 'https://avatars.githubusercontent.com/u/215780325?s=48&v=4'
   templateType: inline
-  locale: en
-  i18n:
-    zh:
-      title: 'alist'
-      description: '一个支持多种存储的文件列表/WebDAV程序，由 Gin 和 Solidjs 提供支持。'
-      readme: 'https://raw.githubusercontent.com/alist-org/alist/main/README_cn.md'
+  locale: zh
   categories:
     - tool
   defaults:
@@ -25,7 +20,7 @@ spec:
       value: ${{ random(8) }}
     app_name:
       type: string
-      value: alist-${{ random(8) }}
+      value: openlist-${{ random(8) }}
   inputs:
     USERNAME:
       description: '默认用户名'
@@ -45,7 +40,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: xhofe/alist-aria2:v3.41.0
+    originImageName: openlistteam/openlist:v4.0.9-aria2
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -68,7 +63,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: xhofe/alist-aria2:v3.41.0
+          image: openlistteam/openlist:v4.0.9-aria2
           env:
             - name: TZ
               value: Asia/Shanghai
@@ -78,28 +73,32 @@ spec:
               value: '0'
             - name: UMASK
               value: '022'
+            - name: OPENLIST_ADMIN_PASSWORD
+              value: '${{ inputs.PASSWORD }}'
           resources:
             requests:
               cpu: 20m
               memory: 12Mi
+              ephemeral-storage: 200Mi
             limits:
               cpu: 200m
               memory: 128Mi
+              ephemeral-storage: 200Mi
           command: []
           args: []
           ports:
             - containerPort: 5244
           imagePullPolicy: IfNotPresent
           volumeMounts:
-            - name: vn-data
-              mountPath: /opt/alist/data
+            - name: vn-optvn-openlistvn-data
+              mountPath: /opt/openlist/data
       volumes: []
   volumeClaimTemplates:
     - metadata:
         annotations:
-          path: /opt/alist/data
+          path: /opt/openlist/data
           value: '1'
-        name: vn-data
+        name: vn-optvn-openlistvn-data
       spec:
         accessModes:
           - ReadWriteOnce
@@ -173,67 +172,6 @@ spec:
   data:
     url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
   displayType: normal
-  icon: "https://raw.githubusercontent.com/alist-org/logo/main/logo.svg"
-  name: AList
+  icon: "https://raw.githubusercontent.com/openlist-org/logo/main/logo.svg"
+  name: openlist
   type: link
-
-# Add these before the Job resource
-
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: ${{ defaults.app_name }}
-
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: ${{ defaults.app_name }}
-rules:
-- apiGroups: ["apps"]
-  resources: ["statefulsets"]
-  verbs: ["get", "list", "watch"]
-- apiGroups: [""]
-  resources: ["pods"]
-  verbs: ["get", "list", "watch"]
-- apiGroups: [""]
-  resources: ["pods/exec"]
-  verbs: ["create"]
-
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: ${{ defaults.app_name }}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: ${{ defaults.app_name }}
-subjects:
-- kind: ServiceAccount
-  name: ${{ defaults.app_name }}
-
----
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: ${{ defaults.app_name }}-password
-spec:
-  completions: 1
-  template:
-    spec:
-      containers:
-        - name: ${{ defaults.app_name }}-password
-          image: bitnami/kubectl
-          command:
-            - /bin/sh
-            - -c
-            - |
-              until kubectl exec statefulset/${{ defaults.app_name }} -- curl -I http://127.0.0.1:5244 &>/dev/null; do sleep 1; done
-              kubectl exec statefulset/${{ defaults.app_name }} -- ./alist admin set ${{ inputs.PASSWORD }}
-      restartPolicy: Never
-      serviceAccountName: ${{ defaults.app_name }}
-      serviceAccount:  ${{ defaults.app_name }}
-  backoffLimit: 0
-  ttlSecondsAfterFinished: 300
