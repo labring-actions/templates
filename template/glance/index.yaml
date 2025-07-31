@@ -1,0 +1,274 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: glance
+spec:
+  title: 'Glance'
+  url: 'https://github.com/glanceapp/glance'
+  gitRepo: 'https://github.com/glanceapp/glance'
+  author: 'Sealos'
+  description: 'A self-hosted dashboard that puts all your feeds in one place'
+  readme: 'https://raw.githubusercontent.com/glanceapp/glance/main/README.md'
+  icon: 'https://avatars.githubusercontent.com/u/159397742?s=48&v=4'
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      title: 'Glance'
+      description: '一个自托管的仪表板，将您所有的订阅源集中在一个地方'
+  categories:
+    - tool
+  defaults:
+    app_name:
+      type: string
+      value: glance-${{ random(8) }}
+    app_host:
+      type: string
+      value: ${{ random(8) }}
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-appvn-configvn-glancevn-yml: |
+    server:
+      assets-path: /app/assets
+
+    theme:
+      custom-css-file: /assets/user.css
+
+    pages:
+      - $include: home.yml
+  vn-appvn-configvn-homevn-yml: |
+    - name: Home
+      # Optionally, if you only have a single page you can hide the desktop navigation for a cleaner look
+      # hide-desktop-navigation: true
+      columns:
+        - size: small
+          widgets:
+            - type: calendar
+              first-day-of-week: monday
+    
+            - type: rss
+              limit: 10
+              collapse-after: 3
+              cache: 12h
+              feeds:
+                - url: https://selfh.st/rss/
+                  title: selfh.st
+                - url: https://ciechanow.ski/atom.xml
+                - url: https://www.joshwcomeau.com/rss.xml
+                  title: Josh Comeau
+                - url: https://samwho.dev/rss.xml
+                - url: https://ishadeed.com/feed.xml
+                  title: Ahmad Shadeed
+    
+            - type: twitch-channels
+              channels:
+                - theprimeagen
+                - j_blow
+                - piratesoftware
+                - cohhcarnage
+                - christitustech
+                - EJ_SA
+    
+        - size: full
+          widgets:
+            - type: group
+              widgets:
+                - type: hacker-news
+                - type: lobsters
+    
+            - type: videos
+              channels:
+                - UCXuqSBlHAE6Xw-yeJA0Tunw # Linus Tech Tips
+                - UCR-DXc1voovS8nhAvccRZhg # Jeff Geerling
+                - UCsBjURrPoezykLs9EqgamOA # Fireship
+                - UCBJycsmduvYEL83R_U4JriQ # Marques Brownlee
+                - UCHnyfMqiRRG1u-2MsSQLbXA # Veritasium
+    
+            - type: group
+              widgets:
+                - type: reddit
+                  subreddit: technology
+                  show-thumbnails: true
+                - type: reddit
+                  subreddit: selfhosted
+                  show-thumbnails: true
+    
+        - size: small
+          widgets:
+            - type: weather
+              location: London, United Kingdom
+              units: metric # alternatively "imperial"
+              hour-format: 12h # alternatively "24h"
+              # Optionally hide the location from being displayed in the widget
+              # hide-location: true
+    
+            - type: markets
+              markets:
+                - symbol: SPY
+                  name: S&P 500
+                - symbol: BTC-USD
+                  name: Bitcoin
+                - symbol: NVDA
+                  name: NVIDIA
+                - symbol: AAPL
+                  name: Apple
+                - symbol: MSFT
+                  name: Microsoft
+    
+            - type: releases
+              cache: 1d
+              # Without authentication the Github API allows for up to 60 requests per hour. You can create a
+              # read-only token from your Github account settings and use it here to increase the limit.
+              # token: ...
+              repositories:
+                - glanceapp/glance
+                - go-gitea/gitea
+                - immich-app/immich
+                - syncthing/syncthing
+  vn-appvn-assetsvn-uservn-css: |
+    /* Custom CSS styles can be added here */
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: glanceapp/glance
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: glanceapp/glance:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: vn-appvn-configvn-glancevn-yml
+              mountPath: /app/config/glance.yml
+              subPath: ./app/config/glance.yml
+            - name: vn-appvn-configvn-homevn-yml
+              mountPath: /app/config/home.yml
+              subPath: ./app/config/home.yml
+            - name: vn-appvn-assetsvn-uservn-css
+              mountPath: /app/assets/user.css
+              subPath: ./app/assets/user.css
+      volumes:
+        - name: vn-appvn-configvn-glancevn-yml
+          configMap:
+            name: ${{ defaults.app_name }}
+            items:
+              - key: vn-appvn-configvn-glancevn-yml
+                path: ./app/config/glance.yml
+            defaultMode: 420
+        - name: vn-appvn-configvn-homevn-yml
+          configMap:
+            name: ${{ defaults.app_name }}
+            items:
+              - key: vn-appvn-configvn-homevn-yml
+                path: ./app/config/home.yml
+            defaultMode: 420
+        - name: vn-appvn-assetsvn-uservn-css
+          configMap:
+            name: ${{ defaults.app_name }}
+            items:
+              - key: vn-appvn-assetsvn-uservn-css
+                path: ./app/assets/user.css
+            defaultMode: 420
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - port: 8080
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 8080
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: "https://avatars.githubusercontent.com/u/159397742?s=48&v=4"
+  name: "Glance"
+  type: link
