@@ -1,41 +1,32 @@
 apiVersion: app.sealos.io/v1
 kind: Template
 metadata:
-  name: langflow
+  name: docuseal
 spec:
-  title: 'Langflow'
-  url: 'https://www.langflow.org/'
-  gitRepo: 'https://github.com/langflow-ai/langflow'
+  title: 'DocuSeal'
+  url: 'https://www.docuseal.com/'
+  gitRepo: 'https://github.com/docusealco/docuseal'
   author: 'Sealos'
-  description: 'Langflow is a low-code app builder for RAG and multi-agent AI applications. Build, iterate, and deploy AI workflows with a drag-and-drop interface.'
-  readme: 'https://raw.githubusercontent.com/langflow-ai/langflow/refs/heads/main/README.md'
-  icon: 'https://avatars.githubusercontent.com/u/85702467?s=48&v=4'
+  description: 'Open source document signing solution. Create, fill, and sign digital documents with legally binding eSignatures.'
+  readme: 'https://raw.githubusercontent.com/docusealco/docuseal/refs/heads/master/README.md'
+  icon: 'https://avatars.githubusercontent.com/u/138379721?s=48&v=4'
   templateType: inline
   locale: en
   i18n:
     zh:
-      title: 'Langflow'
-      description: 'Langflow 是一个用于 RAG 和多代理 AI 应用的低代码应用构建器。通过拖放界面构建、迭代和部署 AI 工作流。'
+      title: 'DocuSeal'
+      description: '开源文档签名解决方案。创建、填写和签署具有法律约束力的电子签名数字文档。'
   categories:
-    - ai
-    - low-code
     - tool
   defaults:
     app_name:
       type: string
-      value: langflow-${{ random(8) }}
+      value: docuseal-${{ random(8) }}
     app_host:
       type: string
-      value: langflow-${{ random(8) }}
-  inputs:
-    enable_database:
-      description: 'Enable external database (PostgreSQL) for production use'
-      type: boolean
-      default: 'false'
-      required: false
+      value: docuseal-${{ random(8) }}
 
 ---
-${{ if(inputs.enable_database === 'true') }}
 # PostgreSQL ServiceAccount
 apiVersion: v1
 kind: ServiceAccount
@@ -136,6 +127,8 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: ${{ defaults.app_name }}-pg-init
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-pg-init
 spec:
   completions: 1
   template:
@@ -155,29 +148,28 @@ spec:
             - /bin/sh
             - -c
             - |
-              until psql ${DATABASE_URL} -c 'CREATE DATABASE langflow;' &>/dev/null; do sleep 1; done
+              until psql ${DATABASE_URL} -c 'CREATE DATABASE docuseal;' &>/dev/null; do sleep 1; done
       restartPolicy: Never
   backoffLimit: 0
   ttlSecondsAfterFinished: 300
-${{ endif() }}
 
 ---
-# Frontend StatefulSet (Main Application)
+# Main Application StatefulSet
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: langflowai/langflow-frontend:1.5.0.post2
+    originImageName: docuseal/docuseal:latest
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
 spec:
-  serviceName: ${{ defaults.app_name }}
   replicas: 1
   revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
   selector:
     matchLabels:
       app: ${{ defaults.app_name }}
@@ -187,56 +179,54 @@ spec:
         app: ${{ defaults.app_name }}
     spec:
       automountServiceAccountToken: false
-      securityContext:
-        fsGroup: 1000
-        runAsGroup: 1000
-        runAsNonRoot: true
-        runAsUser: 1000
       containers:
         - name: ${{ defaults.app_name }}
-          image: langflowai/langflow-frontend:1.5.0.post2
+          image: docuseal/docuseal:latest
           imagePullPolicy: IfNotPresent
-          ports:
-            - name: http
-              containerPort: 8080
-              protocol: TCP
           env:
-            - name: BACKEND_URL
-              value: "http://${{ defaults.app_name }}-backend:7860"
-            - name: FRONTEND_PORT
-              value: "8080"
+            - name: FORCE_SSL
+              value: 'true'
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgresql://$(PG_USERNAME):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/docuseal
+          ports:
+            - containerPort: 3000
+              name: http
+          volumeMounts:
+            - name: vn-datavn-docuseal
+              mountPath: /data/docuseal
           resources:
             requests:
-              cpu: 50m
-              memory: 51Mi
+              cpu: 20m
+              memory: 25Mi
             limits:
-              cpu: 500m
-              memory: 512Mi
-          volumeMounts:
-            - name: vn-varvn-cachevn-nginx
-              mountPath: /var/cache/nginx
-          livenessProbe:
-            httpGet:
-              path: /index.html
-              port: http
-            initialDelaySeconds: 5
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 3
-          readinessProbe:
-            httpGet:
-              path: /index.html
-              port: http
-            initialDelaySeconds: 5
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 10
+              cpu: 200m
+              memory: 256Mi
   volumeClaimTemplates:
     - metadata:
         annotations:
-          path: /var/cache/nginx
+          path: /data/docuseal
           value: '1'
-        name: vn-varvn-cachevn-nginx
+        name: vn-datavn-docuseal
       spec:
         accessModes:
           - ReadWriteOnce
@@ -245,7 +235,7 @@ spec:
             storage: 1Gi
 
 ---
-# Frontend Service
+# Service
 apiVersion: v1
 kind: Service
 metadata:
@@ -253,164 +243,12 @@ metadata:
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
-  type: ClusterIP
   ports:
-    - port: 8080
-      targetPort: 8080
-      protocol: TCP
+    - port: 3000
+      targetPort: 3000
       name: http
   selector:
     app: ${{ defaults.app_name }}
-
----
-# Backend StatefulSet
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: ${{ defaults.app_name }}-backend
-  annotations:
-    originImageName: langflowai/langflow-frontend:1.5.0.post2
-    deploy.cloud.sealos.io/minReplicas: '1'
-    deploy.cloud.sealos.io/maxReplicas: '1'
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-backend
-    app: ${{ defaults.app_name }}
-spec:
-  serviceName: ${{ defaults.app_name }}-backend
-  replicas: 1
-  revisionHistoryLimit: 1
-  selector:
-    matchLabels:
-      app: ${{ defaults.app_name }}-backend
-  template:
-    metadata:
-      labels:
-        app: ${{ defaults.app_name }}-backend
-    spec:
-      automountServiceAccountToken: false
-      securityContext:
-        fsGroup: 1000
-        runAsGroup: 1000
-        runAsNonRoot: true
-        runAsUser: 1000
-      containers:
-        - name: ${{ defaults.app_name }}-backend
-          image: langflowai/langflow:1.5.0.post2
-          imagePullPolicy: IfNotPresent
-          command: ["/bin/bash", "-c"]
-          args:
-            - >
-              set -e &&
-              langflow run --host 0.0.0.0 --port 7860
-          ports:
-            - name: http
-              containerPort: 7860
-              protocol: TCP
-          env:
-            - name: LANGFLOW_BACKEND_ONLY
-              value: "true"
-            - name: LANGFLOW_NUM_WORKERS
-              value: "1"
-            - name: LANGFLOW_PORT
-              value: "7860"
-            - name: LANGFLOW_UPDATE_STARTER_PROJECTS
-              value: "false"
-            ${{ if(inputs.enable_database === 'true') }}
-            - name: PG_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: password
-            - name: PG_PORT
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: port
-            - name: PG_USER
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: username
-            - name: PG_HOST
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: host
-            - name: LANGFLOW_DATABASE_URL
-              value: postgresql://$(PG_USER):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/langflow
-            ${{ else() }}
-            - name: LANGFLOW_DATABASE_URL
-              value: "sqlite:////app/data/langflow.db"
-            ${{ endif() }}
-          resources:
-            requests:
-              cpu: 100m
-              memory: 102Mi
-            limits:
-              cpu: 1000m
-              memory: 1Gi
-          volumeMounts:
-            - name: vn-appvn-data
-              mountPath: /app/data
-            - name: vn-appvn-flows
-              mountPath: /app/flows
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: http
-            initialDelaySeconds: 30
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 3
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: http
-            initialDelaySeconds: 30
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 10
-  volumeClaimTemplates:
-    - metadata:
-        annotations:
-          path: /app/data
-          value: '1'
-        name: vn-appvn-data
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 1Gi
-    - metadata:
-        annotations:
-          path: /app/flows
-          value: '1'
-        name: vn-appvn-flows
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 1Gi
-
----
-# Backend Service
-apiVersion: v1
-kind: Service
-metadata:
-  name: ${{ defaults.app_name }}-backend
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-backend
-spec:
-  type: ClusterIP
-  ports:
-    - port: 7860
-      targetPort: 7860
-      protocol: TCP
-      name: http
-  selector:
-    app: ${{ defaults.app_name }}-backend
 
 ---
 # Ingress
@@ -449,7 +287,7 @@ spec:
               service:
                 name: ${{ defaults.app_name }}
                 port:
-                  number: 8080
+                  number: 3000
   tls:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
@@ -467,6 +305,6 @@ spec:
   data:
     url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
   displayType: normal
-  icon: "https://avatars.githubusercontent.com/u/85702467?s=48&v=4"
-  name: Langflow
+  icon: "https://avatars.githubusercontent.com/u/138379721?s=48&v=4"
+  name: DocuSeal
   type: link
