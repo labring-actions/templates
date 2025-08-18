@@ -1,0 +1,153 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: agora
+spec:
+  title: 'Agora Token Service'
+  url: 'https://github.com/AgoraIO/Tools/tree/master/DynamicKey/AgoraDynamicKey'
+  gitRepo: 'https://github.com/AgoraIO/Tools/tree/master/DynamicKey/AgoraDynamicKey'
+  author: 'Sealos'
+  description: 'Agora Token Service for generating RTC and RTM tokens to authenticate users before they access the Agora service or join an RTC channel'
+  readme: 'https://raw.githubusercontent.com/AgoraIO/Tools/refs/heads/master/DynamicKey/AgoraDynamicKey/README.md'
+  icon: 'https://avatars.githubusercontent.com/u/18059420?s=200&v=4'
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      title: 'Agora Token 服务'
+      description: 'Agora Token 服务用于生成 RTC 和 RTM Token，在用户访问 Agora 服务或加入 RTC 频道之前进行身份验证'
+  categories:
+    - tool
+    - backend
+  defaults:
+    app_name:
+      type: string
+      value: agora-token-service-${{ random(8) }}
+    app_host:
+      type: string
+      value: agora-token-service-${{ random(8) }}
+  inputs:
+    app_id:
+      description: 'Login to the Agora Dashboard, and navigate to the "Projects" to copy APP_ID'
+      type: string
+      default: ''
+      required: true
+    app_certificate:
+      description: 'Login to the Agora Dashboard, and navigate to the "Projects" to copy APP_CERTIFICATE'
+      type: string
+      default: ''
+      required: true
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: agoracn/token:0.1.2023053011
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: agoracn/token:0.1.2023053011
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: APP_ID
+              value: ${{ inputs.app_id }}
+            - name: APP_CERTIFICATE
+              value: ${{ inputs.app_certificate }}
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 20m
+              memory: 12Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - port: 8080
+      targetPort: 8080
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 8080
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: 'https://avatars.githubusercontent.com/u/18059420?s=200&v=4'
+  name: Agora Token Service
+  type: link
