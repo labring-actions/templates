@@ -1,0 +1,472 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: langflow
+spec:
+  title: 'Langflow'
+  url: 'https://www.langflow.org/'
+  gitRepo: 'https://github.com/langflow-ai/langflow'
+  author: 'Sealos'
+  description: 'Langflow is a low-code app builder for RAG and multi-agent AI applications. Build, iterate, and deploy AI workflows with a drag-and-drop interface.'
+  readme: 'https://raw.githubusercontent.com/langflow-ai/langflow/refs/heads/main/README.md'
+  icon: 'https://avatars.githubusercontent.com/u/85702467?s=48&v=4'
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      title: 'Langflow'
+      description: 'Langflow 是一个用于 RAG 和多代理 AI 应用的低代码应用构建器。通过拖放界面构建、迭代和部署 AI 工作流。'
+  categories:
+    - ai
+    - low-code
+    - tool
+  defaults:
+    app_name:
+      type: string
+      value: langflow-${{ random(8) }}
+    app_host:
+      type: string
+      value: langflow-${{ random(8) }}
+  inputs:
+    enable_database:
+      description: 'Enable external database (PostgreSQL) for production use'
+      type: boolean
+      default: 'false'
+      required: false
+
+---
+${{ if(inputs.enable_database === 'true') }}
+# PostgreSQL ServiceAccount
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+
+---
+# PostgreSQL Role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+# PostgreSQL RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+
+---
+# PostgreSQL Cluster
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-14.8.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+  annotations: {}
+  name: ${{ defaults.app_name }}-pg
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-14.8.0
+  componentSpecs:
+    - componentDefRef: postgresql
+      monitor: true
+      name: postgresql
+      replicas: 1
+      resources:
+        limits:
+          cpu: 1000m
+          memory: 1024Mi
+        requests:
+          cpu: 100m
+          memory: 102Mi
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 5Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+  tolerations: []
+
+---
+# PostgreSQL Init Job
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+spec:
+  completions: 1
+  template:
+    spec:
+      containers:
+        - name: pgsql-init
+          image: postgres:14-alpine
+          env:
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until psql ${DATABASE_URL} -c 'CREATE DATABASE langflow;' &>/dev/null; do sleep 1; done
+      restartPolicy: Never
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+${{ endif() }}
+
+---
+# Frontend StatefulSet (Main Application)
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: langflowai/langflow-frontend:1.5.0.post2
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  serviceName: ${{ defaults.app_name }}
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: langflowai/langflow-frontend:1.5.0.post2
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: BACKEND_URL
+              value: "http://${{ defaults.app_name }}-backend:7860"
+            - name: FRONTEND_PORT
+              value: "8080"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 51Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: vn-varvn-cachevn-nginx
+              mountPath: /var/cache/nginx
+          livenessProbe:
+            httpGet:
+              path: /index.html
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /index.html
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 10
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /var/cache/nginx
+          value: '1'
+        name: vn-varvn-cachevn-nginx
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+
+---
+# Frontend Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+# Backend StatefulSet
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-backend
+  annotations:
+    originImageName: langflowai/langflow-frontend:1.5.0.post2
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-backend
+    app: ${{ defaults.app_name }}
+spec:
+  serviceName: ${{ defaults.app_name }}-backend
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-backend
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-backend
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: ${{ defaults.app_name }}-backend
+          image: langflowai/langflow:1.5.0.post2
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash", "-c"]
+          args:
+            - >
+              set -e &&
+              langflow run --host 0.0.0.0 --port 7860
+          ports:
+            - name: http
+              containerPort: 7860
+              protocol: TCP
+          env:
+            - name: LANGFLOW_BACKEND_ONLY
+              value: "true"
+            - name: LANGFLOW_NUM_WORKERS
+              value: "1"
+            - name: LANGFLOW_PORT
+              value: "7860"
+            - name: LANGFLOW_UPDATE_STARTER_PROJECTS
+              value: "false"
+            ${{ if(inputs.enable_database === 'true') }}
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: LANGFLOW_DATABASE_URL
+              value: postgresql://$(PG_USER):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/langflow
+            ${{ else() }}
+            - name: LANGFLOW_DATABASE_URL
+              value: "sqlite:////app/data/langflow.db"
+            ${{ endif() }}
+          resources:
+            requests:
+              cpu: 100m
+              memory: 102Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          volumeMounts:
+            - name: vn-appvn-data
+              mountPath: /app/data
+            - name: vn-appvn-flows
+              mountPath: /app/flows
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 10
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /app/data
+          value: '1'
+        name: vn-appvn-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 5Gi
+    - metadata:
+        annotations:
+          path: /app/flows
+          value: '1'
+        name: vn-appvn-flows
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 2Gi
+
+---
+# Backend Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-backend
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-backend
+spec:
+  type: ClusterIP
+  ports:
+    - port: 7860
+      targetPort: 7860
+      protocol: TCP
+      name: http
+  selector:
+    app: ${{ defaults.app_name }}-backend
+
+---
+# Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 8080
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+# App CR
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: "https://avatars.githubusercontent.com/u/85702467?s=48&v=4"
+  name: Langflow
+  type: iframe
