@@ -1,0 +1,170 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: loki
+spec:
+  title: 'Loki'
+  url: 'https://grafana.com/oss/loki/'
+  gitRepo: 'https://github.com/grafana/loki'
+  author: 'Sealos'
+  description: 'Loki is a horizontally scalable, highly available, multi-tenant log aggregation system inspired by Prometheus.'
+  readme: 'https://raw.githubusercontent.com/grafana/loki/refs/heads/main/README.md'
+  icon: 'https://grafana.com/static/img/logos/logo-loki.svg'
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      title: 'Loki'
+      description: 'Loki 是一个水平可扩展、高可用、多租户的日志聚合系统，灵感来自 Prometheus。'
+  categories:
+    - monitor
+  defaults:
+    app_name:
+      type: string
+      value: loki-${{ random(8) }}
+    app_host:
+      type: string
+      value: loki-${{ random(8) }}
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: grafana/loki:main-515ebea
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  revisionHistoryLimit: 1
+  replicas: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: init-chmod
+          image: busybox:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              chown -R 10001:10001 /loki
+              chmod -R 755 /loki
+          volumeMounts:
+            - name: vn-loki
+              mountPath: /loki
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: grafana/loki:main-515ebea
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3100
+              name: http-metrics
+              protocol: TCP
+          volumeMounts:
+            - name: vn-loki
+              mountPath: /loki
+          resources:
+            requests:
+              cpu: 10m
+              memory: 12Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /loki
+          value: '1'
+        name: vn-loki
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3100
+      targetPort: 3100
+      protocol: TCP
+      name: http-metrics
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 3100
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: "https://grafana.com/static/img/logos/logo-loki.svg"
+  name: Loki
+  type: link
