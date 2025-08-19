@@ -1,0 +1,668 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: outline
+spec:
+  title: 'Outline'
+  url: 'https://www.getoutline.com/'
+  gitRepo: 'https://github.com/outline/outline'
+  author: 'Sealos'
+  description: 'The fastest knowledge base for growing teams. Beautiful, realtime collaborative, feature packed, and markdown compatible.'
+  readme: 'https://raw.githubusercontent.com/outline/outline/refs/heads/main/README.md'
+  icon: 'https://avatars.githubusercontent.com/u/1765001?s=48&v=4'
+  templateType: inline
+  categories:
+    - tool
+  locale: en
+  i18n:
+    zh:
+      title: 'Outline'
+      description: '为成长型团队打造的最快速的知识库。美观、实时协作、功能丰富且兼容 Markdown。'
+  defaults:
+    app_name:
+      type: string
+      value: outline-${{ random(8) }}
+    app_host:
+      type: string
+      value: outline-${{ random(8) }}
+  inputs:
+    storage_type:
+      description: 'Storage type for attachments'
+      type: choice
+      default: 's3'
+      required: true
+      options:
+        - s3
+        - local
+    auth_provider:
+      description: 'Authentication provider'
+      type: choice
+      default: 'oidc'
+      required: true
+      options:
+        - oidc
+        - google
+        - slack
+    secret_key:
+      description: 'Secret key for encrypting data (32 bytes hex)'
+      type: string
+      default: ${{ random(64) }}
+      required: true
+    utils_secret:
+      description: 'Utility secret for internal operations'
+      type: string
+      default: ${{ random(64) }}
+      required: true
+    oidc_client_id:
+      description: 'OIDC Client ID'
+      type: string
+      default: ''
+      required: true
+      if: inputs.auth_provider === 'oidc'
+    oidc_client_secret:
+      description: 'OIDC Client Secret'
+      type: string
+      default: ''
+      required: true
+      if: inputs.auth_provider === 'oidc'
+    oidc_auth_uri:
+      description: 'OIDC Authorization URI'
+      type: string
+      default: ''
+      required: true
+      if: inputs.auth_provider === 'oidc'
+    oidc_token_uri:
+      description: 'OIDC Token URI'
+      type: string
+      default: ''
+      required: true
+      if: inputs.auth_provider === 'oidc'
+    oidc_userinfo_uri:
+      description: 'OIDC User Info URI'
+      type: string
+      default: ''
+      required: true
+      if: inputs.auth_provider === 'oidc'
+    google_client_id:
+      description: 'Google OAuth Client ID'
+      type: string
+      default: ''
+      required: true
+      if: inputs.auth_provider === 'google'
+    google_client_secret:
+      description: 'Google OAuth Client Secret'
+      type: string
+      default: ''
+      required: true
+      if: inputs.auth_provider === 'google'
+    slack_client_id:
+      description: 'Slack OAuth Client ID'
+      type: string
+      default: ''
+      required: true
+      if: inputs.auth_provider === 'slack'
+    slack_client_secret:
+      description: 'Slack OAuth Client Secret'
+      type: string
+      default: ''
+      required: true
+      if: inputs.auth_provider === 'slack'
+    smtp_enabled:
+      description: 'Enable SMTP for sending emails'
+      type: boolean
+      default: 'false'
+      required: false
+    smtp_host:
+      description: 'SMTP Server Host'
+      type: string
+      default: ''
+      required: true
+      if: inputs.smtp_enabled === 'true'
+    smtp_port:
+      description: 'SMTP Server Port'
+      type: string
+      default: '587'
+      required: true
+      if: inputs.smtp_enabled === 'true'
+    smtp_username:
+      description: 'SMTP Username'
+      type: string
+      default: ''
+      required: true
+      if: inputs.smtp_enabled === 'true'
+    smtp_password:
+      description: 'SMTP Password'
+      type: string
+      default: ''
+      required: true
+      if: inputs.smtp_enabled === 'true'
+    smtp_from_email:
+      description: 'SMTP From Email Address'
+      type: string
+      default: ''
+      required: true
+      if: inputs.smtp_enabled === 'true'
+
+---
+${{ if(inputs.storage_type === 's3') }}
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  policy: private
+${{ endif() }}
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-redis
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-redis
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-redis
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-redis
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-redis
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: redis
+    clusterversion.kubeblocks.io/name: redis-7.0.6
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+  annotations: {}
+  name: ${{ defaults.app_name }}-redis
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: redis
+  clusterVersionRef: redis-7.0.6
+  componentSpecs:
+    - componentDefRef: redis
+      monitor: true
+      name: redis
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+    - componentDefRef: redis-sentinel
+      monitor: true
+      name: redis-sentinel
+      replicas: 1
+      resources:
+        limits:
+          cpu: 100m
+          memory: 100Mi
+        requests:
+          cpu: 100m
+          memory: 100Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
+  terminationPolicy: Delete
+  tolerations: []
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-14.8.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+  annotations: {}
+  name: ${{ defaults.app_name }}-pg
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-14.8.0
+  componentSpecs:
+    - componentDefRef: postgresql
+      monitor: true
+      name: postgresql
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 3Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+  tolerations: []
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-pg-init
+spec:
+  completions: 1
+  template:
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: pgsql-init
+          image: postgres:14-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until psql ${DATABASE_URL} -c 'CREATE DATABASE outline;' &>/dev/null; do sleep 1; done
+      restartPolicy: Never
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: outlinewiki/outline:0.86
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: outlinewiki/outline:0.86
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: PORT
+              value: '3000'
+            - name: SECRET_KEY
+              value: ${{ inputs.secret_key }}
+            - name: UTILS_SECRET
+              value: ${{ inputs.utils_secret }}
+            - name: DEFAULT_LANGUAGE
+              value: en_US
+            - name: FORCE_HTTPS
+              value: 'true'
+            - name: ENABLE_UPDATES
+              value: 'false'
+            - name: WEB_CONCURRENCY
+              value: '1'
+            - name: LOG_LEVEL
+              value: info
+            - name: FILE_STORAGE_UPLOAD_MAX_SIZE
+              value: '262144000'
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgres://$(PG_USERNAME):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/outline
+            - name: PGSSLMODE
+              value: disable
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-conn-credential
+                  key: password
+            - name: REDIS_URL
+              value: redis://:$(REDIS_PASSWORD)@${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc:6379
+            ${{ if(inputs.storage_type === 'local') }}
+            - name: FILE_STORAGE
+              value: local
+            - name: FILE_STORAGE_LOCAL_ROOT_DIR
+              value: /var/lib/outline/data
+            ${{ endif() }}
+            ${{ if(inputs.storage_type === 's3') }}
+            - name: FILE_STORAGE
+              value: s3
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: AWS_S3_UPLOAD_BUCKET_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: AWS_S3_UPLOAD_BUCKET_URL
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+            - name: AWS_S3_FORCE_PATH_STYLE
+              value: 'true'
+            - name: AWS_S3_ACL
+              value: private
+            ${{ endif() }}
+            ${{ if(inputs.auth_provider === 'oidc') }}
+            - name: OIDC_CLIENT_ID
+              value: ${{ inputs.oidc_client_id }}
+            - name: OIDC_CLIENT_SECRET
+              value: ${{ inputs.oidc_client_secret }}
+            - name: OIDC_AUTH_URI
+              value: ${{ inputs.oidc_auth_uri }}
+            - name: OIDC_TOKEN_URI
+              value: ${{ inputs.oidc_token_uri }}
+            - name: OIDC_USERINFO_URI
+              value: ${{ inputs.oidc_userinfo_uri }}
+            - name: OIDC_USERNAME_CLAIM
+              value: preferred_username
+            - name: OIDC_DISPLAY_NAME
+              value: OpenID Connect
+            - name: OIDC_SCOPES
+              value: openid profile email
+            ${{ endif() }}
+            ${{ if(inputs.auth_provider === 'google') }}
+            - name: GOOGLE_CLIENT_ID
+              value: ${{ inputs.google_client_id }}
+            - name: GOOGLE_CLIENT_SECRET
+              value: ${{ inputs.google_client_secret }}
+            ${{ endif() }}
+            ${{ if(inputs.auth_provider === 'slack') }}
+            - name: SLACK_CLIENT_ID
+              value: ${{ inputs.slack_client_id }}
+            - name: SLACK_CLIENT_SECRET
+              value: ${{ inputs.slack_client_secret }}
+            ${{ endif() }}
+            ${{ if(inputs.smtp_enabled === 'true') }}
+            - name: SMTP_HOST
+              value: ${{ inputs.smtp_host }}
+            - name: SMTP_PORT
+              value: ${{ inputs.smtp_port }}
+            - name: SMTP_USERNAME
+              value: ${{ inputs.smtp_username }}
+            - name: SMTP_PASSWORD
+              value: ${{ inputs.smtp_password }}
+            - name: SMTP_FROM_EMAIL
+              value: ${{ inputs.smtp_from_email }}
+            ${{ endif() }}
+            - name: RATE_LIMITER_ENABLED
+              value: 'true'
+            - name: RATE_LIMITER_REQUESTS
+              value: '1000'
+            - name: RATE_LIMITER_DURATION_WINDOW
+              value: '60'
+          ports:
+            - containerPort: 3000
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 50m
+              memory: 51Mi
+              ephemeral-storage: "200Mi"
+            limits:
+              cpu: 500m
+              memory: 512Mi
+              ephemeral-storage: "200Mi"
+          livenessProbe:
+            httpGet:
+              path: /_health
+              port: 3000
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /_health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+          ${{ if(inputs.storage_type === 'local') }}
+          volumeMounts:
+            - name: vn-varvn-libvn-outlinevn-data
+              mountPath: /var/lib/outline/data
+          ${{ endif() }}
+  ${{ if(inputs.storage_type === 'local') }}
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /var/lib/outline/data
+          value: '1'
+        name: vn-varvn-libvn-outlinevn-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+  ${{ endif() }}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - port: 3000
+      targetPort: 3000
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 3000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: "https://avatars.githubusercontent.com/u/1765001?s=48&v=4"
+  name: Outline
+  type: link
