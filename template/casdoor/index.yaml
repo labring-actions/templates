@@ -1,0 +1,524 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: casdoor
+spec:
+  title: 'Casdoor'
+  url: 'https://casdoor.org/'
+  gitRepo: 'https://github.com/casdoor/casdoor'
+  author: 'Sealos'
+  description: 'Casdoor is a UI-first Identity Access Management (IAM) / Single-Sign-On (SSO) platform based on OAuth 2.0, OIDC, SAML and CAS.'
+  readme: 'https://raw.githubusercontent.com/casdoor/casdoor/refs/heads/master/README.md'
+  icon: 'https://avatars.githubusercontent.com/u/72992104?s=48&v=4'
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      title: 'Casdoor 统一身份认证平台'
+      description: 'Casdoor 是一个基于 OAuth 2.0、OIDC、SAML 和 CAS 的 UI 优先的身份访问管理（IAM）/单点登录（SSO）平台。'
+  categories:
+    - tool
+    - backend
+  defaults:
+    app_name:
+      type: string
+      value: casdoor-${{ random(8) }}
+    app_host:
+      type: string
+      value: casdoor-${{ random(8) }}
+  inputs:
+    driver_name:
+      description: 'Database driver name (mysql, postgres, sqlite)'
+      type: choice
+      default: 'sqlite'
+      required: false
+      options:
+        - sqlite
+        - mysql
+        - postgres
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-confvn-appvn-conf: |
+    appname = casdoor
+    httpport = 8000
+    runmode = dev
+    SessionOn = true
+    copyrequestbody = true
+    redisEndpoint =
+    defaultStorageProvider =
+    isCloudIntranet = false
+    authState = "casdoor"
+    socks5Proxy = ""
+    verificationCodeTimeout = 10
+    initScore = 0
+    logPostOnly = true
+    origin =
+    enableGzip = true
+    ldapServerPort = 10389
+
+---
+${{ if(inputs.driver_name === 'mysql') }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-mysql
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-mysql
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-mysql
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-mysql
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-mysql
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: apecloud-mysql
+    clusterversion.kubeblocks.io/name: ac-mysql-8.0.30
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+  name: ${{ defaults.app_name }}-mysql
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: apecloud-mysql
+  clusterVersionRef: ac-mysql-8.0.30
+  componentSpecs:
+    - componentDefRef: mysql
+      monitor: true
+      name: mysql
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 128Mi
+      serviceAccountName: ${{ defaults.app_name }}-mysql
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 3Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+${{ endif() }}
+
+---
+${{ if(inputs.driver_name === 'postgres') }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-14.8.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+  name: ${{ defaults.app_name }}-pg
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-14.8.0
+  componentSpecs:
+    - componentDefRef: postgresql
+      monitor: true
+      name: postgresql
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 128Mi
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 3Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+spec:
+  completions: 1
+  template:
+    spec:
+      containers:
+        - name: pgsql-init
+          image: postgres:14-alpine
+          env:
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until psql ${DATABASE_URL} -c 'CREATE DATABASE casdoor;' &>/dev/null; do sleep 1; done
+      restartPolicy: Never
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+${{ endif() }}
+
+---
+${{ if(inputs.driver_name === 'sqlite') }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: casbin/casdoor:v2.32.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  serviceName: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: casbin/casdoor:v2.32.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: RUNNING_IN_DOCKER
+              value: "true"
+            - name: dbName
+              value: casdoor
+            - name: driverName
+              value: sqlite
+            - name: dataSourceName
+              value: /tmp/casdoor.db
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          volumeMounts:
+            - name: vn-confvn-appvn-conf
+              mountPath: /conf/app.conf
+              subPath: ./conf/app.conf
+            - name: data
+              mountPath: /home
+      volumes:
+        - name: vn-confvn-appvn-conf
+          configMap:
+            name: ${{ defaults.app_name }}
+            items:
+              - key: vn-confvn-appvn-conf
+                path: ./conf/app.conf
+            defaultMode: 420
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /home
+          value: '1'
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+${{ else() }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: casbin/casdoor:v1.702.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: RUNNING_IN_DOCKER
+              value: "true"
+            - name: dbName
+              value: casdoor
+            ${{ if(inputs.driver_name === 'mysql') }}
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: host
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: port
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: password
+            - name: driverName
+              value: mysql
+            - name: dataSourceName
+              value: $(DB_USER):$(DB_PASSWORD)@tcp($(DB_HOST):$(DB_PORT))/$(dbName)?charset=utf8mb4&parseTime=True&loc=Local
+            ${{ elif(inputs.driver_name === 'postgres') }}
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: driverName
+              value: postgres
+            - name: dataSourceName
+              value: user=$(DB_USER) password=$(DB_PASSWORD) host=$(DB_HOST) port=$(DB_PORT) sslmode=disable dbname=$(dbName)
+            ${{ endif() }}
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          volumeMounts:
+            - name: vn-confvn-appvn-conf
+              mountPath: /conf/app.conf
+              subPath: ./conf/app.conf
+      volumes:
+        - name: vn-confvn-appvn-conf
+          configMap:
+            name: ${{ defaults.app_name }}
+            items:
+              - key: vn-confvn-appvn-conf
+                path: ./conf/app.conf
+            defaultMode: 420
+${{ endif() }}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 8000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: "https://avatars.githubusercontent.com/u/72992104?s=48&v=4"
+  name: Casdoor
+  type: link
