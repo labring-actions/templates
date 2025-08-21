@@ -16,23 +16,286 @@ spec:
     zh:
       description: 'n8n 是一个工作流自动化平台，通过将代码的灵活性与无代码的速度相结合，帮助技术团队构建自动化流程。'
   categories:
-    - tool
+    - ai
+    - low-code
   defaults:
     app_host:
-      # number or string..
       type: string
       value: n8n-${{ random(8) }}
     app_name:
       type: string
       value: n8n-${{ random(8) }}
+    N8N_ENCRYPTION_KEY:
+      type: string
+      value: ${{ random(32) }}
+  inputs:
+    use_postgresql:
+      description: 'Use PostgreSQL database for production workloads (recommended for better performance and data persistence)'
+      type: boolean
+      default: 'false'
+      required: false
+    timezone:
+      description: 'The n8n instance timezone. Important for schedule nodes (such as Cron)'
+      type: choice
+      default: 'America/New_York'
+      required: false
+      options:
+        - America/New_York
+        - America/Chicago
+        - America/Denver
+        - America/Los_Angeles
+        - America/Sao_Paulo
+        - Europe/London
+        - Europe/Paris
+        - Europe/Berlin
+        - Europe/Moscow
+        - Asia/Shanghai
+        - Asia/Tokyo
+        - Asia/Singapore
+        - Asia/Dubai
+        - Asia/Kolkata
+        - Australia/Sydney
+        - Pacific/Auckland
+        - UTC
+    use_queue_mode:
+      description: 'Enable queue mode with Redis and workers for improved scalability and parallel execution (requires PostgreSQL)'
+      type: boolean
+      default: 'false'
+      required: false
 ---
 
+${{ if(inputs.use_queue_mode === 'true') }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-redis
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-redis
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-redis
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-redis
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-redis
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: redis
+    clusterversion.kubeblocks.io/name: redis-7.0.6
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+  annotations: {}
+  name: ${{ defaults.app_name }}-redis
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: redis
+  clusterVersionRef: redis-7.0.6
+  componentSpecs:
+    - componentDefRef: redis
+      monitor: true
+      name: redis
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+    - componentDefRef: redis-sentinel
+      monitor: true
+      name: redis-sentinel
+      replicas: 1
+      resources:
+        limits:
+          cpu: 100m
+          memory: 100Mi
+        requests:
+          cpu: 100m
+          memory: 100Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
+  terminationPolicy: Delete
+  tolerations: []
+${{ endif() }}
+
+${{ if(inputs.use_queue_mode === 'true' || inputs.use_postgresql === 'true') }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-14.8.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+  annotations: {}
+  name: ${{ defaults.app_name }}-pg
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-14.8.0
+  componentSpecs:
+    - componentDefRef: postgresql
+      monitor: true
+      name: postgresql
+      replicas: 1
+      resources:
+        limits:
+          cpu: 1000m
+          memory: 1024Mi
+        requests:
+          cpu: 100m
+          memory: 102Mi
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 3Gi
+  terminationPolicy: Delete
+  tolerations: []
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+spec:
+  completions: 1
+  template:
+    spec:
+      containers:
+        - name: pgsql-init
+          image: postgres:14-alpine
+          env:
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until psql ${DATABASE_URL} -c 'CREATE DATABASE n8n;' &>/dev/null; do sleep 1; done
+      restartPolicy: Never
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+${{ endif() }}
+
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: n8nio/n8n:1.95.1
+    originImageName: n8nio/n8n:1.108.1
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -63,18 +326,65 @@ spec:
               mountPath: /data
       containers:
         - name: ${{ defaults.app_name }}
-          image: n8nio/n8n:1.95.1
+          image: n8nio/n8n:1.108.1
           env:
             - name: N8N_PORT
               value: "5678"
             - name: WEBHOOK_URL
               value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/
             - name: QUEUE_HEALTH_CHECK_ACTIVE
-              value: true
+              value: "true"
             - name: N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS
-              value: true
+              value: "true"
             - name: N8N_RUNNERS_ENABLED
-              value: true
+              value: "true"
+            - name: GENERIC_TIMEZONE
+              value: ${{ inputs.timezone }}
+            - name: TZ
+              value: ${{ inputs.timezone }}
+            ${{ if(inputs.use_queue_mode === 'true' || inputs.use_postgresql === 'true') }}
+            - name: DB_TYPE
+              value: 'postgresdb'
+            - name: DB_POSTGRESDB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: DB_POSTGRESDB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: DB_POSTGRESDB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DB_POSTGRESDB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: DB_POSTGRESDB_DATABASE
+              value: 'n8n'
+            ${{ endif() }}
+            ${{ if(inputs.use_queue_mode === 'true') }}
+            - name: EXECUTIONS_MODE
+              value: 'queue'
+            - name: N8N_ENCRYPTION_KEY
+              value: ${{ defaults.N8N_ENCRYPTION_KEY }}
+            - name: QUEUE_BULL_REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc
+            - name: QUEUE_BULL_REDIS_PORT
+              value: '6379'
+            - name: QUEUE_BULL_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-conn-credential
+                  key: password
+            - name: N8N_DISABLE_PRODUCTION_MAIN_PROCESS
+              value: 'false'
+            ${{ endif() }}
           resources:
             requests:
               cpu: 50m
@@ -108,6 +418,108 @@ spec:
           requests:
             storage: 1Gi
 
+${{ if(inputs.use_queue_mode === 'true') }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-worker
+  annotations:
+    originImageName: n8nio/n8n:1.108.1
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-worker
+    app: ${{ defaults.app_name }}-worker
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-worker
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-worker
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-worker
+          image: n8nio/n8n:1.108.1
+          command:
+            - tini
+            - --
+          args:
+            - /docker-entrypoint.sh
+            - worker
+          env:
+            - name: GENERIC_TIMEZONE
+              value: ${{ inputs.timezone }}
+            - name: TZ
+              value: ${{ inputs.timezone }}
+            - name: EXECUTIONS_MODE
+              value: 'queue'
+            - name: N8N_ENCRYPTION_KEY
+              value: ${{ defaults.N8N_ENCRYPTION_KEY }}
+            - name: QUEUE_BULL_REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc
+            - name: QUEUE_BULL_REDIS_PORT
+              value: '6379'
+            - name: QUEUE_BULL_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-conn-credential
+                  key: password
+            - name: N8N_CONCURRENCY
+              value: '10'
+            - name: QUEUE_HEALTH_CHECK_ACTIVE
+              value: 'true'
+            - name: DB_TYPE
+              value: 'postgresdb'
+            - name: DB_POSTGRESDB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: DB_POSTGRESDB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: DB_POSTGRESDB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DB_POSTGRESDB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: DB_POSTGRESDB_DATABASE
+              value: 'n8n'
+          resources:
+            requests:
+              cpu: 20m
+              memory: 25Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 5678
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /healthz/readiness
+              port: 5678
+            initialDelaySeconds: 10
+            periodSeconds: 10
+${{ endif() }}
+
 ---
 apiVersion: v1
 kind: Service
@@ -120,6 +532,7 @@ spec:
     - port: 5678
   selector:
     app: ${{ defaults.app_name }}
+
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -174,5 +587,5 @@ spec:
     url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
   displayType: normal
   icon: "https://n8n.io/favicon.ico"
-  name: ${{ defaults.app_name }}
+  name: "N8N"
   type: link
