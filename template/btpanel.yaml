@@ -8,7 +8,7 @@ spec:
   gitRepo: 'https://cnb.cool/btpanel/BaoTa'
   author: 'BTPanel'
   description: '宝塔面板是一个安全高效的服务器运维面板，一键配置：LAMP/LNMP、网站、数据库、FTP、SSL，通过Web端轻松管理服务器。'
-  readme: 'https://cnb.cool/btpanel/btpanel/-/git/raw/nas/README.md'
+  readme: 'https://raw.githubusercontent.com/aaPanel/BaoTa/refs/heads/docs/external/sealos.md'
   icon: 'https://www.bt.cn/static/new/images/logo_03.svg'
   templateType: inline
   locale: zh
@@ -29,7 +29,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: docker.cnb.cool/btpanel/btpanel
+    originImageName: btpanel/baota:nas
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -47,7 +47,10 @@ spec:
     spec:
       containers:
       - name: ${{ defaults.app_name }}
-        image: docker.cnb.cool/btpanel/btpanel:nas
+        image: btpanel/baota:nas
+        env:
+          - name: ADMIN_PATH
+            value: '/'
         ports:
         - containerPort: 8888
         - containerPort: 80
@@ -56,10 +59,8 @@ spec:
         - containerPort: 22
         - containerPort: 21
         volumeMounts:
-        - name: vn-wwwvn-wwwroot
-          mountPath: /www/wwwroot
-        - name: vn-wwwvn-servervn-data
-          mountPath: /www/server/data
+        - name: vn-wwwvn
+          mountPath: /www
         resources:
           requests:
             cpu: 200m
@@ -70,20 +71,9 @@ spec:
   volumeClaimTemplates:
     - metadata:
         annotations:
-          path: /www/wwwroot
+          path: /www
           value: '1'
-        name: vn-wwwvn-wwwroot
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 1Gi
-    - metadata:
-        annotations:
-          path: /www/server/data
-          value: '1'
-        name: vn-wwwvn-servervn-data
+        name: vn-wwwvn
       spec:
         accessModes:
           - ReadWriteOnce
@@ -91,7 +81,6 @@ spec:
           requests:
             storage: 1Gi
 ---
-
 apiVersion: v1
 kind: Service
 metadata:
@@ -129,46 +118,6 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: ${{ defaults.app_name }}-redirect
-  labels:
-    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
-  annotations:
-    nginx.ingress.kubernetes.io/temporal-redirect: 'https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/btpanel'
-    kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/proxy-body-size: 32m
-    nginx.ingress.kubernetes.io/server-snippet: |
-      client_header_buffer_size 64k;
-      large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
-    nginx.ingress.kubernetes.io/backend-protocol: HTTP
-    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
-    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
-        expires 30d;
-        add_header Cache-Control "public";
-      }
-spec:
-  rules:
-    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
-      http:
-        paths:
-          - pathType: Exact
-            path: /
-            backend:
-              service:
-                name: ${{ defaults.app_name }}
-                port:
-                  number: 8888
-  tls:
-    - hosts:
-        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
-      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
-
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
   name: ${{ defaults.app_name }}
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
@@ -176,18 +125,10 @@ metadata:
   annotations:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/proxy-body-size: 32m
-    nginx.ingress.kubernetes.io/server-snippet: |
-      client_header_buffer_size 64k;
-      large_client_header_buffers 4 128k;
     nginx.ingress.kubernetes.io/ssl-redirect: 'true'
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
-        expires 30d;
-        add_header Cache-Control "public";
-      }
 spec:
   rules:
     - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
