@@ -1,0 +1,197 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: rustfs
+spec:
+  title: 'RustFS'
+  url: 'https://github.com/rustfs/rustfs'
+  gitRepo: 'https://github.com/rustfs/rustfs'
+  author: 'Sealos'
+  description: 'RustFS is a high-performance, S3-compatible object storage system built with Rust, offering distributed storage capabilities with multiple volume support.'
+  readme: 'https://raw.githubusercontent.com/rustfs/rustfs/main/README.md'
+  icon: 'https://rustfs.com/favicon.ico'
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: 'RustFS 是一个使用 Rust 构建的高性能 S3 兼容对象存储系统，提供分布式存储能力，支持多卷存储。'
+  categories:
+    - storage
+    - backend
+  defaults:
+    app_name:
+      type: string
+      value: rustfs-${{ random(8) }}
+    app_host:
+      type: string
+      value: rustfs-${{ random(8) }}
+  inputs:
+    access_key:
+      description: 'S3 Access Key for authentication'
+      type: string
+      default: ''
+      required: true
+    secret_key:
+      description: 'S3 Secret Key for authentication'
+      type: string
+      default: ''
+      required: true
+    console_enable:
+      description: 'Enable web console interface'
+      type: boolean
+      default: 'true'
+      required: false
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: rustfs/rustfs:latest
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: rustfs/rustfs:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: RUSTFS_ADDRESS
+              value: "0.0.0.0:9000"
+            - name: RUSTFS_CONSOLE_ENABLE
+              value: ${{ inputs.console_enable }}
+            - name: RUSTFS_ACCESS_KEY
+              value: ${{ inputs.access_key }}
+            - name: RUSTFS_SECRET_KEY
+              value: ${{ inputs.secret_key }}
+            - name: RUSTFS_LOG_LEVEL
+              value: "info"
+          ports:
+            - containerPort: 9000
+              name: api
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 2048Mi
+          volumeMounts:
+            - name: vn-data
+              mountPath: /data
+            - name: vn-logs
+              mountPath: /logs
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /data
+          value: '1'
+        name: vn-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+    - metadata:
+        annotations:
+          path: /logs
+          value: '1'
+        name: vn-logs
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9000
+      targetPort: 9000
+      protocol: TCP
+      name: api
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 9000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: "https://rustfs.com/favicon.ico"
+  name: RustFS
+  type: link
