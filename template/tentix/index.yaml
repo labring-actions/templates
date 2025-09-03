@@ -1,0 +1,338 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: tentix
+spec:
+  title: "tentix"
+  url: "https://github.com/labring/tentix"
+  gitRepo: "https://github.com/labring/tentix"
+  author: "Sealos"
+  description: "A FastGPT-powered AI customer service platform with 10x accelerated resolution."
+  readme: "https://raw.githubusercontent.com/labring/tentix/main/README.md"
+  icon: "https://raw.githubusercontent.com/labring/tentix/refs/heads/main/frontend/public/logo.svg"
+  templateType: inline
+  categories:
+    - dev-ops
+  defaults:
+    app_name:
+      type: string
+      value: ${{ random(8) }}
+    encryption_key:
+      type: string
+      value: ${{ random(24) }}
+    domain:
+      type: string
+      value: tentix-${{ random(8) }}
+  inputs:
+    OPENAI_API_KEY:
+      # A description of the input field, explaining that it is for the user's OpenAI API key.
+      description: 'OpenAI API Key'
+      # Specifies the input type as a string.
+      type: string
+      # Sets an empty string as the default value for the API key.
+      default: ''
+      # Marks this input as mandatory, meaning the user must provide a value for deployment.
+      required: true
+    OPENAI_BASE_URL:
+      # A description of the input field, indicating it is for the base URL of the OpenAI API endpoint.
+      description: 'OpenAI endpoint base URL'
+      # Specifies the input type as a string.
+      type: string
+      # Provides a default value for the base URL, pointing to the standard OpenAI API endpoint.
+      default: 'https://api.openai.com/v1'
+      # Marks this input as optional, allowing deployment without a custom value.
+      required: true
+---
+# pg db
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-14.8.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+  annotations: {}
+  name: ${{ defaults.app_name }}-pg
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-14.8.0
+  componentSpecs:
+    - componentDefRef: postgresql
+      monitor: true
+      name: postgresql
+      replicas: 1
+      resources:
+        limits:
+          cpu: 1000m
+          memory: 1024Mi
+        requests:
+          cpu: 100m
+          memory: 102Mi
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 5Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+  tolerations: []
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-tentix
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-tentix
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3000
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  selector:
+    app: ${{ defaults.app_name }}-tentix
+
+# oss
+---
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}-tentix
+spec:
+  policy: publicRead
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-tentix
+  labels:
+    app: ${{ defaults.app_name }}-tentix
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-tentix
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-tentix
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-tentix
+    spec:
+      initContainers:
+        - name: db-migrate
+          # use dedicated migrator image built from Dockerfile.migrate
+          image: limbo2342/tentix:migrate.9.2.x1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DATABASE_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: DATABASE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: "postgresql://$(DATABASE_USER):$(DATABASE_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:$(DATABASE_PORT)"
+      containers:
+        - name: ${{ defaults.app_name }}-tentix
+          securityContext: {}
+          image: limbo2342/tentix:dev-2025-9-2-m.2
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: DATABASE_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: DATABASE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: MINIO_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            - name: MINIO_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-tentix
+                  key: bucket
+            - name: MINIO_ENDPOINT
+              value: "https://$(MINIO_EXTERNAL_ENDPOINT)"
+            - name: ENCRYPTION_KEY
+              value: ${{ base64(defaults.encryption_key) }}
+            - name: DATABASE_URL
+              value: "postgresql://$(DATABASE_USER):$(DATABASE_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:$(DATABASE_PORT)"
+            - name: MAX_AI_RESPONSES_PER_TICKET
+              value: "30"
+            - name: OPENAI_BASE_URL
+              value: ${{ inputs.OPENAI_BASE_URL }}
+            - name: OPENAI_API_KEY
+              value: ${{ inputs.OPENAI_API_KEY }}
+            - name: SUMMARY_MODEL
+              value: "gpt-5-mini"
+            - name: EMBEDDING_MODEL
+              value: "text-embedding-3-large"
+            - name: CHAT_MODEL
+              value: "gpt-5-mini"
+            - name: FAST_MODEL
+              value: "gpt-5-nano"
+            - name: VECTOR_BACKEND
+              value: "internal"
+            - name: APP_URL
+              value: "https://${{ defaults.domain }}.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: TARGET_PLATFORM
+              value: "generic"
+            - name: NODE_ENV
+              value: "production"
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-tentix
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-tentix
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.domain }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.domain }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - backend:
+              service:
+                name: ${{ defaults.app_name }}-tentix
+                port:
+                  number: 3000
+            path: /
+            pathType: Prefix
+  tls:
+    - hosts:
+        - ${{ defaults.domain }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.domain }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: "https://raw.githubusercontent.com/labring/tentix/refs/heads/main/frontend/public/logo.svg"
+  name: ${{ defaults.app_name }}
+  type: link
