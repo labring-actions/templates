@@ -1,0 +1,694 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: nacos
+spec:
+  title: 'Nacos'
+  url: 'https://nacos.io/'
+  gitRepo: 'https://github.com/nacos-group/nacos-docker'
+  author: 'Sealos'
+  description: 'Dynamic Naming and Configuration Service - an easy-to-use platform designed for dynamic service discovery and configuration and service management'
+  readme: 'https://raw.githubusercontent.com/alibaba/nacos/develop/README.md'
+  icon: 'https://nacos.io/favicon.ico'
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: '动态命名和配置服务 - 一个易于使用的平台，专为动态服务发现、配置和服务管理而设计'
+  categories:
+    - tool
+    - dev-ops
+  defaults:
+    app_host:
+      type: string
+      value: nacos-${{ random(8) }}
+    app_name:
+      type: string
+      value: nacos-${{ random(8) }}
+  inputs:
+    auth_token:
+      description: 'JWT secret key for authentication (Base64 encoded, must be at least 32 characters)'
+      type: string
+      default: 'VGhpc0lzTXlDdXN0b21TZWNyZXRLZXkwMTIzNDU2Nzg='
+      required: false
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-mysql
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-mysql
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-mysql
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-mysql
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-mysql
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: apecloud-mysql
+    clusterversion.kubeblocks.io/name: ac-mysql-8.0.30
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+  annotations: {}
+  name: ${{ defaults.app_name }}-mysql
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: apecloud-mysql
+  clusterVersionRef: ac-mysql-8.0.30
+  componentSpecs:
+    - componentDefRef: mysql
+      monitor: true
+      name: mysql
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-mysql
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+  tolerations: []
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-mysql-init
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-mysql-init
+data:
+  vn-tmpvn-nacosvn-mysqlvn-sql: |
+    /*
+     * Copyright 1999-2018 Alibaba Group Holding Ltd.
+     *
+     * Licensed under the Apache License, Version 2.0 (the "License");
+     * you may not use this file except in compliance with the License.
+     * You may obtain a copy of the License at
+     *
+     *      http://www.apache.org/licenses/LICENSE-2.0
+     *
+     * Unless required by applicable law or agreed to in writing, software
+     * distributed under the License is distributed on an "AS IS" BASIS,
+     * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+     * See the License for the specific language governing permissions and
+     * limitations under the License.
+     */
+
+    -- Create database
+    CREATE DATABASE IF NOT EXISTS nacos_devtest CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+    USE nacos_devtest;
+
+    /******************************************/
+    /*   表名称 = config_info                  */
+    /******************************************/
+    CREATE TABLE `config_info` (
+                                   `id` bigint(20) NOT NULL AUTO_INCREMENT COMMENT 'id',
+                                   `data_id` varchar(255) NOT NULL COMMENT 'data_id',
+                                   `group_id` varchar(128) DEFAULT NULL COMMENT 'group_id',
+                                   `content` longtext NOT NULL COMMENT 'content',
+                                   `md5` varchar(32) DEFAULT NULL COMMENT 'md5',
+                                   `gmt_create` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                                   `gmt_modified` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '修改时间',
+                                   `src_user` text COMMENT 'source user',
+                                   `src_ip` varchar(50) DEFAULT NULL COMMENT 'source ip',
+                                   `app_name` varchar(128) DEFAULT NULL COMMENT 'app_name',
+                                   `tenant_id` varchar(128) DEFAULT '' COMMENT '租户字段',
+                                   `c_desc` varchar(256) DEFAULT NULL COMMENT 'configuration description',
+                                   `c_use` varchar(64) DEFAULT NULL COMMENT 'configuration usage',
+                                   `effect` varchar(64) DEFAULT NULL COMMENT '配置生效的描述',
+                                   `type` varchar(64) DEFAULT NULL COMMENT '配置的类型',
+                                   `c_schema` text COMMENT '配置的模式',
+                                   `encrypted_data_key` varchar(1024) NOT NULL DEFAULT '' COMMENT '密钥',
+                                   PRIMARY KEY (`id`),
+                                   UNIQUE KEY `uk_configinfo_datagrouptenant` (`data_id`,`group_id`,`tenant_id`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_bin COMMENT='config_info';
+
+    /******************************************/
+    /*   表名称 = config_info  since 2.5.0                */
+    /******************************************/
+    CREATE TABLE `config_info_gray` (
+                                        `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT 'id',
+                                        `data_id` varchar(255) NOT NULL COMMENT 'data_id',
+                                        `group_id` varchar(128) NOT NULL COMMENT 'group_id',
+                                        `content` longtext NOT NULL COMMENT 'content',
+                                        `md5` varchar(32) DEFAULT NULL COMMENT 'md5',
+                                        `src_user` text COMMENT 'src_user',
+                                        `src_ip` varchar(100) DEFAULT NULL COMMENT 'src_ip',
+                                        `gmt_create` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT 'gmt_create',
+                                        `gmt_modified` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT 'gmt_modified',
+                                        `app_name` varchar(128) DEFAULT NULL COMMENT 'app_name',
+                                        `tenant_id` varchar(128) DEFAULT '' COMMENT 'tenant_id',
+                                        `gray_name` varchar(128) NOT NULL COMMENT 'gray_name',
+                                        `gray_rule` text COMMENT 'gray_rule',
+                                        `encrypted_data_key` varchar(256) NOT NULL DEFAULT '' COMMENT 'encrypted_data_key',
+                                        PRIMARY KEY (`id`),
+                                        UNIQUE KEY `uk_configinfogray_datagrouptenantgray` (`data_id`,`group_id`,`tenant_id`,`gray_name`),
+                                        KEY `idx_dataid_gmt_modified` (`data_id`,`gmt_modified`),
+                                        KEY `idx_gmt_modified` (`gmt_modified`)
+    ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8 COMMENT='config_info_gray';
+
+    /******************************************/
+    /*   表名称 = config_tags_relation         */
+    /******************************************/
+    CREATE TABLE `config_tags_relation` (
+                                            `id` bigint(20) NOT NULL COMMENT 'id',
+                                            `tag_name` varchar(128) NOT NULL COMMENT 'tag_name',
+                                            `tag_type` varchar(64) DEFAULT NULL COMMENT 'tag_type',
+                                            `data_id` varchar(255) NOT NULL COMMENT 'data_id',
+                                            `group_id` varchar(128) NOT NULL COMMENT 'group_id',
+                                            `tenant_id` varchar(128) DEFAULT '' COMMENT 'tenant_id',
+                                            `nid` bigint(20) NOT NULL AUTO_INCREMENT COMMENT 'nid, 自增长标识',
+                                            PRIMARY KEY (`nid`),
+                                            UNIQUE KEY `uk_configtagrelation_configidtag` (`id`,`tag_name`,`tag_type`),
+                                            KEY `idx_tenant_id` (`tenant_id`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_bin COMMENT='config_tag_relation';
+
+    /******************************************/
+    /*   表名称 = group_capacity               */
+    /******************************************/
+    CREATE TABLE `group_capacity` (
+                                      `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+                                      `group_id` varchar(128) NOT NULL DEFAULT '' COMMENT 'Group ID，空字符表示整个集群',
+                                      `quota` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '配额，0表示使用默认值',
+                                      `usage` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '使用量',
+                                      `max_size` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '单个配置大小上限，单位为字节，0表示使用默认值',
+                                      `max_aggr_count` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '聚合子配置最大个数，，0表示使用默认值',
+                                      `max_aggr_size` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '单个聚合数据的子配置大小上限，单位为字节，0表示使用默认值',
+                                      `max_history_count` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '最大变更历史数量',
+                                      `gmt_create` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                                      `gmt_modified` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '修改时间',
+                                      PRIMARY KEY (`id`),
+                                      UNIQUE KEY `uk_group_id` (`group_id`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_bin COMMENT='集群、各Group容量信息表';
+
+    /******************************************/
+    /*   表名称 = his_config_info              */
+    /******************************************/
+    CREATE TABLE `his_config_info` (
+                                       `id` bigint(20) unsigned NOT NULL COMMENT 'id',
+                                       `nid` bigint(20) unsigned NOT NULL AUTO_INCREMENT COMMENT 'nid, 自增标识',
+                                       `data_id` varchar(255) NOT NULL COMMENT 'data_id',
+                                       `group_id` varchar(128) NOT NULL COMMENT 'group_id',
+                                       `app_name` varchar(128) DEFAULT NULL COMMENT 'app_name',
+                                       `content` longtext NOT NULL COMMENT 'content',
+                                       `md5` varchar(32) DEFAULT NULL COMMENT 'md5',
+                                       `gmt_create` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                                       `gmt_modified` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '修改时间',
+                                       `src_user` text COMMENT 'source user',
+                                       `src_ip` varchar(50) DEFAULT NULL COMMENT 'source ip',
+                                       `op_type` char(10) DEFAULT NULL COMMENT 'operation type',
+                                       `tenant_id` varchar(128) DEFAULT '' COMMENT '租户字段',
+                                       `encrypted_data_key` varchar(1024) NOT NULL DEFAULT '' COMMENT '密钥',
+                                       `publish_type` varchar(50)  DEFAULT 'formal' COMMENT 'publish type gray or formal',
+                                       `gray_name` varchar(50)  DEFAULT NULL COMMENT 'gray name',
+                                       `ext_info`  longtext DEFAULT NULL COMMENT 'ext info',
+                                       PRIMARY KEY (`nid`),
+                                       KEY `idx_gmt_create` (`gmt_create`),
+                                       KEY `idx_gmt_modified` (`gmt_modified`),
+                                       KEY `idx_did` (`data_id`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_bin COMMENT='多租户改造';
+
+
+    /******************************************/
+    /*   表名称 = tenant_capacity              */
+    /******************************************/
+    CREATE TABLE `tenant_capacity` (
+                                       `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+                                       `tenant_id` varchar(128) NOT NULL DEFAULT '' COMMENT 'Tenant ID',
+                                       `quota` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '配额，0表示使用默认值',
+                                       `usage` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '使用量',
+                                       `max_size` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '单个配置大小上限，单位为字节，0表示使用默认值',
+                                       `max_aggr_count` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '聚合子配置最大个数',
+                                       `max_aggr_size` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '单个聚合数据的子配置大小上限，单位为字节，0表示使用默认值',
+                                       `max_history_count` int(10) unsigned NOT NULL DEFAULT '0' COMMENT '最大变更历史数量',
+                                       `gmt_create` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                                       `gmt_modified` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '修改时间',
+                                       PRIMARY KEY (`id`),
+                                       UNIQUE KEY `uk_tenant_id` (`tenant_id`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_bin COMMENT='租户容量信息表';
+
+
+    CREATE TABLE `tenant_info` (
+                                   `id` bigint(20) NOT NULL AUTO_INCREMENT COMMENT 'id',
+                                   `kp` varchar(128) NOT NULL COMMENT 'kp',
+                                   `tenant_id` varchar(128) default '' COMMENT 'tenant_id',
+                                   `tenant_name` varchar(128) default '' COMMENT 'tenant_name',
+                                   `tenant_desc` varchar(256) DEFAULT NULL COMMENT 'tenant_desc',
+                                   `create_source` varchar(32) DEFAULT NULL COMMENT 'create_source',
+                                   `gmt_create` bigint(20) NOT NULL COMMENT '创建时间',
+                                   `gmt_modified` bigint(20) NOT NULL COMMENT '修改时间',
+                                   PRIMARY KEY (`id`),
+                                   UNIQUE KEY `uk_tenant_info_kptenantid` (`kp`,`tenant_id`),
+                                   KEY `idx_tenant_id` (`tenant_id`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_bin COMMENT='tenant_info';
+
+    CREATE TABLE `users` (
+                             `username` varchar(50) NOT NULL PRIMARY KEY COMMENT 'username',
+                             `password` varchar(500) NOT NULL COMMENT 'password',
+                             `enabled` boolean NOT NULL COMMENT 'enabled'
+    );
+
+    CREATE TABLE `roles` (
+                             `username` varchar(50) NOT NULL COMMENT 'username',
+                             `role` varchar(50) NOT NULL COMMENT 'role',
+                             UNIQUE INDEX `idx_user_role` (`username` ASC, `role` ASC) USING BTREE
+    );
+
+    CREATE TABLE `permissions` (
+                                   `role` varchar(50) NOT NULL COMMENT 'role',
+                                   `resource` varchar(128) NOT NULL COMMENT 'resource',
+                                   `action` varchar(8) NOT NULL COMMENT 'action',
+                                   UNIQUE INDEX `uk_role_permission` (`role`,`resource`,`action`) USING BTREE
+    );
+
+    -- Insert default user
+    INSERT INTO users (username, password, enabled) VALUES ('nacos', '$2a$10$EuWPZHzz32dJN7jexM34MOeYirDdFAZm2kuWj7VEOJhhZkDrxfvUu', TRUE);
+    INSERT INTO roles (username, role) VALUES ('nacos', 'ROLE_ADMIN');
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-console
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-console
+data:
+  vn-homevn-nacosvn-confvn-clustervn-conf: |
+    ${{ defaults.app_name }}.${{ SEALOS_NAMESPACE }}.svc.cluster.local:8848
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-mysql-init
+spec:
+  completions: 1
+  template:
+    spec:
+      containers:
+        - name: mysql-init
+          image: mysql:8.0.30
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: password
+            - name: MYSQL_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: host
+            - name: MYSQL_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: port
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -e
+              echo "Waiting for MySQL to be ready..."
+              until mysql -h${MYSQL_HOST} -P${MYSQL_PORT} -uroot -p${MYSQL_ROOT_PASSWORD} -e "SELECT 1" &>/dev/null; do
+                echo "MySQL is not ready yet..."
+                sleep 2
+              done
+              echo "MySQL is ready. Initializing database..."
+              
+              # Execute SQL file
+              mysql -h${MYSQL_HOST} -P${MYSQL_PORT} -uroot -p${MYSQL_ROOT_PASSWORD} < /tmp/nacos-mysql.sql
+              
+              echo "Database initialization completed successfully."
+          volumeMounts:
+            - name: vn-tmpvn-nacosvn-mysqlvn-sql
+              mountPath: /tmp/nacos-mysql.sql
+              subPath: ./tmp/nacos-mysql.sql
+      volumes:
+        - name: vn-tmpvn-nacosvn-mysqlvn-sql
+          configMap:
+            name: ${{ defaults.app_name }}-mysql-init
+            items:
+              - key: vn-tmpvn-nacosvn-mysqlvn-sql
+                path: ./tmp/nacos-mysql.sql
+            defaultMode: 420
+      restartPolicy: Never
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-console
+  annotations:
+    originImageName: nacos/nacos-server:v3.0.3
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-console
+    app: ${{ defaults.app_name }}-console
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}-console
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-console
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-console
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-console
+          image: nacos/nacos-server:v3.0.3
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: NACOS_DEPLOYMENT_TYPE
+              value: console
+            - name: PREFER_HOST_MODE
+              value: hostname
+            - name: MODE
+              value: standalone
+            - name: SPRING_DATASOURCE_PLATFORM
+              value: mysql
+            - name: MYSQL_SERVICE_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: host
+            - name: MYSQL_SERVICE_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: port
+            - name: MYSQL_SERVICE_DB_NAME
+              value: nacos_devtest
+            - name: MYSQL_SERVICE_USER
+              value: root
+            - name: MYSQL_SERVICE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: password
+            - name: MYSQL_SERVICE_DB_PARAM
+              value: characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useUnicode=true&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+            - name: NACOS_AUTH_ENABLE
+              value: 'true'
+            - name: NACOS_AUTH_TOKEN
+              value: ${{ inputs.auth_token }}
+            - name: NACOS_AUTH_IDENTITY_KEY
+              value: serverIdentity
+            - name: NACOS_AUTH_IDENTITY_VALUE
+              value: security
+          ports:
+            - containerPort: 8080
+              name: console
+          resources:
+            requests:
+              cpu: 20m
+              memory: 512Mi
+            limits:
+              cpu: 200m
+              memory: 1Gi
+          volumeMounts:
+            - name: vn-homevn-nacosvn-logs
+              mountPath: /home/nacos/logs
+            - name: vn-homevn-nacosvn-confvn-clustervn-conf
+              mountPath: /home/nacos/conf/cluster.conf
+              subPath: ./home/nacos/conf/cluster.conf
+      volumes:
+        - name: vn-homevn-nacosvn-confvn-clustervn-conf
+          configMap:
+            name: ${{ defaults.app_name }}-console
+            items:
+              - key: vn-homevn-nacosvn-confvn-clustervn-conf
+                path: ./home/nacos/conf/cluster.conf
+            defaultMode: 420
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /home/nacos/logs
+          value: '1'
+        name: vn-homevn-nacosvn-logs
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+        storageClassName: openebs-backup
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-console
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-console
+spec:
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: console
+  selector:
+    app: ${{ defaults.app_name }}-console
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: nacos/nacos-server:v3.0.3
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: nacos/nacos-server:v3.0.3
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: NACOS_DEPLOYMENT_TYPE
+              value: server
+            - name: PREFER_HOST_MODE
+              value: hostname
+            - name: MODE
+              value: standalone
+            - name: SPRING_DATASOURCE_PLATFORM
+              value: mysql
+            - name: MYSQL_SERVICE_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: host
+            - name: MYSQL_SERVICE_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: port
+            - name: MYSQL_SERVICE_DB_NAME
+              value: nacos_devtest
+            - name: MYSQL_SERVICE_USER
+              value: root
+            - name: MYSQL_SERVICE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: password
+            - name: MYSQL_SERVICE_DB_PARAM
+              value: characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useUnicode=true&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+            - name: NACOS_AUTH_ENABLE
+              value: 'true'
+            - name: NACOS_AUTH_TOKEN
+              value: ${{ inputs.auth_token }}
+            - name: NACOS_AUTH_IDENTITY_KEY
+              value: serverIdentity
+            - name: NACOS_AUTH_IDENTITY_VALUE
+              value: security
+          ports:
+            - containerPort: 8848
+              name: client
+            - containerPort: 9848
+              name: client-rpc
+          resources:
+            requests:
+              cpu: 50m
+              memory: 102Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+          volumeMounts:
+            - name: vn-homevn-nacosvn-logs
+              mountPath: /home/nacos/logs
+            - name: vn-homevn-nacosvn-data
+              mountPath: /home/nacos/data
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /home/nacos/logs
+          value: '1'
+        name: vn-homevn-nacosvn-logs
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+        storageClassName: openebs-backup
+    - metadata:
+        annotations:
+          path: /home/nacos/data
+          value: '1'
+        name: vn-homevn-nacosvn-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+        storageClassName: openebs-backup
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - port: 8848
+      targetPort: 8848
+      name: client
+    - port: 9848
+      targetPort: 9848
+      name: client-rpc
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-console
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-console
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-console
+                port:
+                  number: 8080
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: "https://nacos.io/favicon.ico"
+  name: Nacos
+  type: link
