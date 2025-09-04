@@ -1,0 +1,252 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: pocketbase
+spec:
+  title: 'PocketBase'
+  url: 'https://pocketbase.io/'
+  gitRepo: 'https://github.com/adrianmusante/docker-pocketbase'
+  author: 'sealos'
+  description: 'Open source backend consisting of embedded database (SQLite) with realtime subscriptions, built-in auth management, convenient dashboard UI and simple REST-ish API'
+  readme: 'https://raw.githubusercontent.com/adrianmusante/docker-pocketbase/refs/heads/main/README.md'
+  icon: 'https://pocketbase.io/images/logo.svg'
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      title: 'PocketBase'
+      description: '开源后端服务，包含嵌入式数据库(SQLite)、实时订阅、内置认证管理、便捷的仪表盘UI和简单的REST API'
+  categories:
+    - backend
+    - low-code
+  defaults:
+    app_name:
+      type: string
+      value: pocketbase-${{ random(8) }}
+    app_host:
+      type: string
+      value: pocketbase-${{ random(8) }}
+  inputs:
+    admin_email:
+      description: 'Admin user email for login'
+      type: string
+      default: ''
+      required: true
+    admin_password:
+      description: 'Admin user password (minimum 8 characters)'
+      type: string
+      default: ''
+      required: true
+    encryption_key:
+      description: 'Encryption key for settings (recommended for production, 32 characters)'
+      type: string
+      default: '${{ random(32) }}'
+      required: false
+    debug_mode:
+      description: 'Enable debug mode'
+      type: boolean
+      default: 'false'
+      required: false
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: adrianmusante/pocketbase:0.29.3
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  serviceName: ${{ defaults.app_name }}
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: take-data-dir-ownership
+          image: busybox:latest
+          command: ["/bin/sh", "-c", "chown 1001:1001 /pocketbase"]
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: vn-pocketbase
+              mountPath: /pocketbase
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: adrianmusante/pocketbase:0.29.3
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: POCKETBASE_DEBUG
+              value: ${{ inputs.debug_mode }}
+            - name: POCKETBASE_PORT_NUMBER
+              value: '3000'
+            - name: POCKETBASE_ADMIN_EMAIL
+              value: ${{ inputs.admin_email }}
+            - name: POCKETBASE_ADMIN_PASSWORD
+              value: ${{ inputs.admin_password }}
+            ${{ if(inputs.encryption_key !== '') }}
+            - name: POCKETBASE_ENCRYPTION_KEY
+              value: ${{ inputs.encryption_key }}
+            ${{ endif() }}
+            - name: POCKETBASE_ADMIN_UPSERT
+              value: 'true'
+          ports:
+            - containerPort: 3000
+              name: http
+          volumeMounts:
+            - name: vn-pocketbase
+              mountPath: /pocketbase
+          resources:
+            requests:
+              cpu: 10m
+              memory: 12Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /pocketbase
+          value: '1'
+        name: vn-pocketbase
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 5Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3000
+      targetPort: 3000
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 3000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-redirect
+  annotations:
+    nginx.ingress.kubernetes.io/permanent-redirect: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/_/"
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Exact
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 3000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://pocketbase.io/images/logo.svg
+  name: ${{ defaults.app_name }}
+  type: link
