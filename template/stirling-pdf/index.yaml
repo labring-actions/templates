@@ -22,6 +22,11 @@ spec:
       type: string
       value: s-pdf-${{ random(8) }}
   inputs:
+    use_postgresql:
+      description: 'Use PostgreSQL database for production workloads (recommended for better performance and data persistence)'
+      type: boolean
+      default: 'false'
+      required: false
     DOCKER_ENABLE_SECURITY:
       description: "download security jar (required as true for auth login)"
       type: string
@@ -35,7 +40,7 @@ spec:
     LANGS:
       description: "define custom font libraries to install for use for document conversions"
       type: string
-      default: "en_GB,en_US,zh_CN,zh_TW"
+      default: "en-GB,en-US,zh-CN,zh-TW"
       required: false
     INSTALL_BOOK_AND_ADVANCED_HTML_OPS:
       description: "download calibre onto stirling-pdf enabling pdf to/from book and advanced html conversion"
@@ -45,7 +50,7 @@ spec:
     SYSTEM_DEFAULTLOCALE:
       description: "Set the default language"
       type: string
-      default: "zh_CN"
+      default: "en-US"
       required: false
     UI_APPNAME:
       description: "Application's visible name"
@@ -74,6 +79,8 @@ spec:
       required: false
 ---
 
+${{ if(inputs.SYSTEM_DEFAULTLOCALE === 'zh-CN') }}
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -85,14 +92,136 @@ data:
     @testing https://mirrors.ustc.edu.cn/alpine/edge/main
     @testing https://mirrors.ustc.edu.cn/alpine/edge/community
     @testing https://mirrors.ustc.edu.cn/alpine/edge/testing
----
+${{ endif() }}
 
+${{ if(inputs.use_postgresql === 'true') }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-14.8.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+  annotations: {}
+  name: ${{ defaults.app_name }}-pg
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-14.8.0
+  componentSpecs:
+    - componentDefRef: postgresql
+      monitor: true
+      name: postgresql
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+  terminationPolicy: Delete
+  tolerations: []
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+spec:
+  completions: 1
+  template:
+    spec:
+      containers:
+        - name: pgsql-init
+          image: postgres:14-alpine
+          env:
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until psql ${DATABASE_URL} -c 'CREATE DATABASE stirling_pdf;' &>/dev/null; do sleep 1; done
+      restartPolicy: Never
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+${{ endif() }}
+
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: frooodle/s-pdf:0.26.1-fat
+    originImageName: ghcr.io/stirling-tools/stirling-pdf:1.2.0-fat
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -123,7 +252,7 @@ spec:
               mountPath: /tmp
       containers:
         - name: ${{ defaults.app_name }}
-          image: frooodle/s-pdf:0.26.1-fat
+          image: ghcr.io/stirling-tools/stirling-pdf:1.2.0-fat
           env:
             - name: DOCKER_ENABLE_SECURITY
               value: ${{ inputs.DOCKER_ENABLE_SECURITY }}
@@ -145,14 +274,40 @@ spec:
               value: ${{ inputs.METRICS_ENABLED }}
             - name: SYSTEM_GOOGLEVISIBILITY
               value: ${{ inputs.SYSTEM_GOOGLEVISIBILITY }}
+            ${{ if(inputs.use_postgresql === 'true') }}
+            - name: SYSTEM_DATASOURCE_ENABLECUSTOMDATABASE
+              value: 'true'
+            - name: DB_POSTGRESDB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: DB_POSTGRESDB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: DB_POSTGRESDB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DB_POSTGRESDB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: SYSTEM_DATASOURCE_CUSTOMDATABASEURL
+              value: 'jdbc:postgresql://$(DB_POSTGRESDB_USER):$(DB_POSTGRESDB_PASSWORD)@$(DB_POSTGRESDB_HOST):$(DB_POSTGRESDB_PORT)/stirling_pdf'
+            ${{ endif() }}
           resources:
             requests:
               cpu: 100m
-              memory: 307Mi
+              memory: 204Mi
               ephemeral-storage: "200Mi"
             limits:
               cpu: 1000m
-              memory: 3072Mi
+              memory: 2048Mi
               ephemeral-storage: "200Mi"
           ports:
             - name: http
@@ -164,9 +319,15 @@ spec:
               mountPath: /usr/share/tessdata
             - name: vn-configs
               mountPath: /configs
+            ${{ if(inputs.SYSTEM_DEFAULTLOCALE === 'zh-CN') }}
             - name: vn-etcvn-apkvn-repositories
               mountPath: /etc/apk/repositories
               subPath: ./etc/apk/repositories
+            ${{ endif() }}
+            - name: vn-customfiles
+              mountPath: /customFiles
+            - name: vn-pipeline
+              mountPath: /pipeline
             - name: vn-tmp
               mountPath: /tmp
           livenessProbe:
@@ -176,6 +337,9 @@ spec:
               - -c
               - curl -f http://localhost:8080/api/v1/info/status | grep -q 'UP'
             initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 10
           readinessProbe:
             exec:
               command:
@@ -183,6 +347,10 @@ spec:
               - -c
               - curl -f http://localhost:8080/api/v1/info/status | grep -q 'UP'
             initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+      ${{ if(inputs.SYSTEM_DEFAULTLOCALE === 'zh-CN') }}
       volumes:
         - name: vn-etcvn-apkvn-repositories
           configMap:
@@ -190,6 +358,7 @@ spec:
             items:
               - key: vn-etcvn-apkvn-repositories
                 path: ./etc/apk/repositories
+      ${{ endif() }}
   volumeClaimTemplates:
     - metadata:
         annotations:
@@ -207,6 +376,28 @@ spec:
           path: /configs
           value: '1'
         name: vn-configs
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+    - metadata:
+        annotations:
+          path: /customFiles
+          value: '1'
+        name: vn-customfiles
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+    - metadata:
+        annotations:
+          path: /pipeline
+          value: '1'
+        name: vn-pipeline
       spec:
         accessModes:
           - ReadWriteOnce
@@ -246,10 +437,6 @@ metadata:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
-    higress.io/response-header-control-remove: X-Frame-Options
-    higress.io/response-header-control-update: |
-      Content-Security-Policy "default-src * blob: data: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; img-src * data: blob: resource: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; connect-src * wss: blob: resource:; style-src 'self' 'unsafe-inline' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource: *.baidu.com *.bdstatic.com; frame-src 'self' *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} mailto: tel: weixin: mtt: *.baidu.com; frame-ancestors 'self' https://${{ SEALOS_CLOUD_DOMAIN }} https://*.${{ SEALOS_CLOUD_DOMAIN }}"
-      X-Xss-Protection "1; mode=block"
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/proxy-body-size: 32m
     nginx.ingress.kubernetes.io/server-snippet: |
@@ -263,9 +450,6 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
     nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
     nginx.ingress.kubernetes.io/configuration-snippet: |
-      more_clear_headers "X-Frame-Options:";
-      more_set_headers "Content-Security-Policy: default-src * blob: data: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; img-src * data: blob: resource: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; connect-src * wss: blob: resource:; style-src 'self' 'unsafe-inline' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource: *.baidu.com *.bdstatic.com; frame-src 'self' *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} mailto: tel: weixin: mtt: *.baidu.com; frame-ancestors 'self' https://${{ SEALOS_CLOUD_DOMAIN }} https://*.${{ SEALOS_CLOUD_DOMAIN }}";
-      more_set_headers "X-Xss-Protection: 1; mode=block";
       if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
         expires 30d;
         add_header Cache-Control "public";
@@ -300,4 +484,4 @@ spec:
   displayType: normal
   icon: "https://avatars.githubusercontent.com/u/139791695?s=48&v=4"
   name: "Stirling-PDF"
-  type: iframe
+  type: link
