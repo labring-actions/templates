@@ -1,0 +1,542 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: full-stack-fastapi
+spec:
+  title: 'Full Stack FastAPI'
+  url: 'https://github.com/yangchuansheng/full-stack-fastapi-template'
+  gitRepo: 'https://github.com/yangchuansheng/full-stack-fastapi-template'
+  author: 'Sealos'
+  description: 'Production-ready FastAPI + PostgreSQL + Frontend stack'
+  readme: 'https://raw.githubusercontent.com/tiangolo/full-stack-fastapi-template/master/README.md'
+  icon: 'https://avatars.githubusercontent.com/u/156354296?s=200&v=4'
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: '生产可用的 FastAPI + PostgreSQL + 前端全栈模板'
+  categories:
+    - backend
+    - frontend
+    - tool
+  defaults:
+    app_name:
+      type: string
+      value: full-stack-fastapi-${{ random(8) }}
+    app_host:
+      type: string
+      value: fastapi-${{ random(8) }}
+  inputs:
+    SECRET_KEY:
+      description: 'Backend secret key (JWT signing)'
+      type: string
+      default: ${{ random(32) }}
+      required: true
+    FIRST_SUPERUSER:
+      description: 'Initial superuser email for backend'
+      type: string
+      default: ''
+      required: true
+    FIRST_SUPERUSER_PASSWORD:
+      description: 'Initial superuser password for backend'
+      type: string
+      default: ''
+      required: true
+    EMAILS_FROM_EMAIL:
+      description: 'Sender email for SMTP (optional)'
+      type: string
+      default: ''
+      required: false
+    SMTP_HOST:
+      description: 'SMTP host (optional)'
+      type: string
+      default: ''
+      required: false
+    SMTP_USER:
+      description: 'SMTP user (optional)'
+      type: string
+      default: ''
+      required: false
+    SMTP_PASSWORD:
+      description: 'SMTP password (optional)'
+      type: string
+      default: ''
+      required: false
+    SENTRY_DSN:
+      description: 'Sentry DSN (optional)'
+      type: string
+      default: ''
+      required: false
+
+---
+# PostgreSQL ServiceAccount
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+
+---
+# PostgreSQL Role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+# PostgreSQL RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+
+---
+# PostgreSQL Cluster (Kubeblocks)
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-14.8.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+  annotations: {}
+  name: ${{ defaults.app_name }}-pg
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-14.8.0
+  componentSpecs:
+    - componentDefRef: postgresql
+      monitor: true
+      name: postgresql
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+  tolerations: []
+
+---
+# PostgreSQL Init Job - create database 'app'
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-pg-init
+spec:
+  completions: 1
+  template:
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: pgsql-init
+          image: postgres:14-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: DATABASE_URL
+              value: postgresql://$(PG_USERNAME):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until psql ${DATABASE_URL} -c 'CREATE DATABASE app;' &>/dev/null; do sleep 1; done
+      restartPolicy: Never
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+
+---
+# PostgreSQL Init Job - create database 'app'
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-init
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-init
+spec:
+  completions: 1
+  template:
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: init-prestart
+          image: ghcr.io/yangchuansheng/full-stack-fastapi-backend:0.8.0
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -e
+              echo "Running backend prestart (DB migrations & initial data)"
+              until bash scripts/prestart.sh; do sleep 1; done
+          env:
+            - name: ENVIRONMENT
+              value: production
+            - name: DOMAIN
+              value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: FRONTEND_HOST
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: BACKEND_CORS_ORIGINS
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: SECRET_KEY
+              value: ${{ inputs.SECRET_KEY }}
+            - name: FIRST_SUPERUSER
+              value: ${{ inputs.FIRST_SUPERUSER }}
+            - name: FIRST_SUPERUSER_PASSWORD
+              value: ${{ inputs.FIRST_SUPERUSER_PASSWORD }}
+            - name: EMAILS_FROM_EMAIL
+              value: ${{ inputs.EMAILS_FROM_EMAIL }}
+            - name: SMTP_HOST
+              value: ${{ inputs.SMTP_HOST }}
+            - name: SMTP_USER
+              value: ${{ inputs.SMTP_USER }}
+            - name: SMTP_PASSWORD
+              value: ${{ inputs.SMTP_PASSWORD }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: POSTGRES_SERVER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: POSTGRES_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: POSTGRES_DB
+              value: app
+            - name: SENTRY_DSN
+              value: ${{ inputs.SENTRY_DSN }}
+            - name: PROJECT_NAME
+              value: Full Stack FastAPI Project
+      restartPolicy: Never
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+
+---
+# Backend StatefulSet
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-backend
+  annotations:
+    originImageName: ghcr.io/yangchuansheng/full-stack-fastapi-backend:0.8.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-backend
+    app: ${{ defaults.app_name }}-backend
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-backend
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-backend
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-backend
+          image: ghcr.io/yangchuansheng/full-stack-fastapi-backend:0.8.0
+          imagePullPolicy: IfNotPresent
+          env:
+            # Environment and domain
+            - name: ENVIRONMENT
+              value: production
+            - name: DOMAIN
+              value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: FRONTEND_HOST
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            # CORS (allow frontend domain)
+            - name: BACKEND_CORS_ORIGINS
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            # Security and first user
+            - name: SECRET_KEY
+              value: ${{ inputs.SECRET_KEY }}
+            - name: FIRST_SUPERUSER
+              value: ${{ inputs.FIRST_SUPERUSER }}
+            - name: FIRST_SUPERUSER_PASSWORD
+              value: ${{ inputs.FIRST_SUPERUSER_PASSWORD }}
+            # SMTP (optional)
+            - name: EMAILS_FROM_EMAIL
+              value: ${{ inputs.EMAILS_FROM_EMAIL }}
+            - name: SMTP_HOST
+              value: ${{ inputs.SMTP_HOST }}
+            - name: SMTP_USER
+              value: ${{ inputs.SMTP_USER }}
+            - name: SMTP_PASSWORD
+              value: ${{ inputs.SMTP_PASSWORD }}
+            # DB configuration (from Kubeblocks secret)
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: POSTGRES_SERVER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: POSTGRES_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: POSTGRES_DB
+              value: app
+            # Sentry (optional)
+            - name: SENTRY_DSN
+              value: ${{ inputs.SENTRY_DSN }}
+            - name: PROJECT_NAME
+              value: Full Stack FastAPI Project
+          ports:
+            - containerPort: 8000
+              name: http
+          resources:
+            requests:
+              cpu: 20m
+              memory: 51Mi
+            limits:
+              cpu: 200m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /api/v1/utils/health-check/
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /api/v1/utils/health-check/
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 10
+
+---
+# Backend Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-backend
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-backend
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  selector:
+    app: ${{ defaults.app_name }}-backend
+
+---
+# Frontend Deployment (Main App)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/yangchuansheng/full-stack-fastapi-frontend:0.8.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: ghcr.io/yangchuansheng/full-stack-fastapi-frontend:0.8.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+              name: http
+          resources:
+            requests:
+              cpu: 10m
+              memory: 12Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+
+---
+# Frontend Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 80
+      protocol: TCP
+      name: http
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+# Frontend Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 80
+          - pathType: Prefix
+            path: /api
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-backend
+                port:
+                  number: 8000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+# App CR (link to frontend)
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: "https://avatars.githubusercontent.com/u/156354296?s=200&v=4"
+  name: Full Stack FastAPI
+  type: link
