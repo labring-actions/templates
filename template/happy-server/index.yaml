@@ -1,0 +1,825 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: ${{ defaults.app_name }}
+spec:
+  title: 'Happy Server'
+  url: 'https://github.com/your-org/happy-server'
+  gitRepo: 'https://github.com/your-org/happy-server'
+  author: 'Sealos'
+  description: 'Minimal backend for open-source end-to-end encrypted Claude Code clients.'
+  readme: 'https://raw.githubusercontent.com/slopus/happy-server/refs/heads/main/README.md'
+  icon: 'https://avatars.githubusercontent.com/u/221431600?s=48&v=4'
+  templateType: inline
+  locale: en
+  categories:
+    - ai
+  i18n:
+    zh:
+      description: '专为 Claude Code 开源、端到端加密客户端打造的极简后端。'
+  defaults:
+    app_name:
+      type: string
+      value: happy-server-${{ random(8) }}
+    app_host:
+      type: string
+      value: happy-server-${{ random(8) }}
+  inputs:
+    seed:
+      description: 'Seed for token generation'
+      type: string
+      default: ${{ random(32) }}
+      required: true
+    node_env:
+      description: 'Node environment'
+      type: choice
+      default: 'production'
+      options:
+        - production
+        - development
+      required: true
+
+---
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}
+spec:
+  policy: private
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-14.8.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+  name: ${{ defaults.app_name }}-pg
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-14.8.0
+  componentSpecs:
+    - componentDefRef: postgresql
+      monitor: true
+      name: postgresql
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+  terminationPolicy: Delete
+  tolerations: []
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-pg-init
+data:
+  vn-initvn-sql: |
+    CREATE OR REPLACE FUNCTION update_updated_at_column()
+    RETURNS TRIGGER AS $$
+    BEGIN
+       NEW."updatedAt" = now();
+       RETURN NEW;
+    END;
+    $$ language 'plpgsql';
+
+    CREATE TYPE "RelationshipStatus" AS ENUM ('none', 'requested', 'pending', 'friend', 'rejected');
+
+    CREATE TABLE IF NOT EXISTS "GithubUser" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "profile" JSONB NOT NULL,
+        "token" BYTEA,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    DROP TRIGGER IF EXISTS update_githubuser_updated_at ON "GithubUser";
+    CREATE TRIGGER update_githubuser_updated_at
+    BEFORE UPDATE ON "GithubUser"
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+    CREATE TABLE IF NOT EXISTS "GithubOrganization" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "profile" JSONB NOT NULL,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    DROP TRIGGER IF EXISTS update_githuborganization_updated_at ON "GithubOrganization";
+    CREATE TRIGGER update_githuborganization_updated_at
+    BEFORE UPDATE ON "GithubOrganization"
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+    CREATE TABLE IF NOT EXISTS "Account" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "publicKey" TEXT NOT NULL UNIQUE,
+        "seq" INTEGER NOT NULL DEFAULT 0,
+        "feedSeq" BIGINT NOT NULL DEFAULT 0,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "settings" TEXT,
+        "settingsVersion" INTEGER NOT NULL DEFAULT 0,
+        "githubUserId" TEXT UNIQUE,
+        "firstName" TEXT,
+        "lastName" TEXT,
+        "username" TEXT UNIQUE,
+        "avatar" JSONB,
+        CONSTRAINT "Account_githubUserId_fkey" FOREIGN KEY ("githubUserId") REFERENCES "GithubUser"("id") ON DELETE SET NULL ON UPDATE CASCADE
+    );
+    DROP TRIGGER IF EXISTS update_account_updated_at ON "Account";
+    CREATE TRIGGER update_account_updated_at
+    BEFORE UPDATE ON "Account"
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+    CREATE TABLE IF NOT EXISTS "TerminalAuthRequest" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "publicKey" TEXT NOT NULL UNIQUE,
+        "supportsV2" BOOLEAN NOT NULL DEFAULT false,
+        "response" TEXT,
+        "responseAccountId" TEXT,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "TerminalAuthRequest_responseAccountId_fkey" FOREIGN KEY ("responseAccountId") REFERENCES "Account"("id") ON DELETE SET NULL ON UPDATE CASCADE
+    );
+    DROP TRIGGER IF EXISTS update_terminalauthrequest_updated_at ON "TerminalAuthRequest";
+    CREATE TRIGGER update_terminalauthrequest_updated_at
+    BEFORE UPDATE ON "TerminalAuthRequest"
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+    CREATE TABLE IF NOT EXISTS "AccountAuthRequest" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "publicKey" TEXT NOT NULL UNIQUE,
+        "response" TEXT,
+        "responseAccountId" TEXT,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "AccountAuthRequest_responseAccountId_fkey" FOREIGN KEY ("responseAccountId") REFERENCES "Account"("id") ON DELETE SET NULL ON UPDATE CASCADE
+    );
+    DROP TRIGGER IF EXISTS update_accountauthrequest_updated_at ON "AccountAuthRequest";
+    CREATE TRIGGER update_accountauthrequest_updated_at
+    BEFORE UPDATE ON "AccountAuthRequest"
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+    CREATE TABLE IF NOT EXISTS "AccountPushToken" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "accountId" TEXT NOT NULL,
+        "token" TEXT NOT NULL,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "AccountPushToken_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+        UNIQUE ("accountId", "token")
+    );
+    DROP TRIGGER IF EXISTS update_accountpushtoken_updated_at ON "AccountPushToken";
+    CREATE TRIGGER update_accountpushtoken_updated_at
+    BEFORE UPDATE ON "AccountPushToken"
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+    CREATE TABLE IF NOT EXISTS "Session" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "tag" TEXT NOT NULL,
+        "accountId" TEXT NOT NULL,
+        "metadata" TEXT NOT NULL,
+        "metadataVersion" INTEGER NOT NULL DEFAULT 0,
+        "agentState" TEXT,
+        "agentStateVersion" INTEGER NOT NULL DEFAULT 0,
+        "dataEncryptionKey" BYTEA,
+        "seq" INTEGER NOT NULL DEFAULT 0,
+        "active" BOOLEAN NOT NULL DEFAULT true,
+        "lastActiveAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "Session_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+        UNIQUE ("accountId", "tag")
+    );
+    DROP TRIGGER IF EXISTS update_session_updated_at ON "Session";
+    CREATE TRIGGER update_session_updated_at
+    BEFORE UPDATE ON "Session"
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+    CREATE TABLE IF NOT EXISTS "SessionMessage" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "sessionId" TEXT NOT NULL,
+        "localId" TEXT,
+        "seq" INTEGER NOT NULL,
+        "content" JSONB NOT NULL,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "SessionMessage_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "Session"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+        UNIQUE ("sessionId", "localId")
+    );
+    DROP TRIGGER IF EXISTS update_sessionmessage_updated_at ON "SessionMessage";
+    CREATE TRIGGER update_sessionmessage_updated_at
+    BEFORE UPDATE ON "SessionMessage"
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+    CREATE TABLE IF NOT EXISTS "GlobalLock" (
+        "key" TEXT NOT NULL PRIMARY KEY,
+        "value" TEXT NOT NULL,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "expiresAt" TIMESTAMP(3) NOT NULL
+    );
+    DROP TRIGGER IF EXISTS update_globallock_updated_at ON "GlobalLock";
+    CREATE TRIGGER update_globallock_updated_at
+    BEFORE UPDATE ON "GlobalLock"
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+    CREATE TABLE IF NOT EXISTS "RepeatKey" (
+        "key" TEXT NOT NULL PRIMARY KEY,
+        "value" TEXT NOT NULL,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "expiresAt" TIMESTAMP(3) NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS "SimpleCache" (
+        "key" TEXT NOT NULL PRIMARY KEY,
+        "value" TEXT NOT NULL,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    DROP TRIGGER IF EXISTS update_simplecache_updated_at ON "SimpleCache";
+    CREATE TRIGGER update_simplecache_updated_at
+    BEFORE UPDATE ON "SimpleCache"
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+    CREATE TABLE IF NOT EXISTS "UsageReport" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "key" TEXT NOT NULL,
+        "accountId" TEXT NOT NULL,
+        "sessionId" TEXT,
+        "data" JSONB NOT NULL,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "UsageReport_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+        CONSTRAINT "UsageReport_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "Session"("id") ON DELETE SET NULL ON UPDATE CASCADE,
+        UNIQUE ("accountId", "sessionId", "key")
+    );
+    DROP TRIGGER IF EXISTS update_usagereport_updated_at ON "UsageReport";
+    CREATE TRIGGER update_usagereport_updated_at
+    BEFORE UPDATE ON "UsageReport"
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+    CREATE TABLE IF NOT EXISTS "Machine" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "accountId" TEXT NOT NULL,
+        "metadata" TEXT NOT NULL,
+        "metadataVersion" INTEGER NOT NULL DEFAULT 0,
+        "daemonState" TEXT,
+        "daemonStateVersion" INTEGER NOT NULL DEFAULT 0,
+        "dataEncryptionKey" BYTEA,
+        "seq" INTEGER NOT NULL DEFAULT 0,
+        "active" BOOLEAN NOT NULL DEFAULT true,
+        "lastActiveAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "Machine_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+        UNIQUE ("accountId", "id")
+    );
+    DROP TRIGGER IF EXISTS update_machine_updated_at ON "Machine";
+    CREATE TRIGGER update_machine_updated_at
+    BEFORE UPDATE ON "Machine"
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+    CREATE TABLE IF NOT EXISTS "UploadedFile" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "accountId" TEXT NOT NULL,
+        "path" TEXT NOT NULL,
+        "width" INTEGER,
+        "height" INTEGER,
+        "thumbhash" TEXT,
+        "reuseKey" TEXT,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "UploadedFile_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+        UNIQUE ("accountId", "path")
+    );
+    DROP TRIGGER IF EXISTS update_uploadedfile_updated_at ON "UploadedFile";
+    CREATE TRIGGER update_uploadedfile_updated_at
+    BEFORE UPDATE ON "UploadedFile"
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+    CREATE TABLE IF NOT EXISTS "ServiceAccountToken" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "accountId" TEXT NOT NULL,
+        "vendor" TEXT NOT NULL,
+        "token" BYTEA NOT NULL,
+        "metadata" JSONB,
+        "lastUsedAt" TIMESTAMP(3),
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "ServiceAccountToken_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+        UNIQUE ("accountId", "vendor")
+    );
+    DROP TRIGGER IF EXISTS update_serviceaccounttoken_updated_at ON "ServiceAccountToken";
+    CREATE TRIGGER update_serviceaccounttoken_updated_at
+    BEFORE UPDATE ON "ServiceAccountToken"
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+    CREATE TABLE IF NOT EXISTS "Artifact" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "accountId" TEXT NOT NULL,
+        "header" BYTEA NOT NULL,
+        "headerVersion" INTEGER NOT NULL DEFAULT 0,
+        "body" BYTEA NOT NULL,
+        "bodyVersion" INTEGER NOT NULL DEFAULT 0,
+        "dataEncryptionKey" BYTEA NOT NULL,
+        "seq" INTEGER NOT NULL DEFAULT 0,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "Artifact_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE RESTRICT ON UPDATE CASCADE
+    );
+    DROP TRIGGER IF EXISTS update_artifact_updated_at ON "Artifact";
+    CREATE TRIGGER update_artifact_updated_at
+    BEFORE UPDATE ON "Artifact"
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+    CREATE TABLE IF NOT EXISTS "AccessKey" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "accountId" TEXT NOT NULL,
+        "machineId" TEXT NOT NULL,
+        "sessionId" TEXT NOT NULL,
+        "data" TEXT NOT NULL,
+        "dataVersion" INTEGER NOT NULL DEFAULT 0,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "AccessKey_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+        CONSTRAINT "AccessKey_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "Session"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+        CONSTRAINT "AccessKey_accountId_machineId_fkey" FOREIGN KEY ("accountId", "machineId") REFERENCES "Machine"("accountId", "id") ON DELETE RESTRICT ON UPDATE CASCADE,
+        UNIQUE ("accountId", "machineId", "sessionId")
+    );
+    DROP TRIGGER IF EXISTS update_accesskey_updated_at ON "AccessKey";
+    CREATE TRIGGER update_accesskey_updated_at
+    BEFORE UPDATE ON "AccessKey"
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+    CREATE TABLE IF NOT EXISTS "UserRelationship" (
+        "fromUserId" TEXT NOT NULL,
+        "toUserId" TEXT NOT NULL,
+        "status" "RelationshipStatus" NOT NULL DEFAULT 'pending',
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "acceptedAt" TIMESTAMP(3),
+        "lastNotifiedAt" TIMESTAMP(3),
+        PRIMARY KEY ("fromUserId", "toUserId"),
+        CONSTRAINT "UserRelationship_fromUserId_fkey" FOREIGN KEY ("fromUserId") REFERENCES "Account"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+        CONSTRAINT "UserRelationship_toUserId_fkey" FOREIGN KEY ("toUserId") REFERENCES "Account"("id") ON DELETE CASCADE ON UPDATE CASCADE
+    );
+    DROP TRIGGER IF EXISTS update_userrelationship_updated_at ON "UserRelationship";
+    CREATE TRIGGER update_userrelationship_updated_at
+    BEFORE UPDATE ON "UserRelationship"
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+    CREATE TABLE IF NOT EXISTS "UserFeedItem" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "userId" TEXT NOT NULL,
+        "counter" BIGINT NOT NULL,
+        "repeatKey" TEXT,
+        "body" JSONB NOT NULL,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "UserFeedItem_userId_fkey" FOREIGN KEY ("userId") REFERENCES "Account"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+        UNIQUE ("userId", "counter"),
+        UNIQUE ("userId", "repeatKey")
+    );
+    DROP TRIGGER IF EXISTS update_userfeeditem_updated_at ON "UserFeedItem";
+    CREATE TRIGGER update_userfeeditem_updated_at
+    BEFORE UPDATE ON "UserFeedItem"
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+    CREATE TABLE IF NOT EXISTS "UserKVStore" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "accountId" TEXT NOT NULL,
+        "key" TEXT NOT NULL,
+        "value" BYTEA,
+        "version" INTEGER NOT NULL DEFAULT 0,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "UserKVStore_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+        UNIQUE ("accountId", "key")
+    );
+    DROP TRIGGER IF EXISTS update_userkvstore_updated_at ON "UserKVStore";
+    CREATE TRIGGER update_userkvstore_updated_at
+    BEFORE UPDATE ON "UserKVStore"
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+    CREATE INDEX IF NOT EXISTS "Session_accountId_updatedAt_idx" ON "Session"("accountId", "updatedAt" DESC);
+    CREATE INDEX IF NOT EXISTS "SessionMessage_sessionId_seq_idx" ON "SessionMessage"("sessionId", "seq");
+    CREATE INDEX IF NOT EXISTS "UsageReport_accountId_idx" ON "UsageReport"("accountId");
+    CREATE INDEX IF NOT EXISTS "UsageReport_sessionId_idx" ON "UsageReport"("sessionId");
+    CREATE INDEX IF NOT EXISTS "Machine_accountId_idx" ON "Machine"("accountId");
+    CREATE INDEX IF NOT EXISTS "UploadedFile_accountId_idx" ON "UploadedFile"("accountId");
+    CREATE INDEX IF NOT EXISTS "ServiceAccountToken_accountId_idx" ON "ServiceAccountToken"("accountId");
+    CREATE INDEX IF NOT EXISTS "Artifact_accountId_idx" ON "Artifact"("accountId");
+    CREATE INDEX IF NOT EXISTS "Artifact_accountId_updatedAt_idx" ON "Artifact"("accountId", "updatedAt" DESC);
+    CREATE INDEX IF NOT EXISTS "AccessKey_accountId_idx" ON "AccessKey"("accountId");
+    CREATE INDEX IF NOT EXISTS "AccessKey_sessionId_idx" ON "AccessKey"("sessionId");
+    CREATE INDEX IF NOT EXISTS "AccessKey_machineId_idx" ON "AccessKey"("machineId");
+    CREATE INDEX IF NOT EXISTS "UserRelationship_toUserId_status_idx" ON "UserRelationship"("toUserId", "status");
+    CREATE INDEX IF NOT EXISTS "UserRelationship_fromUserId_status_idx" ON "UserRelationship"("fromUserId", "status");
+    CREATE INDEX IF NOT EXISTS "UserFeedItem_userId_counter_idx" ON "UserFeedItem"("userId", "counter" DESC);
+    CREATE INDEX IF NOT EXISTS "UserKVStore_accountId_idx" ON "UserKVStore"("accountId");
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-pg-init
+spec:
+  completions: 1
+  template:
+    spec:
+      containers:
+        - name: pgsql-init
+          image: postgres:15-alpine
+          env:
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until psql ${DATABASE_URL} -c 'CREATE DATABASE "happy-server";' &>/dev/null; do sleep 1; done
+              psql ${DATABASE_URL}/happy-server -f /init/init.sql
+          volumeMounts:
+            - name: vn-initvn-sql
+              mountPath: /init/init.sql
+              subPath: ./init.sql
+      volumes:
+        - name: vn-initvn-sql
+          configMap:
+            name: ${{ defaults.app_name }}-pg-init
+            items:
+              - key: vn-initvn-sql
+                path: ./init.sql
+            defaultMode: 420
+      restartPolicy: Never
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-redis
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-redis
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-redis
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-redis
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-redis
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: redis
+    clusterversion.kubeblocks.io/name: redis-7.0.6
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+  name: ${{ defaults.app_name }}-redis
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: redis
+  clusterVersionRef: redis-7.0.6
+  componentSpecs:
+    - componentDefRef: redis
+      monitor: true
+      name: redis
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+    - componentDefRef: redis-sentinel
+      monitor: true
+      name: redis-sentinel
+      replicas: 1
+      resources:
+        limits:
+          cpu: 100m
+          memory: 100Mi
+        requests:
+          cpu: 100m
+          memory: 100Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
+  terminationPolicy: Delete
+  tolerations: []
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/yangchuansheng/happy-server:20250930080708
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: ghcr.io/yangchuansheng/happy-server:20250930080708
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: NODE_ENV
+              value: ${{ inputs.node_env }}
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: DATABASE_URL
+              value: postgresql://postgres:$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/happy-server
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-conn-credential
+                  key: password
+            - name: REDIS_URL
+              value: redis://:$(REDIS_PASSWORD)@${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc:6379
+            - name: S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: S3_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            - name: S3_INTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: internal
+            - name: S3_HOST
+              value: $(S3_EXTERNAL_ENDPOINT)
+            - name: S3_PORT
+              value: '443'
+            - name: S3_USE_SSL
+              value: 'true'
+            - name: S3_PUBLIC_URL
+              value: https://$(S3_EXTERNAL_ENDPOINT)/$(S3_BUCKET)
+            - name: HANDY_MASTER_SECRET
+              value: ${{ inputs.seed }}
+            - name: PORT
+              value: '3000'
+          ports:
+            - containerPort: 3000
+          resources:
+            requests:
+              cpu: 20m
+              memory: 256Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - port: 3000
+      targetPort: 3000
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 3000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: "https://avatars.githubusercontent.com/u/221431600?s=48&v=4"
+  name: "Happy Server"
+  type: link
