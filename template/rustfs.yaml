@@ -14,6 +14,7 @@ spec:
   locale: en
   i18n:
     zh:
+      title: 'RustFS'
       description: 'RustFS 是一个使用 Rust 构建的高性能 S3 兼容对象存储系统，提供分布式存储能力，支持多卷存储。'
   categories:
     - storage
@@ -49,15 +50,16 @@ metadata:
   name: ${{ defaults.app_name }}
   annotations:
     originImageName: rustfs/rustfs:latest
-    deploy.cloud.sealos.io/minReplicas: '1'
-    deploy.cloud.sealos.io/maxReplicas: '1'
+    deploy.cloud.sealos.io/minReplicas: '4'
+    deploy.cloud.sealos.io/maxReplicas: '4'
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
 spec:
-  replicas: 1
+  replicas: 4
+  podManagementPolicy: Parallel
   revisionHistoryLimit: 1
-  serviceName: ${{ defaults.app_name }}
+  serviceName: ${{ defaults.app_name }}-headless
   selector:
     matchLabels:
       app: ${{ defaults.app_name }}
@@ -67,13 +69,44 @@ spec:
         app: ${{ defaults.app_name }}
     spec:
       automountServiceAccountToken: false
+      initContainers:
+        - name: init-step
+          image: busybox
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REPLICA_COUNT
+              value: "4"
+          command:
+            - sh
+            - -c
+            - |
+              for i in $(seq 0 $(($REPLICA_COUNT - 1))); do
+                mkdir -p /data/rustfs$i
+              done;
+
+              chown -R 1000:1000 /data
+              chown -R 1000:1000 /logs
+          volumeMounts:
+            - name: vn-datavn-rustfs0
+              mountPath: /data/rustfs0
+            - name: vn-datavn-rustfs1
+              mountPath: /data/rustfs1
+            - name: vn-datavn-rustfs2
+              mountPath: /data/rustfs2
+            - name: vn-datavn-rustfs3
+              mountPath: /data/rustfs3
+            - name: vn-logs
+              mountPath: /logs
       containers:
         - name: ${{ defaults.app_name }}
           image: rustfs/rustfs:latest
           imagePullPolicy: IfNotPresent
+          command: ["/usr/bin/rustfs"]
           env:
             - name: RUSTFS_ADDRESS
               value: "0.0.0.0:9000"
+            - name: RUSTFS_CONSOLE_ADDRESS
+              value: "0.0.0.0:9001"
             - name: RUSTFS_CONSOLE_ENABLE
               value: ${{ inputs.console_enable }}
             - name: RUSTFS_ACCESS_KEY
@@ -82,34 +115,102 @@ spec:
               value: ${{ inputs.secret_key }}
             - name: RUSTFS_LOG_LEVEL
               value: "info"
+            - name: RUSTFS_VOLUMES
+              value: "http://${{ defaults.app_name }}-{0...3}.${{ defaults.app_name }}-headless.${{ SEALOS_NAMESPACE }}.svc.cluster.local:9000/data/rustfs{0...3}"
+            - name: RUSTFS_OBS_LOG_DIRECTORY
+              value: "/logs"
+            - name: RUSTFS_SINKS_FILE_PATH
+              value: "/logs"
+          securityContext:
+            runAsUser: 1000
           ports:
             - containerPort: 9000
-              name: api
+              name: endpoint
+              protocol: TCP
+            - containerPort: 9001
+              name: console
               protocol: TCP
           resources:
             requests:
               cpu: 100m
               memory: 256Mi
             limits:
-              cpu: 1000m
-              memory: 2048Mi
+              cpu: 2000m
+              memory: 4096Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 9000
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 3
+            successThreshold: 1
+            failureThreshold: 8
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 9001
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
           volumeMounts:
-            - name: vn-data
-              mountPath: /data
+            - name: vn-datavn-rustfs0
+              mountPath: /data/rustfs0
+            - name: vn-datavn-rustfs1
+              mountPath: /data/rustfs1
+            - name: vn-datavn-rustfs2
+              mountPath: /data/rustfs2
+            - name: vn-datavn-rustfs3
+              mountPath: /data/rustfs3
             - name: vn-logs
               mountPath: /logs
   volumeClaimTemplates:
     - metadata:
         annotations:
-          path: /data
+          path: /data/rustfs0
           value: '1'
-        name: vn-data
+        name: vn-datavn-rustfs0
       spec:
         accessModes:
           - ReadWriteOnce
         resources:
           requests:
-            storage: 1Gi
+            storage: 10Gi
+    - metadata:
+        annotations:
+          path: /data/rustfs1
+          value: '1'
+        name: vn-datavn-rustfs1
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Gi
+    - metadata:
+        annotations:
+          path: /data/rustfs2
+          value: '1'
+        name: vn-datavn-rustfs2
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Gi
+    - metadata:
+        annotations:
+          path: /data/rustfs3
+          value: '1'
+        name: vn-datavn-rustfs3
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Gi
     - metadata:
         annotations:
           path: /logs
@@ -126,16 +227,36 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
+  name: ${{ defaults.app_name }}-headless
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - port: 9000
+      targetPort: 9000
+      protocol: TCP
+      name: endpoint
+    - port: 9001
+      targetPort: 9001
+      protocol: TCP
+      name: console
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
   name: ${{ defaults.app_name }}
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   type: ClusterIP
   ports:
-    - port: 9000
-      targetPort: 9000
+    - port: 9001
+      targetPort: 9001
       protocol: TCP
-      name: api
+      name: console
   selector:
     app: ${{ defaults.app_name }}
 
@@ -164,6 +285,11 @@ metadata:
         expires 30d;
         add_header Cache-Control "public";
       }
+    nginx.ingress.kubernetes.io/affinity: cookie
+    nginx.ingress.kubernetes.io/session-cookie-expires: "3600"
+    nginx.ingress.kubernetes.io/session-cookie-hash: sha1
+    nginx.ingress.kubernetes.io/session-cookie-max-age: "3600"
+    nginx.ingress.kubernetes.io/session-cookie-name: ${{ defaults.app_name }}
 spec:
   rules:
     - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
@@ -175,7 +301,7 @@ spec:
               service:
                 name: ${{ defaults.app_name }}
                 port:
-                  number: 9000
+                  number: 9001
   tls:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
