@@ -36,4 +36,12 @@ COPY manifests manifests
 CMD [\" echo "uploaded images for template "${template_name}"" \"]
 " > build/Kubefile
 
-sealos build -f build/Kubefile -t "$image_name" build
+commitDATE=$(date +%Y%m%d%H%M%S)
+sealos build -f build/Kubefile -t "$image_name" \
+    --label org.opencontainers.image.description="template cluster image" \
+    --label org.opencontainers.image.licenses="Sealos Sustainable Use License" \
+    --label org.opencontainers.image.source="https://github.com/${AUTHOR}/templates" \
+    --label org.opencontainers.image.title="templates-image" \
+    --label org.opencontainers.image.time="${commitDATE}" \
+    --label org.opencontainers.image.url="https://github.com/${AUTHOR}/templates" \
+    --label org.opencontainers.image.version="${template_name}"  build
