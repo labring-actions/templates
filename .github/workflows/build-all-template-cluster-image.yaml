@@ -38,11 +38,7 @@ jobs:
           fetch-depth: 0
       - name: Set up sealos
         run: |
-          curl -sfL https://raw.githubusercontent.com/labring/sealos/main/scripts/install.sh | sh -s v4.3.7 labring/sealos
-      - name: Login to ghcr.io
-        run: |
-          sudo sealos logout docker.io || true
-          sudo sealos login -u ${{ github.repository_owner }} -p ${{ secrets.GITHUB_TOKEN }} ghcr.io
+          curl -sfL https://raw.githubusercontent.com/labring/sealos/main/scripts/install.sh | sh -s v5.1.0 labring/sealos
       - name: Build cluster image
         run: |
           if [[ $(basename ${{ matrix.target }}) == "index.yaml" ]]; then
@@ -51,6 +47,11 @@ jobs:
             template_name=$(basename ${{ matrix.target }} .yaml)
           fi
           sudo bash scripts/build-cluster-image.sh ${{ matrix.target }} ghcr.io/${{ github.repository }}/sealos-cloud-template-$template_name:latest
+      #https://github.com/labring/sealos/issues/6112
+      - name: Login to ghcr.io
+        run: |
+          sudo sealos logout docker.io || true
+          sudo sealos login -u ${{ github.repository_owner }} -p ${{ secrets.GITHUB_TOKEN }} ghcr.io
       - name: Push and save cluster image
         run: |
           if [[ $(basename ${{ matrix.target }}) == "index.yaml" ]]; then
@@ -61,6 +62,7 @@ jobs:
           sudo sealos push ghcr.io/${{ github.repository }}/sealos-cloud-template-$template_name:latest
           sudo sealos save ghcr.io/${{ github.repository }}/sealos-cloud-template-$template_name:latest -o $template_name.tar
       - name: Upload cluster image tar
+        if: github.repository_owner == 'labring-actions'
         run: |
           sudo -v ; curl https://gosspublic.alicdn.com/ossutil/install.sh | sudo bash
           if [[ $(basename ${{ matrix.target }}) == "index.yaml" ]]; then
