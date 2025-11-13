@@ -37,11 +37,14 @@ CMD [\" echo "uploaded images for template "${template_name}"" \"]
 " > build/Kubefile
 
 commitDATE=$(date +%Y%m%d%H%M%S)
+repo_host=${GITHUB_SERVER_URL:-https://github.com}
+repo_repo=${GITHUB_REPOSITORY:-labring-actions/templates}
+repo_url="${repo_host%/}/${repo_repo}"
 sealos build -f build/Kubefile -t "$image_name" \
     --label org.opencontainers.image.description="template cluster image" \
     --label org.opencontainers.image.licenses="Sealos Sustainable Use License" \
-    --label org.opencontainers.image.source="https://github.com/labring/templates" \
+    --label org.opencontainers.image.source="${repo_url}" \
     --label org.opencontainers.image.title="templates-image" \
     --label org.opencontainers.image.time="${commitDATE}" \
-    --label org.opencontainers.image.url="https://github.com/labring/templates" \
+    --label org.opencontainers.image.url="${repo_url}" \
     --label org.opencontainers.image.version="${template_name}"  build
