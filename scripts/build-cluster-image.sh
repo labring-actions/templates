@@ -40,7 +40,7 @@ commitDATE=$(date +%Y%m%d%H%M%S)
 repo_host=${GITHUB_SERVER_URL:-https://github.com}
 repo_repo=${GITHUB_REPOSITORY:-labring-actions/templates}
 repo_url="${repo_host%/}/${repo_repo}"
-sealos build --debug -f build/Kubefile -t "$image_name" \
+sealos build -f build/Kubefile -t "$image_name" \
     --label org.opencontainers.image.description="template cluster image" \
     --label org.opencontainers.image.licenses="Sealos Sustainable Use License" \
     --label org.opencontainers.image.source="${repo_url}" \
