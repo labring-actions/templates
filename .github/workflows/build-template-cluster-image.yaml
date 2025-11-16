@@ -20,7 +20,8 @@ jobs:
         uses: tj-actions/changed-files@v41
         with:
           files: |
-            template/*.yaml
+            template/**/*.yaml
+            template/**/index.yaml
           json: true
           escape_json: false
       - name: List all changed files
@@ -61,7 +62,11 @@ jobs:
           curl -sfL https://raw.githubusercontent.com/labring/sealos/main/scripts/install.sh | sh -s v5.1.0 labring/sealos
       - name: Build cluster image
         run: |
-          template_name=$(basename ${{ matrix.target }} .yaml)
+          if [[ $(basename ${{ matrix.target }}) == "index.yaml" ]]; then
+            template_name=$(basename $(dirname ${{ matrix.target }}) | tr '[:upper:]' '[:lower:]')
+          else
+            template_name=$(basename ${{ matrix.target }} .yaml | tr '[:upper:]' '[:lower:]')
+          fi
           sudo bash scripts/build-cluster-image.sh ${{ matrix.target }} ghcr.io/${{ github.repository }}/sealos-cloud-template-$template_name:latest
       #https://github.com/labring/sealos/issues/6112
       - name: Login to ghcr.io
@@ -70,15 +75,23 @@ jobs:
           sudo sealos login -u ${{ github.repository_owner }} -p ${{ secrets.GITHUB_TOKEN }} ghcr.io
       - name: Push and save cluster image
         run: |
-          template_name=$(basename ${{ matrix.target }} .yaml)
+          if [[ $(basename ${{ matrix.target }}) == "index.yaml" ]]; then
+            template_name=$(basename $(dirname ${{ matrix.target }}) | tr '[:upper:]' '[:lower:]')
+          else
+            template_name=$(basename ${{ matrix.target }} .yaml | tr '[:upper:]' '[:lower:]')
+          fi
           sudo sealos push ghcr.io/${{ github.repository }}/sealos-cloud-template-$template_name:latest
           sudo sealos save ghcr.io/${{ github.repository }}/sealos-cloud-template-$template_name:latest -o $template_name.tar
       - name: Upload cluster image tar
         if: github.repository_owner == 'labring-actions'
         run: |
           sudo -v ; curl https://gosspublic.alicdn.com/ossutil/install.sh | sudo bash
-          template_name=$(basename ${{ matrix.target }} .yaml)
-          ossutil64 cp -e ${{ secrets.OSS_ENDPOINT }} \
+          if [[ $(basename ${{ matrix.target }}) == "index.yaml" ]]; then
+            template_name=$(basename $(dirname ${{ matrix.target }}) | tr '[:upper:]' '[:lower:]')
+          else
+            template_name=$(basename ${{ matrix.target }} .yaml | tr '[:upper:]' '[:lower:]')
+          fi
+          ossutil64 cp -f -e ${{ secrets.OSS_ENDPOINT }} \
             -i ${{ secrets.OSS_ACCESS_KEY_ID }} \
             -k ${{ secrets.OSS_ACCESS_KEY_SECRET }} \
             $template_name.tar \
