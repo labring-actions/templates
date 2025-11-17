@@ -1,0 +1,218 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: derper
+spec:
+  title: "Custom DERP Server"
+  description: "A slim build of Tailscale DERP relay server for self-hosted use with STUN support"
+  locale: en
+  readme: "https://raw.githubusercontent.com/yangchuansheng/derper/main/README.md"
+  icon: "https://tailscale.com/favicon.svg"
+  templateType: inline
+  categories:
+    - tool
+  defaults:
+    app_name:
+      type: string
+      value: derper-${{ random(8) }}
+    app_host:
+      type: string
+      value: derper-${{ random(8) }}
+  inputs:
+    enable_stun:
+      description: "Enable STUN service (true/false)"
+      type: choice
+      options:
+        - "true"
+        - "false"
+      required: true
+      default: "true"
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+rules:
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
+    verbs: ["get", "patch", "update"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}
+    namespace: ${{ SEALOS_NAMESPACE }}
+roleRef:
+  kind: Role
+  name: ${{ defaults.app_name }}
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: NodePort
+  ports:
+    - name: derp-tcp
+      port: 12345
+      targetPort: 12345
+      protocol: TCP
+    - name: stun-udp
+      port: 3478
+      targetPort: 3478
+      protocol: UDP
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/yangchuansheng/derper:v1.90.6
+    deploy.cloud.sealos.io/minReplicas: "1"
+    deploy.cloud.sealos.io/maxReplicas: "1"
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 0
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: ghcr.io/yangchuansheng/derper:v1.90.6
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DERP_DOMAIN
+              value: "tcp.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: DERP_CERT_MODE
+              value: manual
+            - name: DERP_CERT_DIR
+              value: /cert
+            - name: DERP_ADDR
+              value: ":12345"
+            - name: DERP_STUN
+              value: "${{ inputs.enable_stun }}"
+            - name: DERP_STUN_PORT
+              value: "3478"
+            - name: DERP_HTTP_PORT
+              value: "-1"
+            - name: DERP_VERIFY_CLIENTS
+              value: "false"
+          ports:
+            - name: derp-tcp
+              containerPort: 12345
+              protocol: TCP
+            - name: stun-udp
+              containerPort: 3478
+              protocol: UDP
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 1000m
+              memory: 512Mi
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-config-updater
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-config-updater
+spec:
+  completions: 1
+  template:
+    spec:
+      serviceAccountName: ${{ defaults.app_name }}
+      restartPolicy: Never
+      containers:
+        - name: config-updater
+          image: bitnamilegacy/kubectl:1.28.9
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              echo "Waiting for Service to be ready..."
+              until kubectl get service ${{ defaults.app_name }} -n ${{ SEALOS_NAMESPACE }} &>/dev/null; do
+                sleep 2
+              done
+
+              echo "Detecting NodePort..."
+              DERP_NODEPORT=$(kubectl get service ${{ defaults.app_name }} -n ${{ SEALOS_NAMESPACE }} -o jsonpath='{.spec.ports[?(@.name=="derp-tcp")].nodePort}')
+              STUN_NODEPORT=$(kubectl get service ${{ defaults.app_name }} -n ${{ SEALOS_NAMESPACE }} -o jsonpath='{.spec.ports[?(@.name=="stun-udp")].nodePort}')
+
+              echo "DERP NodePort: $DERP_NODEPORT"
+              echo "STUN NodePort: $STUN_NODEPORT"
+
+              if [ -z "$DERP_NODEPORT" ] || [ -z "$STUN_NODEPORT" ]; then
+                echo "Error: Failed to get NodePort"
+                exit 1
+              fi
+
+              echo "Updating Service ports..."
+              kubectl patch service ${{ defaults.app_name }} -n ${{ SEALOS_NAMESPACE }} --type='json' -p='[
+                {"op": "replace", "path": "/spec/ports/0/port", "value": '"$DERP_NODEPORT"'},
+                {"op": "replace", "path": "/spec/ports/0/targetPort", "value": '"$DERP_NODEPORT"'},
+                {"op": "replace", "path": "/spec/ports/1/port", "value": '"$STUN_NODEPORT"'},
+                {"op": "replace", "path": "/spec/ports/1/targetPort", "value": '"$STUN_NODEPORT"'}
+              ]'
+
+              echo "Updating Deployment environment variables..."
+              kubectl patch deployment ${{ defaults.app_name }} -n ${{ SEALOS_NAMESPACE }} --type='json' -p='[
+                {"op": "replace", "path": "/spec/template/spec/containers/0/env/3/value", "value": ":'$DERP_NODEPORT'"},
+                {"op": "replace", "path": "/spec/template/spec/containers/0/env/5/value", "value": "'$STUN_NODEPORT'"}
+              ]'
+
+              echo "Updating Deployment container ports..."
+              kubectl patch deployment ${{ defaults.app_name }} -n ${{ SEALOS_NAMESPACE }} --type='json' -p='[
+                {"op": "replace", "path": "/spec/template/spec/containers/0/ports/0/containerPort", "value": '"$DERP_NODEPORT"'},
+                {"op": "replace", "path": "/spec/template/spec/containers/0/ports/1/containerPort", "value": '"$STUN_NODEPORT"'}
+              ]'
+
+              echo "Scaling Deployment to 1 replica..."
+              kubectl scale deployment ${{ defaults.app_name }} -n ${{ SEALOS_NAMESPACE }} --replicas=1
+
+              echo "Configuration updated successfully!"
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
