@@ -148,6 +148,59 @@ spec:
                 storage: 1Gi
             storageClassName: openebs-backup
   terminationPolicy: Delete
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-mysql-init
+spec:
+  completions: 1
+  template:
+    spec:
+      containers:
+        - name: mysql-init
+          image: mysql:8.0
+          env:
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: password
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: username
+            - name: MYSQL_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: host
+            - name: MYSQL_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: port
+            - name: DATABASE_NAME
+              value: casdoor
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Waiting for MySQL to be ready..."
+
+              until mysql -h${MYSQL_HOST} -P${MYSQL_PORT} -u${MYSQL_USER} -p${MYSQL_PASSWORD} -e "SELECT 1" >/dev/null 2>&1; do
+                echo "MySQL is not ready, retrying..."
+                sleep 2
+              done
+
+              echo "MySQL ready. Creating database if not exists..."
+              mysql -h${MYSQL_HOST} -P${MYSQL_PORT} -u${MYSQL_USER} -p${MYSQL_PASSWORD} \
+                -e "CREATE DATABASE IF NOT EXISTS \`${DATABASE_NAME}\` DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_unicode_ci;"
+              echo "Database '${DATABASE_NAME}' ensured!"
+      restartPolicy: Never
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
 ${{ endif() }}
 
 ---
@@ -371,7 +424,7 @@ spec:
           env:
             - name: RUNNING_IN_DOCKER
               value: "true"
-            - name: dbName
+            - name: DB_DATABASE
               value: casdoor
             ${{ if(inputs.driver_name === 'mysql') }}
             - name: DB_HOST
@@ -397,7 +450,7 @@ spec:
             - name: driverName
               value: mysql
             - name: dataSourceName
-              value: $(DB_USER):$(DB_PASSWORD)@tcp($(DB_HOST):$(DB_PORT))/$(dbName)?charset=utf8mb4&parseTime=True&loc=Local
+              value: $(DB_USER):$(DB_PASSWORD)@tcp($(DB_HOST):$(DB_PORT))/$(DB_DATABASE)?charset=utf8mb4&parseTime=True&loc=Local
             ${{ elif(inputs.driver_name === 'postgres') }}
             - name: DB_HOST
               valueFrom:
@@ -422,7 +475,7 @@ spec:
             - name: driverName
               value: postgres
             - name: dataSourceName
-              value: user=$(DB_USER) password=$(DB_PASSWORD) host=$(DB_HOST) port=$(DB_PORT) sslmode=disable dbname=$(dbName)
+              value: user=$(DB_USER) password=$(DB_PASSWORD) host=$(DB_HOST) port=$(DB_PORT) sslmode=disable dbname=$(DB_DATABASE)
             ${{ endif() }}
           ports:
             - name: http
