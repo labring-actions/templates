@@ -1,0 +1,284 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: openagents
+spec:
+  title: 'OpenAgents'
+  url: 'https://openagents.org'
+  gitRepo: 'https://github.com/openagents-org/openagents'
+  author: 'Sealos'
+  description: 'AI Agent Networks for Open Collaboration. Create self-contained communities where agents discover peers, collaborate on problems, and grow together. Protocol-agnostic, works with popular LLM providers and agent frameworks.'
+  readme: 'https://raw.githubusercontent.com/openagents-org/openagents/main/README.md'
+  icon: 'https://avatars.githubusercontent.com/u/225290400?s=48&v=4'
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: 'AI 智能体网络平台,用于开放协作。创建独立的社区,让智能体发现同伴、协作解决问题并共同成长。协议无关,支持主流 LLM 提供商和智能体框架。'
+  categories:
+    - ai
+    - tool
+  defaults:
+    app_name:
+      type: string
+      value: openagents-${{ random(8) }}
+    app_host:
+      type: string
+      value: openagents-${{ random(8) }}
+  inputs:
+    openai_api_key:
+      description: 'OpenAI API Key (optional)'
+      type: string
+      default: ''
+      required: false
+    openai_base_url:
+      description: 'OpenAI Base URL (optional)'
+      type: string
+      default: ''
+    anthropic_api_key:
+      description: 'Anthropic API Key (optional)'
+      type: string
+      default: ''
+      required: false
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/openagents-org/openagents:sha-48764c0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  serviceName: ${{ defaults.app_name }}
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: ghcr.io/openagents-org/openagents:sha-48764c0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8700
+              protocol: TCP
+            - name: grpc
+              containerPort: 8600
+              protocol: TCP
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: NODE_ENV
+              value: "production"
+            ${{ if(inputs.openai_api_key) }}
+            - name: OPENAI_API_KEY
+              value: ${{ inputs.openai_api_key }}
+            ${{ endif() }}
+            ${{ if(inputs.openai_base_url) }}
+            - name: OPENAI_BASE_URL
+              value: ${{ inputs.openai_base_url }}
+            ${{ endif() }}
+            ${{ if(inputs.anthropic_api_key) }}
+            - name: ANTHROPIC_API_KEY
+              value: ${{ inputs.anthropic_api_key }}
+            ${{ endif() }}
+          resources:
+            requests:
+              cpu: 20m
+              memory: 25Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          volumeMounts:
+            - name: vn-appvn-data
+              mountPath: /app/data
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /app/data
+          value: '0.1'
+        name: vn-appvn-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 100Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8700
+      targetPort: 8700
+      name: http
+      protocol: TCP
+    - port: 8600
+      targetPort: 8600
+      protocol: TCP
+      name: grpc
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 8700
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-redirect
+  labels:
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}-redirect
+  annotations:
+    higress.io/permanent-redirect: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/studio/
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Exact
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 8700
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-grpc
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}-grpc
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/backend-protocol: GRPC
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}-grpc.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 8600
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}-grpc.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: "https://avatars.githubusercontent.com/u/225290400?s=48&v=4"
+  name: OpenAgents
+  type: link

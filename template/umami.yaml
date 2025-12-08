@@ -3,13 +3,13 @@ kind: Template
 metadata:
   name: umami
 spec:
-  title: 'Umami'
-  url: 'https://umami.is/'
-  gitRepo: 'https://github.com/umami-software/umami'
-  author: 'Sealos'
-  description: 'Umami is an open source, privacy-focused alternative to Google Analytics.'
-  readme: 'https://raw.githubusercontent.com/umami-software/umami/master/README.md'
-  icon: 'https://raw.githubusercontent.com/umami-software/umami/master/src/assets/logo.svg'
+  title: "Umami"
+  url: "https://umami.is/"
+  gitRepo: "https://github.com/umami-software/umami"
+  author: "Sealos"
+  description: "Umami is an open source, privacy-focused alternative to Google Analytics."
+  readme: "https://raw.githubusercontent.com/umami-software/umami/master/README.md"
+  icon: "https://raw.githubusercontent.com/umami-software/umami/master/src/assets/logo.svg"
   templateType: inline
   categories:
     - monitor
@@ -24,18 +24,17 @@ spec:
       value: umami-${{ random(8) }}
   inputs:
     APP_SECRET:
-      description: 'replace me with a random string'
+      description: "replace me with a random string"
       type: string
-      default: 'admin'
+      default: "admin"
       required: true
     TRACKER_SCRIPT_NAME:
-      description: 'Allows you to assign a custom name to the tracker script different from the default script.js. This is to help you avoid some ad-blockers.'
+      description: "Allows you to assign a custom name to the tracker script different from the default script.js. This is to help you avoid some ad-blockers."
       type: string
-      default: ''
+      default: ""
       required: false
 
 ---
-
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -46,15 +45,14 @@ metadata:
   name: ${{ defaults.app_name }}-pg
 
 ---
-
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: ghcr.io/umami-software/umami:postgresql-v2.12.1
-    deploy.cloud.sealos.io/minReplicas: '1'
-    deploy.cloud.sealos.io/maxReplicas: '1'
+    originImageName: ghcr.io/umami-software/umami:3.0.2
+    deploy.cloud.sealos.io/minReplicas: "1"
+    deploy.cloud.sealos.io/maxReplicas: "1"
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
@@ -77,7 +75,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: ghcr.io/umami-software/umami:postgresql-v2.12.1
+          image: ghcr.io/umami-software/umami:3.0.2
           env:
             - name: PG_PASSWORD
               valueFrom:
@@ -132,13 +130,12 @@ metadata:
     nginx.ingress.kubernetes.io/server-snippet: |
       client_header_buffer_size 64k;
       large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
-    nginx.ingress.kubernetes.io/rewrite-target: /$2
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
-    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
-    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
     nginx.ingress.kubernetes.io/configuration-snippet: |
       if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
         expires 30d;
@@ -150,7 +147,7 @@ spec:
       http:
         paths:
           - pathType: Prefix
-            path: /()(.*)
+            path: /
             backend:
               service:
                 name: ${{ defaults.app_name }}
@@ -208,7 +205,6 @@ spec:
   tolerations: []
 
 ---
-
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -219,11 +215,11 @@ metadata:
   name: ${{ defaults.app_name }}-pg
 rules:
   - apiGroups:
-      - '*'
+      - "*"
     resources:
-      - '*'
+      - "*"
     verbs:
-      - '*'
+      - "*"
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -246,22 +242,38 @@ subjects:
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: ${{ defaults.app_name }}-init
+  name: ${{ defaults.app_name }}-pg-init
 spec:
   completions: 1
   template:
     spec:
       containers:
         - name: pgsql-init
-          image: senzing/postgresql-client:2.2.4
+          image: postgres:14-alpine
+          imagePullPolicy: IfNotPresent
           env:
             - name: PG_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
             - name: DATABASE_URL
-              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
+              value: postgresql://$(PG_USERNAME):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/postgres
           command:
             - /bin/sh
             - -c
@@ -284,4 +296,4 @@ spec:
   displayType: normal
   icon: "https://raw.githubusercontent.com/umami-software/umami/master/src/assets/logo.svg"
   name: ${{ defaults.app_name }}
-  type: iframe
+  type: link
