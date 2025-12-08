@@ -3,13 +3,13 @@ kind: Template
 metadata:
   name: affine
 spec:
-  title: 'AFFiNE'
-  url: 'https://affine.pro/'
-  gitRepo: 'https://github.com/toeverything/AFFiNE'
-  author: 'Sealos'
-  description: 'A privacy-focussed, local-first, open-source, and ready-to-use alternative for Notion & Miro.'
-  readme: 'https://raw.githubusercontent.com/toeverything/AFFiNE/canary/README.md'
-  icon: 'https://raw.githubusercontent.com/toeverything/AFFiNE/canary/packages/frontend/core/public/favicon-144.png'
+  title: "AFFiNE"
+  url: "https://affine.pro/"
+  gitRepo: "https://github.com/toeverything/AFFiNE"
+  author: "Sealos"
+  description: "A privacy-focussed, local-first, open-source, and ready-to-use alternative for Notion & Miro."
+  readme: "https://raw.githubusercontent.com/toeverything/AFFiNE/canary/README.md"
+  icon: "https://raw.githubusercontent.com/toeverything/AFFiNE/canary/packages/frontend/core/public/favicon-144.png"
   templateType: inline
   categories:
     - tool
@@ -24,7 +24,6 @@ spec:
   inputs:
 
 ---
-
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -35,7 +34,6 @@ metadata:
   name: ${{ defaults.app_name }}-redis
 
 ---
-
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -45,158 +43,6 @@ metadata:
     app.kubernetes.io/managed-by: kbcli
   name: ${{ defaults.app_name }}-pg
 
----
-
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: ${{ defaults.app_name }}
-  annotations:
-    originImageName: ghcr.io/toeverything/affine-graphql:stable-4b9e2ab
-    deploy.cloud.sealos.io/minReplicas: '1'
-    deploy.cloud.sealos.io/maxReplicas: '1'
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-    app: ${{ defaults.app_name }}
-spec:
-  replicas: 1
-  revisionHistoryLimit: 1
-  minReadySeconds: 10
-  serviceName: ${{ defaults.app_name }}
-  selector:
-    matchLabels:
-      app: ${{ defaults.app_name }}
-  template:
-    metadata:
-      labels:
-        app: ${{ defaults.app_name }}
-    spec:
-      terminationGracePeriodSeconds: 10
-      automountServiceAccountToken: false
-      containers:
-        - name: ${{ defaults.app_name }}
-          image: ghcr.io/toeverything/affine-graphql:stable-4b9e2ab
-          command: ['sh', '-c', 'node ./scripts/self-host-predeploy && node ./dist/index.js']
-          env:
-            - name: NODE_OPTIONS
-              value: "--import=./scripts/register.js"
-            - name: AFFINE_CONFIG_PATH
-              value: /root/.affine/config
-            - name: REDIS_SERVER_HOST
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-redis-conn-credential
-                  key: host
-            - name: REDIS_SERVER_USER
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-redis-conn-credential
-                  key: username
-            - name: REDIS_SERVER_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-redis-conn-credential
-                  key: password
-            - name: PG_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: password
-            - name: DATABASE_URL
-              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432/affine
-            - name: NODE_ENV
-              value: production
-          resources:
-            requests:
-              cpu: 100m
-              memory: 204Mi
-            limits:
-              cpu: 1000m
-              memory: 2048Mi
-          ports:
-            - name: http
-              protocol: TCP
-              containerPort: 3010
-          imagePullPolicy: IfNotPresent
-          volumeMounts:
-            - name: vn-rootvn-vn-affinevn-storage
-              mountPath: /root/.affine/storage
-          livenessProbe:
-            httpGet:
-              path: /
-              port: http
-            initialDelaySeconds: 20
-          readinessProbe:
-            httpGet:
-              path: /
-              port: http
-            initialDelaySeconds: 20
-  volumeClaimTemplates:
-    - metadata:
-        annotations:
-          path: /root/.affine/storage
-          value: '0.1'
-        name: vn-rootvn-vn-affinevn-storage
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 100Mi
-
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: ${{ defaults.app_name }}
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-spec:
-  ports:
-    - port: 3010
-  selector:
-    app: ${{ defaults.app_name }}
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: ${{ defaults.app_name }}
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
-  annotations:
-    kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/proxy-body-size: 32m
-    nginx.ingress.kubernetes.io/server-snippet: |
-      client_header_buffer_size 64k;
-      large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
-    nginx.ingress.kubernetes.io/backend-protocol: HTTP
-    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
-    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
-    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
-    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
-        expires 30d;
-        add_header Cache-Control "public";
-      }
-spec:
-  rules:
-    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
-      http:
-        paths:
-          - pathType: Prefix
-            path: /
-            backend:
-              service:
-                name: ${{ defaults.app_name }}
-                port:
-                  number: 3010
-  tls:
-    - hosts:
-        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
-      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
 ---
 apiVersion: apps.kubeblocks.io/v1alpha1
 kind: Cluster
@@ -245,7 +91,6 @@ spec:
   tolerations: []
 
 ---
-
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -256,11 +101,11 @@ metadata:
   name: ${{ defaults.app_name }}-pg
 rules:
   - apiGroups:
-      - '*'
+      - "*"
     resources:
-      - '*'
+      - "*"
     verbs:
-      - '*'
+      - "*"
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -277,6 +122,109 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-migration
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: Never
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:14-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until pg_isready -h ${PG_HOST} -p ${PG_PORT} -U ${PG_USERNAME}; do
+                echo "waiting for postgresql..."
+                sleep 2
+              done
+      containers:
+        - name: affine-migration
+          image: ghcr.io/toeverything/affine:0.25.7-beta.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - node ./scripts/self-host-predeploy.js
+          env:
+            - name: AFFINE_CONFIG_PATH
+              value: /root/.affine/config
+            - name: REDIS_SERVER_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-conn-credential
+                  key: host
+            - name: REDIS_SERVER_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-conn-credential
+                  key: username
+            - name: REDIS_SERVER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-conn-credential
+                  key: password
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgresql://$(PG_USERNAME):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/affine
+            - name: AFFINE_INDEXER_ENABLED
+              value: "false"
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 50m
+              memory: 51Mi
+  ttlSecondsAfterFinished: 300
+
 ---
 apiVersion: apps.kubeblocks.io/v1alpha1
 kind: Cluster
@@ -337,7 +285,6 @@ spec:
   tolerations: []
 
 ---
-
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -348,11 +295,11 @@ metadata:
   name: ${{ defaults.app_name }}-redis
 rules:
   - apiGroups:
-      - '*'
+      - "*"
     resources:
-      - '*'
+      - "*"
     verbs:
-      - '*'
+      - "*"
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -371,6 +318,202 @@ subjects:
     name: ${{ defaults.app_name }}-redis
 
 ---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/toeverything/affine:0.25.7-beta.0
+    deploy.cloud.sealos.io/minReplicas: "1"
+    deploy.cloud.sealos.io/maxReplicas: "1"
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      terminationGracePeriodSeconds: 10
+      automountServiceAccountToken: false
+      initContainers:
+        - name: ensure-affine-database
+          image: postgres:14-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "waiting for affine database..."
+              until psql -h ${PG_HOST} -p ${PG_PORT} -U ${PG_USERNAME} -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='affine';" | grep -q 1; do
+                echo "affine database missing, rechecking in 2s"
+                sleep 2
+              done
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: ghcr.io/toeverything/affine:0.25.7-beta.0
+          env:
+            - name: AFFINE_CONFIG_PATH
+              value: /root/.affine/config
+            - name: REDIS_SERVER_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-conn-credential
+                  key: host
+            - name: REDIS_SERVER_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-conn-credential
+                  key: username
+            - name: REDIS_SERVER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-conn-credential
+                  key: password
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432/affine
+            - name: AFFINE_INDEXER_ENABLED
+              value: "false"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 25Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          ports:
+            - name: http
+              protocol: TCP
+              containerPort: 3010
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: vn-rootvn-vn-affinevn-storage
+              mountPath: /root/.affine/storage
+            - name: vn-rootvn-vn-affinevn-config
+              mountPath: /root/.affine/config
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 20
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /root/.affine/config
+          value: "0.1"
+        name: vn-rootvn-vn-affinevn-config
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 100Mi
+    - metadata:
+        annotations:
+          path: /root/.affine/storage
+          value: "0.1"
+        name: vn-rootvn-vn-affinevn-storage
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 100Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - port: 3010
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 3010
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
 apiVersion: app.sealos.io/v1
 kind: App
 metadata:
@@ -383,4 +526,4 @@ spec:
   displayType: normal
   icon: "https://raw.githubusercontent.com/toeverything/AFFiNE/canary/packages/frontend/core/public/favicon-144.png"
   name: ${{ defaults.app_name }}
-  type: iframe
+  type: link
