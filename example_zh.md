@@ -432,7 +432,7 @@ spec:
             - name: MONGO_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: ${{ defaults.app_name }}-mongo-conn-credential
+                  name: ${{ defaults.app_name }}-mongodb-account-root
                   key: password
             - name: PG_PASSWORD
               valueFrom:
@@ -1130,7 +1130,7 @@ spec:
         - name: MONGO_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: ${{ defaults.app_name }}-mongo-conn-credential
+              name: ${{ defaults.app_name }}-mongodb-account-root
               key: password
 ...
 ```
