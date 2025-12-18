@@ -1,0 +1,487 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: grafana-otel
+spec:
+  title: "Grafana OpenTelemetry Stack"
+  description: "One-click Grafana/OTLP stack deployment"
+  url: "https://github.com/labring-actions/templates/tree/main/template/grafana-otel"
+  gitRepo: "https://github.com/labring-actions/templates/tree/main/template/grafana-otel"
+  author: "Sealos"
+  readme: "https://raw.githubusercontent.com/labring-actions/templates/main/template/grafana-otel/README.md"
+  icon: "https://raw.githubusercontent.com/labring-actions/templates/main/template/grafana-otel/logo.svg"
+  templateType: inline
+  locale: en
+  categories:
+    - monitor
+    - dev-ops
+  defaults:
+    app_host:
+      type: string
+      value: grafana-otel-${{ random(8) }}
+    app_name:
+      type: string
+      value: grafana-otel-${{ random(8) }}
+
+---
+# ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-confvn-otelvn-collectorvn-configvn-yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: ${env:MY_POD_IP}:4317
+          http:
+            endpoint: ${env:MY_POD_IP}:4318
+    processors:
+      batch:
+    extensions:
+      zpages: {}
+    exporters:
+      prometheus:
+        endpoint: 0.0.0.0:8889
+    service:
+      extensions: [zpages]
+      pipelines:
+        metrics:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [prometheus]
+
+---
+# Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: otel/opentelemetry-collector:0.99.0
+    deploy.cloud.sealos.io/minReplicas: "1"
+    deploy.cloud.sealos.io/maxReplicas: "1"
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: opentelemetry
+    component: otel-collector
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: otel/opentelemetry-collector:0.99.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - "/otelcol"
+            - "--config=/conf/otel-collector-config.yaml"
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+          ports:
+            - containerPort: 55679
+              name: zpages
+            - containerPort: 4317
+              name: otlp-grpc
+            - containerPort: 4318
+              name: otlp-http
+            - containerPort: 14250
+              name: jaeger-grpc
+            - containerPort: 14268
+              name: jaeger-http
+            - containerPort: 9411
+              name: zipkin
+            - containerPort: 8889
+              name: metrics
+          env:
+            - name: MY_POD_IP
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: status.podIP
+          volumeMounts:
+            - name: vn-confvn-otelvn-collectorvn-configvn-yaml
+              mountPath: /conf/otel-collector-config.yaml
+              subPath: ./conf/otel-collector-config.yaml
+      volumes:
+        - name: vn-confvn-otelvn-collectorvn-configvn-yaml
+          configMap:
+            name: ${{ defaults.app_name }}
+            items:
+              - key: vn-confvn-otelvn-collectorvn-configvn-yaml
+                path: ./conf/otel-collector-config.yaml
+            defaultMode: 420
+
+---
+# Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      protocol: TCP
+      targetPort: 4317
+    - name: otlp-http
+      port: 4318
+      protocol: TCP
+      targetPort: 4318
+    - name: metrics
+      port: 8889
+      protocol: TCP
+      targetPort: 8889
+    - name: zpages
+      port: 55679
+      protocol: TCP
+      targetPort: 55679
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-prometheus
+data:
+  vn-etcvn-prometheusvn-prometheusvn-yml: >-
+    # my global config
+
+    global:
+      scrape_interval: 15s # Set the scrape interval to every 15 seconds. Default is every 1 minute.
+      evaluation_interval: 15s # Evaluate rules every 15 seconds. The default is every 1 minute.
+      # scrape_timeout is set to the global default (10s).
+
+    # Alertmanager configuration
+
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets:
+              # - alertmanager:9093
+
+    # Load rules once and periodically evaluate them according to the global
+    'evaluation_interval'.
+
+    rule_files:
+      # - "first_rules.yml"
+      # - "second_rules.yml"
+
+    # A scrape configuration containing exactly one endpoint to scrape:
+
+    # Here it's Prometheus itself.
+
+    scrape_configs:
+      # The job name is added as a label `job=<job_name>` to any timeseries scraped from this config.
+      - job_name: "prometheus"
+
+        # metrics_path defaults to '/metrics'
+        # scheme defaults to 'http'.
+
+        static_configs:
+          - targets: ["localhost:9090"]
+           # The label name is added as a label `label_name=<label_value>` to any timeseries scraped from this config.
+            labels:
+              app: "prometheus"
+          - targets: ["${{ defaults.app_name }}.${{ SEALOS_NAMESPACE }}.svc.cluster.local:8889"]
+           # The label name is added as a label `label_name=<label_value>` to any timeseries scraped from this config.
+            labels:
+              app: "otel-collector"
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-prometheus
+  annotations:
+    originImageName: prom/prometheus:v3.8.0
+    deploy.cloud.sealos.io/minReplicas: "1"
+    deploy.cloud.sealos.io/maxReplicas: "1"
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-prometheus
+    app: ${{ defaults.app_name }}-prometheus
+spec:
+  serviceName: ${{ defaults.app_name }}-prometheus
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-prometheus
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-prometheus
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: init-step
+          image: busybox
+          command:
+            - sh
+            - -c
+            - |
+              chown -R 65534:65534 /prometheus
+          volumeMounts:
+            - name: vn-prometheus
+              mountPath: /prometheus
+          imagePullPolicy: IfNotPresent
+      containers:
+        - name: ${{ defaults.app_name }}-prometheus
+          image: prom/prometheus:v3.8.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+            - --storage.tsdb.retention.time=365d
+            - --web.console.libraries=/usr/share/prometheus/console_libraries
+            - --web.console.templates=/usr/share/prometheus/consoles
+            - --web.external-url=http://0.0.0.0:9090
+            - --log.level=info
+          ports:
+            - name: http
+              containerPort: 9090
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+          volumeMounts:
+            - name: prometheus-cm
+              mountPath: /etc/prometheus/prometheus.yml
+              subPath: vn-etcvn-prometheusvn-prometheusvn-yml
+            - name: vn-prometheus
+              mountPath: /prometheus
+
+      volumes:
+        - name: prometheus-cm
+          configMap:
+            name: ${{ defaults.app_name }}-prometheus
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /prometheus
+          value: "0.1"
+        name: vn-prometheus
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 100Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-prometheus
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-prometheus
+spec:
+  ports:
+    - name: http
+      port: 9090
+      protocol: TCP
+      targetPort: 9090
+  selector:
+    app: ${{ defaults.app_name }}-prometheus
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-grafana
+data:
+  vn-etcvn-grafanavn-provisioningvn-datasourcesvn-datasourcesvn-yml: >-
+    # Configuration file version
+    # See here fore more information on configuration:
+    # https://grafana.com/docs/grafana/latest/administration/provisioning/#example-data-source-configuration-file
+
+    apiVersion: 1
+
+    # Mark provisioned data sources for deletion if they are no longer in a provisioning file.
+
+    prune: false
+
+    # List of data sources to insert/update depending on what's available.
+
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        orgId: 1
+        uid: grafana_prometheus
+        url: http://${{ defaults.app_name }}-prometheus.${{ SEALOS_NAMESPACE }}.svc.cluster.local:9090
+        basicAuth: false
+        editable: false
+        isDefault: false
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-grafana
+  annotations:
+    originImageName: grafana/grafana:12.3.0
+    deploy.cloud.sealos.io/minReplicas: "1"
+    deploy.cloud.sealos.io/maxReplicas: "1"
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-grafana
+    app: ${{ defaults.app_name }}-grafana
+spec:
+  serviceName: ${{ defaults.app_name }}-grafana
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-grafana
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-grafana
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: init-step
+          image: busybox
+          command:
+            - sh
+            - -c
+            - |
+              chown -R 472:0 /var/lib/grafana
+          volumeMounts:
+            - name: vn-varvn-libvn-grafana
+              mountPath: /var/lib/grafana
+          imagePullPolicy: IfNotPresent
+      containers:
+        - name: ${{ defaults.app_name }}-grafana
+          image: grafana/grafana:12.3.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+          volumeMounts:
+            - name: grafana-cm
+              mountPath: /etc/grafana/provisioning/datasources/datasources.yml
+              subPath: vn-etcvn-grafanavn-provisioningvn-datasourcesvn-datasourcesvn-yml
+            - name: vn-varvn-libvn-grafana
+              mountPath: /var/lib/grafana
+
+      volumes:
+        - name: grafana-cm
+          configMap:
+            name: ${{ defaults.app_name }}-grafana
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /var/lib/grafana
+          value: "0.1"
+        name: vn-varvn-libvn-grafana
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 100Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-grafana
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-grafana
+spec:
+  ports:
+    - name: http
+      port: 3000
+      protocol: TCP
+      targetPort: 3000
+  selector:
+    app: ${{ defaults.app_name }}-grafana
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-grafana
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-grafana
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-grafana
+                port:
+                  number: 3000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: "https://raw.githubusercontent.com/labring-actions/templates/main/template/grafana-otel/logo.svg"
+  name: "Grafana OpenTelemetry Stack"
+  type: link
