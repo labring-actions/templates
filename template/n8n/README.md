@@ -40,7 +40,7 @@ This template supports three deployment modes:
 
 **1. Basic Mode (Default):**
 - **n8n Application**: Workflow automation server with SQLite database
-  - Version: n8n 1.123.9
+  - Version: n8n 2.1.4
   - Web UI: Port 5678 (exposed via Ingress with SSL)
   - Persistent storage: 1Gi for workflow data and SQLite database
   - Suitable for: Testing, development, and light production workloads
@@ -64,6 +64,9 @@ This template supports three deployment modes:
 - **n8n Worker**: Dedicated workflow execution worker
   - Supports parallel execution of workflows
   - Scalable for high-volume automation
+- **n8n Runners**: External task runners for isolated code execution
+  - Separate runners for main process and worker
+  - Enhanced security through isolated execution environment
   - Suitable for: High-traffic production environments with many concurrent workflows
 
 **Resource Allocation:**
@@ -71,7 +74,8 @@ This template supports three deployment modes:
 | Component | CPU Request | CPU Limit | Memory Request | Memory Limit |
 |-----------|-------------|-----------|----------------|--------------|
 | n8n (Basic/PostgreSQL) | 50m | 500m | 51Mi | 512Mi |
-| n8n Worker (Queue Mode) | 20m | 200m | 25Mi | 256Mi |
+| n8n Worker (Queue Mode) | 20m | 200m | 51Mi | 512Mi |
+| n8n Runners (Queue Mode) | 20m | 200m | 25Mi | 256Mi |
 | PostgreSQL | 50m | 500m | 51Mi | 512Mi |
 | Redis | 50m | 500m | 51Mi | 512Mi |
 | Redis Sentinel | 100m | 100m | 100Mi | 100Mi |
@@ -120,7 +124,9 @@ The deployment process varies by mode:
 2. **PostgreSQL Deployment**: Database for persistent storage
 3. **Database Initialization Job**: Creates the `n8n` database
 4. **Main Process Deployment**: n8n web UI and API server
-5. **Worker Deployment**: Dedicated workflow execution worker
+5. **Runners Deployment**: External task runners for main process
+6. **Worker Deployment**: Dedicated workflow execution worker
+7. **Worker Runners Deployment**: External task runners for worker
 
 All deployments include automatic health checks and are ready to use immediately after completion.
 
