@@ -8,13 +8,14 @@ spec:
   gitRepo: 'https://github.com/n8n-io/n8n'
   author: 'Sealos'
   description: 'n8n is a workflow automation platform that gives technical teams the flexibility of code with the speed of no-code.'
-  readme: 'https://raw.githubusercontent.com/n8n-io/n8n/master/README.md'
+  readme: 'https://raw.githubusercontent.com/labring-actions/templates/main/template/n8n/README.md'
   icon: 'https://n8n.io/favicon.ico'
   templateType: inline
   locale: en
   i18n:
     zh:
       description: 'n8n 是一个工作流自动化平台，通过将代码的灵活性与无代码的速度相结合，帮助技术团队构建自动化流程。'
+      readme: 'https://raw.githubusercontent.com/labring-actions/templates/main/template/n8n/README_zh.md'
   categories:
     - ai
     - low-code
@@ -26,6 +27,9 @@ spec:
       type: string
       value: n8n-${{ random(8) }}
     N8N_ENCRYPTION_KEY:
+      type: string
+      value: ${{ random(32) }}
+    N8N_RUNNERS_AUTH_TOKEN:
       type: string
       value: ${{ random(32) }}
   inputs:
@@ -301,7 +305,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: n8nio/n8n:1.115.1
+    originImageName: n8nio/n8n:2.1.4
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -332,7 +336,7 @@ spec:
               mountPath: /data
       containers:
         - name: ${{ defaults.app_name }}
-          image: n8nio/n8n:1.115.1
+          image: n8nio/n8n:2.1.4
           env:
             - name: N8N_PORT
               value: "5678"
@@ -341,8 +345,6 @@ spec:
             - name: QUEUE_HEALTH_CHECK_ACTIVE
               value: "true"
             - name: N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS
-              value: "true"
-            - name: N8N_RUNNERS_ENABLED
               value: "true"
             - name: GENERIC_TIMEZONE
               value: ${{ inputs.timezone }}
@@ -377,6 +379,14 @@ spec:
               value: 'n8n'
             ${{ endif() }}
             ${{ if(inputs.use_queue_mode === 'true') }}
+            - name: N8N_RUNNERS_ENABLED
+              value: "true"
+            - name: N8N_RUNNERS_MODE
+              value: "external"
+            - name: N8N_RUNNERS_BROKER_LISTEN_ADDRESS
+              value: "0.0.0.0"
+            - name: N8N_RUNNERS_AUTH_TOKEN
+              value: ${{ defaults.N8N_RUNNERS_AUTH_TOKEN }}
             - name: EXECUTIONS_MODE
               value: 'queue'
             - name: N8N_ENCRYPTION_KEY
@@ -391,7 +401,9 @@ spec:
                   name: ${{ defaults.app_name }}-redis-account-default
                   key: password
             - name: N8N_DISABLE_PRODUCTION_MAIN_PROCESS
-              value: 'false'
+              value: 'true'
+            - name: OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS
+              value: true
             ${{ endif() }}
           resources:
             requests:
@@ -431,9 +443,50 @@ ${{ if(inputs.use_queue_mode === 'true') }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
+  name: ${{ defaults.app_name }}-runners
+  annotations:
+    originImageName: n8nio/runners:2.1.4
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-runners
+    app: ${{ defaults.app_name }}-runners
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-runners
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-runners
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-runners
+          image: n8nio/runners:2.1.4
+          env:
+            - name: N8N_RUNNERS_TASK_BROKER_URI
+              value: "http://${{ defaults.app_name }}:5679"
+            - name: N8N_RUNNERS_AUTH_TOKEN
+              value: ${{ defaults.N8N_RUNNERS_AUTH_TOKEN }}
+          resources:
+            requests:
+              cpu: 20m
+              memory: 25Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          imagePullPolicy: IfNotPresent
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
   name: ${{ defaults.app_name }}-worker
   annotations:
-    originImageName: n8nio/n8n:1.115.1
+    originImageName: n8nio/n8n:2.1.4
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -453,7 +506,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}-worker
-          image: n8nio/n8n:1.115.1
+          image: n8nio/n8n:2.1.4
           command:
             - tini
             - --
@@ -508,13 +561,21 @@ spec:
               value: 'n8n'
             - name: N8N_PROXY_HOPS
               value: "1"
+            - name: N8N_RUNNERS_ENABLED
+              value: "true"
+            - name: N8N_RUNNERS_MODE
+              value: "external"
+            - name: N8N_RUNNERS_BROKER_LISTEN_ADDRESS
+              value: "0.0.0.0"
+            - name: N8N_RUNNERS_AUTH_TOKEN
+              value: ${{ defaults.N8N_RUNNERS_AUTH_TOKEN }}
           resources:
             requests:
               cpu: 20m
-              memory: 25Mi
+              memory: 51Mi
             limits:
               cpu: 200m
-              memory: 256Mi
+              memory: 512Mi
           imagePullPolicy: IfNotPresent
           livenessProbe:
             httpGet:
@@ -528,6 +589,47 @@ spec:
               port: 5678
             initialDelaySeconds: 10
             periodSeconds: 10
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-worker-runners
+  annotations:
+    originImageName: n8nio/runners:2.1.4
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-worker-runners
+    app: ${{ defaults.app_name }}-worker-runners
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-worker-runners
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-worker-runners
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-worker-runners
+          image: n8nio/runners:2.1.4
+          env:
+            - name: N8N_RUNNERS_TASK_BROKER_URI
+              value: "http://${{ defaults.app_name }}-worker:5679"
+            - name: N8N_RUNNERS_AUTH_TOKEN
+              value: ${{ defaults.N8N_RUNNERS_AUTH_TOKEN }}
+          resources:
+            requests:
+              cpu: 20m
+              memory: 25Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          imagePullPolicy: IfNotPresent
 ${{ endif() }}
 
 ---
@@ -539,9 +641,29 @@ metadata:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 5678
+    - name: http
+      port: 5678
+      protocol: TCP
+    - name: broker
+      port: 5679
+      protocol: TCP
   selector:
     app: ${{ defaults.app_name }}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-worker
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-worker
+spec:
+  ports:
+    - name: broker
+      port: 5679
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-worker
 
 ---
 apiVersion: networking.k8s.io/v1

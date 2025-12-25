@@ -1,0 +1,889 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: strapi
+spec:
+  title: "Strapi"
+  url: "https://strapi.io/"
+  gitRepo: "https://github.com/strapi/strapi"
+  author: "Sealos"
+  description: "Strapi is the leading open-source headless CMS. 100% JavaScript/TypeScript and fully customizable."
+  readme: "https://raw.githubusercontent.com/labring-actions/templates/main/template/strapi/README.md"
+  icon: "https://avatars.githubusercontent.com/u/19872173?s=48&v=4"
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: "Strapi 是领先的开源无头 CMS。100% JavaScript/TypeScript，完全可定制。"
+  categories:
+    - backend
+    - low-code
+  defaults:
+    app_name:
+      type: string
+      value: strapi-${{ random(8) }}
+    app_host:
+      type: string
+      value: strapi-${{ random(8) }}
+    jwt_secret:
+      type: string
+      value: ${{ random(32) }}
+    admin_jwt_secret:
+      type: string
+      value: ${{ random(32) }}
+    app_keys:
+      type: string
+      value: ${{ random(32) }},${{ random(32) }},${{ random(32) }},${{ random(32) }}
+    api_token_salt:
+      type: string
+      value: ${{ random(32) }}
+    transfer_token_salt:
+      type: string
+      value: ${{ random(32) }}
+  inputs:
+    node_env:
+      description: "Node environment mode"
+      type: choice
+      default: "production"
+      options:
+        - production
+        - development
+      required: true
+
+---
+# PostgreSQL ServiceAccount
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+
+---
+# PostgreSQL Role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+rules:
+  - apiGroups:
+      - "*"
+    resources:
+      - "*"
+    verbs:
+      - "*"
+
+---
+# PostgreSQL RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+
+---
+# PostgreSQL Cluster
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-14.8.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+  annotations: {}
+  name: ${{ defaults.app_name }}-pg
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-14.8.0
+  componentSpecs:
+    - componentDefRef: postgresql
+      monitor: true
+      name: postgresql
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+  tolerations: []
+
+---
+# PostgreSQL Database Init Job
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+spec:
+  completions: 1
+  template:
+    spec:
+      containers:
+        - name: pgsql-init
+          image: postgres:14-alpine
+          env:
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until psql ${DATABASE_URL} -c 'CREATE DATABASE strapi;' &>/dev/null; do sleep 1; done
+      restartPolicy: Never
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+data:
+  vn-usrvn-localvn-binvn-docker-entrypointvn-sh: |
+    #!/bin/sh
+    set -ea
+
+    # ============================================================
+    # Check if running in initialization mode
+    # ============================================================
+    INIT_MODE=false
+    if [ "$1" = "strapi-init" ]; then
+      INIT_MODE=true
+      shift
+      set -- "strapi" "$@"
+    fi
+
+    if [ "$1" = "strapi" ]; then
+
+      DATABASE_CLIENT=${DATABASE_CLIENT:-sqlite}
+
+      if [ ! -f "package.json" ]; then
+
+        EXTRA_ARGS=${EXTRA_ARGS}
+
+        echo "Using Strapi v$STRAPI_VERSION"
+        echo "No project found at /srv/app. Creating a new Strapi project ..."
+
+        if [ "${STRAPI_VERSION#5}" != "$STRAPI_VERSION" ]; then
+          DOCKER=true printf "n\n" | npx create-strapi-app@${STRAPI_VERSION} . --no-run \
+            --js \
+            --install \
+            --no-git-init \
+            --no-example \
+            --skip-cloud \
+            --skip-db \
+            $EXTRA_ARGS
+        elif [ "${STRAPI_VERSION%%.*}" = "4" ] && [ "$(echo "$STRAPI_VERSION" | cut -d. -f2)" -ge 25 ]; then
+          DOCKER=true npx create-strapi-app@${STRAPI_VERSION} . --no-run \
+            --skip-cloud \
+            --dbclient=$DATABASE_CLIENT \
+            --dbhost=$DATABASE_HOST \
+            --dbport=$DATABASE_PORT \
+            --dbname=$DATABASE_NAME \
+            --dbusername=$DATABASE_USERNAME \
+            --dbpassword=$DATABASE_PASSWORD \
+            --dbssl=$DATABASE_SSL \
+            $EXTRA_ARGS
+        else
+          DOCKER=true npx create-strapi-app@${STRAPI_VERSION} . --no-run \
+            --dbclient=$DATABASE_CLIENT \
+            --dbhost=$DATABASE_HOST \
+            --dbport=$DATABASE_PORT \
+            --dbname=$DATABASE_NAME \
+            --dbusername=$DATABASE_USERNAME \
+            --dbpassword=$DATABASE_PASSWORD \
+            --dbssl=$DATABASE_SSL \
+            $EXTRA_ARGS
+        fi
+
+        echo "" >| 'config/server.js'
+        echo "" >| 'config/admin.js'
+        echo "" >| 'config/middlewares.js'
+
+        cat <<-EOT >> 'config/server.js'
+    module.exports = ({ env }) => ({
+      host: env('HOST', '0.0.0.0'),
+      port: env.int('PORT', 1337),
+      url: env('PUBLIC_URL', 'http://localhost:1337'),
+      app: {
+        keys: env.array('APP_KEYS'),
+      },
+      webhooks: {
+        populateRelations: env.bool('WEBHOOKS_POPULATE_RELATIONS', false),
+      },
+    });
+    EOT
+
+        cat <<-EOT >> 'config/admin.js'
+    module.exports = ({ env }) => ({
+      url: env('ADMIN_URL', 'http://localhost:1337/admin'),
+      auth: {
+        secret: env('ADMIN_JWT_SECRET'),
+      },
+      apiToken: {
+        salt: env('API_TOKEN_SALT'),
+      },
+      transfer: {
+        token: {
+          salt: env('TRANSFER_TOKEN_SALT'),
+        },
+      },
+    });
+    EOT
+
+        cat <<-EOT >> 'config/middlewares.js'
+    module.exports = ({env}) => ([
+      'strapi::logger',
+      'strapi::errors',
+      {
+        name: 'strapi::security',
+        config: {
+          contentSecurityPolicy: {
+            useDefaults: true,
+            directives: {
+              'connect-src': ["'self'", 'http:', 'https:'],
+              'img-src': env('IMG_ORIGIN', "'self',data:,blob:,market-assets.strapi.io").split(','),
+              upgradeInsecureRequests: null,
+            },
+          },
+        },
+      },
+      {
+        name: 'strapi::cors',
+        config: {
+          origin: env('CORS_ORIGIN', '*').split(','),
+          methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'],
+          headers: ['Content-Type', 'Authorization', 'Origin', 'Accept'],
+          keepHeaderOnError: true,
+        }
+      },
+      'strapi::poweredBy',
+      'strapi::query',
+      'strapi::body',
+      'strapi::session',
+      'strapi::favicon',
+      'strapi::public',
+    ]);
+    EOT
+
+      elif [ ! -d "node_modules" ] || [ ! "$(ls -qAL node_modules 2>/dev/null)" ]; then
+        echo "Node modules not installed. Installing ..."
+        if [ -f "yarn.lock" ]; then
+          yarn install --prod
+        else
+          npm install --only=prod
+        fi
+      fi
+
+      if [ "$ENABLE_VITE_ALLOWED_HOSTS" = "true" ] && [ ! -f "src/admin/vite.config.js" ] && [ ! -f "src/admin/vite.config.ts" ]; then
+        echo "Creating vite.config with allowedHosts configuration..."
+        mkdir -p src/admin
+
+        if [ -f "tsconfig.json" ] || [ -f "package.json" ] && grep -q "\"typescript\"" package.json; then
+          echo "Detected TypeScript project, creating vite.config.ts..."
+          cat <<-EOT > 'src/admin/vite.config.ts'
+    import { mergeConfig, type UserConfig } from 'vite';
+
+    export default (config: UserConfig) => {
+      return mergeConfig(config, {
+        resolve: {
+          alias: {
+            '@': '/src',
+          },
+        },
+        server: {
+          allowedHosts: true
+        },
+      });
+    };
+    EOT
+        else
+          echo "Detected JavaScript project, creating vite.config.js..."
+          cat <<-EOT > 'src/admin/vite.config.js'
+    const { mergeConfig } = require('vite');
+
+    module.exports = (config) => {
+      return mergeConfig(config, {
+        resolve: {
+          alias: {
+            '@': '/src',
+          },
+        },
+        server: {
+          allowedHosts: true
+        },
+      });
+    };
+    EOT
+        fi
+      fi
+
+      if [ -f "yarn.lock" ]; then
+        current_strapi_version="$(yarn list --pattern strapi --depth=0 | grep @strapi/strapi | cut -d @ -f 3)"
+      else
+        current_strapi_version="$(npm list | grep @strapi/strapi | cut -d @ -f 3)"
+      fi
+
+      get_version_parts() {
+        echo "$1" | awk -F. '{print $1, $2, $3}'
+      }
+
+      if [ "${STRAPI_VERSION#5}" != "$STRAPI_VERSION" ]; then
+
+        version_parts=$(get_version_parts "$current_strapi_version")
+        set -- $version_parts
+        current_major=$1
+        current_minor=$2
+        current_patch=$3
+
+        version_parts=$(get_version_parts "$STRAPI_VERSION")
+        set -- $version_parts
+        image_major=$1
+        image_minor=$2
+        image_patch=$3
+
+        if [ "$image_major" -eq "$current_major" ] && [ "$image_minor" -eq "$current_minor" ] && [ "$image_patch" -gt "$current_patch" ]; then
+          echo "Patch upgrade needed: v${current_strapi_version} to v${image_major}.${image_minor}.${image_patch}. Upgrading..."
+          NPM_REGISTRY_URL=https://registry.npmjs.org/ npx @strapi/upgrade@${STRAPI_VERSION} patch -y || { echo "Patch upgrade failed"; exit 1; }
+        fi
+
+        if [ "$image_major" -eq "$current_major" ] && [ "$image_minor" -gt "$current_minor" ]; then
+          echo "Minor upgrade needed: v${current_strapi_version} to v${image_major}.${image_minor}.${image_patch}. Upgrading..."
+          NPM_REGISTRY_URL=https://registry.npmjs.org/ npx @strapi/upgrade@${STRAPI_VERSION} minor -y || { echo "Minor upgrade failed"; exit 1; }
+        fi
+
+        if [ "$image_major" -gt "$current_major" ]; then
+          echo "Major upgrade needed: v${current_strapi_version} to v${image_major}.${image_minor}.${image_patch}. Upgrading..."
+          echo "Ensuring the current version of Strapi is on the latest minor and patch before major upgrade..."
+
+          echo "Performing pre-upgrade patch updates..."
+          NPM_REGISTRY_URL=https://registry.npmjs.org/ npx @strapi/upgrade@${STRAPI_VERSION} patch -y || echo "Pre-upgrade patch update failed or not needed. Check the logs. Continuing..."
+          echo "Performing pre-upgrade minor updates..."
+          NPM_REGISTRY_URL=https://registry.npmjs.org/ npx @strapi/upgrade@${STRAPI_VERSION} minor -y || echo "Pre-upgrade minor update failed or not needed. Check the logs. Continuing..."
+          echo "Performing major upgrade..."
+          NPM_REGISTRY_URL=https://registry.npmjs.org/ npx @strapi/upgrade@${STRAPI_VERSION} major -y || { echo "Major upgrade failed"; exit 1; }
+
+          if [ -f "yarn.lock" ]; then
+            updated_strapi_version="$(yarn list --pattern strapi --depth=0 | grep @strapi/strapi | cut -d @ -f 3)"
+          else
+            updated_strapi_version="$(npm list | grep @strapi/strapi | cut -d @ -f 3)"
+          fi
+
+          version_parts=$(get_version_parts "$updated_strapi_version")
+          set -- $version_parts
+          updated_major=$1
+          updated_minor=$2
+          updated_patch=$3
+
+          if [ "$image_major" -eq "$updated_major" ] && [ "$image_minor" -eq "$updated_minor" ] && [ "$image_patch" -gt "$updated_patch" ]; then
+            echo "Post-upgrade patch update needed: v${updated_strapi_version} to v${image_major}.${image_minor}.${image_patch}. Updating..."
+            NPM_REGISTRY_URL=https://registry.npmjs.org/ npx @strapi/upgrade@${STRAPI_VERSION} patch -y || { echo "Post-upgrade patch update failed"; exit 1; }
+          fi
+
+          if [ "$image_major" -eq "$updated_major" ] && [ "$image_minor" -gt "$updated_minor" ]; then
+            echo "Post-upgrade minor update needed: v${updated_strapi_version} to v${image_major}.${image_minor}.${image_patch}. Updating..."
+            NPM_REGISTRY_URL=https://registry.npmjs.org/ npx @strapi/upgrade@${STRAPI_VERSION} minor -y || { echo "Post-upgrade minor update failed"; exit 1; }
+          fi
+
+        fi
+      else
+        current_strapi_code="$(echo "${current_strapi_version}" | tr -d "." )"
+        image_strapi_code="$(echo "${STRAPI_VERSION}" | tr -d "." )"
+        if [ "${image_strapi_code}" -gt "${current_strapi_code}" ]; then
+          echo "Strapi update needed: v${current_strapi_version} to v${STRAPI_VERSION}. Updating ..."
+          if [ -f "yarn.lock" ]; then
+            yarn add "@strapi/strapi@${STRAPI_VERSION}" "@strapi/plugin-users-permissions@${STRAPI_VERSION}" "@strapi/plugin-i18n@${STRAPI_VERSION}" "@strapi/plugin-cloud@${STRAPI_VERSION}" --prod || { echo "Upgrade failed"; exit 1; }
+          else
+            npm install @strapi/strapi@"${STRAPI_VERSION}" @strapi/plugin-users-permissions@"${STRAPI_VERSION}" @strapi/plugin-i18n@"${STRAPI_VERSION}" @strapi/plugin-cloud@"${STRAPI_VERSION}" --only=prod || { echo "Upgrade failed"; exit 1; }
+          fi
+        fi
+      fi
+
+      if ! grep -q "\"react\"" package.json; then
+        echo "Adding React and Styled Components..."
+        if [ -f "yarn.lock" ]; then
+          yarn add "react@^18.0.0" "react-dom@^18.0.0" "react-router-dom@^5.3.4" "styled-components@^5.3.3" --prod || { echo "Adding React and Styled Components failed"; exit 1; }
+        else
+          npm install react@"^18.0.0" react-dom@"^18.0.0" react-router-dom@"^5.3.4" styled-components@"^5.3.3" --only=prod || { echo "Adding React and Styled Components failed"; exit 1; }
+        fi
+      fi
+
+      if [ "${DATABASE_CLIENT}" = "postgres" ] && ! grep -q "\"pg\"" package.json; then
+        echo "Adding Postgres packages..."
+        if [ -f "yarn.lock" ]; then
+          yarn add "pg@^8.13.0" --prod || { echo "Adding Postgres packages failed"; exit 1; }
+        else
+          npm install pg@"^8.13.0" --only=prod || { echo "Adding Postgres packages failed"; exit 1; }
+        fi
+      fi
+
+      if [ "${DATABASE_CLIENT}" = "mysql" ]; then
+        if [ "${STRAPI_VERSION#5}" != "$STRAPI_VERSION" ]; then
+          if ! grep -q "\"mysql2\"" package.json; then
+            echo "Adding MySQL2 package for Strapi v5..."
+            if [ -f "yarn.lock" ]; then
+              yarn add "mysql2@^3.12.0" --prod || { echo "Adding MySQL2 package failed"; exit 1; }
+            else
+              npm install mysql2@"^3.12.0" --only=prod || { echo "Adding MySQL2 package failed"; exit 1; }
+            fi
+          fi
+        else
+          if ! grep -q "\"mysql\"" package.json; then
+            echo "Adding MySQL package for Strapi v4..."
+            if [ -f "yarn.lock" ]; then
+              yarn add "mysql@^2.18.1" --prod || { echo "Adding MySQL package failed"; exit 1; }
+            else
+              npm install mysql@"^2.18.1" --only=prod || { echo "Adding MySQL package failed"; exit 1; }
+            fi
+          fi
+        fi
+      elif [ "${DATABASE_CLIENT}" = "mysql2" ] && ! grep -q "\"mysql2\"" package.json; then
+        echo "Adding MySQL2 package..."
+        if [ -f "yarn.lock" ]; then
+          yarn add "mysql2@^3.12.0" --prod || { echo "Adding MySQL2 package failed"; exit 1; }
+        else
+          npm install mysql2@"^3.12.0" --only=prod || { echo "Adding MySQL2 package failed"; exit 1; }
+        fi
+      fi
+
+      # ============================================================
+      # Initialization mode: build and exit
+      # ============================================================
+      if [ "$INIT_MODE" = "true" ]; then
+        echo "============================================"
+        echo "Running in INIT MODE"
+        echo "============================================"
+
+        BUILD_MARKER="node_modules/@strapi/admin/dist/server/build/index.html"
+
+        if [ ! -f "$BUILD_MARKER" ]; then
+          echo "Build files not found. Building Strapi admin panel..."
+          if [ -f "yarn.lock" ]; then
+            yarn build
+          else
+            npm run build
+          fi
+          echo "Build completed successfully!"
+        else
+          echo "Build files already exist. Skipping build."
+        fi
+
+        echo "============================================"
+        echo "Initialization completed. Exiting."
+        echo "============================================"
+        exit 0
+      fi
+
+      # ============================================================
+      echo "Initialization completed. Exiting."
+      # ============================================================
+      BUILD=${BUILD:-false}
+
+      if [ "$BUILD" = "true" ]; then
+        echo "Building Strapi admin..."
+        if [ -f "yarn.lock" ]; then
+          yarn build
+        else
+          npm run build
+        fi
+      fi
+
+      if [ "$NODE_ENV" = "production" ]; then
+        STRAPI_MODE="start"
+      elif [ "$NODE_ENV" = "development" ]; then
+        STRAPI_MODE="develop"
+      fi
+
+      echo "Starting your app (with ${STRAPI_MODE:-develop})..."
+
+      if [ "$GITHUB_ACTIONS" = "1" ]; then
+        rm -f pipe
+        mkfifo pipe
+
+        if [ -f "yarn.lock" ]; then
+          yarn "${STRAPI_MODE:-develop}" > pipe & pid=$!
+        else
+          npm run "${STRAPI_MODE:-develop}" > pipe & pid=$!
+        fi
+
+        exec 3<pipe
+        while IFS= read -r line <&3; do
+          lower_line=$(echo "$line" | tr '[:upper:]' '[:lower:]')
+          printf '%s\n' "$lower_line"
+
+          if [ "${lower_line#*http://localhost:1337/admin}" != "$lower_line" ]; then
+            if [ -f "yarn.lock" ]; then
+              running_strapi_version="$(yarn list --pattern strapi --depth=0 | grep @strapi/strapi | cut -d @ -f 3)"
+            else
+              running_strapi_version="$(npm list | grep @
+
+    strapi/strapi | cut -d @ -f 3)"
+            fi
+            if [ "$running_strapi_version" = "$STRAPI_VERSION" ]; then
+              echo -e "\nSuccessfully launched Strapi with version $running_strapi_version. Exiting container with code 0..."
+              exec 3<&-
+              kill "$pid"
+              rm -f pipe
+              exit 0
+            else
+              echo -e "\nStrapi launched with version $running_strapi_version, but expected version was $STRAPI_VERSION. Exiting container with code 1..."
+              exec 3<&-
+              kill "$pid"
+              rm -f pipe
+              exit 1
+            fi
+          fi
+
+          if [ "${lower_line#*error}" != "$lower_line" ]; then
+            exec 3<&-
+            kill "$pid"
+            echo -e "\nFailed to launch Strapi. Exiting container with code 1..."
+            rm -f pipe
+            exit 1
+          fi
+
+        done
+      else
+        if [ -f "yarn.lock" ]; then
+          exec yarn "${STRAPI_MODE:-develop}"
+        else
+          exec npm run "${STRAPI_MODE:-develop}"
+        fi
+      fi
+
+    else
+      exec "$@"
+    fi
+
+---
+# Strapi StatefulSet
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: vshadbolt/strapi:5.33.0
+    deploy.cloud.sealos.io/minReplicas: "1"
+    deploy.cloud.sealos.io/maxReplicas: "1"
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: strapi-build
+          image: vshadbolt/strapi:5.33.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/bash
+            - -c
+            - |
+              if [ ! -d "/srv/app/build" ]; then
+                echo "Build files not found, running npm run build..."
+                cd /srv/app
+                bash /usr/local/bin/docker-entrypoint.sh strapi-init
+              else
+                echo "Build files already exist, skipping build."
+              fi
+          env:
+            # Database Configuration (needed for build)
+            - name: DATABASE_CLIENT
+              value: postgres
+            - name: DATABASE_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: DATABASE_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: DATABASE_NAME
+              value: strapi
+            - name: DATABASE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_SSL
+              value: "false"
+
+            # Strapi Secrets (needed for build)
+            - name: JWT_SECRET
+              value: ${{ defaults.jwt_secret }}
+            - name: ADMIN_JWT_SECRET
+              value: ${{ defaults.admin_jwt_secret }}
+            - name: APP_KEYS
+              value: ${{ defaults.app_keys }}
+            - name: API_TOKEN_SALT
+              value: ${{ defaults.api_token_salt }}
+            - name: TRANSFER_TOKEN_SALT
+              value: ${{ defaults.transfer_token_salt }}
+
+            # Node Environment
+            - name: NODE_ENV
+              value: production
+          volumeMounts:
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /usr/local/bin/docker-entrypoint.sh
+              subPath: vn-usrvn-localvn-binvn-docker-entrypointvn-sh
+            - name: vn-srvvn-app
+              mountPath: /srv/app
+            - name: vn-rootvn-vn-npm
+              mountPath: /root/.npm
+          resources:
+            requests:
+              cpu: 200m
+              memory: 307Mi
+            limits:
+              cpu: 2000m
+              memory: 3072Mi
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: vshadbolt/strapi:5.33.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/bash
+          args:
+            - /usr/local/bin/docker-entrypoint.sh
+            - strapi
+          env:
+            # Admin and Public URLs (auto-configured with Sealos domain)
+            - name: ADMIN_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/admin
+            - name: PUBLIC_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: IMG_ORIGIN
+              value: "'self',data:,blob:,market-assets.strapi.io,${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: CORS_ORIGIN
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: ENABLE_VITE_ALLOWED_HOSTS
+              value: "true"
+
+            # Database Configuration
+            - name: DATABASE_CLIENT
+              value: postgres
+            - name: DATABASE_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: DATABASE_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: DATABASE_NAME
+              value: strapi
+            - name: DATABASE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_SSL
+              value: "false"
+
+            # Strapi Secrets
+            - name: JWT_SECRET
+              value: ${{ defaults.jwt_secret }}
+            - name: ADMIN_JWT_SECRET
+              value: ${{ defaults.admin_jwt_secret }}
+            - name: APP_KEYS
+              value: ${{ defaults.app_keys }}
+            - name: API_TOKEN_SALT
+              value: ${{ defaults.api_token_salt }}
+            - name: TRANSFER_TOKEN_SALT
+              value: ${{ defaults.transfer_token_salt }}
+
+            # Node Environment
+            - name: NODE_ENV
+              value: ${{ inputs.node_env }}
+
+            # Server Configuration
+            - name: HOST
+              value: 0.0.0.0
+            - name: PORT
+              value: "1337"
+            - name: BUILD
+              value: false
+          ports:
+            - containerPort: 1337
+          resources:
+            requests:
+              cpu: 100m
+              memory: 25Mi
+            limits:
+              cpu: 1000m
+              memory: 256Mi
+          volumeMounts:
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /usr/local/bin/docker-entrypoint.sh
+              subPath: vn-usrvn-localvn-binvn-docker-entrypointvn-sh
+            - name: vn-srvvn-app
+              mountPath: /srv/app
+            - name: vn-rootvn-vn-npm
+              mountPath: /root/.npm
+      volumes:
+        - name: ${{ defaults.app_name }}-cm
+          configMap:
+            name: ${{ defaults.app_name }}
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /srv/app
+          value: "2"
+        name: vn-srvvn-app
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 2Gi
+    - metadata:
+        annotations:
+          path: /root/.npm
+          value: "1"
+        name: vn-rootvn-vn-npm
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+
+---
+# Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - port: 1337
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+# Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 100m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png|svg|ico|woff|woff2|ttf|eot)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 1337
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+# App CR
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: "https://avatars.githubusercontent.com/u/19872173?s=48&v=4"
+  name: Strapi
+  type: link
