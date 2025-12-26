@@ -25,9 +25,6 @@ spec:
     app_host:
       type: string
       value: ${{ random(8) }}
-    app_host_api:
-      type: string
-      value: ${{ random(8) }}
     secret_key:
       type: string
       value: sk-${{ random(45) }}
@@ -50,7 +47,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}-api
   annotations:
-    originImageName: langgenius/dify-api:1.11.1
+    originImageName: langgenius/dify-api:1.11.2
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -107,9 +104,27 @@ spec:
                 sleep 5
               done
               echo "Dify database is ready"
+        - name: init-permissions
+          image: busybox:1.37.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              FLAG_FILE="/app/api/storage/.init_permissions"
+              if [ -f "$${FLAG_FILE}" ]; then
+                echo "Permissions already initialized. Exiting."
+                exit 0
+              fi
+              echo "Initializing permissions for /app/api/storage"
+              chown -R 1001:1001 /app/api/storage && touch "$${FLAG_FILE}"
+              echo "Permissions initialized. Exiting."
+          volumeMounts:
+            - name: vn-appvn-apivn-storage
+              mountPath: /app/api/storage
       containers:
         - name: ${{ defaults.app_name }}-api
-          image: langgenius/dify-api:1.11.1
+          image: langgenius/dify-api:1.11.2
           env:
             - name: MODE
               value: api
@@ -122,11 +137,11 @@ spec:
             - name: INIT_PASSWORD
               value: ${{ inputs.init_password }}
             - name: CONSOLE_API_URL
-              value: https://${{ defaults.app_host_api }}.${{ SEALOS_CLOUD_DOMAIN }}
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: SERVICE_API_URL
-              value: https://${{ defaults.app_host_api }}.${{ SEALOS_CLOUD_DOMAIN }}
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: APP_API_URL
-              value: https://${{ defaults.app_host_api }}.${{ SEALOS_CLOUD_DOMAIN }}
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: FILES_URL
               value: ''
             - name: MIGRATION_ENABLED
@@ -226,13 +241,13 @@ spec:
             - name: CODE_MAX_NUMBER_ARRAY_LENGTH
               value: '1000'
             - name: CONSOLE_API_URL
-              value: https://${{ defaults.app_host_api }}.${{ SEALOS_CLOUD_DOMAIN }}
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: CONSOLE_WEB_URL
               value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: APP_WEB_URL
               value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: SERVICE_API_URL
-              value: https://${{ defaults.app_host_api }}.${{ SEALOS_CLOUD_DOMAIN }}
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: PLUGIN_DAEMON_URL
               value: http://${{ defaults.app_name }}-plugin-daemon:5002
             - name: PLUGIN_DAEMON_KEY
@@ -261,7 +276,7 @@ spec:
             - name: vn-appvn-apivn-storage
               mountPath: /app/api/storage
         - name: ${{ defaults.app_name }}-worker
-          image: langgenius/dify-api:1.11.1
+          image: langgenius/dify-api:1.11.2
           env:
             - name: MODE
               value: worker
@@ -346,13 +361,13 @@ spec:
             - name: WEAVIATE_API_KEY
               value: ""
             - name: CONSOLE_API_URL
-              value: https://${{ defaults.app_host_api }}.${{ SEALOS_CLOUD_DOMAIN }}
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: CONSOLE_WEB_URL
               value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: APP_WEB_URL
               value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: SERVICE_API_URL
-              value: https://${{ defaults.app_host_api }}.${{ SEALOS_CLOUD_DOMAIN }}
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: PLUGIN_DAEMON_URL
               value: http://${{ defaults.app_name }}-plugin-daemon:5002
             - name: PLUGIN_DAEMON_KEY
@@ -407,55 +422,12 @@ spec:
     app: ${{ defaults.app_name }}-api
 
 ---
-
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: ${{ defaults.app_name }}-api
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-api
-    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host_api }}
-  annotations:
-    kubernetes.io/ingress.class: nginx
-    higress.io/response-header-control-remove: X-Frame-Options
-    higress.io/response-header-control-update: |
-      Content-Security-Policy "default-src * blob: data: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; img-src * data: blob: resource: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; connect-src * wss: blob: resource:; style-src 'self' 'unsafe-inline' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource: *.baidu.com *.bdstatic.com; frame-src 'self' *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} mailto: tel: weixin: mtt: *.baidu.com; frame-ancestors 'self' https://${{ SEALOS_CLOUD_DOMAIN }} https://*.${{ SEALOS_CLOUD_DOMAIN }}"
-      X-Xss-Protection "1; mode=block"
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      more_clear_headers "X-Frame-Options:";
-      more_set_headers "Content-Security-Policy: default-src * blob: data: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; img-src * data: blob: resource: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; connect-src * wss: blob: resource:; style-src 'self' 'unsafe-inline' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource: *.baidu.com *.bdstatic.com; frame-src 'self' *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} mailto: tel: weixin: mtt: *.baidu.com; frame-ancestors 'self' https://${{ SEALOS_CLOUD_DOMAIN }} https://*.${{ SEALOS_CLOUD_DOMAIN }}";
-      more_set_headers "X-Xss-Protection: 1; mode=block";
-    nginx.ingress.kubernetes.io/enable-cors: "true"
-    nginx.ingress.kubernetes.io/cors-allow-methods: "PUT, GET, POST, DELETE, PATCH, OPTIONS"
-    nginx.ingress.kubernetes.io/cors-allow-origin: "https://${{ SEALOS_CLOUD_DOMAIN }}, https://*.${{ SEALOS_CLOUD_DOMAIN }}"
-    nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
-    nginx.ingress.kubernetes.io/cors-allow-headers: "DNT, Keep-Alive, User-Agent, X-Requested-With, If-Modified-Since, Cache-Control, Content-Type, Range, Authorization, X-App-Code, X-App-Passport, X-CSRF-TOKEN"
-    nginx.ingress.kubernetes.io/cors-max-age: "600"
-spec:
-  rules:
-    - host: ${{ defaults.app_host_api }}.${{ SEALOS_CLOUD_DOMAIN }}
-      http:
-        paths:
-          - pathType: Prefix
-            path: /
-            backend:
-              service:
-                name: ${{ defaults.app_name }}-api
-                port:
-                  number: 5001
-  tls:
-    - hosts:
-        - ${{ defaults.app_host_api }}.${{ SEALOS_CLOUD_DOMAIN }}
-      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
-
----
-
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-web
   annotations:
-    originImageName: langgenius/dify-web:1.11.1
+    originImageName: langgenius/dify-web:1.11.2
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -511,20 +483,20 @@ spec:
               echo "Dify database is ready"
       containers:
         - name: ${{ defaults.app_name }}-web
-          image: langgenius/dify-web:1.11.1
+          image: langgenius/dify-web:1.11.2
           env:
             - name: EDITION
               value: SELF_HOSTED
             - name: CONSOLE_API_URL
-              value: https://${{ defaults.app_host_api }}.${{ SEALOS_CLOUD_DOMAIN }}
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: CONSOLE_WEB_URL
               value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: APP_API_URL
-              value: https://${{ defaults.app_host_api }}.${{ SEALOS_CLOUD_DOMAIN }}
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: APP_WEB_URL
               value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: SERVICE_API_URL
-              value: https://${{ defaults.app_host_api }}.${{ SEALOS_CLOUD_DOMAIN }}
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: MARKETPLACE_API_URL
               value: https://marketplace.dify.ai
             - name: MARKETPLACE_URL
@@ -539,6 +511,7 @@ spec:
           ports:
             - containerPort: 3000
           imagePullPolicy: IfNotPresent
+
 ---
 apiVersion: v1
 kind: Service
@@ -553,7 +526,6 @@ spec:
     app: ${{ defaults.app_name }}-web
 
 ---
-
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -575,13 +547,68 @@ spec:
                 name: ${{ defaults.app_name }}-web
                 port:
                   number: 3000
+          - pathType: Prefix
+            path: /explore
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-web
+                port:
+                  number: 3000
+          - pathType: Prefix
+            path: /console/api
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-api
+                port:
+                  number: 5001
+          - pathType: Prefix
+            path: /api
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-api
+                port:
+                  number: 5001
+          - pathType: Prefix
+            path: /v1
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-api
+                port:
+                  number: 5001
+          - pathType: Prefix
+            path: /files
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-api
+                port:
+                  number: 5001
+          - pathType: Prefix
+            path: /mcp
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-api
+                port:
+                  number: 5001
+          - pathType: Prefix
+            path: /triggers
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-api
+                port:
+                  number: 5001
+          - pathType: Prefix
+            path: /e
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-plugin-daemon
+                port:
+                  number: 5002
   tls:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
 
 ---
-
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -624,11 +651,11 @@ spec:
             requests:
               cpu: 100m
               memory: 128Mi
-              ephemeral-storage: 200Mi
+              ephemeral-storage: 300Mi
             limits:
               cpu: 1
               memory: 1Gi
-              ephemeral-storage: 200Mi
+              ephemeral-storage: 300Mi
           ports:
             - containerPort: 8194
           imagePullPolicy: IfNotPresent
@@ -647,8 +674,8 @@ spec:
         resources:
           requests:
             storage: 1Gi
----
 
+---
 apiVersion: v1
 kind: Service
 metadata:
@@ -667,7 +694,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}-plugin-daemon
   annotations:
-    originImageName: langgenius/dify-plugin-daemon:0.4.1-local
+    originImageName: langgenius/dify-plugin-daemon:0.5.2-local
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -726,7 +753,7 @@ spec:
               echo "Dify database is ready"
       containers:
         - name: ${{ defaults.app_name }}-plugin-daemon
-          image: langgenius/dify-plugin-daemon:0.4.1-local
+          image: langgenius/dify-plugin-daemon:0.5.2-local
           env:
             - name: DB_USERNAME
               valueFrom:
@@ -848,7 +875,6 @@ spec:
     app: ${{ defaults.app_name }}-plugin-daemon
 
 ---
-
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -859,7 +885,6 @@ metadata:
   name: ${{ defaults.app_name }}-pg
 
 ---
-
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -877,7 +902,6 @@ rules:
       - '*'
 
 ---
-
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
@@ -895,7 +919,6 @@ subjects:
     name: ${{ defaults.app_name }}-pg
 
 ---
-
 apiVersion: apps.kubeblocks.io/v1alpha1
 kind: Cluster
 metadata:
@@ -949,7 +972,6 @@ spec:
   tolerations: []
 
 ---
-
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -997,7 +1019,6 @@ spec:
   ttlSecondsAfterFinished: 300
 
 ---
-
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -1008,7 +1029,6 @@ metadata:
   name: ${{ defaults.app_name }}-redis
 
 ---
-
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -1026,7 +1046,6 @@ rules:
       - '*'
 
 ---
-
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
@@ -1044,7 +1063,6 @@ subjects:
     name: ${{ defaults.app_name }}-redis
 
 ---
-
 apiVersion: apps.kubeblocks.io/v1alpha1
 kind: Cluster
 metadata:
@@ -1104,7 +1122,6 @@ spec:
   tolerations: []
 
 ---
-
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -1115,7 +1132,6 @@ metadata:
   name: ${{ defaults.app_name }}-weaviate
 
 ---
-
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -1133,7 +1149,6 @@ rules:
       - '*'
 
 ---
-
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
@@ -1151,7 +1166,6 @@ subjects:
     name: ${{ defaults.app_name }}-weaviate
 
 ---
-
 apiVersion: apps.kubeblocks.io/v1alpha1
 kind: Cluster
 metadata:
