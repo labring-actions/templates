@@ -1,0 +1,171 @@
+apiVersion: template.app.sealos.io/v1beta1
+kind: Template
+metadata:
+  name: xyos
+spec:
+  title: 'WebOS'
+  url: 'https://www.xyos.vip'
+  github: 'https://github.com/Miraitowa-wsy/xyos'
+  author: 'sealos'
+  description: '新一代协同办公私有云，Windows11操作逻辑-更现代感的，私有云、云盘、网盘、NAS'
+  readme: 'https://github.com/Miraitowa-wsy/xyos/blob/main/README.md'
+  icon: 'https://cdn-ai.xing-yun.cn/logo/xyoslogo.png'
+  template_type: inline
+  defaults:
+    app_host:
+      # number or string..
+      type: string
+      value: ${{ random(8) }}
+    app_name:
+      type: string
+      value: xyos-${{ random(8) }}
+  inputs:
+    volume_size:
+      description: 'save data size (Gi)'
+      type: string
+      default: '1'
+      required: true
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: nebstudio/xyos:new
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+        restartTime: '20230719161303'
+    spec:
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: nebstudio/xyos:new
+          resources:
+            requests:
+              cpu: 100m
+              memory: 102Mi
+            limits:
+              cpu: 1000m
+              memory: 1024Mi
+          command: []
+          args: []
+          ports:
+            - containerPort: 8088
+          imagePullPolicy: Always
+          volumeMounts:
+            - name: vn-webosmnt
+              mountPath: /webosMnt
+            - name: vn-webosvn-apivn-rootpath
+              mountPath: /webos/api/rootPath
+            - name: vn-webosvn-webvn-apps
+              mountPath: /webos/web/apps
+      volumes: []
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /webosMnt
+          value: '1'
+        name: vn-webosmnt
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+    - metadata:
+        annotations:
+          path: /webos/api/rootPath
+          value: '2'
+        name: vn-webosvn-apivn-rootpath
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: ${{ inputs.volume_size }}Gi
+    - metadata:
+        annotations:
+          path: /webos/web/apps
+          value: '1'
+        name: vn-webosvn-webvn-apps
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+spec:
+  ports:
+    - port: 8088
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /()(.*)
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 8088
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
