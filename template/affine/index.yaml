@@ -180,17 +180,17 @@ spec:
             - name: REDIS_SERVER_HOST
               valueFrom:
                 secretKeyRef:
-                  name: ${{ defaults.app_name }}-redis-account-default
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: host
             - name: REDIS_SERVER_USER
               valueFrom:
                 secretKeyRef:
-                  name: ${{ defaults.app_name }}-redis-account-default
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: username
             - name: REDIS_SERVER_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: ${{ defaults.app_name }}-redis-account-default
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
             - name: PG_HOST
               valueFrom:
@@ -231,6 +231,7 @@ kind: Cluster
 metadata:
   finalizers:
     - cluster.kubeblocks.io/finalizer
+  name: ${{ defaults.app_name }}-redis
   labels:
     clusterdefinition.kubeblocks.io/name: redis
     kb.io/database: redis-7.2.7
@@ -238,23 +239,26 @@ metadata:
     app.kubernetes.io/version: 7.2.7
     helm.sh/chart: redis-cluster-0.9.0
     sealos-db-provider-cr: ${{ defaults.app_name }}-redis
-  annotations: {}
-  name: ${{ defaults.app_name }}-redis
 spec:
-  affinity:
-    nodeLabels: {}
-    podAntiAffinity: Preferred
-    tenancy: SharedNode
-    topologyKeys: []
   clusterDefinitionRef: redis
+  affinity:
+    podAntiAffinity: Preferred
+    topologyKeys:
+      - kubernetes.io/hostname
+  tolerations:
+    - key: kb-data
+      operator: Equal
+      value: "true"
+      effect: NoSchedule
   componentSpecs:
-    - componentDef: redis-7
-      monitor: true
+    - name: redis
+      componentDef: redis-7
       enabledLogs:
         - running
       env:
         - name: CUSTOM_SENTINEL_MASTER_NAME
       serviceVersion: 7.2.7
+      serviceAccountName: ${{ defaults.app_name }}-redis
       replicas: 1
       resources:
         limits:
@@ -263,9 +267,6 @@ spec:
         requests:
           cpu: 50m
           memory: 51Mi
-      serviceAccountName: ${{ defaults.app_name }}-redis
-      switchPolicy:
-        type: Noop
       volumeClaimTemplates:
         - name: data
           spec:
@@ -275,7 +276,6 @@ spec:
               requests:
                 storage: 1Gi
     - componentDef: redis-sentinel-7
-      serviceVersion: 7.2.7
       name: redis-sentinel
       replicas: 1
       resources:
@@ -283,9 +283,17 @@ spec:
           cpu: 100m
           memory: 100Mi
         requests:
-          cpu: 100m
-          memory: 100Mi
-      serviceAccountName: ${{ defaults.app_name }}-redis
+          cpu: 10m
+          memory: 10Mi
+      serviceVersion: 7.2.7
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
   terminationPolicy: Delete
   topology: replication
 
@@ -392,17 +400,17 @@ spec:
             - name: REDIS_SERVER_HOST
               valueFrom:
                 secretKeyRef:
-                  name: ${{ defaults.app_name }}-redis-account-default
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: host
             - name: REDIS_SERVER_USER
               valueFrom:
                 secretKeyRef:
-                  name: ${{ defaults.app_name }}-redis-account-default
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: username
             - name: REDIS_SERVER_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: ${{ defaults.app_name }}-redis-account-default
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
             - name: PG_PASSWORD
               valueFrom:
