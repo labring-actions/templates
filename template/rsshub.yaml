@@ -187,24 +187,34 @@ kind: Cluster
 metadata:
   finalizers:
     - cluster.kubeblocks.io/finalizer
+  name: ${{ defaults.app_name }}-redis
   labels:
     clusterdefinition.kubeblocks.io/name: redis
-    clusterversion.kubeblocks.io/name: redis-7.0.6
+    kb.io/database: redis-7.2.7
+    app.kubernetes.io/instance: ${{ defaults.app_name }}
+    app.kubernetes.io/version: 7.2.7
+    helm.sh/chart: redis-cluster-0.9.0
     sealos-db-provider-cr: ${{ defaults.app_name }}-redis
-  annotations: {}
-  name: ${{ defaults.app_name }}-redis
 spec:
-  affinity:
-    nodeLabels: {}
-    podAntiAffinity: Preferred
-    tenancy: SharedNode
-    topologyKeys: []
   clusterDefinitionRef: redis
-  clusterVersionRef: redis-7.0.6
+  affinity:
+    podAntiAffinity: Preferred
+    topologyKeys:
+      - kubernetes.io/hostname
+  tolerations:
+    - key: kb-data
+      operator: Equal
+      value: "true"
+      effect: NoSchedule
   componentSpecs:
-    - componentDefRef: redis
-      monitor: true
-      name: redis
+    - name: redis
+      componentDef: redis-7
+      enabledLogs:
+        - running
+      env:
+        - name: CUSTOM_SENTINEL_MASTER_NAME
+      serviceVersion: 7.2.7
+      serviceAccountName: ${{ defaults.app_name }}-redis
       replicas: 1
       resources:
         limits:
@@ -213,9 +223,6 @@ spec:
         requests:
           cpu: 50m
           memory: 51Mi
-      serviceAccountName: ${{ defaults.app_name }}-redis
-      switchPolicy:
-        type: Noop
       volumeClaimTemplates:
         - name: data
           spec:
@@ -224,9 +231,7 @@ spec:
             resources:
               requests:
                 storage: 1Gi
-
-    - componentDefRef: redis-sentinel
-      monitor: true
+    - componentDef: redis-sentinel-7
       name: redis-sentinel
       replicas: 1
       resources:
@@ -234,11 +239,19 @@ spec:
           cpu: 100m
           memory: 100Mi
         requests:
-          cpu: 100m
-          memory: 100Mi
-      serviceAccountName: ${{ defaults.app_name }}-redis
+          cpu: 10m
+          memory: 10Mi
+      serviceVersion: 7.2.7
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
   terminationPolicy: Delete
-  tolerations: []
+  topology: replication
 
 ---
 

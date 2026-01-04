@@ -292,15 +292,18 @@ subjects:
 apiVersion: apps.kubeblocks.io/v1alpha1
 kind: Cluster
 metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
   name: ${{ defaults.app_name }}-redis
   labels:
     clusterdefinition.kubeblocks.io/name: redis
-    clusterversion.kubeblocks.io/name: redis-7.0.6
+    kb.io/database: redis-7.2.7
+    app.kubernetes.io/instance: ${{ defaults.app_name }}
+    app.kubernetes.io/version: 7.2.7
+    helm.sh/chart: redis-cluster-0.9.0
     sealos-db-provider-cr: ${{ defaults.app_name }}-redis
 spec:
   clusterDefinitionRef: redis
-  clusterVersionRef: redis-7.0.6
-  terminationPolicy: Delete
   affinity:
     podAntiAffinity: Preferred
     topologyKeys:
@@ -312,10 +315,12 @@ spec:
       effect: NoSchedule
   componentSpecs:
     - name: redis
-      componentDefRef: redis
+      componentDef: redis-7
       enabledLogs:
         - running
-      disableExporter: true
+      env:
+        - name: CUSTOM_SENTINEL_MASTER_NAME
+      serviceVersion: 7.2.7
       serviceAccountName: ${{ defaults.app_name }}-redis
       replicas: 1
       resources:
@@ -333,7 +338,27 @@ spec:
             resources:
               requests:
                 storage: 1Gi
-
+    - componentDef: redis-sentinel-7
+      name: redis-sentinel
+      replicas: 1
+      resources:
+        limits:
+          cpu: 100m
+          memory: 100Mi
+        requests:
+          cpu: 10m
+          memory: 10Mi
+      serviceVersion: 7.2.7
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+  terminationPolicy: Delete
+  topology: replication
 ---
 # Application Secret
 apiVersion: v1
