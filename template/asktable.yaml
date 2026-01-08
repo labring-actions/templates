@@ -52,6 +52,35 @@ spec:
 
 
 ---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+spec:
+  completions: 1
+  template:
+    spec:
+      containers:
+        - name: pgsql-init
+          image: postgres:14-alpine
+          env:
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-postgresql-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-postgresql-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until psql ${DATABASE_URL} -c 'CREATE DATABASE asktable;' &>/dev/null; do sleep 1; done
+      restartPolicy: Never
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -91,7 +120,7 @@ spec:
                   name: ${{ defaults.app_name }}-postgresql-conn-credential
                   key: password
             - name: DATABASE_DB
-              value: postgres
+              value: asktable
             - name: LLM_API_KEY
               value: ${{ inputs.LLM_API_KEY }}
             - name: LLM_BASE_URL
