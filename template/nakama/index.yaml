@@ -1,0 +1,457 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: ${{ defaults.app_name }}
+spec:
+  title: 'Nakama'
+  url: 'https://heroiclabs.com/nakama/'
+  gitRepo: 'https://github.com/heroiclabs/nakama'
+  author: 'sealos'
+  description: '"游戏开发瑞士军刀"：它能自动处理用户登录、实时聊天、排行榜、成就系统，还能智能匹配玩家。这就是Nakama——专为多人游戏和社交应用设计的分布式服务器框架。它支持： - 🎮 自动化用户认证（微信/邮箱/设备ID） - 💬 实时语音+文字聊天 - 🏆 动态排行榜+赛季系统 - 🧩 模块化扩展（Lua/TS/Go）'
+  readme: 'https://raw.githubusercontent.com/heroiclabs/nakama/refs/heads/master/README.md'
+  icon: 'https://raw.githubusercontent.com/labring-actions/templates/main/template/nakama/logo.svg'
+  templateType: inline
+  defaults:
+    app_name:
+      type: string
+      value: nakama-${{ random(8) }}
+    app_host:
+      type: string
+      value: ${{ random(8) }}
+    metrics_host:
+      type: string
+      value: ${{ random(8) }}
+    grpc_host:
+      type: string
+      value: ${{ random(8) }}
+    console_grpc_host:
+      type: string
+      value: ${{ random(8) }}
+  inputs:
+    nakama_image:
+      description: 'Nakama 镜像（建议固定版本）'
+      type: string
+      default: 'heroiclabs/nakama:3.35.1'
+      required: true
+    enable_grpc:
+      description: '是否开启 7348/7349 的外网访问（gRPC）'
+      type: boolean
+      default: 'false'
+      required: false
+    session_encryption_key:
+      description: 'Session encryption key（替换默认不安全值）'
+      type: string
+      default: ${{ random(32) }}
+      required: true
+    session_refresh_encryption_key:
+      description: 'Session refresh encryption key（替换默认不安全值）'
+      type: string
+      default: ${{ random(32) }}
+      required: true
+    runtime_http_key:
+      description: 'Runtime HTTP key（替换默认不安全值）'
+      type: string
+      default: ${{ random(32) }}
+      required: true
+    console_signing_key:
+      description: 'Console signing key（替换默认不安全值）'
+      type: string
+      default: ${{ random(32) }}
+      required: true
+    console_mfa_storage_encryption_key:
+      description: 'Console MFA storage encryption key（建议设置，开启 Console MFA 时用于加密存储）'
+      type: string
+      default: ${{ random(32) }}
+      required: true
+    console_username:
+      description: 'Nakama Console 用户名（替换默认值）'
+      type: string
+      default: 'admin'
+      required: true
+    console_password:
+      description: 'Nakama Console 密码'
+      type: string
+      default: ${{ random(16) }}
+      required: true
+    server_key:
+      description: 'Nakama server key'
+      type: string
+      default: ${{ random(32) }}
+      required: true
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+  annotations: {}
+  name: ${{ defaults.app_name }}-pg
+  generation: 1
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  componentSpecs:
+    - componentDefRef: postgresql
+      monitor: true
+      name: postgresql
+      replicas: 1
+      resources:
+        limits:
+          cpu: 1000m
+          memory: 1024Mi
+        requests:
+          cpu: 100m
+          memory: 102Mi
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 5Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+  tolerations: []
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ${{ inputs.nakama_image }}
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: init-modules-dir
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: vn-data
+              mountPath: /data
+          args:
+            - sh
+            - -lc
+            - mkdir -p /data/modules
+        - name: migrate
+          image: ${{ inputs.nakama_image }}
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: vn-data
+              mountPath: /data
+          env:
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: NAKAMA_DATABASE_ADDRESS
+              value: >-
+                postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432/postgres?sslmode=disable
+          args:
+            - 'migrate'
+            - 'up'
+            - '--database.address'
+            - $(NAKAMA_DATABASE_ADDRESS)
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: ${{ inputs.nakama_image }}
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: vn-data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1024Mi
+          env:
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: NAKAMA_DATABASE_ADDRESS
+              value: >-
+                postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432/postgres?sslmode=disable
+            - name: NAKAMA_SESSION_ENCRYPTION_KEY
+              value: ${{ inputs.session_encryption_key }}
+            - name: NAKAMA_SESSION_REFRESH_ENCRYPTION_KEY
+              value: ${{ inputs.session_refresh_encryption_key }}
+            - name: NAKAMA_RUNTIME_HTTP_KEY
+              value: ${{ inputs.runtime_http_key }}
+            - name: NAKAMA_CONSOLE_SIGNING_KEY
+              value: ${{ inputs.console_signing_key }}
+            - name: NAKAMA_CONSOLE_MFA_STORAGE_ENCRYPTION_KEY
+              value: ${{ inputs.console_mfa_storage_encryption_key }}
+            - name: NAKAMA_CONSOLE_USERNAME
+              value: ${{ inputs.console_username }}
+            - name: NAKAMA_CONSOLE_PASSWORD
+              value: ${{ inputs.console_password }}
+            - name: NAKAMA_SOCKET_SERVER_KEY
+              value: ${{ inputs.server_key }}
+          ports:
+            - name: console-grpc
+              containerPort: 7348
+            - name: grpc
+              containerPort: 7349
+            - name: http
+              containerPort: 7350
+            - name: metrics
+              containerPort: 7351
+          args:
+            - '--name'
+            - ${{ defaults.app_name }}
+            - '--database.address'
+            - $(NAKAMA_DATABASE_ADDRESS)
+            - '--logger.level'
+            - 'INFO'
+            - '--session.encryption_key'
+            - $(NAKAMA_SESSION_ENCRYPTION_KEY)
+            - '--session.refresh_encryption_key'
+            - $(NAKAMA_SESSION_REFRESH_ENCRYPTION_KEY)
+            - '--runtime.http_key'
+            - $(NAKAMA_RUNTIME_HTTP_KEY)
+            - '--console.signing_key'
+            - $(NAKAMA_CONSOLE_SIGNING_KEY)
+            - '--console.mfa.storage_encryption_key'
+            - $(NAKAMA_CONSOLE_MFA_STORAGE_ENCRYPTION_KEY)
+            - '--console.username'
+            - $(NAKAMA_CONSOLE_USERNAME)
+            - '--console.password'
+            - $(NAKAMA_CONSOLE_PASSWORD)
+            - '--socket.server_key'
+            - $(NAKAMA_SOCKET_SERVER_KEY)
+            - '--runtime.path'
+            - /data/modules
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /data
+          value: '1'
+        name: vn-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: ClusterIP
+  selector:
+    app: ${{ defaults.app_name }}
+  ports:
+    - name: console-grpc
+      port: 7348
+      targetPort: 7348
+    - name: grpc
+      port: 7349
+      targetPort: 7349
+    - name: http
+      port: 7350
+      targetPort: 7350
+    - name: metrics
+      port: 7351
+      targetPort: 7351
+
+---
+${{ if(inputs.enable_grpc === 'true') }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-grpc
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.grpc_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/backend-protocol: GRPC
+spec:
+  rules:
+    - host: ${{ defaults.grpc_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /()(.*)
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 7349
+  tls:
+    - hosts:
+        - ${{ defaults.grpc_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+${{ endif() }}
+
+---
+${{ if(inputs.enable_grpc === 'true') }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-console-grpc
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.console_grpc_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/backend-protocol: GRPC
+spec:
+  rules:
+    - host: ${{ defaults.console_grpc_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /()(.*)
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 7348
+  tls:
+    - hosts:
+        - ${{ defaults.console_grpc_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+${{ endif() }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-http
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /()(.*)
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 7350
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-metrics
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.metrics_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  rules:
+    - host: ${{ defaults.metrics_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /()(.*)
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 7351
+  tls:
+    - hosts:
+        - ${{ defaults.metrics_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
