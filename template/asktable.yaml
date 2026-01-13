@@ -7,7 +7,7 @@ spec:
   url: 'https://asktable.com/'
   gitRepo: 'https://github.com/DataMini/asktable-all-in-one'
   author: 'DataMini'
-  description: 'AskTable.com 表格智能体（Table Agent as a Service），专为企业提供基于自然语言的数据分析体验，广泛支持 Excel、数据库和数据仓库的智能查询。用户无需懂 SQL，只需用“说”的方式，即可获得实时数据洞察，广泛应用于运营、财务、人事、销售等业务场景。'
+  description: 'AskTable.com 表格智能体（Table Agent as a Service），专为企业提供基于自然语言的数据分析体验，支持 Excel、数据库和数据仓库的智能查询。用户无需懂 SQL，只需用“说”的方式，即可获得实时数据洞察，广泛应用于运营、财务、人事、销售等业务场景。'
   readme: 'https://raw.githubusercontent.com/DataMini/asktable-all-in-one/main/README.md'
   icon: 'https://cloud.asktable.com/favicon.jpg'
   templateType: inline
@@ -23,16 +23,6 @@ spec:
       type: string
       value: ${{ random(8) }}
   inputs:
-    ADMIN_EMAIL:
-      description: '管理员账号的邮箱。'
-      type: string
-      default: 'admin@asktable.com'
-      required: false
-    ADMIN_PASSWORD:
-      description: '管理员账号的密码。'
-      type: string
-      default: 'admin'
-      required: false
     LLM_BASE_URL:
       description: '用于访问大语言模型的 API 地址，比如“https://api.openai.com/v1”。默认使用 AskTable 模型API地址。'
       type: string
@@ -41,7 +31,7 @@ spec:
     LLM_API_KEY:
       description: 'AI 模型令牌'
       type: string
-      default: 'asktable-xxxxxxx(登录 AskTable.com 获取)'
+      default: 'asktable-xxxxxxx=xxx（登录 AskTable.com 获取）'
       required: true
 
 
@@ -60,6 +50,35 @@ spec:
   name: "AskTable"
   type: iframe
 
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+spec:
+  completions: 1
+  template:
+    spec:
+      containers:
+        - name: pgsql-init
+          image: postgres:14-alpine
+          env:
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-postgresql-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-postgresql-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until psql ${DATABASE_URL} -c 'CREATE DATABASE asktable;' &>/dev/null; do sleep 1; done
+      restartPolicy: Never
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
 
 ---
 apiVersion: apps/v1
@@ -91,30 +110,21 @@ spec:
               value: Asia/Shanghai
             - name: BASE_URL
               value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
-            - name: MYSQL_HOST
-              value: ${{ defaults.app_name }}-mysql-mysql.${{ SEALOS_NAMESPACE }}.svc
-            - name: MYSQL_USER
-              value: root
-            - name: MYSQL_PASSWORD
+            - name: DATABASE_HOST
+              value: ${{ defaults.app_name }}-postgresql-postgresql.${{ SEALOS_NAMESPACE }}.svc
+            - name: DATABASE_USER
+              value: postgres
+            - name: DATABASE_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  name: ${{ defaults.app_name }}-postgresql-conn-credential
                   key: password
-            - name: MYSQL_ROOT_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-mysql-conn-credential
-                  key: password
-            - name: MYSQL_DB
-              value: mydb
+            - name: DATABASE_DB
+              value: asktable
             - name: LLM_API_KEY
               value: ${{ inputs.LLM_API_KEY }}
             - name: LLM_BASE_URL
               value: ${{ inputs.LLM_BASE_URL }}
-            - name: AUTH_EMAIL_INIT_ADMIN_EMAIL
-              value: ${{ inputs.ADMIN_EMAIL }}
-            - name: AUTH_EMAIL_INIT_ADMIN_PASSWORD
-              value: ${{ inputs.ADMIN_PASSWORD }}
           ports:
             - containerPort: 80
           resources:
@@ -215,22 +225,22 @@ metadata:
   finalizers:
     - cluster.kubeblocks.io/finalizer
   labels:
-    clusterdefinition.kubeblocks.io/name: apecloud-mysql
-    clusterversion.kubeblocks.io/name: ac-mysql-8.0.30
-    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
-  name: ${{ defaults.app_name }}-mysql
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-14.8.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-postgresql
+  name: ${{ defaults.app_name }}-postgresql
 spec:
   affinity:
     nodeLabels: {}
     podAntiAffinity: Preferred
     tenancy: SharedNode
     topologyKeys: []
-  clusterDefinitionRef: apecloud-mysql
-  clusterVersionRef: ac-mysql-8.0.30
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-14.8.0
   componentSpecs:
-    - componentDefRef: mysql
+    - componentDefRef: postgresql
       monitor: true
-      name: mysql
+      name: postgresql
       replicas: 1
       resources:
         limits:
@@ -239,7 +249,7 @@ spec:
         requests:
           cpu: 50m
           memory: 51Mi
-      serviceAccountName: ${{ defaults.app_name }}-mysql
+      serviceAccountName: ${{ defaults.app_name }}-postgresql
       volumeClaimTemplates:
         - name: data
           spec:
@@ -247,7 +257,7 @@ spec:
               - ReadWriteOnce
             resources:
               requests:
-                storage: 1Gi
+                storage: 3Gi
 
   terminationPolicy: Delete
   tolerations: []
@@ -257,20 +267,20 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    sealos-db-provider-cr: ${{ defaults.app_name }}-postgresql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-postgresql
     app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-mysql
+  name: ${{ defaults.app_name }}-postgresql
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    sealos-db-provider-cr: ${{ defaults.app_name }}-postgresql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-postgresql
     app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-mysql
+  name: ${{ defaults.app_name }}-postgresql
 rules:
   - apiGroups:
       - '*'
@@ -284,14 +294,14 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    sealos-db-provider-cr: ${{ defaults.app_name }}-postgresql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-postgresql
     app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-mysql
+  name: ${{ defaults.app_name }}-postgresql
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: ${{ defaults.app_name }}-mysql
+  name: ${{ defaults.app_name }}-postgresql
 subjects:
   - kind: ServiceAccount
-    name: ${{ defaults.app_name }}-mysql
+    name: ${{ defaults.app_name }}-postgresql
