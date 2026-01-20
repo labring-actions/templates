@@ -107,16 +107,14 @@ Deploy Strapi on Sealos and focus on building great content experiences instead 
 
 ## Deployment Guide
 
-1. Visit [Sealos Cloud](https://os.sealos.io/?openapp=system-brain?trial=true)
-2. Click "From Template"
-3. Search for "Strapi" in the App Store
-4. Select your Node environment mode:
+1. Visit [Strapi Template Page](https://sealos.io/products/app-store/strapi)
+2. Click the "Deploy Now" button
+3. Select your Node environment mode:
    - **Production** (recommended): Optimized for performance and stability
    - **Development**: Enables hot-reload and development features
-5. Click "Deploy"
-6. Wait for deployment to complete (typically 2-3 minutes, including build process)
-7. Access Strapi via the provided URL (shown in the canvas)
-8. Create your admin account on first access to the admin panel
+4. Wait for deployment to complete (typically 2-3 minutes, including build process)
+5. Access Strapi via the provided URL (shown in the canvas)
+6. Create your admin account on first access to the admin panel
 
 ## Configuration
 

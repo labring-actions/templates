@@ -88,7 +88,7 @@ Sealos 是一个基于 Kubernetes 构建的 AI 赋能云操作系统，统一了
 Banana Slides 需要配置 AI 服务的 API 密钥才能正常工作：
 
 1. **获取 API 密钥**：
-   - 推荐使用 [Sealos AI Proxy](https://cloud.sealos.run/?openapp=system-aiproxy) 获取 API 密钥
+   - 推荐使用 [Sealos AI Proxy](https://os.sealos.io/?openapp=system-aiproxy) 获取 API 密钥
    - Sealos AI Proxy 提供统一的 AI 服务接入，支持多种 AI 模型，可有效减小迁移成本
    - 也可以使用其他兼容的 AI 服务提供商的 API 密钥
 

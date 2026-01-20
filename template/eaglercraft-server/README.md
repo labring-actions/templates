@@ -68,12 +68,10 @@ Deploy EaglerCraft Server on Sealos and focus on building amazing worlds instead
 
 ## Deployment Guide
 
-1. Visit [Sealos Cloud](https://os.sealos.io)
-2. Click on "App Store" in the desktop
-3. Search for "EaglerCraft Server" in the App Store
-4. Click "Deploy App" (no configuration required for basic deployment)
-5. Wait for deployment to complete (typically 2-3 minutes)
-6. Access your server via two available endpoints (shown in App Launchpad):
+1. Visit [EaglerCraft Template Page](https://sealos.io/products/app-store/eaglercraft-server)
+2. Click the "Deploy Now" button
+3. Wait for deployment to complete (typically 2-3 minutes)
+4. Access your server via two available endpoints (shown in App Launchpad):
    - **Port 5200 URL** (wss://): `wss://[your-app-url]` - Use this for adding servers via multiplayer menu
    - **Port 5201 URL** (wss://): `wss://[your-app-url-http]` - Use this for stable, long-duration gameplay (no disconnections)
 

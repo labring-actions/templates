@@ -112,13 +112,11 @@ Deploy Grafana OpenTelemetry Stack on Sealos and focus on building great applica
 
 ## Deployment Guide
 
-1. Visit [Sealos Cloud](https://os.sealos.io/?openapp=system-brain?trial=true)
-2. Click "From Template"
-3. Search for "Grafana OpenTelemetry" in the App Store
-4. Click "Deploy" (no configuration required for basic deployment)
-5. Wait for deployment to complete (typically 1-2 minutes)
-6. Access Grafana via the provided URL (shown in the canvas)
-7. Default Grafana credentials: admin / admin (you'll be prompted to change on first login)
+1. Visit [Grafana OpenTelemetry Template Page](https://sealos.io/products/app-store/grafana-otel)
+2. Click the "Deploy Now" button
+3. Wait for deployment to complete (typically 1-2 minutes)
+4. Access Grafana via the provided URL (shown in the canvas)
+5. Default Grafana credentials: admin / admin (you'll be prompted to change on first login)
 
 ## Configuration
 
