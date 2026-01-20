@@ -148,17 +148,15 @@ Deploy n8n on Sealos and focus on building powerful automation workflows instead
 
 ## Deployment Guide
 
-1. Visit [Sealos Cloud](https://os.sealos.io/?openapp=system-brain?trial=true)
-2. Click "From Template"
-3. Search for "n8n" in the App Store
-4. Configure your deployment options:
+1. Visit [n8n Template Page](https://sealos.io/products/app-store/n8n)
+2. Click the "Deploy Now" button
+3. Configure your deployment options:
    - **Use PostgreSQL**: Enable for production workloads (recommended for better performance and data persistence)
    - **Timezone**: Select your timezone for accurate scheduled workflow execution
    - **Use Queue Mode**: Enable for high-scale automation with parallel execution (requires PostgreSQL)
-5. Click "Deploy"
-6. Wait for deployment to complete (typically 1-2 minutes)
-7. Access n8n via the provided URL (shown in the canvas)
-8. Create your admin account on first access
+4. Wait for deployment to complete (typically 1-2 minutes)
+5. Access n8n via the provided URL (shown in the canvas)
+6. Create your admin account on first access
 
 ## Configuration
 
