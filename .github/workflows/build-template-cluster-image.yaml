@@ -1,0 +1,105 @@
+name: build-template-cluster-image
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - "template/**"
+jobs:
+  gen-targets:
+    runs-on: ubuntu-latest
+    outputs:
+      targets: ${{ steps.changed-files.outputs.all_changed_files }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Get all changed template files
+        id: changed-files
+        uses: tj-actions/changed-files@v41
+        with:
+          files: |
+            template/**/*.yaml
+            template/**/index.yaml
+          json: true
+          escape_json: false
+      - name: List all changed files
+        run: echo ${{ steps.changed-files.outputs.all_changed_files }}
+  build:
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+      packages: write
+    needs: gen-targets
+    strategy:
+      matrix:
+        target: ${{ fromJSON(needs.gen-targets.outputs.targets) }}
+        arch: [ amd64, arm64 ]
+      fail-fast: false
+    steps:
+      - name: Free Disk Space (Ubuntu)
+        uses: BRAINSia/free-disk-space@v2
+        with:
+          # this might remove tools that are actually needed,
+          # if set to "true" but frees about 6 GB
+          tool-cache: false
+
+          # all of these default to true, but feel free to set to
+          # "false" if necessary for your workflow
+          mandb: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Set up sealos
+        run: |
+          curl -sfL https://raw.githubusercontent.com/labring/sealos/main/scripts/install.sh | sh -s v5.1.0 labring/sealos
+      - name: Build cluster image
+        run: |
+          if [[ $(basename ${{ matrix.target }}) == "index.yaml" ]]; then
+            template_name=$(basename $(dirname ${{ matrix.target }}) | tr '[:upper:]' '[:lower:]')
+          else
+            template_name=$(basename ${{ matrix.target }} .yaml | tr '[:upper:]' '[:lower:]')
+          fi
+          image_tag=latest-${{ matrix.arch }}
+          sudo bash scripts/build-cluster-image.sh ${{ matrix.target }} ghcr.io/${{ github.repository }}/sealos-cloud-template-$template_name:$image_tag
+      #https://github.com/labring/sealos/issues/6112
+      - name: Login to ghcr.io
+        run: |
+          sudo sealos logout docker.io || true
+          sudo sealos login -u ${{ github.repository_owner }} -p ${{ secrets.GITHUB_TOKEN }} ghcr.io
+      - name: Push and save cluster image
+        run: |
+          if [[ $(basename ${{ matrix.target }}) == "index.yaml" ]]; then
+            template_name=$(basename $(dirname ${{ matrix.target }}) | tr '[:upper:]' '[:lower:]')
+          else
+            template_name=$(basename ${{ matrix.target }} .yaml | tr '[:upper:]' '[:lower:]')
+          fi
+          image_tag=latest-${{ matrix.arch }}
+          sudo sealos push ghcr.io/${{ github.repository }}/sealos-cloud-template-$template_name:$image_tag
+          sudo sealos save ghcr.io/${{ github.repository }}/sealos-cloud-template-$template_name:$image_tag -o $template_name.tar
+      - name: Upload cluster image tar
+        if: github.repository_owner == 'labring-sigs'
+        run: |
+          sudo -v ; curl https://gosspublic.alicdn.com/ossutil/install.sh | sudo bash
+          if [[ $(basename ${{ matrix.target }}) == "index.yaml" ]]; then
+            template_name=$(basename $(dirname ${{ matrix.target }}) | tr '[:upper:]' '[:lower:]')
+          else
+            template_name=$(basename ${{ matrix.target }} .yaml | tr '[:upper:]' '[:lower:]')
+          fi
+          upload_dir="cloud/template"
+          if [[ "${{ matrix.arch }}" == "arm64" ]]; then
+            upload_dir="cloud/template/arm64"
+          fi
+          ossutil64 cp -f -e ${{ secrets.OSS_ENDPOINT }} \
+            -i ${{ secrets.OSS_ACCESS_KEY_ID }} \
+            -k ${{ secrets.OSS_ACCESS_KEY_SECRET }} \
+            $template_name.tar \
+            oss://${{ secrets.OSS_BUCKET }}/$upload_dir/$template_name.tar
