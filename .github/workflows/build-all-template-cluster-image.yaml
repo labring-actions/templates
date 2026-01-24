@@ -1,0 +1,93 @@
+name: build-all-template-cluster-image
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - "scripts/build-cluster-image.sh"
+      - ".github/workflows/build-all-template-cluster-image.yaml"
+jobs:
+  gen-targets:
+    runs-on: ubuntu-latest
+    outputs:
+      targets: ${{ steps.get-targets.outputs.targets }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Get all template files
+        id: get-targets
+        run: |
+          files=$(find template/ -name "*.yaml" -type f | jq -R . | jq -s -c .)
+          echo "targets=$files" >> "$GITHUB_OUTPUT"
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    needs: gen-targets
+    strategy:
+      matrix:
+        target: ${{ fromJSON(needs.gen-targets.outputs.targets) }}
+      fail-fast: false
+    steps:
+      - name: Free Disk Space (Ubuntu)
+        uses: BRAINSia/free-disk-space@v2
+        with:
+          # this might remove tools that are actually needed,
+          # if set to "true" but frees about 6 GB
+          tool-cache: false
+
+          # all of these default to true, but feel free to set to
+          # "false" if necessary for your workflow
+          mandb: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Set up sealos
+        run: |
+          curl -sfL https://raw.githubusercontent.com/labring/sealos/main/scripts/install.sh | sh -s v5.1.0 labring/sealos
+      - name: Build cluster image
+        run: |
+          if [[ $(basename ${{ matrix.target }}) == "index.yaml" ]]; then
+            template_name=$(basename $(dirname ${{ matrix.target }}) | tr '[:upper:]' '[:lower:]')
+          else
+            template_name=$(basename ${{ matrix.target }} .yaml | tr '[:upper:]' '[:lower:]')
+          fi
+          sudo bash scripts/build-cluster-image.sh ${{ matrix.target }} ghcr.io/${{ github.repository }}/sealos-cloud-template-$template_name:latest-amd64
+      #https://github.com/labring/sealos/issues/6112
+      - name: Login to ghcr.io
+        run: |
+          sudo sealos logout docker.io || true
+          sudo sealos login -u ${{ github.repository_owner }} -p ${{ secrets.GITHUB_TOKEN }} ghcr.io
+      - name: Push and save cluster image
+        run: |
+          if [[ $(basename ${{ matrix.target }}) == "index.yaml" ]]; then
+            template_name=$(basename $(dirname ${{ matrix.target }}) | tr '[:upper:]' '[:lower:]')
+          else
+            template_name=$(basename ${{ matrix.target }} .yaml | tr '[:upper:]' '[:lower:]')
+          fi
+          sudo sealos push ghcr.io/${{ github.repository }}/sealos-cloud-template-$template_name:latest-amd64
+          sudo sealos save ghcr.io/${{ github.repository }}/sealos-cloud-template-$template_name:latest-amd64 -o $template_name.tar
+      - name: Upload cluster image tar
+        if: github.repository_owner == 'labring-sigs'
+        run: |
+          sudo -v ; curl https://gosspublic.alicdn.com/ossutil/install.sh | sudo bash
+          if [[ $(basename ${{ matrix.target }}) == "index.yaml" ]]; then
+            template_name=$(basename $(dirname ${{ matrix.target }}) | tr '[:upper:]' '[:lower:]')
+          else
+            template_name=$(basename ${{ matrix.target }} .yaml | tr '[:upper:]' '[:lower:]')
+          fi
+          ossutil64 cp -f -e ${{ secrets.OSS_ENDPOINT }} \
+            -i ${{ secrets.OSS_ACCESS_KEY_ID }} \
+            -k ${{ secrets.OSS_ACCESS_KEY_SECRET }} \
+            $template_name.tar \
+            oss://${{ secrets.OSS_BUCKET }}/cloud/template/$template_name.tar
