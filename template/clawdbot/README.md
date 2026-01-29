@@ -76,7 +76,7 @@ Deploy Clawdbot on Sealos and focus on building intelligent AI agents instead of
 
 ## Deployment Guide
 
-1. Visit [Sealos Cloud](https://cloud.sealos.io)
+1. Visit [Sealos Cloud](https://os.sealos.io)
 2. Click on "App Store" in the desktop
 3. Search for "Clawdbot" in the App Store
 4. Click "Deploy App" and configure the following parameters:
