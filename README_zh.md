@@ -1,6 +1,6 @@
 # Sealos 模板仓库
 
-[English](README.md) | [在线使用](https://cloud.sealos.io/?openapp=system-fastdeploy)
+[English](README.md) | [在线使用](https://os.sealos.io)
 
 通过本仓库的模板可以轻松在 Sealos 上运行各种应用，无需关心应用之间的依赖关系，只需一键轻松部署。
 
@@ -20,18 +20,18 @@
 
 | 模板 | 描述 | 部署 |
 |------|------|------|
-| FastGPT | 使用 AI 构建你自己的知识库 | [![Deploy](Deploy-on-Sealos.svg)](https://cloud.sealos.io/?openapp=system-fastdeploy%3FtemplateName%3Dfastgpt) |
-| ChatGPT-Next-Web | 搭配你自己的 API Key 的 ChatGPT Web 界面 | [![Deploy](Deploy-on-Sealos.svg)](https://cloud.sealos.io/?openapp=system-fastdeploy%3FtemplateName%3Dchatgpt-next-web) |
-| Code-Server | 浏览器中的 VS Code | [![Deploy](Deploy-on-Sealos.svg)](https://cloud.sealos.io/?openapp=system-fastdeploy%3FtemplateName%3Dcode-server) |
-| Cloudreve | 云存储系统 | [![Deploy](Deploy-on-Sealos.svg)](https://cloud.sealos.io/?openapp=system-fastdeploy%3FtemplateName%3Dcloudreve) |
-| Appsmith | 低代码应用构建平台 | [![Deploy](Deploy-on-Sealos.svg)](https://cloud.sealos.io/?openapp=system-fastdeploy%3FtemplateName%3Dappsmith) |
+| FastGPT | 使用 AI 构建你自己的知识库 | [![Deploy](https://sealos.io/Deploy-on-Sealos.svg)](https://sealos.io/products/app-store/fastgpt) |
+| ChatGPT-Next-Web | 搭配你自己的 API Key 的 ChatGPT Web 界面 | [![Deploy](https://sealos.io/Deploy-on-Sealos.svg)](https://sealos.io/products/app-store/chatgpt-next-web) |
+| Code-Server | 浏览器中的 VS Code | [![Deploy](https://sealos.io/Deploy-on-Sealos.svg)](https://sealos.io/products/app-store/code-server) |
+| Cloudreve | 云存储系统 | [![Deploy](https://sealos.io/Deploy-on-Sealos.svg)](https://sealos.io/products/app-store/cloudreve) |
+| Appsmith | 低代码应用构建平台 | [![Deploy](https://sealos.io/Deploy-on-Sealos.svg)](https://sealos.io/products/app-store/appsmith) |
 
 [查看所有模板 →](template/)
 
 ## 📚 文档
 
 - **[如何创建模板](#如何创建模板)** - 创建你自己的应用模板
-- **[模板使用教程](https://cloud.sealos.io/?openapp=system-fastdeploy%3F)** - 模板使用指南
+- **[模板使用教程](https://os.sealos.io)** - 模板使用指南
 - **[example.md](example.md)** - 详细的模板开发教程
 - **[template.yaml](template.yaml)** - 模板参考文件
 
@@ -87,14 +87,14 @@ ${{ inputs.your_parameter }}
 ### Markdown
 
 ```markdown
-[![](https://raw.githubusercontent.com/labring-actions/templates/main/Deploy-on-Sealos.svg)](https://cloud.sealos.io/?openapp=system-fastdeploy%3FtemplateName%3Dyour-app-name)
+[![](https://sealos.io/Deploy-on-Sealos.svg)](https://sealos.io/products/app-store/your-app-name)
 ```
 
 ### HTML
 
 ```html
-<a href="https://cloud.sealos.io/?openapp=system-fastdeploy%3FtemplateName%3Dyour-app-name">
-  <img src="https://raw.githubusercontent.com/labring-actions/templates/main/Deploy-on-Sealos.svg" alt="Deploy on Sealos"/>
+<a href="https://sealos.io/products/app-store/your-app-name">
+  <img src="https://sealos.io/Deploy-on-Sealos.svg" alt="Deploy on Sealos"/>
 </a>
 ```
 
@@ -121,7 +121,7 @@ ${{ inputs.your_parameter }}
 ## 📖 相关资源
 
 - [Sealos 官方文档](https://sealos.io/docs/Intro)
-- [Sealos 模板市场](https://cloud.sealos.io/?openapp=system-fastdeploy%3F)
+- [Sealos 应用商店](https://sealos.io/products/app-store)
 - [问题反馈](https://github.com/labring-actions/templates/issues) - 报告问题或请求新功能
 - [讨论区](https://github.com/labring-actions/templates/discussions) - 提问和分享想法
 

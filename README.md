@@ -1,6 +1,6 @@
 # Sealos Template Repository
 
-[简体中文](README_zh.md) | [在线使用](https://cloud.sealos.io/?openapp=system-fastdeploy%3F)
+[简体中文](README_zh.md) | [Quick Deploy](https://os.sealos.io)
 
 With the templates in this repository, you can easily run various applications on Sealos without worrying about dependencies between applications. Deploy with one click!
 
@@ -20,18 +20,18 @@ That's it! Your app will be running in minutes.
 
 | Template | Description | Deploy |
 |----------|-------------|--------|
-| FastGPT | Build your own knowledge base with AI | [![Deploy](Deploy-on-Sealos.svg)](https://cloud.sealos.io/?openapp=system-fastdeploy%3FtemplateName%3Dfastgpt) |
-| ChatGPT-Next-Web | ChatGPT web UI with your own API key | [![Deploy](Deploy-on-Sealos.svg)](https://cloud.sealos.io/?openapp=system-fastdeploy%3FtemplateName%3Dchatgpt-next-web) |
-| Code-Server | VS Code in your browser | [![Deploy](Deploy-on-Sealos.svg)](https://cloud.sealos.io/?openapp=system-fastdeploy%3FtemplateName%3Dcode-server) |
-| Cloudreve | Cloud storage system | [![Deploy](Deploy-on-Sealos.svg)](https://cloud.sealos.io/?openapp=system-fastdeploy%3FtemplateName%3Dcloudreve) |
-| Appsmith | Low-code app builder | [![Deploy](Deploy-on-Sealos.svg)](https://cloud.sealos.io/?openapp=system-fastdeploy%3FtemplateName%3Dappsmith) |
+| FastGPT | Build your own knowledge base with AI | [![Deploy](https://sealos.io/Deploy-on-Sealos.svg)](https://sealos.io/products/app-store/fastgpt) |
+| ChatGPT-Next-Web | ChatGPT web UI with your own API key | [![Deploy](https://sealos.io/Deploy-on-Sealos.svg)](https://sealos.io/products/app-store/chatgpt-next-web) |
+| Code-Server | VS Code in your browser | [![Deploy](https://sealos.io/Deploy-on-Sealos.svg)](https://sealos.io/products/app-store/code-server) |
+| Cloudreve | Cloud storage system | [![Deploy](https://sealos.io/Deploy-on-Sealos.svg)](https://sealos.io/products/app-store/cloudreve) |
+| Appsmith | Low-code app builder | [![Deploy](https://sealos.io/Deploy-on-Sealos.svg)](https://sealos.io/products/app-store/appsmith) |
 
 [View all templates →](template/)
 
 ## 📚 Documentation
 
 - **[How to create a template](#how-to-create-a-template)** - Create your own application template
-- **[Template usage tutorial](https://cloud.sealos.io/?openapp=system-fastdeploy%3F)** - Step-by-step guide for using templates
+- **[Template usage tutorial](https://os.sealos.io)** - Step-by-step guide for using templates
 - **[example.md](example.md)** - Detailed template development guide
 - **[template.yaml](template.yaml)** - Template reference file
 
@@ -87,14 +87,14 @@ You can add a "Deploy on Sealos" button to your project's README:
 ### Markdown
 
 ```markdown
-[![](https://raw.githubusercontent.com/labring-actions/templates/main/Deploy-on-Sealos.svg)](https://cloud.sealos.io/?openapp=system-fastdeploy%3FtemplateName%3Dyour-app-name)
+[![](https://sealos.io/Deploy-on-Sealos.svg)](https://sealos.io/products/app-store/your-app-name)
 ```
 
 ### HTML
 
 ```html
-<a href="https://cloud.sealos.io/?openapp=system-fastdeploy%3FtemplateName%3Dyour-app-name">
-  <img src="https://raw.githubusercontent.com/labring-actions/templates/main/Deploy-on-Sealos.svg" alt="Deploy on Sealos"/>
+<a href="https://sealos.io/products/app-store/your-app-name">
+  <img src="https://sealos.io/Deploy-on-Sealos.svg" alt="Deploy on Sealos"/>
 </a>
 ```
 
@@ -121,7 +121,7 @@ We welcome contributions! Follow these steps:
 ## 📖 Resources
 
 - [Sealos Documentation](https://sealos.io/docs)
-- [Sealos Template Market](https://cloud.sealos.io/?openapp=system-fastdeploy%3F)
+- [Sealos App Store](https://sealos.io/products/app-store)
 - [Issues](https://github.com/labring-actions/templates/issues) - Report bugs or request features
 - [Discussions](https://github.com/labring-actions/templates/discussions) - Ask questions and share ideas
 
