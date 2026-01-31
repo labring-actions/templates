@@ -1,38 +1,66 @@
+# Sealos Application Template Reference
+#
+# This file serves as a template reference for creating Sealos application templates.
+# Copy this file and customize it for your application.
+#
+# Required fields are marked with [REQUIRED]
+# Fill in the placeholders with your application-specific information.
+
+---
 apiVersion: app.sealos.io/v1
 kind: Template
 metadata:
-  name: ${{ defaults.app_name }}
+  name: myapp-template
 spec:
-  title:
-  url:                              #Your app's official website
-  gitRepo:                          #Your app's github url
-  author:                           #Your name
-  description:                      #Descrip your app
-  readme:                           #Your app's readme.md url
-  icon:                             #Your app's icon url
-  templateType: inline
+  # Application metadata
+  title: ""                               # [REQUIRED] Application display name
+  url: ""                                 # [REQUIRED] Your app's official website
+  gitRepo: ""                             # [REQUIRED] Your app's GitHub repository URL
+  author: ""                              # [REQUIRED] Your name or organization
+  description: ""                         # [REQUIRED] Brief description of your app
+  readme: 'https://raw.githubusercontent.com/labring-actions/templates/main/template/<app-name>/README.md'  # Update <app-name> with actual app name
+  icon: ""                                # [REQUIRED] URL to your app's icon
+  templateType: inline                    # Template type: inline (all resources in one file)
+  locale: en
+  i18n:
+    zh:
+      title: '应用标题'                     # Chinese title for your app
+      description: '应用描述'                # Chinese description for your app
+  categories:
+    - tool                                # [REQUIRED] Choose from: ai, database, tool, low-code, blog, storage, frontend, backend, dev-ops, monitor, game
+
+  # Default values for template variables
   defaults:
     app_host:
       type: string
-      value: ${{ random(8) }}
+      value: myapp-${{ random(8) }}      # Replace "myapp" with your app's name prefix
     app_name:
       type: string
-      value: appsmith-${{ random(8) }}
+      value: myapp-${{ random(8) }}      # Replace "myapp" with your app's name prefix
+
+  # User-configurable inputs (will be rendered as form fields)
   inputs:
     volume_size:
-      description: 'save data size (Gi)'
+      description: "Persistent storage size (GiB)"
       type: string
-      default: '1'
+      default: "1"
       required: false
+    # Add more inputs as needed, e.g.:
+    # - app_password:
+    #     description: "Admin password"
+    #     type: string
+    #     required: true
+
 ---
+# StatefulSet - Manages your application pods
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName:                       #Your app's Docker image url
-    deploy.cloud.sealos.io/minReplicas: '1'
-    deploy.cloud.sealos.io/maxReplicas: '1'
+    originImageName: ""                   # [REQUIRED] Your app's Docker image URL
+    deploy.cloud.sealos.io/minReplicas: "1"
+    deploy.cloud.sealos.io/maxReplicas: "1"
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
@@ -50,32 +78,33 @@ spec:
         app: ${{ defaults.app_name }}
     spec:
       terminationGracePeriodSeconds: 10
+      automountServiceAccountToken: false  # Security: disable service account token mounting
       containers:
         - name: ${{ defaults.app_name }}
-          image:                               #Your app's Docker image url
-          env: []
+          image: ""                       # [REQUIRED] Your app's Docker image URL
+          env: []                         # Environment variables (add as needed)
           resources:
             requests:
               cpu: 100m
-              memory: 102Mi
+              memory: 128Mi
             limits:
               cpu: 1000m
               memory: 1024Mi
-          command: []
-          args: []
+          command: []                     # Override entrypoint if needed
+          args: []                        # Command arguments
           ports:
-            - containerPort: 80
+            - containerPort: 80           # [REQUIRED] Your app's internal port
           imagePullPolicy: IfNotPresent
           volumeMounts:
-            - name: vn-appvn-data
-              mountPath: /app/data
-      volumes: []
+            - name: data-volume
+              mountPath: /app/data        # Path where your app stores data
+      volumes: []                         # Additional volumes (if any)
   volumeClaimTemplates:
     - metadata:
         annotations:
-          path: /app/data
-          value: '1'
-        name: vn-appvn-data
+          path: /app/data                 # Path to store persistent data
+          value: "1"
+        name: data-volume
       spec:
         accessModes:
           - ReadWriteOnce
@@ -84,6 +113,7 @@ spec:
             storage: ${{ inputs.volume_size }}Gi
 
 ---
+# Service - Exposes your application within the cluster
 apiVersion: v1
 kind: Service
 metadata:
@@ -92,11 +122,12 @@ metadata:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 80
+    - port: 80                           # Service port (usually same as containerPort)
   selector:
     app: ${{ defaults.app_name }}
 
 ---
+# Ingress - Exposes your application to the internet
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -110,7 +141,7 @@ metadata:
     nginx.ingress.kubernetes.io/server-snippet: |
       client_header_buffer_size 64k;
       large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
     nginx.ingress.kubernetes.io/rewrite-target: /$2
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
@@ -136,3 +167,19 @@ spec:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+# App - Application metadata for Sealos UI (must be the last resource)
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: ""                                # [REQUIRED] URL to your app's icon
+  name: ""                                # [REQUIRED] Application display name
+  type: link
