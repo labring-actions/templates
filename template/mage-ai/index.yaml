@@ -1,0 +1,509 @@
+defaults:
+  app_name: mage-ai-${{ random(8) }}
+  app_host: mage-${{ random(8) }}
+  postgres_password: ${{ random(32) }}
+  mage_secret_key: ${{ random(32) }}
+  server_port: "6789"
+  app_port: "3000"
+  postgres_port: "5432"
+
+inputs:
+  mage_project:
+    description: "Mage project name"
+    type: string
+    default: "default_project"
+    required: false
+  require_user_auth:
+    description: "Require user authentication (true/false)"
+    type: string
+    default: "false"
+    required: false
+
+# Template CR
+apiVersion: template.sealos.io/v1
+kind: Template
+metadata:
+  name: mage-ai
+spec:
+  title: "Mage AI"
+  url: "https://www.mage.ai/"
+  gitRepo: "https://github.com/mage-ai/mage-ai"
+  author: "Sealos"
+  description: "Build modern data pipelines with a visual, notebook-style interface. Create production-grade data pipelines with Python, SQL, or R."
+  readme: "https://raw.githubusercontent.com/labring-actions/templates/main/template/mage-ai/README.md"
+  icon: "https://www.mage.ai/favicon.ico"
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      title: "Mage AI 数据管道"
+      description: "使用可视化的笔记本式界面构建现代数据管道。使用 Python、SQL 或 R 创建生产级数据管道。"
+  categories:
+    - ai
+    - tool
+  inputs:
+    - key: mage_project
+      label: "Project Name"
+      description: "The name of your Mage project"
+      type: string
+      required: false
+      default: "default_project"
+    - key: require_user_auth
+      label: "Require Authentication"
+      description: "Enable user authentication"
+      type: string
+      required: false
+      default: "false"
+---
+# PostgreSQL Database
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-14.8.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+  annotations: {}
+  name: ${{ defaults.app_name }}-pg
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-14.8.0
+  componentSpecs:
+    - componentDefRef: postgresql
+      monitor: true
+      name: postgresql
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 10Gi
+  terminationPolicy: Delete
+  tolerations: []
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+spec:
+  completions: 1
+  template:
+    spec:
+      containers:
+        - name: pgsql-init
+          image: postgres:14-alpine
+          env:
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until psql ${DATABASE_URL} -c 'CREATE DATABASE mage;' &>/dev/null; do sleep 1; done
+      restartPolicy: Never
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+---
+# Mage Server Backend (StatefulSet for persistent storage)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ${{ defaults.app_name }}-server
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+type: Opaque
+stringData:
+  POSTGRES_USER: "postgres"
+  POSTGRES_DB: "mage"
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-server
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+  annotations:
+    originImageName: mageai/mageai:latest
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+spec:
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}-server
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-server
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-server
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:14-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DB_NAME
+              value: mage
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "waiting for postgresql to be ready..."
+              until pg_isready -h ${PG_HOST} -p ${PG_PORT} -U ${PG_USERNAME}; do
+                echo "postgresql not ready, rechecking in 2s"
+                sleep 2
+              done
+              echo "database ${DB_NAME} is ready"
+              until psql -h ${PG_HOST} -p ${PG_PORT} -U ${PG_USERNAME} -d postgres \
+                -tAc "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}';" | grep -q 1; do
+                echo "database ${DB_NAME} not found, rechecking in 2s"
+                sleep 2
+              done
+              echo "database ${DB_NAME} exists"
+      containers:
+        - name: server
+          image: mageai/mageai:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - mage_ai/server/server.py
+            - --host
+            - "0.0.0.0"
+            - --port
+            - "${{ defaults.server_port }}"
+            - --project
+            - "${{ inputs.mage_project }}"
+            - --manage-instance
+            - "false"
+          ports:
+            - containerPort: 6789
+              name: server
+          env:
+            - name: POSTGRES_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: POSTGRES_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: POSTGRES_DB
+              value: mage
+            - name: MAGE_DATABASE_CONNECTION_URL
+              value: postgresql+psycopg2://postgres:$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):$(POSTGRES_PORT)/mage
+            - name: MAGE_SECRET_KEY
+              value: ${{ defaults.mage_secret_key }}
+            - name: AUTHENTICATION_MODE
+              value: ${{ inputs.require_user_auth }}
+            - name: REQUIRE_USER_AUTHENTICATION
+              value: ${{ inputs.require_user_auth }}
+            - name: REQUIRE_USER_PERMISSIONS
+              value: ${{ inputs.require_user_auth }}
+            - name: ENV
+              value: production
+            - name: SERVER_LOGGING_TEMPLATE
+              value: "%(levelname)s:%(name)s:%(message)s"
+            - name: SERVER_VERBOSITY
+              value: "1"
+            - name: DISABLE_API_TERMINAL_OUTPUT
+              value: "true"
+            - name: DISABLE_DATABASE_TERMINAL_OUTPUT
+              value: "true"
+            - name: MAX_NUMBER_OF_FILE_VERSIONS
+              value: "3"
+            - name: KERNEL_MANAGER
+              value: local
+            - name: MEMORY_MANAGER_VERSION
+              value: python
+            - name: RUN_PIPELINE_IN_ONE_PROCESS
+              value: "false"
+            - name: SCHEDULER_TRIGGER_INTERVAL
+              value: "300"
+          volumeMounts:
+            - name: mage-data
+              mountPath: /root/.mage_data
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 6789
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 6789
+            initialDelaySeconds: 30
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+  volumeClaimTemplates:
+    - name: mage-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 5Gi
+---
+# Mage Server Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-server
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  selector:
+    app: ${{ defaults.app_name }}-server
+  ports:
+    - name: server
+      port: 6789
+      targetPort: 6789
+      protocol: TCP
+  type: ClusterIP
+---
+# Mage App Frontend (Deployment)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-app
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+  annotations:
+    originImageName: mageai/mageai:latest
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+spec:
+  revisionHistoryLimit: 1
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-app
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-app
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: wait-for-server
+          image: curlimages/curl:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              echo "waiting for server to be ready..."
+              until curl -f -s http://${{ defaults.app_name }}-server:6789/ > /dev/null 2>&1; do
+                echo "server not ready, rechecking in 3s"
+                sleep 3
+              done
+              echo "server is ready"
+      containers:
+        - name: app
+          image: mageai/mageai:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - npm
+            - run
+            - dev
+          workingDir: /home/src/mage_ai/frontend
+          ports:
+            - containerPort: 3000
+              name: app
+          env:
+            - name: SERVER_URL
+              value: http://${{ defaults.app_name }}-server.${{ SEALOS_NAMESPACE }}.svc:6789
+            - name: PORT
+              value: "3000"
+            - name: HOSTNAME
+              value: "0.0.0.0"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+---
+# Mage App Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-app
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  selector:
+    app: ${{ defaults.app_name }}-app
+  ports:
+    - name: app
+      port: 3000
+      targetPort: 3000
+      protocol: TCP
+  type: ClusterIP
+---
+# Ingress for external access
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ingressClassName: sealos
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-app
+                port:
+                  number: 3000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: wildcard-cert
+---
+# App Resource
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: "https://www.mage.ai/favicon.ico"
+  name: "Mage AI"
+  type: link
