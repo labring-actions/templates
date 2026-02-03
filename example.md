@@ -594,23 +594,19 @@ metadata:
   finalizers:
     - cluster.kubeblocks.io/finalizer
   labels:
-    clusterdefinition.kubeblocks.io/name: mongodb
-    clusterversion.kubeblocks.io/name: mongodb-5.0
-    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
+    kb.io/database: mongodb-8.0.4
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
   annotations: {}
   name: ${{ defaults.app_name }}-mongo
   generation: 1
 spec:
   affinity:
-    nodeLabels: {}
     podAntiAffinity: Preferred
     tenancy: SharedNode
-    topologyKeys: []
-  clusterDefinitionRef: mongodb
-  clusterVersionRef: mongodb-5.0
+    topologyKeys:
+      - kubernetes.io/hostname
   componentSpecs:
-    - componentDefRef: mongodb
-      monitor: true
+    - componentDef: mongodb
       name: mongodb
       replicas: 1
       resources:
@@ -621,6 +617,7 @@ spec:
           cpu: 100m
           memory: 102Mi
       serviceAccountName: ${{ defaults.app_name }}-mongo
+      serviceVersion: 8.0.4
       volumeClaimTemplates:
         - name: data
           spec:
@@ -631,7 +628,6 @@ spec:
                 storage: 3Gi
             storageClassName: openebs-backup  
   terminationPolicy: Delete
-  tolerations: []
 
 
 ---
@@ -692,9 +688,9 @@ metadata:
   finalizers:
     - cluster.kubeblocks.io/finalizer
   labels:
+    kb.io/database: postgresql-16.4.0
     clusterdefinition.kubeblocks.io/name: postgresql
-    clusterversion.kubeblocks.io/name: postgresql-14.8.0
-    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
   annotations: {}
   name: ${{ defaults.app_name }}-pg
 spec:
@@ -704,10 +700,12 @@ spec:
     tenancy: SharedNode
     topologyKeys: []
   clusterDefinitionRef: postgresql
-  clusterVersionRef: postgresql-14.8.0
+  clusterVersionRef: postgresql-16.4.0
   componentSpecs:
     - componentDefRef: postgresql
-      monitor: true
+      disableExporter: true
+      enabledLogs:
+        - running
       name: postgresql
       replicas: 1
       resources:
@@ -730,7 +728,6 @@ spec:
                 storage: 5Gi
             storageClassName: openebs-backup
   terminationPolicy: Delete
-  tolerations: []
 
 ---
 apiVersion: v1
@@ -789,9 +786,9 @@ metadata:
   finalizers:
     - cluster.kubeblocks.io/finalizer
   labels:
+    kb.io/database: ac-mysql-8.0.30-1
     clusterdefinition.kubeblocks.io/name: apecloud-mysql
-    clusterversion.kubeblocks.io/name: ac-mysql-8.0.30
-    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    clusterversion.kubeblocks.io/name: ac-mysql-8.0.30-1
   annotations: {}
   name: ${{ defaults.app_name }}-mysql
 spec:
@@ -801,11 +798,12 @@ spec:
     tenancy: SharedNode
     topologyKeys: []
   clusterDefinitionRef: apecloud-mysql
-  clusterVersionRef: ac-mysql-8.0.30
+  clusterVersionRef: ac-mysql-8.0.30-1
   componentSpecs:
     - componentDefRef: mysql
       monitor: true
       name: mysql
+      noCreatePDB: false
       replicas: 1
       resources:
         limits:
@@ -815,6 +813,8 @@ spec:
           cpu: 100m
           memory: 102Mi
       serviceAccountName: ${{ defaults.app_name }}-mysql
+      switchPolicy:
+        type: Noop
       volumeClaimTemplates:
         - name: data
           spec:
@@ -885,24 +885,28 @@ metadata:
   finalizers:
     - cluster.kubeblocks.io/finalizer
   labels:
+    kb.io/database: redis-7.2.7
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/version: 7.2.7
+    clusterversion.kubeblocks.io/name: redis-7.2.7
     clusterdefinition.kubeblocks.io/name: redis
-    clusterversion.kubeblocks.io/name: redis-7.0.6
-    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
   annotations: {}
   name: ${{ defaults.app_name }}-redis
 spec:
   affinity:
-    nodeLabels: {}
     podAntiAffinity: Preferred
     tenancy: SharedNode
-    topologyKeys: []
+    topologyKeys:
+      - kubernetes.io/hostname
   clusterDefinitionRef: redis
-  clusterVersionRef: redis-7.0.6
   componentSpecs:
-    - componentDefRef: redis
-      monitor: true
+    - componentDef: redis-7
       name: redis
       replicas: 1
+      enabledLogs:
+        - running
+      env:
+        - name: CUSTOM_SENTINEL_MASTER_NAME
       resources:
         limits:
           cpu: 1000m
@@ -911,6 +915,7 @@ spec:
           cpu: 100m
           memory: 102Mi
       serviceAccountName: ${{ defaults.app_name }}-redis
+      serviceVersion: 7.2.7
       switchPolicy:
         type: Noop
       volumeClaimTemplates:
@@ -920,10 +925,9 @@ spec:
               - ReadWriteOnce
             resources:
               requests:
-                storage: 3Gi
+                storage: 2Gi
             storageClassName: openebs-backup
-    - componentDefRef: redis-sentinel
-      monitor: true
+    - componentDef: redis-sentinel-7
       name: redis-sentinel
       replicas: 1
       resources:
@@ -931,11 +935,20 @@ spec:
           cpu: 100m
           memory: 100Mi
         requests:
-          cpu: 100m
-          memory: 100Mi
+          cpu: 10m
+          memory: 10Mi
       serviceAccountName: ${{ defaults.app_name }}-redis
+      serviceVersion: 7.2.7
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 2Gi
   terminationPolicy: Delete
-  tolerations: []
+  topology: replication
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -983,6 +996,274 @@ subjects:
 
 </details>
 
+
+<details>
+
+<summary>Kafka</summary>
+
+```yaml
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  labels:
+    kb.io/database: kafka-3.3.2
+    clusterdefinition.kubeblocks.io/name: kafka
+    clusterversion.kubeblocks.io/name: kafka-3.3.2
+  name: ${{ defaults.app_name }}-kafka
+  annotations:
+    kubeblocks.io/extra-env: >-
+      {"KB_KAFKA_ENABLE_SASL":"false","KB_KAFKA_BROKER_HEAP":"-XshowSettings:vm
+      -XX:MaxRAMPercentage=100
+      -Ddepth=64","KB_KAFKA_CONTROLLER_HEAP":"-XshowSettings:vm
+      -XX:MaxRAMPercentage=100 -Ddepth=64","KB_KAFKA_PUBLIC_ACCESS":"false"}
+spec:
+  terminationPolicy: Delete
+  componentSpecs:
+    - name: broker
+      componentDef: kafka-broker
+      tls: false
+      replicas: 1
+      affinity:
+        podAntiAffinity: Preferred
+        topologyKeys:
+          - kubernetes.io/hostname
+        tenancy: SharedNode
+      tolerations:
+        - key: kb-data
+          operator: Equal
+          value: 'true'
+          effect: NoSchedule
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+        - name: metadata
+          spec:
+            storageClassName: null
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+    - name: controller
+      componentDefRef: controller
+      componentDef: kafka-controller
+      tls: false
+      replicas: 1
+      resources:
+        limits:
+          cpu: 1000m
+          memory: 1024Mi
+        requests:
+          cpu: 100m
+          memory: 102Mi
+      volumeClaimTemplates:
+        - name: metadata
+          spec:
+            storageClassName: null
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 2Gi
+    - name: metrics-exp
+      componentDef: kafka-exporter
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+```
+
+</details>
+
+<details>
+
+<summary>Milvus</summary>
+
+```yaml
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  labels:
+    clusterdefinition.kubeblocks.io/name: milvus
+  name: ${{ defaults.app_name }}-milvus
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: milvus
+  clusterVersionRef: milvus-2.2.4
+  terminationPolicy: Delete
+  componentSpecs:
+    - componentDefRef: milvus
+      name: milvus
+      disableExporter: true
+      serviceAccountName: ${{ defaults.app_name }}-milvus
+      replicas: 1
+      resources:
+        limits:
+          cpu: 1000m
+          memory: 1024Mi
+        requests:
+          cpu: 100m
+          memory: 102Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 2Gi
+    - componentDefRef: etcd
+      name: etcd
+      disableExporter: true
+      serviceAccountName: ${{ defaults.app_name }}-milvus
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+    - componentDefRef: minio
+      name: minio
+      disableExporter: true
+      serviceAccountName: ${{ defaults.app_name }}-milvus
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+  resources:
+    cpu: '0'
+    memory: '0'
+  storage:
+    size: '0'
+```
+
+</details>
+
+<details>
+
+<summary>ClickHouse</summary>
+
+```yaml
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  labels:
+    kb.io/database: clickhouse-24.8.3
+    clusterdefinition.kubeblocks.io/name: clickhouse
+    clusterversion.kubeblocks.io/name: clickhouse-24.8.3
+  name: ${{ defaults.app_name }}-clickhouse
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys:
+      - cluster
+  clusterDefinitionRef: clickhouse
+  componentSpecs:
+    - componentDefRef: zookeeper
+      disableExporter: true
+      name: zookeeper
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-clickhouse
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+    - componentDefRef: clickhouse
+      disableExporter: true
+      name: clickhouse
+      replicas: 1
+      resources:
+        limits:
+          cpu: 1000m
+          memory: 1024Mi
+        requests:
+          cpu: 100m
+          memory: 102Mi
+      serviceAccountName: ${{ defaults.app_name }}-clickhouse
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 2Gi
+    - componentDefRef: ch-keeper
+      disableExporter: true
+      name: ch-keeper
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-clickhouse
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+  terminationPolicy: Delete
+```
+
+</details>
 
 <details>
 

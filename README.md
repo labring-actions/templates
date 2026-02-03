@@ -14,6 +14,11 @@ With the templates in this repository, you can easily run various applications o
 2. **Click the "Deploy on Sealos" button** in the template documentation
 3. **Configure and deploy** - just fill in the required parameters
 
+Template authoring quick links:
+- Start from [template.yaml](template.yaml) (or the Create Template (TODO) button).
+- Built-in variables/functions use `GitHub Actions`-style syntax; see [example.md](example.md).
+- A complete FastGPT example and database Cluster YAML examples (MongoDB/PostgreSQL/MySQL/Redis/Kafka/Milvus/ClickHouse) are in [example.md](example.md).
+
 That's it! Your app will be running in minutes.
 
 ### Popular Templates

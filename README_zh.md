@@ -14,6 +14,11 @@
 2. **点击模板文档中的 "Deploy on Sealos" 按钮**
 3. **配置并部署** - 只需填写必要的参数
 
+模板编写快速入口:
+- 基于 [template.yaml](template.yaml)（或 Create Template(TODO) 按钮）开始。
+- 内置变量/函数使用类似 `GitHub Actions` 的语法，详见 [example.md](example.md)。
+- FastGPT 完整示例见 [example.md](example.md)；数据库 Cluster YAML 示例（MongoDB/PostgreSQL/MySQL/Redis/Kafka/Milvus/ClickHouse）见 [example_zh.md](example_zh.md)。
+
 就这么简单！你的应用几分钟内就能运行起来。
 
 ### 热门模板
