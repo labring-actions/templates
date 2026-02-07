@@ -1,0 +1,335 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: banana-slides
+  labels:
+    app.kubernetes.io/part-of: banana-slides
+spec:
+  title: 'Banana Slides'
+  url: 'https://github.com/Anionex/banana-slides'
+  gitRepo: 'https://github.com/Anionex/banana-slides'
+  author: 'Sealos'
+  description: '基于AI的PPT生成应用，支持想法/大纲/页面描述生成完整演示文稿，支持多格式导出'
+  readme: 'https://raw.githubusercontent.com/labring-actions/templates/main/template/banana-slides/README.md'
+  icon: 'https://raw.githubusercontent.com/labring-actions/templates/main/template/banana-slides/logo.png'
+  templateType: inline
+  locale: zh
+  categories:
+    - ai
+    - tool
+  defaults:
+    app_name:
+      type: string
+      value: banana-slides-${{ random(8) }}
+    app_host:
+      type: string
+      value: banana-slides-${{ random(8) }}
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-etcvn-nginxvn-confvn-dvn-defaultvn-conf: |-
+    server {
+        listen 80;
+        server_name localhost;
+        root /usr/share/nginx/html;
+        index index.html;
+
+        # 允许上传大文件（解决413错误）
+        client_max_body_size 50M;
+
+        # Gzip 压缩
+        gzip on;
+        gzip_vary on;
+        gzip_min_length 1024;
+        gzip_types text/plain text/css text/xml text/javascript application/x-javascript application/xml+rss application/json;
+
+        # 前端路由支持（SPA）
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+
+        # API 代理到后端 - 使用 ^~ 确保优先匹配
+        location ^~ /api {
+            proxy_pass http://${{ defaults.app_name }}-backend.${{ SEALOS_NAMESPACE }}.svc.cluster.local:5000;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection 'upgrade';
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_cache_bypass $http_upgrade;
+            proxy_read_timeout 300s;
+            proxy_connect_timeout 300s;
+        }
+
+        # 文件服务代理 - 使用 ^~ 确保优先匹配，阻止后续正则匹配
+        location ^~ /files {
+            proxy_pass http://${{ defaults.app_name }}-backend.${{ SEALOS_NAMESPACE }}.svc.cluster.local:5000;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_read_timeout 300s;
+            proxy_connect_timeout 300s;
+            # 不缓存动态文件
+            add_header Cache-Control "no-cache, no-store, must-revalidate";
+        }
+
+        # 健康检查端点
+        location /health {
+            proxy_pass http://${{ defaults.app_name }}-backend.${{ SEALOS_NAMESPACE }}.svc.cluster.local:5000/health;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+        }
+
+        # 静态资源缓存 - 只匹配前端静态资源，不匹配 /files 和 /api
+        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+        }
+    }
+
+---
+# Backend StatefulSet
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-backend
+  annotations:
+    originImageName: anoinex/banana-slides-backend:latest
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-backend
+spec:
+  serviceName: ${{ defaults.app_name }}-backend
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-backend
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-backend
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-backend
+          image: anoinex/banana-slides-backend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 5000
+          resources:
+            requests:
+              cpu: 50m
+              memory: 51Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          env:
+            - name: BACKEND_PORT
+              value: '5000'
+          volumeMounts:
+            - name: vn-appvn-backendvn-instance
+              mountPath: /app/backend/instance
+            - name: vn-appvn-uploads
+              mountPath: /app/uploads
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 3
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /app/backend/instance
+          value: '0.1'
+        name: vn-appvn-backendvn-instance
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 100Mi
+    - metadata:
+        annotations:
+          path: /app/uploads
+          value: '0.1'
+        name: vn-appvn-uploads
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 100Mi
+---
+# Backend Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-backend
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-backend
+spec:
+  selector:
+    app: ${{ defaults.app_name }}-backend
+  ports:
+    - port: 5000
+      targetPort: 5000
+  type: ClusterIP
+---
+# Frontend Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: anoinex/banana-slides-frontend:latest
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  revisionHistoryLimit: 1
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: anoinex/banana-slides-frontend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: 20m
+              memory: 25Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          env:
+            - name: VITE_API_BASE_URL
+              value: http://${{ defaults.app_name }}-backend.${{ SEALOS_NAMESPACE }}.svc.cluster.local:5000
+          volumeMounts:
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: vn-etcvn-nginxvn-confvn-dvn-defaultvn-conf
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 3
+      volumes:
+        - name: ${{ defaults.app_name }}-cm
+          configMap:
+            name: ${{ defaults.app_name }}
+---
+# Frontend Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  selector:
+    app: ${{ defaults.app_name }}
+  ports:
+    - port: 80
+      targetPort: 80
+  type: ClusterIP
+---
+# Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+# App Resource
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: 'https://raw.githubusercontent.com/labring-actions/templates/main/template/banana-slides/logo.png'
+  name: 'Banana Slides'
+  type: link
