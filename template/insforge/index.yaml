@@ -1,0 +1,429 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: insforge
+spec:
+  title: 'InsForge'
+  url: 'https://insforge.dev'
+  gitRepo: 'https://github.com/insforge/insforge'
+  author: 'InsForge'
+  description: 'Open-source backend platform with PostgreSQL, REST API, and serverless functions'
+  readme: 'https://raw.githubusercontent.com/insforge/insforge/main/README.md'
+  icon: 'https://raw.githubusercontent.com/InsForge/InsForge/main/assets/logo-light.svg'
+  templateType: inline
+  categories:
+    - database
+    - backend
+  defaults:
+    app_name:
+      type: string
+      value: insforge-${{ random(8) }}
+    app_host:
+      type: string
+      value: ${{ random(8) }}
+    POSTGRES_PASSWORD:
+      type: string
+      value: ${{ random(16) }}
+    JWT_SECRET:
+      type: string
+      value: ${{ random(64) }}
+    ENCRYPTION_KEY:
+      type: string
+      value: ${{ random(32) }}
+  inputs:
+    ADMIN_EMAIL:
+      description: 'Admin user email'
+      type: string
+      default: 'admin@example.com'
+      required: false
+    ADMIN_PASSWORD:
+      description: 'Admin user password (used for login)'
+      type: string
+      default: 'change-this-password'
+      required: true
+
+---
+# PostgreSQL StatefulSet
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-postgres
+  annotations:
+    originImageName: ghcr.io/insforge/postgres-all:latest
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-postgres
+    app: ${{ defaults.app_name }}-postgres
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}-postgres
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-postgres
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-postgres
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: postgres
+          image: ghcr.io/insforge/postgres-all:latest
+          env:
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              value: ${{ defaults.POSTGRES_PASSWORD }}
+            - name: POSTGRES_DB
+              value: insforge
+            - name: ENCRYPTION_KEY
+              value: ${{ defaults.ENCRYPTION_KEY }}
+          ports:
+            - containerPort: 5432
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - postgres
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - postgres
+            initialDelaySeconds: 5
+            periodSeconds: 5
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+        annotations:
+          path: /var/lib/postgresql/data
+          value: '5'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 5Gi
+
+---
+# PostgreSQL Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-postgres
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-postgres
+spec:
+  ports:
+    - port: 5432
+      targetPort: 5432
+  selector:
+    app: ${{ defaults.app_name }}-postgres
+
+---
+# PostgREST Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-postgrest
+  annotations:
+    originImageName: postgrest/postgrest:v12.2.12
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-postgrest
+    app: ${{ defaults.app_name }}-postgrest
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-postgrest
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-postgrest
+    spec:
+      containers:
+        - name: postgrest
+          image: postgrest/postgrest:v12.2.12
+          env:
+            - name: PGRST_DB_URI
+              value: postgres://postgres:${{ defaults.POSTGRES_PASSWORD }}@${{ defaults.app_name }}-postgres.${{ SEALOS_NAMESPACE }}.svc:5432/insforge
+            - name: PGRST_DB_SCHEMA
+              value: public
+            - name: PGRST_DB_ANON_ROLE
+              value: anon
+            - name: PGRST_JWT_SECRET
+              value: ${{ defaults.JWT_SECRET }}
+            - name: PGRST_DB_POOL
+              value: '10'
+            - name: PGRST_SERVER_PORT
+              value: '3000'
+          ports:
+            - containerPort: 3000
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 300m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+
+---
+# PostgREST Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-postgrest
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-postgrest
+spec:
+  ports:
+    - port: 3000
+      targetPort: 3000
+  selector:
+    app: ${{ defaults.app_name }}-postgrest
+
+---
+# Deno Runtime Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-deno
+  annotations:
+    originImageName: ghcr.io/insforge/deno-runtime:latest
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-deno
+    app: ${{ defaults.app_name }}-deno
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-deno
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-deno
+    spec:
+      containers:
+        - name: deno
+          image: ghcr.io/insforge/deno-runtime:latest
+          env:
+            - name: PORT
+              value: '7133'
+            - name: DENO_ENV
+              value: production
+            - name: DENO_DIR
+              value: /deno_dir
+            - name: WORKER_TIMEOUT_MS
+              value: '60000'
+            - name: POSTGRES_HOST
+              value: ${{ defaults.app_name }}-postgres.${{ SEALOS_NAMESPACE }}.svc
+            - name: POSTGRES_PORT
+              value: '5432'
+            - name: POSTGRES_DB
+              value: insforge
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              value: ${{ defaults.POSTGRES_PASSWORD }}
+            - name: POSTGREST_BASE_URL
+              value: http://${{ defaults.app_name }}-postgrest.${{ SEALOS_NAMESPACE }}.svc:3000
+            - name: JWT_SECRET
+              value: ${{ defaults.JWT_SECRET }}
+            - name: ENCRYPTION_KEY
+              value: ${{ defaults.ENCRYPTION_KEY }}
+          ports:
+            - containerPort: 7133
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 300m
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 7133
+            initialDelaySeconds: 5
+            periodSeconds: 5
+
+---
+# Deno Runtime Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-deno
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-deno
+spec:
+  ports:
+    - port: 7133
+      targetPort: 7133
+  selector:
+    app: ${{ defaults.app_name }}-deno
+
+---
+# InsForge Main Application Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/insforge/insforge-oss:v1.5.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      containers:
+        - name: insforge
+          image: ghcr.io/insforge/insforge-oss:v1.5.0
+          env:
+            - name: PORT
+              value: '7130'
+            - name: PROJECT_ROOT
+              value: /app
+            # Database Configuration
+            - name: POSTGRES_HOST
+              value: ${{ defaults.app_name }}-postgres.${{ SEALOS_NAMESPACE }}.svc
+            - name: POSTGRES_PORT
+              value: '5432'
+            - name: POSTGRES_DB
+              value: insforge
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              value: ${{ defaults.POSTGRES_PASSWORD }}
+            - name: DATABASE_URL
+              value: postgresql://postgres:${{ defaults.POSTGRES_PASSWORD }}@${{ defaults.app_name }}-postgres.${{ SEALOS_NAMESPACE }}.svc:5432/insforge
+            - name: POSTGREST_BASE_URL
+              value: http://${{ defaults.app_name }}-postgrest.${{ SEALOS_NAMESPACE }}.svc:3000
+            # Deno Runtime
+            - name: DENO_RUNTIME_URL
+              value: http://${{ defaults.app_name }}-deno.${{ SEALOS_NAMESPACE }}.svc:7133
+            # Security
+            - name: JWT_SECRET
+              value: ${{ defaults.JWT_SECRET }}
+            - name: ENCRYPTION_KEY
+              value: ${{ defaults.ENCRYPTION_KEY }}
+            # Admin Configuration
+            - name: ADMIN_EMAIL
+              value: ${{ inputs.ADMIN_EMAIL }}
+            - name: ADMIN_PASSWORD
+              value: ${{ inputs.ADMIN_PASSWORD }}
+            # Public URL
+            - name: VITE_API_BASE_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: API_BASE_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: APP_KEY
+              value: ${{ defaults.app_host }}
+          ports:
+            - containerPort: 7130
+            - containerPort: 7131
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 7130
+            initialDelaySeconds: 15
+            periodSeconds: 10
+
+---
+# InsForge Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - name: http
+      port: 7130
+      targetPort: 7130
+    - name: admin
+      port: 7131
+      targetPort: 7131
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+# InsForge Ingress (External Access)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 7130
+
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
