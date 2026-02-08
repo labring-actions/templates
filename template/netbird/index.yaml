@@ -1,0 +1,700 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: netbird
+spec:
+  title: 'NetBird'
+  url: 'https://netbird.io/'
+  gitRepo: 'https://github.com/netbirdio/netbird'
+  author: 'Sealos'
+  description: '基于 WireGuard 的零信任网络平台，支持自托管管理、信令与中继。'
+  readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/netbird/README.md'
+  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/netbird/logo.svg'
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      title: 'NetBird'
+      description: '基于 WireGuard 的零信任网络平台，支持自托管管理、信令与中继。'
+  categories:
+    - dev-ops
+    - tool
+  defaults:
+    app_name:
+      type: string
+      value: netbird-${{ random(8) }}
+    app_host:
+      type: string
+      value: netbird-${{ random(8) }}
+    grpc_host:
+      type: string
+      value: netbird-grpc-${{ random(8) }}
+    relay_auth_secret:
+      type: string
+      value: ${{ random(32) }}
+    datastore_encryption_key:
+      type: string
+      value: ${{ base64(random(32)) }}
+    idp_encryption_key:
+      type: string
+      value: ${{ base64(random(32)) }}
+  inputs:
+    disable_default_policy:
+      description: 'Disable default all-to-all policy'
+      type: choice
+      options:
+        - 'false'
+        - 'true'
+      default: 'false'
+      required: true
+    external_turn_host:
+      description: 'External TURN host and port (example: turn.example.com:3478)'
+      type: string
+      default: ''
+      required: false
+    external_turn_username:
+      description: 'External TURN username (required when external TURN is used)'
+      type: string
+      default: ''
+      required: false
+    external_turn_password:
+      description: 'External TURN password (required when external TURN is used)'
+      type: string
+      default: ''
+      required: false
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-management
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-management
+data:
+  vn-etcvn-netbirdvn-managementvn-json: |-
+    {
+      "Stuns": [
+        ${{ if(inputs.external_turn_host) }}
+        {
+          "Proto": "udp",
+          "URI": "stun:${{ inputs.external_turn_host }}",
+          "Username": "",
+          "Password": null
+        }
+        ${{ endif() }}
+      ],
+      "TURNConfig": {
+        "Turns": [
+          ${{ if(inputs.external_turn_host) }}
+          {
+            "Proto": "udp",
+            "URI": "turn:${{ inputs.external_turn_host }}",
+            "Username": "${{ inputs.external_turn_username }}",
+            "Password": "${{ inputs.external_turn_password }}"
+          },
+          {
+            "Proto": "tcp",
+            "URI": "turn:${{ inputs.external_turn_host }}",
+            "Username": "${{ inputs.external_turn_username }}",
+            "Password": "${{ inputs.external_turn_password }}"
+          }
+          ${{ endif() }}
+        ],
+        "CredentialsTTL": "12h",
+        "Secret": "secret",
+        "TimeBasedCredentials": false
+      },
+      "Relay": {
+        "Addresses": ["rels://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}:443/relay"],
+        "CredentialsTTL": "24h",
+        "Secret": "${{ defaults.relay_auth_secret }}"
+      },
+      "Signal": {
+        "Proto": "https",
+        "URI": "${{ defaults.grpc_host }}.${{ SEALOS_CLOUD_DOMAIN }}:443",
+        "Username": "",
+        "Password": null
+      },
+      "ReverseProxy": {
+        "TrustedHTTPProxies": [],
+        "TrustedHTTPProxiesCount": 0,
+        "TrustedPeers": [
+          "0.0.0.0/0"
+        ]
+      },
+      "DisableDefaultPolicy": ${{ inputs.disable_default_policy }},
+      "Datadir": "/var/lib/netbird",
+      "DataStoreEncryptionKey": "${{ defaults.datastore_encryption_key }}",
+      "StoreConfig": {
+        "Engine": "sqlite"
+      },
+      "EmbeddedIdP": {
+        "Enabled": true,
+        "DataDir": "/var/lib/netbird/idp",
+        "Issuer": "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/oauth2",
+        "DashboardRedirectURIs": [
+          "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/nb-auth",
+          "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/nb-silent-auth"
+        ]
+      },
+      "EncryptionKey": "${{ defaults.idp_encryption_key }}"
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-dashboard
+  annotations:
+    originImageName: netbirdio/dashboard:v2.31.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-dashboard
+    app: ${{ defaults.app_name }}-dashboard
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-dashboard
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-dashboard
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-dashboard
+          image: netbirdio/dashboard:v2.31.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: NETBIRD_MGMT_API_ENDPOINT
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: NETBIRD_MGMT_GRPC_API_ENDPOINT
+              value: https://${{ defaults.grpc_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: AUTH_AUDIENCE
+              value: netbird-dashboard
+            - name: AUTH_CLIENT_ID
+              value: netbird-dashboard
+            - name: AUTH_CLIENT_SECRET
+              value: ""
+            - name: AUTH_AUTHORITY
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/oauth2
+            - name: USE_AUTH0
+              value: "false"
+            - name: AUTH_SUPPORTED_SCOPES
+              value: openid profile email groups
+            - name: AUTH_REDIRECT_URI
+              value: /nb-auth
+            - name: AUTH_SILENT_REDIRECT_URI
+              value: /nb-silent-auth
+            - name: NGINX_SSL_PORT
+              value: "443"
+            - name: LETSENCRYPT_DOMAIN
+              value: ""
+            - name: LETSENCRYPT_EMAIL
+              value: ""
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 20m
+              memory: 25Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-management
+  annotations:
+    originImageName: netbirdio/management:0.64.5
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-management
+    app: ${{ defaults.app_name }}-management
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}-management
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-management
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-management
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-management
+          image: netbirdio/management:0.64.5
+          imagePullPolicy: IfNotPresent
+          args:
+            - --config
+            - /etc/netbird/management.json
+            - --port
+            - "33073"
+            - --log-file
+            - console
+            - --log-level
+            - info
+            - --datadir
+            - /var/lib/netbird
+          ports:
+            - name: http
+              containerPort: 33073
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 20m
+              memory: 25Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          volumeMounts:
+            - name: vn-etcvn-netbirdvn-managementvn-json
+              mountPath: /etc/netbird/management.json
+              subPath: ./etc/netbird/management.json
+            - name: vn-varvn-libvn-netbird
+              mountPath: /var/lib/netbird
+      volumes:
+        - name: vn-etcvn-netbirdvn-managementvn-json
+          configMap:
+            name: ${{ defaults.app_name }}-management
+            items:
+              - key: vn-etcvn-netbirdvn-managementvn-json
+                path: ./etc/netbird/management.json
+            defaultMode: 420
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /var/lib/netbird
+          value: '0.1'
+        name: vn-varvn-libvn-netbird
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 100Mi
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-signal
+  annotations:
+    originImageName: netbirdio/signal:0.64.5
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-signal
+    app: ${{ defaults.app_name }}-signal
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}-signal
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-signal
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-signal
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-signal
+          image: netbirdio/signal:0.64.5
+          imagePullPolicy: IfNotPresent
+          args:
+            - --log-file
+            - console
+            - --port
+            - "80"
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 20m
+              memory: 25Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          volumeMounts:
+            - name: vn-varvn-libvn-netbird
+              mountPath: /var/lib/netbird
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /var/lib/netbird
+          value: '0.1'
+        name: vn-varvn-libvn-netbird
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 100Mi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-relay
+  annotations:
+    originImageName: netbirdio/relay:0.64.5
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-relay
+    app: ${{ defaults.app_name }}-relay
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-relay
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-relay
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-relay
+          image: netbirdio/relay:0.64.5
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: NB_LOG_LEVEL
+              value: info
+            - name: NB_LISTEN_ADDRESS
+              value: :33080
+            - name: NB_EXPOSED_ADDRESS
+              value: rels://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}:443/relay
+            - name: NB_AUTH_SECRET
+              value: ${{ defaults.relay_auth_secret }}
+            - name: NB_LOG_FILE
+              value: console
+          ports:
+            - name: http
+              containerPort: 33080
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 20m
+              memory: 25Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-dashboard
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-dashboard
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+  selector:
+    app: ${{ defaults.app_name }}-dashboard
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-management
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-management
+spec:
+  ports:
+    - name: http
+      port: 33073
+      targetPort: 33073
+  selector:
+    app: ${{ defaults.app_name }}-management
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-management-grpc
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-management-grpc
+spec:
+  ports:
+    - name: grpc
+      port: 33073
+      targetPort: 33073
+  selector:
+    app: ${{ defaults.app_name }}-management
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-signal
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-signal
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+  selector:
+    app: ${{ defaults.app_name }}-signal
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-signal-grpc
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-signal-grpc
+spec:
+  ports:
+    - name: grpc
+      port: 80
+      targetPort: 80
+  selector:
+    app: ${{ defaults.app_name }}-signal
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-relay
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-relay
+spec:
+  ports:
+    - name: http
+      port: 33080
+      targetPort: 33080
+  selector:
+    app: ${{ defaults.app_name }}-relay
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-dashboard
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-dashboard
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '3600'
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '3600'
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-dashboard
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-management
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-management
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '3600'
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '3600'
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /api
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-management
+                port:
+                  number: 33073
+          - pathType: Prefix
+            path: /oauth2
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-management
+                port:
+                  number: 33073
+          - pathType: Prefix
+            path: /ws-proxy/management
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-management
+                port:
+                  number: 33073
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-signal
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-signal
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '3600'
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '3600'
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /ws-proxy/signal
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-signal
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-relay
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-relay
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '3600'
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '3600'
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /relay
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-relay
+                port:
+                  number: 33080
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-management-grpc
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-management-grpc
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.grpc_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/backend-protocol: GRPC
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '3600'
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '3600'
+spec:
+  rules:
+    - host: ${{ defaults.grpc_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /management.ManagementService/
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-management-grpc
+                port:
+                  number: 33073
+  tls:
+    - hosts:
+        - ${{ defaults.grpc_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-signal-grpc
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-signal-grpc
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.grpc_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/backend-protocol: GRPC
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '3600'
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '3600'
+spec:
+  rules:
+    - host: ${{ defaults.grpc_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /signalexchange.SignalExchange/
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-signal-grpc
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.grpc_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/netbird/logo.svg"
+  name: "NetBird"
+  type: link
