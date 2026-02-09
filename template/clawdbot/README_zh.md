@@ -1,10 +1,10 @@
-# 在 Sealos 上部署托管 Clawdbot
+# 在 Sealos 上部署托管 Openclaw
 
-Clawdbot 是一款 AI 智能体网关，支持 WhatsApp、Telegram、Discord 等多渠道集成。借助本模板，您可以在 Sealos 云平台上快速部署一个生产就绪的 Clawdbot 实例，并自动配置持久化存储。
+Openclaw 是一款 AI 智能体网关，支持 WhatsApp、Telegram、Discord 等多渠道集成。借助本模板，您可以在 Sealos 云平台上快速部署一个生产就绪的 Openclaw 实例，并自动配置持久化存储。
 
-## 关于托管 Clawdbot
+## 关于托管 Openclaw
 
-Clawdbot 以单节点 AI 智能体网关服务的形式运行，为跨多个消息平台部署和管理 AI 智能体提供统一接口。Sealos 模板会自动为您的智能体配置、工作空间数据以及 WhatsApp 会话文件配置持久化存储，确保数据安全可靠，即使服务重启也能完好保存。
+Openclaw 以单节点 AI 智能体网关服务的形式运行，为跨多个消息平台部署和管理 AI 智能体提供统一接口。Sealos 模板会自动为您的智能体配置、工作空间数据以及 WhatsApp 会话文件配置持久化存储，确保数据安全可靠，即使服务重启也能完好保存。
 
 这套网关架构让您能够将兼容 OpenAI 的 AI 模型（如 Claude、GPT-4 等）连接到 Telegram、Discord、WhatsApp 和 Slack 等热门消息平台。部署完成后，系统会自动配置 SSL 证书、域名管理，并通过 Sealos 控制面板提供一体化监控能力。
 
@@ -16,13 +16,13 @@ Clawdbot 以单节点 AI 智能体网关服务的形式运行，为跨多个消�
 - **社区管理**：利用 AI 智能体自动管理社区内容和用户互动
 - **个人 AI 助手**：运行专属的个人 AI 助手，可从任何消息平台访问
 
-## 托管 Clawdbot 的依赖项
+## 托管 Openclaw 的依赖项
 
 Sealos 模板已包含所有必需的依赖：运行时环境、用于配置和工作空间数据的持久化存储卷。
 
 ### 部署依赖
 
-- [官方网站](https://clawd.bot) - Clawdbot 官方网站
+- [官方网站](https://clawd.bot) - Openclaw 官方网站
 - [GitHub 仓库](https://github.com/moltbot/moltbot) - 源代码和文档
 - [快速入门指南](https://clawd.bot) - 快速上手和配置说明
 
@@ -32,14 +32,14 @@ Sealos 模板已包含所有必需的依赖：运行时环境、用于配置和�
 
 本模板部署以下服务：
 
-- **Clawdbot 网关**：运行在 18789 端口的主 AI 智能体网关服务
+- **Openclaw 网关**：运行在 18789 端口的主 AI 智能体网关服务
 - **持久化存储**：自动配置两个持久卷：
   - 配置存储（1Gi）：存储智能体配置、模型设置和渠道凭据
   - 工作空间存储（1Gi）：存储智能体工作空间数据和生成的文件
 
 **配置方式：**
 
-Clawdbot 网关通过环境变量和初始化时生成的配置文件进行配置：
+Openclaw 网关通过环境变量和初始化时生成的配置文件进行配置：
 
 - **Base URL**：兼容 OpenAI 的 API 端点（默认为 Sealos AI Proxy）
 - **API Key**：AI 模型提供商的认证密钥
@@ -58,13 +58,13 @@ Clawdbot 网关通过环境变量和初始化时生成的配置文件进行配�
 
 **许可证信息：**
 
-Clawdbot 是开源软件。具体许可条款请查阅 [GitHub 仓库](https://github.com/moltbot/moltbot)。
+Openclaw 是开源软件。具体许可条款请查阅 [GitHub 仓库](https://github.com/moltbot/moltbot)。
 
-## 为什么选择在 Sealos 上部署 Clawdbot？
+## 为什么选择在 Sealos 上部署 Openclaw？
 
-Sealos 是一个基于 Kubernetes 构建的 AI 赋能云操作系统，将整个应用生命周期——从云端 IDE 开发到生产部署和管理——融为一体。它非常适合构建和扩展现代 AI 应用、SaaS 平台和复杂的微服务架构。在 Sealos 上部署 Clawdbot，您将获得：
+Sealos 是一个基于 Kubernetes 构建的 AI 赋能云操作系统，将整个应用生命周期——从云端 IDE 开发到生产部署和管理——融为一体。它非常适合构建和扩展现代 AI 应用、SaaS 平台和复杂的微服务架构。在 Sealos 上部署 Openclaw，您将获得：
 
-- **一键部署**：只需点击一下即可部署 Clawdbot。无需编写 YAML 配置，无需处理容器编排的复杂性——只需点击、部署即可完成。
+- **一键部署**：只需点击一下即可部署 Openclaw。无需编写 YAML 配置，无需处理容器编排的复杂性——只需点击、部署即可完成。
 - **内置自动扩展**：您的 AI 智能体会根据需求自动扩展和收缩。从容应对来自多个消息平台的流量峰值，无需人工干预。
 - **轻松定制**：通过直观的表单配置 AI 模型、API 密钥和渠道连接。无需修改一行代码即可完成个性化配置。
 - **零门槛 Kubernetes**：无需成为 Kubernetes 专家即可享受 Kubernetes 的所有优势——高可用性、服务发现、容器编排。
@@ -72,24 +72,24 @@ Sealos 是一个基于 Kubernetes 构建的 AI 赋能云操作系统，将整个
 - **即时公网访问**：每次部署都会自动获得带 SSL 证书的公网 URL。无需复杂的网络配置即可立即分享您的 AI 智能体网关。
 - **集成 AI 代理**：无缝连接 Sealos AI Proxy，轻松访问 Claude、GPT-4 等兼容 OpenAI 的模型。
 
-在 Sealos 上部署 Clawdbot，专注于打造智能 AI 智能体，让基础设施管理交给我们。
+在 Sealos 上部署 Openclaw，专注于打造智能 AI 智能体，让基础设施管理交给我们。
 
 ## 部署指南
 
 1. 访问 [Sealos Cloud](https://cloud.sealos.run)
 2. 在桌面界面点击"应用商店"
-3. 在应用商店中搜索"Clawdbot"
+3. 在应用商店中搜索"Openclaw"
 4. 点击"部署应用"并配置以下参数：
    - **Base URL**：您的兼容 OpenAI 的 API 端点（默认：https://aiproxy.usw-1.sealos.io/v1）
    - **API Key**：您的 AI 模型提供商的 API 密钥
    - **Model**：使用的默认模型 ID（例如 claude-opus-4-5-20251101）
    - **Auth Token**：网关认证的 JWT 密钥（默认自动生成）
 5. 等待部署完成（通常 1-3 分钟）
-6. 通过提供的 URL 访问您的 Clawdbot 网关
+6. 通过提供的 URL 访问您的 Openclaw 网关
 
 ## 配置说明
 
-部署完成后，您可以通过多种方式配置 Clawdbot：
+部署完成后，您可以通过多种方式配置 Openclaw：
 
 ### 控制界面
 
@@ -130,7 +130,7 @@ https://[您的应用地址]/?token=[gateway-token]
 4. 邀请机器人加入您的服务器
 
 **WhatsApp：**
-1. WhatsApp 会话数据存储在持久化存储的 `/home/clawdbot/.clawdbot/whatsapp` 路径
+1. WhatsApp 会话数据存储在持久化存储的 `/home/openclaw/.openclaw/whatsapp` 路径
 2. 通过控制界面按照 WhatsApp Web 二维码认证流程操作
 3. 会话数据在容器重启后依然保存
 
@@ -141,17 +141,17 @@ https://[您的应用地址]/?token=[gateway-token]
 
 ## 扩展指南
 
-扩展您的 Clawdbot 部署：
+扩展您的 Openclaw 部署：
 
 1. 打开应用启动器
-2. 选择您的 Clawdbot 部署
+2. 选择您的 Openclaw 部署
 3. 调整 CPU/内存资源：
    - 最小：100m CPU，204Mi 内存
    - 最大：1000m CPU，2Gi 内存
 4. 如有需要，增加副本数量（当前设置为 1）
 5. 点击"更新"应用更改
 
-**注意：**Clawdbot 使用 StatefulSet 进行部署。对于高流量的生产环境，建议在负载均衡器后部署多个实例。
+**注意：**Openclaw 使用 StatefulSet 进行部署。对于高流量的生产环境，建议在负载均衡器后部署多个实例。
 
 ## 故障排除
 
@@ -181,11 +181,11 @@ https://[您的应用地址]/?token=[gateway-token]
 
 ## 额外资源
 
-- [Clawdbot 官网](https://clawd.bot) - 官方网站和文档
+- [Openclaw 官网](https://clawd.bot) - 官方网站和文档
 - [GitHub 仓库](https://github.com/moltbot/moltbot) - 源代码、问题和贡献
 - [Sealos 文档](https://sealos.io/docs) - 了解在 Sealos 上部署应用的更多信息
 - [AI 代理配置](https://aiproxy.usw-1.sealos.io) - Sealos AI 代理，用于访问兼容 OpenAI 的模型
 
 ## 许可证
 
-本 Sealos 模板采用与 Clawdbot 相同的许可证提供。具体许可条款请参阅 [Clawdbot GitHub 仓库](https://github.com/moltbot/moltbot)。
+本 Sealos 模板采用与 Openclaw 相同的许可证提供。具体许可条款请参阅 [Openclaw GitHub 仓库](https://github.com/moltbot/moltbot)。

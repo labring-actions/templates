@@ -1,10 +1,10 @@
-# Deploy and Host Clawdbot on Sealos
+# Deploy and Host Openclaw on Sealos
 
-Clawdbot is an AI agent gateway with multi-channel support including WhatsApp, Telegram, and Discord integration. This template deploys a production-ready Clawdbot instance with persistent storage on Sealos Cloud.
+Openclaw is an AI agent gateway with multi-channel support including WhatsApp, Telegram, and Discord integration. This template deploys a production-ready Openclaw instance with persistent storage on Sealos Cloud.
 
-## About Hosting Clawdbot
+## About Hosting Openclaw
 
-Clawdbot runs as a single-node AI agent gateway service that provides a unified interface for deploying and managing AI agents across multiple messaging platforms. The Sealos template automatically provisions persistent storage for your agent configurations, workspace data, and WhatsApp session files, ensuring your data is safely stored and survives restarts.
+Openclaw runs as a single-node AI agent gateway service that provides a unified interface for deploying and managing AI agents across multiple messaging platforms. The Sealos template automatically provisions persistent storage for your agent configurations, workspace data, and WhatsApp session files, ensuring your data is safely stored and survives restarts.
 
 The gateway architecture allows you to connect OpenAI-compatible AI models (like Claude, GPT-4, etc.) to popular messaging platforms including Telegram, Discord, WhatsApp, and Slack. The deployment includes automatic SSL certificate provisioning, domain management, and integrated monitoring through the Sealos dashboard.
 
@@ -16,13 +16,13 @@ The gateway architecture allows you to connect OpenAI-compatible AI models (like
 - **Community Management**: Automate community moderation and engagement with AI agents
 - **Personal AI Assistant**: Run your own personal AI assistant accessible from any messaging platform
 
-## Dependencies for Clawdbot Hosting
+## Dependencies for Openclaw Hosting
 
 The Sealos template includes all required dependencies: runtime environment, persistent storage volumes for configuration and workspace data.
 
 ### Deployment Dependencies
 
-- [Official Website](https://clawd.bot) - Official Clawdbot website
+- [Official Website](https://clawd.bot) - Official Openclaw website
 - [GitHub Repository](https://github.com/moltbot/moltbot) - Source code and documentation
 - [Getting Started Guide](https://clawd.bot) - Quick start guide and configuration instructions
 
@@ -32,14 +32,14 @@ The Sealos template includes all required dependencies: runtime environment, per
 
 This template deploys the following services:
 
-- **Clawdbot Gateway**: Main AI agent gateway service running on port 18789
+- **Openclaw Gateway**: Main AI agent gateway service running on port 18789
 - **Persistent Storage**: Two persistent volumes are automatically provisioned:
   - Configuration storage (1Gi): Stores agent configurations, model settings, and channel credentials
   - Workspace storage (1Gi): Stores agent workspace data and generated files
 
 **Configuration:**
 
-The Clawdbot gateway is configured through environment variables and a configuration file generated during initialization:
+The Openclaw gateway is configured through environment variables and a configuration file generated during initialization:
 
 - **Base URL**: OpenAI-compatible API endpoint (default: Sealos AI Proxy)
 - **API Key**: Authentication key for your AI model provider
@@ -58,13 +58,13 @@ The control UI is enabled by default and accessible through the gateway URL with
 
 **License Information:**
 
-Clawdbot is open-source software. Check the [GitHub repository](https://github.com/moltbot/moltbot) for specific licensing terms.
+Openclaw is open-source software. Check the [GitHub repository](https://github.com/moltbot/moltbot) for specific licensing terms.
 
-## Why Deploy Clawdbot on Sealos?
+## Why Deploy Openclaw on Sealos?
 
-Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies the entire application lifecycle, from development in cloud IDEs to production deployment and management. It is perfect for building and scaling modern AI applications, SaaS platforms, and complex microservice architectures. By deploying Clawdbot on Sealos, you get:
+Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies the entire application lifecycle, from development in cloud IDEs to production deployment and management. It is perfect for building and scaling modern AI applications, SaaS platforms, and complex microservice architectures. By deploying Openclaw on Sealos, you get:
 
-- **One-Click Deployment**: Deploy Clawdbot with a single click. No YAML configuration, no container orchestration complexity - just point, click, and deploy.
+- **One-Click Deployment**: Deploy Openclaw with a single click. No YAML configuration, no container orchestration complexity - just point, click, and deploy.
 - **Auto-Scaling Built-In**: Your AI agents automatically scale up and down based on demand. Handle traffic spikes from multiple messaging platforms without manual intervention.
 - **Easy Customization**: Configure AI models, API keys, and channel connections with intuitive forms. Customize your setup without touching a single line of code.
 - **Zero Kubernetes Expertise Required**: Get all the benefits of Kubernetes - high availability, service discovery, and container orchestration - without becoming a Kubernetes expert.
@@ -72,24 +72,24 @@ Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies
 - **Instant Public Access**: Each deployment gets an automatic public URL with SSL certificates. Share your AI agent gateway instantly without complex networking setup.
 - **Integrated AI Proxy**: Seamlessly connect to Sealos AI Proxy for easy access to Claude, GPT-4, and other OpenAI-compatible models.
 
-Deploy Clawdbot on Sealos and focus on building intelligent AI agents instead of managing infrastructure.
+Deploy Openclaw on Sealos and focus on building intelligent AI agents instead of managing infrastructure.
 
 ## Deployment Guide
 
 1. Visit [Sealos Cloud](https://os.sealos.io)
 2. Click on "App Store" in the desktop
-3. Search for "Clawdbot" in the App Store
+3. Search for "Openclaw" in the App Store
 4. Click "Deploy App" and configure the following parameters:
    - **Base URL**: Your OpenAI-compatible API endpoint (default: https://aiproxy.usw-1.sealos.io/v1)
    - **API Key**: Your API key for the AI model provider
    - **Model**: The default model ID to use (e.g., claude-opus-4-5-20251101)
    - **Auth Token**: JWT secret key for gateway authentication (auto-generated by default)
 5. Wait for deployment to complete (typically 1-3 minutes)
-6. Access your Clawdbot gateway via the provided URL
+6. Access your Openclaw gateway via the provided URL
 
 ## Configuration
 
-After deployment, you can configure Clawdbot through multiple methods:
+After deployment, you can configure Openclaw through multiple methods:
 
 ### Control UI
 
@@ -130,7 +130,7 @@ Each messaging platform requires specific setup:
 4. Invite the bot to your server
 
 **WhatsApp:**
-1. WhatsApp session data is stored in persistent storage at `/home/clawdbot/.clawdbot/whatsapp`
+1. WhatsApp session data is stored in persistent storage at `/home/openclaw/.openclaw/whatsapp`
 2. Follow the WhatsApp Web QR code authentication process through the control UI
 3. Session data persists across container restarts
 
@@ -141,17 +141,17 @@ Each messaging platform requires specific setup:
 
 ## Scaling
 
-To scale your Clawdbot deployment:
+To scale your Openclaw deployment:
 
 1. Open App Launchpad
-2. Select your Clawdbot deployment
+2. Select your Openclaw deployment
 3. Adjust CPU/Memory resources:
    - Minimum: 100m CPU, 204Mi memory
    - Maximum: 1000m CPU, 2Gi memory
 4. Increase replica count if needed (currently set to 1)
 5. Click "Update" to apply changes
 
-**Note:** Clawdbot uses StatefulSet for deployment. For production use with high traffic, consider deploying multiple instances behind a load balancer.
+**Note:** Openclaw uses StatefulSet for deployment. For production use with high traffic, consider deploying multiple instances behind a load balancer.
 
 ## Troubleshooting
 
@@ -181,11 +181,11 @@ To scale your Clawdbot deployment:
 
 ## Additional Resources
 
-- [Clawdbot Website](https://clawd.bot) - Official website and documentation
+- [Openclaw Website](https://clawd.bot) - Official website and documentation
 - [GitHub Repository](https://github.com/moltbot/moltbot) - Source code, issues, and contributions
 - [Sealos Documentation](https://sealos.io/docs) - Learn more about deploying applications on Sealos
 - [AI Proxy Configuration](https://aiproxy.usw-1.sealos.io) - Sealos AI Proxy for accessing OpenAI-compatible models
 
 ## License
 
-This Sealos template is provided under the same license as Clawdbot. Please refer to the [Clawdbot GitHub repository](https://github.com/moltbot/moltbot) for specific licensing terms.
+This Sealos template is provided under the same license as Openclaw. Please refer to the [Openclaw GitHub repository](https://github.com/moltbot/moltbot) for specific licensing terms.
