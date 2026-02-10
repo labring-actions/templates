@@ -85,6 +85,26 @@ ${{ inputs.your_parameter }}
 - 用户可配置的输入（API 密钥、密码、数据库类型）
 - 多个 Kubernetes 资源（数据库、应用、Ingress）
 
+## 🤖 使用 Agent Skill 转换应用
+
+本仓库内置了 `docker-to-sealos` skill（`.codex/skills/docker-to-sealos/SKILL.md`），可在 **Codex**、**Claude Code**、**OpenCode**、**OpenClaw** 中直接调用，把 GitHub 仓库转换为 Sealos 模板。
+
+### 跨 Agent 最简 Prompt
+
+在 Agent 中直接使用下面这段提示词：
+
+```text
+使用 `docker-to-sealos` skill，将这个 GitHub 仓库转换为 Sealos 模板：
+https://github.com/<owner>/<repo>
+```
+
+### 调用说明
+
+- 将 URL 替换为你的目标仓库地址。
+- 如果 Agent 支持显式 skill 调用，可直接写 `$docker-to-sealos`。
+- 如果 Agent 走自动路由，在提示词里提到 `docker-to-sealos` 通常就够用。
+- 这套写法可直接复用在 Codex、Claude Code、OpenCode、OpenClaw。
+
 ## 🔗 使用 "Deploy on Sealos" 按钮
 
 你可以在项目的 README 中添加 "Deploy on Sealos" 按钮：
