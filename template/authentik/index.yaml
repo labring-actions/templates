@@ -1,0 +1,469 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: authentik
+spec:
+  title: Authentik
+  url: https://goauthentik.io/
+  gitRepo: https://github.com/goauthentik/authentik
+  author: Sealos
+  description: Authentik is an open-source identity provider focused on flexibility
+    and versatility.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/authentik/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/authentik/logo.png
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: Authentik 是一个开源身份认证平台，专注于灵活性与可扩展性。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/authentik/README_zh.md
+  categories:
+  - tool
+  - backend
+  defaults:
+    app_host:
+      type: string
+      value: authentik-${{ random(8) }}
+    app_name:
+      type: string
+      value: authentik-${{ random(8) }}
+    authentik_secret_key:
+      type: string
+      value: ${{ random(64) }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+rules:
+- apiGroups:
+  - '*'
+  resources:
+  - '*'
+  verbs:
+  - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+- kind: ServiceAccount
+  name: ${{ defaults.app_name }}-pg
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  terminationPolicy: Delete
+  componentSpecs:
+  - name: postgresql
+    componentDefRef: postgresql
+    disableExporter: true
+    enabledLogs:
+    - running
+    replicas: 1
+    serviceAccountName: ${{ defaults.app_name }}-pg
+    switchPolicy:
+      type: Noop
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 50m
+        memory: 51Mi
+    volumeClaimTemplates:
+    - name: data
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+        storageClassName: openebs-backup
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+spec:
+  completions: 1
+  template:
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: pg-init
+        image: postgres:16.4-alpine
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: PG_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: PG_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        - name: PG_USER
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: username
+        - name: PG_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: password
+        - name: AK_DB_NAME
+          value: authentik
+        - name: PGPASSWORD
+          value: $(PG_PASSWORD)
+        command:
+        - /bin/sh
+        - -ec
+        - |
+          until psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -c 'SELECT 1;' >/dev/null 2>&1; do
+            sleep 2
+          done
+          psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -tc "SELECT 1 FROM pg_database WHERE datname = '$AK_DB_NAME'" | grep -q 1 || \
+            psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -c "CREATE DATABASE \"$AK_DB_NAME\";"
+      restartPolicy: Never
+  backoffLimit: 5
+  ttlSecondsAfterFinished: 300
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/goauthentik/server:2025.12.3
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: ${{ defaults.app_name }}
+        image: ghcr.io/goauthentik/server:2025.12.3
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 200m
+            memory: 512Mi
+          requests:
+            cpu: 20m
+            memory: 51Mi
+        ports:
+        - containerPort: 9000
+        - containerPort: 9443
+        env:
+        - name: AUTHENTIK_POSTGRESQL__HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: AUTHENTIK_POSTGRESQL__NAME
+          value: authentik
+        - name: AUTHENTIK_POSTGRESQL__PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: password
+        - name: AUTHENTIK_POSTGRESQL__USER
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: username
+        - name: AUTHENTIK_SECRET_KEY
+          value: ${{ defaults.authentik_secret_key }}
+        args:
+        - server
+        startupProbe:
+          httpGet:
+            path: /-/health/ready/
+            port: 9000
+            scheme: HTTP
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 90
+        livenessProbe:
+          httpGet:
+            path: /-/health/live/
+            port: 9000
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 6
+        readinessProbe:
+          httpGet:
+            path: /-/health/ready/
+            port: 9000
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 6
+        volumeMounts:
+        - name: vn-data
+          mountPath: /data
+        - name: vn-templates
+          mountPath: /templates
+  serviceName: ${{ defaults.app_name }}
+  volumeClaimTemplates:
+  - metadata:
+      name: vn-data
+      annotations:
+        path: /data
+        value: '1'
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+  - metadata:
+      name: vn-templates
+      annotations:
+        path: /templates
+        value: '1'
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-worker
+  annotations:
+    originImageName: ghcr.io/goauthentik/server:2025.12.3
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-worker
+    app: ${{ defaults.app_name }}-worker
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-worker
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-worker
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: ${{ defaults.app_name }}-worker
+        image: ghcr.io/goauthentik/server:2025.12.3
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 200m
+            memory: 512Mi
+          requests:
+            cpu: 20m
+            memory: 51Mi
+        env:
+        - name: AUTHENTIK_POSTGRESQL__HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: AUTHENTIK_POSTGRESQL__NAME
+          value: authentik
+        - name: AUTHENTIK_POSTGRESQL__PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: password
+        - name: AUTHENTIK_POSTGRESQL__USER
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: username
+        - name: AUTHENTIK_SECRET_KEY
+          value: ${{ defaults.authentik_secret_key }}
+        args:
+        - worker
+        startupProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - ak healthcheck
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 90
+        livenessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - ak healthcheck
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 6
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - ak healthcheck
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 6
+        volumeMounts:
+        - name: vn-data
+          mountPath: /data
+        - name: vn-certs
+          mountPath: /certs
+        - name: vn-templates
+          mountPath: /templates
+  serviceName: ${{ defaults.app_name }}-worker
+  volumeClaimTemplates:
+  - metadata:
+      name: vn-data
+      annotations:
+        path: /data
+        value: '1'
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+  - metadata:
+      name: vn-certs
+      annotations:
+        path: /certs
+        value: '1'
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+  - metadata:
+      name: vn-templates
+      annotations:
+        path: /templates
+        value: '1'
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+  - name: tcp-9000
+    port: 9000
+    targetPort: 9000
+    protocol: TCP
+  - name: tcp-9443
+    port: 9443
+    targetPort: 9443
+    protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+spec:
+  rules:
+  - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+    http:
+      paths:
+      - pathType: Prefix
+        path: /
+        backend:
+          service:
+            name: ${{ defaults.app_name }}
+            port:
+              number: 9000
+  tls:
+  - hosts:
+    - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+    secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/authentik/logo.png
+  name: Authentik
+  type: link

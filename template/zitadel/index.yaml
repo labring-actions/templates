@@ -1,0 +1,315 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: zitadel
+spec:
+  title: ZITADEL
+  url: https://zitadel.com
+  gitRepo: https://github.com/zitadel/zitadel
+  author: ZITADEL
+  description: Open-source identity and access management platform for authentication
+    and authorization.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/zitadel/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/zitadel/logo.png
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: 开源身份与访问管理平台，提供认证与授权能力。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/zitadel/README_zh.md
+  categories:
+  - backend
+  defaults:
+    app_host:
+      type: string
+      value: zitadel-${{ random(8) }}
+    app_name:
+      type: string
+      value: zitadel-${{ random(8) }}
+    master_key:
+      type: string
+      value: ${{ random(32) }}
+  inputs:
+    admin_username:
+      description: Initial admin username for the first instance human user.
+      type: string
+      default: zitadel-admin
+      required: true
+    admin_password:
+      description: Initial admin password for the first instance human user (must include uppercase, lowercase, number, and special character).
+      type: string
+      default: ''
+      required: true
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+rules:
+- apiGroups:
+  - '*'
+  resources:
+  - '*'
+  verbs:
+  - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+- kind: ServiceAccount
+  name: ${{ defaults.app_name }}-pg
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  terminationPolicy: Delete
+  componentSpecs:
+  - name: postgresql
+    componentDefRef: postgresql
+    disableExporter: true
+    enabledLogs:
+    - running
+    replicas: 1
+    serviceAccountName: ${{ defaults.app_name }}-pg
+    switchPolicy:
+      type: Noop
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 50m
+        memory: 51Mi
+    volumeClaimTemplates:
+    - name: data
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+        storageClassName: openebs-backup
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/zitadel/zitadel:v4.10.1
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: ${{ defaults.app_name }}
+        image: ghcr.io/zitadel/zitadel:v4.10.1
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 20m
+            memory: 25Mi
+        ports:
+        - containerPort: 8080
+        env:
+        - name: ZITADEL_EXTERNALDOMAIN
+          value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+        - name: ZITADEL_EXTERNALPORT
+          value: '443'
+        - name: ZITADEL_EXTERNALSECURE
+          value: 'true'
+        - name: ZITADEL_TLS_ENABLED
+          value: 'false'
+        - name: ZITADEL_DATABASE_POSTGRES_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: ZITADEL_DATABASE_POSTGRES_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        - name: ZITADEL_DATABASE_POSTGRES_DATABASE
+          value: zitadel
+        - name: ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: username
+        - name: ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: password
+        - name: ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE
+          value: disable
+        - name: ZITADEL_DATABASE_POSTGRES_USER_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: username
+        - name: ZITADEL_DATABASE_POSTGRES_USER_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: password
+        - name: ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME
+          value: ${{ inputs.admin_username }}
+        - name: ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD
+          value: ${{ inputs.admin_password }}
+        - name: ZITADEL_FIRSTINSTANCE_ORG_NAME
+          value: ZITADEL
+        - name: ZITADEL_FIRSTINSTANCE_ORG_HUMAN_FIRSTNAME
+          value: ZITADEL
+        - name: ZITADEL_FIRSTINSTANCE_ORG_HUMAN_LASTNAME
+          value: Admin
+        - name: ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED
+          value: 'false'
+        - name: ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED
+          value: 'false'
+        args:
+        - start-from-init
+        - --masterkey
+        - ${{ defaults.master_key }}
+        livenessProbe:
+          exec: &id001
+            command:
+            - /app/zitadel
+            - ready
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 60
+          failureThreshold: 5
+        readinessProbe:
+          exec: *id001
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 60
+          failureThreshold: 5
+        startupProbe:
+          exec: *id001
+          periodSeconds: 10
+          timeoutSeconds: 60
+          failureThreshold: 60
+  serviceName: ${{ defaults.app_name }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+  - name: tcp-8080
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+    appProtocol: kubernetes.io/h2c
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+  - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+    http:
+      paths:
+      - pathType: Prefix
+        path: /
+        backend:
+          service:
+            name: ${{ defaults.app_name }}
+            port:
+              number: 8080
+  tls:
+  - hosts:
+    - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+    secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/zitadel/logo.png
+  name: ZITADEL
+  type: link
