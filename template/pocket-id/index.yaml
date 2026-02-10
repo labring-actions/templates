@@ -1,0 +1,146 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: pocket-id
+spec:
+  title: Pocket ID
+  url: https://pocket-id.org
+  gitRepo: https://github.com/pocket-id/pocket-id
+  author: Sealos
+  description: Pocket ID is a simple OIDC provider that authenticates users with passkeys.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/main/template/pocket-id/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/main/template/pocket-id/logo.png
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      title: Pocket ID
+      description: Pocket ID 是一个简洁的 OIDC 提供商，支持使用 Passkey 进行身份认证。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/main/template/pocket-id/README_zh.md
+  categories:
+  - tool
+  defaults:
+    app_host:
+      type: string
+      value: pocket-id-${{ random(8) }}
+    app_name:
+      type: string
+      value: pocket-id-${{ random(8) }}
+    encryption_key:
+      type: string
+      value: ${{ random(32) }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/pocket-id/pocket-id:v2.2.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: ${{ defaults.app_name }}
+        image: ghcr.io/pocket-id/pocket-id:v2.2.0
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: APP_URL
+          value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+        - name: ENCRYPTION_KEY
+          value: ${{ defaults.encryption_key }}
+        - name: TRUST_PROXY
+          value: "false"
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 20m
+            memory: 25Mi
+        ports:
+        - containerPort: 1411
+        volumeMounts:
+        - name: vn-appvn-data
+          mountPath: /app/data
+  serviceName: ${{ defaults.app_name }}
+  volumeClaimTemplates:
+  - metadata:
+      name: vn-appvn-data
+      annotations:
+        path: /app/data
+        value: '1'
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+  - port: 1411
+    targetPort: 1411
+    protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+spec:
+  rules:
+  - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+    http:
+      paths:
+      - pathType: Prefix
+        path: /
+        backend:
+          service:
+            name: ${{ defaults.app_name }}
+            port:
+              number: 1411
+  tls:
+  - hosts:
+    - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+    secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/main/template/pocket-id/logo.png
+  name: Pocket ID
+  type: link
