@@ -85,6 +85,26 @@ The [FastGPT](example.md) example demonstrates how to create a complete template
 - User-configurable inputs (API key, password, database type)
 - Multiple Kubernetes resources (database, application, ingress)
 
+## 🤖 Convert Apps with Agent Skills
+
+This repository includes the `docker-to-sealos` skill (`.codex/skills/docker-to-sealos/SKILL.md`), which can be called directly from **Codex**, **Claude Code**, **OpenCode**, and **OpenClaw** to convert Docker Compose apps into Sealos templates.
+
+### Recommended Cross-Agent Prompt
+
+Use this minimal prompt in your agent:
+
+```text
+Use the `docker-to-sealos` skill and convert this GitHub repository to a Sealos template:
+https://github.com/<owner>/<repo>
+```
+
+### Invocation Notes
+
+- Replace the URL with your target repository.
+- If your agent supports explicit skill calls, invoke it as `$docker-to-sealos`.
+- If your agent uses automatic routing, mentioning `docker-to-sealos` in the prompt is usually enough.
+- The same prompt pattern works across Codex, Claude Code, OpenCode, and OpenClaw.
+
 ## 🔗 Use "Deploy on Sealos" Button
 
 You can add a "Deploy on Sealos" button to your project's README:
