@@ -117,6 +117,8 @@ services:
       - "8080:80"
 ```
 
+> Sealos 网关默认在 Ingress 层终止 TLS。若 Compose 同时暴露 `80` 与 `443`，且业务服务不是“必须后端 HTTPS”，转换时应优先保留 HTTP 端口并移除 `443`，同时不再挂载容器内证书目录（例如 `/etc/nginx/ssl`、`/etc/ssl`、`/certs`）。
+
 ### Sealos Template
 
 #### 容器端口配置
@@ -195,6 +197,24 @@ spec:
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
 ```
 
+#### TLS Offload 归一化（80/443 双端口场景）
+
+```yaml
+# Docker Compose
+services:
+  app:
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - certs:/etc/nginx/ssl
+
+# 转换后（Sealos）
+# - workload/service 仅保留 80
+# - Ingress 继续使用平台证书
+# - /etc/nginx/ssl 不再转换为 PVC 挂载
+```
+
 ## 环境变量映射
 
 ### Docker Compose
@@ -270,6 +290,38 @@ env:
         name: ${{ defaults.app_name }}-pg-conn-credential
         key: password
 ```
+
+#### URL/DSN 变量组合（当 `endpoint` 仅为 `host:port` 时）
+```yaml
+env:
+  - name: SEALOS_DATABASE_POSTGRES_HOST
+    valueFrom:
+      secretKeyRef:
+        name: ${{ defaults.app_name }}-pg-conn-credential
+        key: host
+  - name: SEALOS_DATABASE_POSTGRES_PORT
+    valueFrom:
+      secretKeyRef:
+        name: ${{ defaults.app_name }}-pg-conn-credential
+        key: port
+  - name: SEALOS_DATABASE_POSTGRES_USERNAME
+    valueFrom:
+      secretKeyRef:
+        name: ${{ defaults.app_name }}-pg-conn-credential
+        key: username
+  - name: SEALOS_DATABASE_POSTGRES_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: ${{ defaults.app_name }}-pg-conn-credential
+        key: password
+  - name: DATABASE_URL
+    value: postgres://$(SEALOS_DATABASE_POSTGRES_USERNAME):$(SEALOS_DATABASE_POSTGRES_PASSWORD)@$(SEALOS_DATABASE_POSTGRES_HOST):$(SEALOS_DATABASE_POSTGRES_PORT)/postgres
+```
+
+说明：
+- 仅在源值为 URL/DSN 且指向已识别数据库服务时使用此模式。
+- `DATABASE_URL` 等 URL 字段允许通过 `$(VAR)` 引用由 approved DB `secretKeyRef` 注入的组件变量。
+- 不允许引用非密钥来源变量拼装数据库 URL。
 
 ## 卷映射
 

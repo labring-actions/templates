@@ -146,6 +146,65 @@ class ComposeToTemplateTests(unittest.TestCase):
             self.assertEqual("tcp-9000", ports[0]["name"])
             self.assertEqual("tcp-9443", ports[1]["name"])
 
+    def test_drops_https_port_when_http_port_exists(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = root / "docker-compose.yml"
+            write_file(
+                compose,
+                """
+                services:
+                  app:
+                    image: ghcr.io/example/demo:1.0.0
+                    ports:
+                      - "80:80"
+                      - "443:443"
+                """,
+            )
+            index_path, _ = convert_compose_to_template(
+                compose_path=compose,
+                output_root=root / "template",
+                meta=self._meta("demo"),
+            )
+            docs = parse_yaml_documents(index_path)
+            workload = next(doc for doc in docs if doc.get("kind") in {"Deployment", "StatefulSet"})
+            service = next(doc for doc in docs if doc.get("kind") == "Service")
+
+            container_ports = [item["containerPort"] for item in workload["spec"]["template"]["spec"]["containers"][0]["ports"]]
+            service_ports = [item["port"] for item in service["spec"]["ports"]]
+            self.assertEqual([80], container_ports)
+            self.assertEqual([80], service_ports)
+
+    def test_filters_tls_certificate_mounts_from_persistent_storage(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = root / "docker-compose.yml"
+            write_file(
+                compose,
+                """
+                services:
+                  app:
+                    image: ghcr.io/example/demo:1.0.0
+                    volumes:
+                      - certs:/etc/nginx/ssl
+                      - data:/var/lib/demo
+                volumes:
+                  certs: {}
+                  data: {}
+                """,
+            )
+            index_path, _ = convert_compose_to_template(
+                compose_path=compose,
+                output_root=root / "template",
+                meta=self._meta("demo"),
+            )
+            docs = parse_yaml_documents(index_path)
+            workload = next(doc for doc in docs if doc.get("kind") == "StatefulSet")
+
+            mounts = workload["spec"]["template"]["spec"]["containers"][0]["volumeMounts"]
+            mount_paths = [item["mountPath"] for item in mounts]
+            self.assertEqual(["/var/lib/demo"], mount_paths)
+
     def test_template_defaults_keep_double_brace_placeholders(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -556,9 +615,24 @@ class ComposeToTemplateTests(unittest.TestCase):
                 (port_item, "port"),
                 (user_item, "username"),
                 (password_item, "password"),
-                (endpoint_item, "endpoint"),
             ):
                 secret_ref = item.get("valueFrom", {}).get("secretKeyRef", {})
+                self.assertEqual("${{ defaults.app_name }}-pg-conn-credential", secret_ref.get("name"))
+                self.assertEqual(key, secret_ref.get("key"))
+
+            self.assertEqual(
+                "postgres://$(SEALOS_DATABASE_POSTGRES_USERNAME):$(SEALOS_DATABASE_POSTGRES_PASSWORD)"
+                "@$(SEALOS_DATABASE_POSTGRES_HOST):$(SEALOS_DATABASE_POSTGRES_PORT)/postgres",
+                endpoint_item.get("value"),
+            )
+            for helper_name, key in (
+                ("SEALOS_DATABASE_POSTGRES_HOST", "host"),
+                ("SEALOS_DATABASE_POSTGRES_PORT", "port"),
+                ("SEALOS_DATABASE_POSTGRES_USERNAME", "username"),
+                ("SEALOS_DATABASE_POSTGRES_PASSWORD", "password"),
+            ):
+                helper_item = next(item for item in env if item["name"] == helper_name)
+                secret_ref = helper_item.get("valueFrom", {}).get("secretKeyRef", {})
                 self.assertEqual("${{ defaults.app_name }}-pg-conn-credential", secret_ref.get("name"))
                 self.assertEqual(key, secret_ref.get("key"))
 
