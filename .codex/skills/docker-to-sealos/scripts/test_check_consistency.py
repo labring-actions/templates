@@ -1215,6 +1215,79 @@ class CheckConsistencyTests(unittest.TestCase):
         )
         self.assertFalse(any(item.rule_id == "R017" for item in violations))
 
+    def test_allows_composed_database_endpoint_with_secret_derived_components(self):
+        violations = self.run_checker(
+            """
+            ```yaml
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo
+            spec:
+              template:
+                spec:
+                  containers:
+                    - name: demo
+                      image: nginx:1.27.2
+                      imagePullPolicy: IfNotPresent
+                      env:
+                        - name: DB_HOST
+                          valueFrom:
+                            secretKeyRef:
+                              name: ${{ defaults.app_name }}-pg-conn-credential
+                              key: host
+                        - name: DB_PORT
+                          valueFrom:
+                            secretKeyRef:
+                              name: ${{ defaults.app_name }}-pg-conn-credential
+                              key: port
+                        - name: DB_USERNAME
+                          valueFrom:
+                            secretKeyRef:
+                              name: ${{ defaults.app_name }}-pg-conn-credential
+                              key: username
+                        - name: DB_PASSWORD
+                          valueFrom:
+                            secretKeyRef:
+                              name: ${{ defaults.app_name }}-pg-conn-credential
+                              key: password
+                        - name: DATABASE_URL
+                          value: postgres://$(DB_USERNAME):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/postgres
+            ```
+            """
+        )
+        self.assertFalse(any(item.rule_id == "R017" for item in violations))
+
+    def test_detects_composed_database_endpoint_with_non_secret_dependency(self):
+        violations = self.run_checker(
+            """
+            ```yaml
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo
+            spec:
+              template:
+                spec:
+                  containers:
+                    - name: demo
+                      image: nginx:1.27.2
+                      imagePullPolicy: IfNotPresent
+                      env:
+                        - name: DB_HOST
+                          value: postgres
+                        - name: DB_PORT
+                          valueFrom:
+                            secretKeyRef:
+                              name: ${{ defaults.app_name }}-pg-conn-credential
+                              key: port
+                        - name: DATABASE_URL
+                          value: postgres://$(DB_HOST):$(DB_PORT)/postgres
+            ```
+            """
+        )
+        self.assertTrue(any(item.rule_id == "R017" for item in violations))
+
     def test_detects_reserved_database_secret_name_override(self):
         violations = self.run_checker(
             """

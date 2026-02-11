@@ -71,6 +71,17 @@ OBJECT_STORAGE_BUCKET_ENV_NAME = "S3_BUCKET"
 COMPOSE_REFERENCE_RE = re.compile(r"\$\{[^}]+\}")
 INVALID_NAME_RE = re.compile(r"[^a-z0-9]+")
 MODE_SUFFIXES = {"ro", "rw", "z", "Z", "cached", "delegated", "consistent"}
+TLS_TERMINATION_PORT = 443
+TLS_CERT_DIR_NAMES = {"ssl", "cert", "certs", "tls"}
+TLS_CERT_MOUNT_EXACT_PATHS = {
+    "/etc/nginx/ssl",
+    "/etc/ssl",
+    "/etc/certs",
+    "/etc/tls",
+    "/ssl",
+    "/certs",
+    "/tls",
+}
 EXPLICIT_VERSION_TAG_RE = re.compile(
     r"^v?(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)(?:[-+](?P<suffix>[0-9A-Za-z][0-9A-Za-z._-]*))?$"
 )
@@ -614,6 +625,15 @@ def parse_ports(service: Mapping[str, Any]) -> List[int]:
     return values
 
 
+def normalize_ports_for_gateway_tls_termination(ports: Sequence[int]) -> List[int]:
+    normalized = list(ports)
+    # Sealos Ingress terminates TLS. If an app exposes both HTTP and HTTPS ports,
+    # keep only HTTP-facing ports to avoid redundant in-container TLS.
+    if TLS_TERMINATION_PORT in normalized and any(port != TLS_TERMINATION_PORT for port in normalized):
+        normalized = [port for port in normalized if port != TLS_TERMINATION_PORT]
+    return normalized
+
+
 def parse_mount_target_from_string(raw: str) -> Optional[str]:
     text = raw.strip()
     if not text:
@@ -635,6 +655,18 @@ def is_persistent_mount_target(target: str) -> bool:
     return not target.lower().endswith(".sock")
 
 
+def is_tls_certificate_mount_target(target: str) -> bool:
+    normalized = target.strip().rstrip("/").lower()
+    if not normalized:
+        return False
+    if normalized in TLS_CERT_MOUNT_EXACT_PATHS:
+        return True
+    parts = [part for part in normalized.split("/") if part]
+    if not parts:
+        return False
+    return parts[-1] in TLS_CERT_DIR_NAMES
+
+
 def parse_mount_paths(service: Mapping[str, Any]) -> List[str]:
     volumes = service.get("volumes")
     if not isinstance(volumes, list):
@@ -649,7 +681,12 @@ def parse_mount_paths(service: Mapping[str, Any]) -> List[str]:
             raw_target = item.get("target")
             if isinstance(raw_target, str) and raw_target.startswith("/"):
                 target = raw_target
-        if target and is_persistent_mount_target(target) and target not in seen:
+        if (
+            target
+            and is_persistent_mount_target(target)
+            and not is_tls_certificate_mount_target(target)
+            and target not in seen
+        ):
             seen.add(target)
             paths.append(target)
     return paths
@@ -1661,6 +1698,30 @@ def detect_db_connection_key(env_name: str) -> Optional[str]:
     return None
 
 
+def normalize_env_token(value: str) -> str:
+    return re.sub(r"[^A-Z0-9]+", "_", value.upper()).strip("_")
+
+
+def normalize_endpoint_helper_token(value: str) -> str:
+    token = normalize_env_token(value)
+    if not token:
+        return ""
+    filtered = [part for part in token.split("_") if part and part not in {"URL", "URI", "DSN", "ENDPOINT"}]
+    return "_".join(filtered)
+
+
+def build_secret_ref_env_entry(env_name: str, secret_name: str, secret_key: str) -> Dict[str, Any]:
+    return {
+        "name": env_name,
+        "valueFrom": {
+            "secretKeyRef": {
+                "name": secret_name,
+                "key": secret_key,
+            }
+        },
+    }
+
+
 def infer_db_type_from_value(value: str, db_services: Mapping[str, str]) -> Optional[str]:
     text = value.strip().lower()
     matched: List[str] = []
@@ -1715,7 +1776,65 @@ def infer_db_secret_ref(env_name: str, value: str, db_services: Mapping[str, str
     if not isinstance(secret_name, str):
         return None
 
-    return {"name": secret_name, "key": connection_key}
+    return {"name": secret_name, "key": connection_key, "db_type": db_type}
+
+
+def build_db_url_composed_env_entries(
+    env_name: str,
+    raw_value: str,
+    secret_name: str,
+    db_type: str,
+    db_services: Mapping[str, str],
+) -> Optional[List[Dict[str, Any]]]:
+    text = raw_value.strip()
+    if not text or COMPOSE_REFERENCE_RE.search(text):
+        return None
+
+    parsed = urlparse(text)
+    host = (parsed.hostname or "").strip().lower()
+    if not parsed.scheme or not host or host not in db_services:
+        return None
+
+    env_token = normalize_endpoint_helper_token(env_name) or "DB_CONNECTION"
+    db_token = normalize_env_token(db_type) or "DB"
+
+    host_var = f"SEALOS_{env_token}_{db_token}_HOST"
+    port_var = f"SEALOS_{env_token}_{db_token}_PORT"
+    user_var = f"SEALOS_{env_token}_{db_token}_USERNAME"
+    password_var = f"SEALOS_{env_token}_{db_token}_PASSWORD"
+
+    helper_entries: List[Dict[str, Any]] = [
+        build_secret_ref_env_entry(host_var, secret_name, "host"),
+        build_secret_ref_env_entry(port_var, secret_name, "port"),
+    ]
+
+    auth_prefix = ""
+    if parsed.username is not None:
+        helper_entries.append(build_secret_ref_env_entry(user_var, secret_name, "username"))
+        if parsed.password is not None:
+            helper_entries.append(build_secret_ref_env_entry(password_var, secret_name, "password"))
+            auth_prefix = f"$({user_var}):$({password_var})@"
+        else:
+            auth_prefix = f"$({user_var})@"
+    elif parsed.password is not None:
+        # Compose URLs with password but no username are uncommon; keep generated form explicit.
+        helper_entries.append(build_secret_ref_env_entry(user_var, secret_name, "username"))
+        helper_entries.append(build_secret_ref_env_entry(password_var, secret_name, "password"))
+        auth_prefix = f"$({user_var}):$({password_var})@"
+
+    host_port = f"$({host_var})"
+    if parsed.port is not None:
+        host_port = f"{host_port}:$({port_var})"
+
+    suffix = parsed.path or ""
+    if parsed.query:
+        suffix = f"{suffix}?{parsed.query}"
+    if parsed.fragment:
+        suffix = f"{suffix}#{parsed.fragment}"
+
+    composed_url = f"{parsed.scheme}://{auth_prefix}{host_port}{suffix}"
+    helper_entries.append({"name": env_name, "value": composed_url})
+    return helper_entries
 
 
 def build_env_entries(
@@ -1727,17 +1846,19 @@ def build_env_entries(
     for key, value in parse_env(service):
         secret_ref = infer_db_secret_ref(key, value, db_services)
         if secret_ref is not None:
-            entries.append(
-                {
-                    "name": key,
-                    "valueFrom": {
-                        "secretKeyRef": {
-                            "name": secret_ref["name"],
-                            "key": secret_ref["key"],
-                        }
-                    },
-                }
-            )
+            if secret_ref["key"] == "endpoint":
+                composed_entries = build_db_url_composed_env_entries(
+                    env_name=key,
+                    raw_value=value,
+                    secret_name=secret_ref["name"],
+                    db_type=secret_ref["db_type"],
+                    db_services=db_services,
+                )
+                if composed_entries is not None:
+                    entries.extend(composed_entries)
+                    continue
+
+            entries.append(build_secret_ref_env_entry(key, secret_ref["name"], secret_ref["key"]))
             continue
         entries.append(
             {
@@ -2047,6 +2168,7 @@ def build_documents(
                     ports = list(shape.ports)
                 if not mount_paths:
                     mount_paths = list(shape.mount_paths)
+        ports = normalize_ports_for_gateway_tls_termination(ports)
         probes = build_probe_pair(service, image, ports, command_args)
         workload = build_workload(
             workload_name=workload_name,

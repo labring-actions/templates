@@ -61,7 +61,9 @@ Apply field-level mappings from `references/conversion-mappings.md`, including:
 - env var conversion and dependency ordering
 - storage conversion and vn naming (`scripts/path_converter.py`)
 - service-name to Kubernetes FQDN conversion
+- for DB URL/DSN envs (for example `*_DATABASE_URL`, `*_DB_URL`), when Kubeblocks `endpoint` is host:port, inject `host`/`port`/`username`/`password` via approved `secretKeyRef` envs and compose the final URL with `$(VAR)` expansion
 - edge gateway normalization: when Compose includes Traefik-like edge proxy plus business services, skip the proxy workload and expose business services via Sealos Ingress directly
+- TLS offload normalization for Sealos Ingress: when a business service exposes both 80 and 443, drop 443 from workload/service ports and remove in-container TLS certificate mounts (for example `/etc/nginx/ssl`, `/etc/ssl`, `/certs`) unless official Kubernetes docs explicitly require HTTPS backend-to-service traffic
 - prefer `scripts/compose_to_template.py --kompose-mode always` as deterministic conversion entrypoint (require `kompose` for reproducible workload shaping)
 - when official Kubernetes installation docs/manifests exist, perform a dual-source merge: use Compose as baseline topology, then align app-runtime semantics with official Kubernetes guidance
 
@@ -236,5 +238,6 @@ Load only needed references for current task:
 - Keep App resource in `spec.data.url` format; never use `spec.template`.
 - Keep business-env, object storage, and DB-secret policy consistent with MUST rules.
 - Prefer Sealos-managed ingress over bundled edge proxies: if a Traefik gateway is only acting as ingress/front-proxy and at least one business service exists, do not emit Traefik workload resources.
+- Prefer gateway TLS termination in Sealos Ingress over in-container TLS: for dual-port HTTP/HTTPS workloads, keep HTTP service port and remove redundant HTTPS/certificate mounts unless official docs require HTTPS backend.
 - Prefer fixing references/examples over adding exceptions when conflicts appear.
 - If official Kubernetes installation docs/manifests exist for the target app, do not ignore them; use them to refine runtime semantics beyond Compose defaults.
