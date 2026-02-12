@@ -41,6 +41,12 @@ DB_CONNECTION_INDICATOR_HINTS: Set[str] = {
 }
 ENV_VALUE_REF_RE = re.compile(r"\$\(([A-Za-z_][A-Za-z0-9_]*)\)")
 DB_COMPOSABLE_KEYS: Set[str] = {"endpoint", "host", "port", "username", "password"}
+REDIS_SERVICE_HOST_TEMPLATE_PATTERN = re.compile(
+    rf"^{APP_NAME_PLACEHOLDER}-redis-redis\.\$\{{\{{\s*SEALOS_NAMESPACE\s*\}}\}}\.svc(?:\.cluster\.local)?$"
+)
+REDIS_SERVICE_HOST_RUNTIME_PATTERN = re.compile(
+    r"^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?\.svc(?:\.cluster\.local)?$"
+)
 
 
 def is_approved_db_secret_name(secret_name: str) -> bool:
@@ -127,6 +133,147 @@ def is_composed_db_endpoint_from_secret(
             has_port = True
 
     return has_endpoint or (has_host and has_port)
+
+
+def resolve_env_value(value: object, env_items_by_name: Dict[str, Dict[str, object]], depth: int = 0) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    if depth > 4:
+        return None
+
+    ref_match = re.fullmatch(r"\$\(([A-Za-z_][A-Za-z0-9_]*)\)", value.strip())
+    if not ref_match:
+        return value
+
+    ref_env = env_items_by_name.get(ref_match.group(1))
+    if not isinstance(ref_env, dict):
+        return None
+    return resolve_env_value(ref_env.get("value"), env_items_by_name, depth + 1)
+
+
+def is_redis_service_host(value: str) -> bool:
+    stripped = value.strip()
+    return (
+        REDIS_SERVICE_HOST_TEMPLATE_PATTERN.fullmatch(stripped) is not None
+        or REDIS_SERVICE_HOST_RUNTIME_PATTERN.fullmatch(stripped) is not None
+    )
+
+
+def is_redis_service_port(value: str) -> bool:
+    return value.strip() == "6379"
+
+
+def is_redis_host_from_env(
+    env_item: Dict[str, object],
+    env_items_by_name: Dict[str, Dict[str, object]],
+) -> bool:
+    resolved = resolve_env_value(env_item.get("value"), env_items_by_name)
+    return isinstance(resolved, str) and is_redis_service_host(resolved)
+
+
+def is_redis_port_from_env(
+    env_item: Dict[str, object],
+    env_items_by_name: Dict[str, Dict[str, object]],
+) -> bool:
+    resolved = resolve_env_value(env_item.get("value"), env_items_by_name)
+    return isinstance(resolved, str) and is_redis_service_port(resolved)
+
+
+def is_redis_password_from_secret(
+    env_item: Dict[str, object],
+    env_items_by_name: Dict[str, Dict[str, object]],
+) -> bool:
+    ref_match = re.fullmatch(r"\$\(([A-Za-z_][A-Za-z0-9_]*)\)", str(env_item.get("value", "")).strip())
+    if ref_match is None:
+        return False
+    ref_env = env_items_by_name.get(ref_match.group(1))
+    if not isinstance(ref_env, dict):
+        return False
+    ref_secret = extract_secret_ref(ref_env)
+    if ref_secret is None:
+        return False
+    return is_approved_db_secret_name(ref_secret["name"]) and ref_secret["key"] == "password"
+
+
+def is_composed_redis_endpoint_from_service(
+    env_item: Dict[str, object],
+    env_items_by_name: Dict[str, Dict[str, object]],
+) -> bool:
+    value = env_item.get("value")
+    if not isinstance(value, str):
+        return False
+    if not value.startswith("redis://"):
+        return False
+
+    ref_names = ENV_VALUE_REF_RE.findall(value)
+    has_host = False
+    has_port = False
+
+    for ref_name in ref_names:
+        ref_env = env_items_by_name.get(ref_name)
+        if not isinstance(ref_env, dict):
+            return False
+
+        ref_secret = extract_secret_ref(ref_env)
+        if ref_secret is not None:
+            if not is_approved_db_secret_name(ref_secret["name"]):
+                return False
+            ref_key = ref_secret["key"]
+            if ref_key == "endpoint":
+                has_host = True
+                has_port = True
+            elif ref_key == "host":
+                has_host = True
+            elif ref_key == "port":
+                has_port = True
+            elif ref_key in {"username", "password"}:
+                pass
+            else:
+                return False
+            continue
+
+        resolved = resolve_env_value(ref_env.get("value"), env_items_by_name)
+        if not isinstance(resolved, str):
+            return False
+        if is_redis_service_host(resolved):
+            has_host = True
+            continue
+        if is_redis_service_port(resolved):
+            has_port = True
+            continue
+        normalized_ref = normalize_env_name(ref_name)
+        if normalized_ref.endswith("PASSWORD") or normalized_ref.endswith("USERNAME"):
+            continue
+        return False
+
+    if not ref_names:
+        match = re.search(r"redis://(?::[^@]+@)?([^/:]+):([0-9]+)", value)
+        if match is None:
+            return False
+        return is_redis_service_host(match.group(1)) and is_redis_service_port(match.group(2))
+
+    return has_host and has_port
+
+
+def is_allowed_redis_service_env(
+    env_name: str,
+    expected_key: str,
+    env_item: Dict[str, object],
+    env_items_by_name: Dict[str, Dict[str, object]],
+) -> bool:
+    normalized = normalize_env_name(env_name)
+    if "REDIS" not in normalized:
+        return False
+
+    if expected_key == "host":
+        return is_redis_host_from_env(env_item, env_items_by_name)
+    if expected_key == "port":
+        return is_redis_port_from_env(env_item, env_items_by_name)
+    if expected_key == "password":
+        return is_redis_password_from_secret(env_item, env_items_by_name)
+    if expected_key == "endpoint":
+        return is_composed_redis_endpoint_from_service(env_item, env_items_by_name)
+    return False
 
 
 def _find_secret_ref_line(doc, source: str, secret_name: str, env_name: Optional[str]) -> int:
@@ -236,6 +383,8 @@ def check_db_connection_env_secret_requirements(context: ScanContext) -> List[Vi
 
                 secret_ref = extract_secret_ref(env_item)
                 if secret_ref is None:
+                    if is_allowed_redis_service_env(env_name, expected_key, env_item, env_items_by_name):
+                        continue
                     if expected_key == "endpoint" and is_composed_db_endpoint_from_secret(
                         env_item, env_items_by_name
                     ):

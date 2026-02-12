@@ -86,7 +86,21 @@ class ComposeToTemplateTests(unittest.TestCase):
             )
             service = next(doc for doc in docs if doc.get("kind") == "Service")
             self.assertEqual("tcp-80", service["spec"]["ports"][0]["name"])
+            self.assertEqual("${{ defaults.app_name }}", service["metadata"]["name"])
+            self.assertEqual("${{ defaults.app_name }}", service["spec"]["selector"]["app"])
+            self.assertEqual("${{ defaults.app_name }}", service["metadata"]["labels"]["app"])
+            self.assertEqual(
+                "${{ defaults.app_name }}",
+                service["metadata"]["labels"]["cloud.sealos.io/app-deploy-manager"],
+            )
             ingress = next(doc for doc in docs if doc.get("kind") == "Ingress")
+            backend_service_name = ingress["spec"]["rules"][0]["http"]["paths"][0]["backend"]["service"]["name"]
+            self.assertEqual("${{ defaults.app_name }}", ingress["metadata"]["name"])
+            self.assertEqual("${{ defaults.app_name }}", backend_service_name)
+            self.assertEqual(
+                "${{ defaults.app_name }}",
+                ingress["metadata"]["labels"]["cloud.sealos.io/app-deploy-manager"],
+            )
             self.assertEqual(
                 {
                     "kubernetes.io/ingress.class": "nginx",

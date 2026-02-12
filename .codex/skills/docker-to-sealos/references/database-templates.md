@@ -100,7 +100,7 @@ kind: Job
 metadata:
   name: ${{ defaults.app_name }}-pg-init
 spec:
-  completions: 1
+  backoffLimit: 3
   template:
     spec:
       containers:
@@ -118,13 +118,24 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: endpoint
+            - name: PG_DATABASE
+              value: <dbname>
           command:
             - /bin/sh
             - -c
             - |
-              until psql "postgresql://postgres:$(PG_PASSWORD)@$(PG_ENDPOINT)" -c 'CREATE DATABASE <dbname>;' &>/dev/null; do sleep 1; done
-      restartPolicy: Never
-  backoffLimit: 0
+              set -eu
+              for i in $(seq 1 60); do
+                if pg_isready -h "${PG_ENDPOINT%:*}" -p "${PG_ENDPOINT##*:}" -U postgres -d postgres >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 2
+              done
+              pg_isready -h "${PG_ENDPOINT%:*}" -p "${PG_ENDPOINT##*:}" -U postgres -d postgres >/dev/null 2>&1
+              if ! psql "postgresql://postgres:$(PG_PASSWORD)@$(PG_ENDPOINT)/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='$(PG_DATABASE)'" | grep -q 1; then
+                psql "postgresql://postgres:$(PG_PASSWORD)@$(PG_ENDPOINT)/postgres" -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"$(PG_DATABASE)\";"
+              fi
+      restartPolicy: OnFailure
   ttlSecondsAfterFinished: 300
 ```
 
