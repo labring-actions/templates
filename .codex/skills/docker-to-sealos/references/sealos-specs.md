@@ -322,6 +322,7 @@ kind: ConfigMap
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 data:
   # 原路径: /etc/nginx/conf.d/default.conf
@@ -371,6 +372,7 @@ kind: ConfigMap
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 data:
   vn-etcvn-nginxvn-confvn-dvn-defaultvn-conf: |
@@ -394,6 +396,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   revisionHistoryLimit: 1
@@ -430,12 +433,16 @@ spec:
 
 ### app-deploy-manager 标签规则
 
-1. `cloud.sealos.io/app-deploy-manager` 的值必须和资源的 `metadata.name` 的值保持一致
-2. 每个模板的主应用（提供公网端口的前端应用）的 `metadata.name` 必须是 `${{ defaults.app_name }}`
-3. 其他组件的命名应该基于 `${{ defaults.app_name }}` 加上组件标识，例如：
+1. 应用工作负载（Deployment/StatefulSet/DaemonSet）必须包含 `metadata.labels.app`，且值必须和资源的 `metadata.name` 保持一致
+2. `cloud.sealos.io/app-deploy-manager` 的值必须和资源的 `metadata.name` 的值保持一致
+3. 每个模板的主应用（提供公网端口的前端应用）的 `metadata.name` 必须是 `${{ defaults.app_name }}`
+4. 其他组件的命名应该基于 `${{ defaults.app_name }}` 加上组件标识，例如：
    - `${{ defaults.app_name }}-server` 
    - `${{ defaults.app_name }}-ml`
    - `${{ defaults.app_name }}-redis`
+5. 应用 Service 必须包含 `metadata.labels.app` 和 `metadata.labels.cloud.sealos.io/app-deploy-manager`，且 `metadata.name`、两个标签以及 `spec.selector.app` 必须完全一致
+6. 组件级 ConfigMap 必须包含 `metadata.labels.app` 和 `metadata.labels.cloud.sealos.io/app-deploy-manager`，且二者都必须与 `metadata.name` 保持一致
+7. 应用 Ingress 的 `metadata.name` 必须与 `metadata.labels.cloud.sealos.io/app-deploy-manager` 以及 backend `service.name` 保持一致
 
 ### 容器命名规则
 
@@ -468,18 +475,21 @@ spec:
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 
 # 子组件（正确）
 metadata:
   name: ${{ defaults.app_name }}-ml
   labels:
+    app: ${{ defaults.app_name }}-ml
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-ml
 
 # 错误示例
 metadata:
   name: ${{ defaults.app_name }}-server
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}  # 错误：标签值与name不一致
 ```
 
@@ -550,6 +560,7 @@ kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
@@ -664,7 +675,7 @@ kind: Job
 metadata:
   name: ${{ defaults.app_name }}-pg-init
 spec:
-  completions: 1
+  backoffLimit: 3
   template:
     spec:
       containers:
@@ -682,13 +693,24 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: endpoint
+            - name: PG_DATABASE
+              value: langflow
           command:
             - /bin/sh
             - -c
             - |
-              until psql "postgresql://postgres:$(PG_PASSWORD)@$(PG_ENDPOINT)" -c 'CREATE DATABASE langflow;' &>/dev/null; do sleep 1; done
-      restartPolicy: Never
-  backoffLimit: 0
+              set -eu
+              for i in $(seq 1 60); do
+                if pg_isready -h "${PG_ENDPOINT%:*}" -p "${PG_ENDPOINT##*:}" -U postgres -d postgres >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 2
+              done
+              pg_isready -h "${PG_ENDPOINT%:*}" -p "${PG_ENDPOINT##*:}" -U postgres -d postgres >/dev/null 2>&1
+              if ! psql "postgresql://postgres:$(PG_PASSWORD)@$(PG_ENDPOINT)/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='$(PG_DATABASE)'" | grep -q 1; then
+                psql "postgresql://postgres:$(PG_PASSWORD)@$(PG_ENDPOINT)/postgres" -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"$(PG_DATABASE)\";"
+              fi
+      restartPolicy: OnFailure
   ttlSecondsAfterFinished: 300
 ```
 
@@ -696,8 +718,9 @@ spec:
 1. Job 名称使用 `${{ defaults.app_name }}-pg-init` 格式
 2. 使用 `postgres:16-alpine` 镜像以保持轻量
 3. `ttlSecondsAfterFinished: 300` 确保 Job 完成后 5 分钟自动清理
-4. `backoffLimit: 0` 表示失败后不重试
-5. 数据库名称应该硬编码在模板中，使用应用的默认数据库名称（如上例中的 'langflow'）
+4. 初始化脚本必须先等待 PostgreSQL 就绪（例如 `pg_isready`）
+5. 初始化脚本必须幂等（先检查 `pg_database`，不存在才创建）
+6. 数据库名称应该硬编码在模板中，使用应用的默认数据库名称（如上例中的 'langflow'）
 
 ## 应用配置规范
 
@@ -765,6 +788,7 @@ kind: Deployment  # 或 StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
   annotations:
     originImageName: example/app:1.0.0  # 必须：原始镜像名称
@@ -792,6 +816,7 @@ metadata:
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   revisionHistoryLimit: 1  # 保留历史版本数量限制为 1

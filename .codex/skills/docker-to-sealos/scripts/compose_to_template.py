@@ -1970,6 +1970,7 @@ def build_service(workload_name: str, ports: Sequence[int]) -> Optional[Dict[str
         "metadata": {
             "name": workload_name,
             "labels": {
+                "app": workload_name,
                 "cloud.sealos.io/app-deploy-manager": workload_name,
             },
         },

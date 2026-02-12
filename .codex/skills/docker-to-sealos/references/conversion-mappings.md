@@ -65,6 +65,9 @@ apiVersion: v1
 kind: Service
 metadata:
   name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 
 ---
 # Ingress (如果需要公网访问)
@@ -141,6 +144,9 @@ apiVersion: v1
 kind: Service
 metadata:
   name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
     - name: tcp-3000
@@ -345,6 +351,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   revisionHistoryLimit: 1
@@ -656,6 +663,9 @@ apiVersion: v1
 kind: Service
 metadata:
   name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
     - name: tcp-3000

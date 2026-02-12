@@ -1,0 +1,1738 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: posthog
+spec:
+  title: PostHog
+  url: https://posthog.com
+  gitRepo: https://github.com/PostHog/posthog
+  author: Sealos
+  description: Open-source product analytics platform with session replay, feature
+    flags, and experimentation.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/posthog/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/posthog/logo.svg
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: 开源 product 分析平台，支持 session replay，feature flags，与 experimentation。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/posthog/README_zh.md
+  categories:
+  - tool
+  - backend
+  defaults:
+    app_host:
+      type: string
+      value: posthog-${{ random(8) }}
+    app_name:
+      type: string
+      value: posthog-${{ random(8) }}
+    secret_key:
+      type: string
+      value: ${{ random(64) }}
+    encryption_salt_keys:
+      type: string
+      value: ${{ random(32) }}
+---
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}
+spec:
+  policy: private
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+rules:
+- apiGroups:
+  - '*'
+  resources:
+  - '*'
+  verbs:
+  - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+- kind: ServiceAccount
+  name: ${{ defaults.app_name }}-pg
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  terminationPolicy: Delete
+  componentSpecs:
+  - name: postgresql
+    componentDefRef: postgresql
+    disableExporter: true
+    enabledLogs:
+    - running
+    replicas: 1
+    serviceAccountName: ${{ defaults.app_name }}-pg
+    switchPolicy:
+      type: Noop
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 50m
+        memory: 51Mi
+    volumeClaimTemplates:
+    - name: data
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+        storageClassName: openebs-backup
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-pg-init
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: OnFailure
+      containers:
+      - name: init-postgres-database
+        image: postgres:16.4
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 20m
+            memory: 25Mi
+        env:
+        - name: SEALOS_DATABASE_POSTGRES_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: SEALOS_DATABASE_POSTGRES_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        - name: SEALOS_DATABASE_POSTGRES_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: username
+        - name: SEALOS_DATABASE_POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: password
+        command:
+        - sh
+        - -c
+        - |-
+          set -eu
+          export PGPASSWORD="$SEALOS_DATABASE_POSTGRES_PASSWORD"
+          for i in $(seq 1 60); do
+            if pg_isready \
+              -h "$SEALOS_DATABASE_POSTGRES_HOST" \
+              -p "$SEALOS_DATABASE_POSTGRES_PORT" \
+              -U "$SEALOS_DATABASE_POSTGRES_USERNAME" \
+              -d postgres >/dev/null 2>&1; then
+              break
+            fi
+            sleep 2
+          done
+          pg_isready \
+            -h "$SEALOS_DATABASE_POSTGRES_HOST" \
+            -p "$SEALOS_DATABASE_POSTGRES_PORT" \
+            -U "$SEALOS_DATABASE_POSTGRES_USERNAME" \
+            -d postgres >/dev/null 2>&1
+          if ! psql \
+            -h "$SEALOS_DATABASE_POSTGRES_HOST" \
+            -p "$SEALOS_DATABASE_POSTGRES_PORT" \
+            -U "$SEALOS_DATABASE_POSTGRES_USERNAME" \
+            -d postgres \
+            -tAc "SELECT 1 FROM pg_database WHERE datname='posthog'" | grep -q 1; then
+            createdb \
+              -h "$SEALOS_DATABASE_POSTGRES_HOST" \
+              -p "$SEALOS_DATABASE_POSTGRES_PORT" \
+              -U "$SEALOS_DATABASE_POSTGRES_USERNAME" \
+              posthog
+          fi
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}
+    app.kubernetes.io/instance: ${{ defaults.app_name }}
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}
+    app.kubernetes.io/instance: ${{ defaults.app_name }}
+    app.kubernetes.io/managed-by: kbcli
+rules:
+- apiGroups:
+  - '*'
+  resources:
+  - '*'
+  verbs:
+  - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}
+    app.kubernetes.io/instance: ${{ defaults.app_name }}
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}
+subjects:
+- kind: ServiceAccount
+  name: ${{ defaults.app_name }}
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    kb.io/database: redis-7.2.7
+    app.kubernetes.io/instance: ${{ defaults.app_name }}
+    app.kubernetes.io/version: 7.2.7
+    clusterversion.kubeblocks.io/name: redis-7.2.7
+    clusterdefinition.kubeblocks.io/name: redis
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys:
+    - kubernetes.io/hostname
+  clusterDefinitionRef: redis
+  componentSpecs:
+  - name: redis
+    componentDef: redis-7
+    serviceVersion: 7.2.7
+    replicas: 1
+    serviceAccountName: ${{ defaults.app_name }}
+    enabledLogs:
+    - running
+    env:
+    - name: CUSTOM_SENTINEL_MASTER_NAME
+    switchPolicy:
+      type: Noop
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 50m
+        memory: 51Mi
+    volumeClaimTemplates:
+    - name: data
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+        storageClassName: openebs-backup
+  - name: redis-sentinel
+    componentDef: redis-sentinel-7
+    serviceVersion: 7.2.7
+    replicas: 1
+    serviceAccountName: ${{ defaults.app_name }}
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 50m
+        memory: 51Mi
+    volumeClaimTemplates:
+    - name: data
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+  terminationPolicy: Delete
+  topology: replication
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-kafka
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-kafka
+spec:
+  ports:
+  - name: tcp-9092
+    port: 9092
+    targetPort: 9092
+    protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-kafka
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-kafka
+  annotations:
+    originImageName: docker.redpanda.com/redpandadata/redpanda:v25.1.9
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-kafka
+    app: ${{ defaults.app_name }}-kafka
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-kafka
+  serviceName: ${{ defaults.app_name }}-kafka
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-kafka
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: ${{ defaults.app_name }}-kafka
+        image: docker.redpanda.com/redpandadata/redpanda:v25.1.9
+        imagePullPolicy: IfNotPresent
+        args:
+        - redpanda
+        - start
+        - --kafka-addr
+        - internal://0.0.0.0:9092,external://0.0.0.0:19092
+        - --advertise-kafka-addr
+        - internal://${{ defaults.app_name }}-kafka:9092,external://localhost:19092
+        - --pandaproxy-addr
+        - internal://0.0.0.0:8082,external://0.0.0.0:18082
+        - --advertise-pandaproxy-addr
+        - internal://${{ defaults.app_name }}-kafka:8082,external://localhost:18082
+        - --schema-registry-addr
+        - internal://0.0.0.0:8081,external://0.0.0.0:18081
+        - --rpc-addr
+        - 0.0.0.0:33145
+        - --advertise-rpc-addr
+        - ${{ defaults.app_name }}-kafka:33145
+        - --mode
+        - dev-container
+        - --smp
+        - '1'
+        - --memory
+        - 256M
+        - --reserve-memory
+        - 64M
+        - --overprovisioned
+        - --set
+        - redpanda.empty_seed_starts_cluster=false
+        - --seeds
+        - ${{ defaults.app_name }}-kafka:33145
+        - --set
+        - redpanda.auto_create_topics_enabled=true
+        - --set
+        - redpanda.data_directory=/tmp/redpanda/data
+        env:
+        - name: ALLOW_PLAINTEXT_LISTENER
+          value: 'true'
+        - name: KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS
+          value: '300000'
+        - name: KAFKA_LOG_RETENTION_HOURS
+          value: '1'
+        - name: KAFKA_LOG_RETENTION_MS
+          value: '3600000'
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 20m
+            memory: 25Mi
+        livenessProbe:
+          httpGet:
+            path: /v1/status/ready
+            port: 9644
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 3
+          timeoutSeconds: 10
+          failureThreshold: 10
+        readinessProbe:
+          httpGet:
+            path: /v1/status/ready
+            port: 9644
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 3
+          timeoutSeconds: 10
+          failureThreshold: 10
+        volumeMounts:
+        - name: vn-varvn-libvn-redpandavn-data
+          mountPath: /var/lib/redpanda/data
+        - name: vn-bitnamivn-kafka
+          mountPath: /bitnami/kafka
+  volumeClaimTemplates:
+  - metadata:
+      name: vn-varvn-libvn-redpandavn-data
+      annotations:
+        path: /var/lib/redpanda/data
+        value: '1'
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+  - metadata:
+      name: vn-bitnamivn-kafka
+      annotations:
+        path: /bitnami/kafka
+        value: '1'
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-zookeeper
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-zookeeper
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+  - name: tcp-2181
+    port: 2181
+    targetPort: 2181
+    protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-zookeeper
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-zookeeper
+  annotations:
+    originImageName: zookeeper:3.9.3
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-zookeeper
+    app: ${{ defaults.app_name }}-zookeeper
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-zookeeper
+  serviceName: ${{ defaults.app_name }}-zookeeper
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-zookeeper
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: ${{ defaults.app_name }}-zookeeper
+        image: zookeeper:3.9.3
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: ZOO_STANDALONE_ENABLED
+          value: 'true'
+        - name: ZOO_4LW_COMMANDS_WHITELIST
+          value: ruok,srvr,mntr,conf
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 20m
+            memory: 25Mi
+        ports:
+        - containerPort: 2181
+        volumeMounts:
+        - name: vn-varvn-libvn-zookeeper
+          mountPath: /data
+  volumeClaimTemplates:
+  - metadata:
+      name: vn-varvn-libvn-zookeeper
+      annotations:
+        path: /data
+        value: '1'
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-clickhouse-config
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-clickhouse
+data:
+  posthog-cluster.xml: |
+    <clickhouse>
+      <zookeeper>
+        <node index="1">
+          <host>${{ defaults.app_name }}-zookeeper</host>
+          <port>2181</port>
+        </node>
+      </zookeeper>
+      <remote_servers>
+        <posthog>
+          <shard>
+            <internal_replication>true</internal_replication>
+            <replica>
+              <host>${{ defaults.app_name }}-clickhouse-0.${{ defaults.app_name }}-clickhouse.${{ SEALOS_NAMESPACE }}.svc.cluster.local</host>
+              <port>9000</port>
+            </replica>
+          </shard>
+        </posthog>
+        <posthog_migrations>
+          <shard>
+            <internal_replication>true</internal_replication>
+            <replica>
+              <host>${{ defaults.app_name }}-clickhouse-0.${{ defaults.app_name }}-clickhouse.${{ SEALOS_NAMESPACE }}.svc.cluster.local</host>
+              <port>9000</port>
+            </replica>
+          </shard>
+        </posthog_migrations>
+        <posthog_single_shard>
+          <shard>
+            <internal_replication>true</internal_replication>
+            <replica>
+              <host>${{ defaults.app_name }}-clickhouse-0.${{ defaults.app_name }}-clickhouse.${{ SEALOS_NAMESPACE }}.svc.cluster.local</host>
+              <port>9000</port>
+            </replica>
+          </shard>
+        </posthog_single_shard>
+      </remote_servers>
+      <macros>
+        <cluster>posthog</cluster>
+        <shard>01</shard>
+        <replica>01</replica>
+        <hostClusterType>online</hostClusterType>
+        <hostClusterRole>data</hostClusterRole>
+      </macros>
+    </clickhouse>
+  posthog-users.xml: |
+    <clickhouse>
+      <profiles>
+        <default>
+          <distributed_ddl_task_timeout>1800</distributed_ddl_task_timeout>
+        </default>
+      </profiles>
+    </clickhouse>
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/posthog/posthog:86d6812c7de75c6c869b935e17baf45bf295bfd5
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: ${{ defaults.app_name }}
+        image: ghcr.io/posthog/posthog:86d6812c7de75c6c869b935e17baf45bf295bfd5
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 500m
+            memory: 4Gi
+          requests:
+            cpu: 100m
+            memory: 1Gi
+        ports:
+        - containerPort: 8000
+        env:
+        - name: CLICKHOUSE_PORT
+          value: '8123'
+        - name: POSTHOG_SKIP_MIGRATION_CHECKS
+          value: '1'
+        - name: SKIP_ASYNC_MIGRATIONS_SETUP
+          value: '1'
+        - name: API_QUERIES_PER_TEAM
+          value: '{"1": 100}'
+        - name: CDP_API_URL
+          value: http://${{ defaults.app_name }}-plugins:6738
+        - name: CLICKHOUSE_API_PASSWORD
+          value: apipass
+        - name: CLICKHOUSE_API_USER
+          value: api
+        - name: CLICKHOUSE_APP_PASSWORD
+          value: apppass
+        - name: CLICKHOUSE_APP_USER
+          value: app
+        - name: CLICKHOUSE_DATABASE
+          value: posthog
+        - name: CLICKHOUSE_HOST
+          value: ${{ defaults.app_name }}-clickhouse-client
+        - name: CLICKHOUSE_CLUSTER
+          value: posthog
+        - name: CLICKHOUSE_MIGRATIONS_CLUSTER
+          value: posthog_migrations
+        - name: CLICKHOUSE_SINGLE_SHARD_CLUSTER
+          value: posthog_single_shard
+        - name: CLICKHOUSE_SECURE
+          value: 'false'
+        - name: CLICKHOUSE_VERIFY
+          value: 'false'
+        - name: NGINX_UNIT_APP_PROCESSES
+          value: '1'
+        - name: SEALOS_DATABASE_POSTGRES_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: SEALOS_DATABASE_POSTGRES_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        - name: SEALOS_DATABASE_POSTGRES_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: username
+        - name: SEALOS_DATABASE_POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: password
+        - name: DATABASE_URL
+          value: postgres://$(SEALOS_DATABASE_POSTGRES_USERNAME):$(SEALOS_DATABASE_POSTGRES_PASSWORD)@$(SEALOS_DATABASE_POSTGRES_HOST):$(SEALOS_DATABASE_POSTGRES_PORT)/posthog
+        - name: DEPLOYMENT
+          value: hobby
+        - name: DISABLE_SECURE_SSL_REDIRECT
+          value: 'true'
+        - name: ENCRYPTION_SALT_KEYS
+          value: ${{ defaults.encryption_salt_keys }}
+        - name: FLAGS_REDIS_ENABLED
+          value: 'false'
+        - name: GRANIAN_WORKERS
+          value: '1'
+        - name: IS_BEHIND_PROXY
+          value: 'true'
+        - name: KAFKA_HOSTS
+          value: ${{ defaults.app_name }}-kafka:9092
+        - name: LIVESTREAM_HOST
+          value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/livestream
+        - name: S3_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key
+              key: accessKey
+        - name: S3_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key
+              key: secretKey
+        - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key
+              key: internal
+        - name: S3_BUCKET
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+              key: bucket
+        - name: OBJECT_STORAGE_ACCESS_KEY_ID
+          value: $(S3_ACCESS_KEY_ID)
+        - name: OBJECT_STORAGE_ENABLED
+          value: 'true'
+        - name: OBJECT_STORAGE_ENDPOINT
+          value: http://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+        - name: OBJECT_STORAGE_SECRET_ACCESS_KEY
+          value: $(S3_SECRET_ACCESS_KEY)
+        - name: OBJECT_STORAGE_BUCKET
+          value: $(S3_BUCKET)
+        - name: OPT_OUT_CAPTURE
+          value: 'false'
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: ''
+        - name: OTEL_SDK_DISABLED
+          value: 'true'
+        - name: OTEL_SERVICE_NAME
+          value: posthog
+        - name: PGHOST
+          value: ${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+        - name: PGPASSWORD
+          value: posthog
+        - name: PGUSER
+          value: posthog
+        - name: REDIS_HOST
+          value: ${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc
+        - name: REDIS_PORT
+          value: '6379'
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-redis-account-default
+              key: password
+        - name: REDIS_URL
+          value: redis://:$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)/
+        - name: SECRET_KEY
+          value: ${{ defaults.secret_key }}
+        - name: SESSION_RECORDING_V2_S3_ACCESS_KEY_ID
+          value: $(S3_ACCESS_KEY_ID)
+        - name: SESSION_RECORDING_V2_S3_ENDPOINT
+          value: http://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+        - name: SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY
+          value: $(S3_SECRET_ACCESS_KEY)
+        - name: SESSION_RECORDING_V2_S3_BUCKET
+          value: $(S3_BUCKET)
+        - name: SITE_URL
+          value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+        - name: USE_GRANIAN
+          value: 'true'
+        args:
+        - sh
+        - -c
+        - python manage.py migrate && python manage.py migrate_clickhouse && python manage.py run_async_migrations && ./bin/docker-server
+      enableServiceLinks: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-worker
+  annotations:
+    originImageName: ghcr.io/posthog/posthog:86d6812c7de75c6c869b935e17baf45bf295bfd5
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-worker
+    app: ${{ defaults.app_name }}-worker
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-worker
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-worker
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: ${{ defaults.app_name }}-worker
+        image: ghcr.io/posthog/posthog:86d6812c7de75c6c869b935e17baf45bf295bfd5
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 500m
+            memory: 2Gi
+          requests:
+            cpu: 100m
+            memory: 512Mi
+        env:
+        - name: CLICKHOUSE_PORT
+          value: '8123'
+        - name: SKIP_ASYNC_MIGRATIONS_SETUP
+          value: '1'
+        - name: API_QUERIES_PER_TEAM
+          value: '{"1": 100}'
+        - name: CDP_API_URL
+          value: http://${{ defaults.app_name }}-plugins:6738
+        - name: CLICKHOUSE_API_PASSWORD
+          value: apipass
+        - name: CLICKHOUSE_API_USER
+          value: api
+        - name: CLICKHOUSE_APP_PASSWORD
+          value: apppass
+        - name: CLICKHOUSE_APP_USER
+          value: app
+        - name: CLICKHOUSE_DATABASE
+          value: posthog
+        - name: CLICKHOUSE_HOST
+          value: ${{ defaults.app_name }}-clickhouse-client
+        - name: CLICKHOUSE_CLUSTER
+          value: posthog
+        - name: CLICKHOUSE_MIGRATIONS_CLUSTER
+          value: posthog_migrations
+        - name: CLICKHOUSE_SINGLE_SHARD_CLUSTER
+          value: posthog_single_shard
+        - name: CLICKHOUSE_SECURE
+          value: 'false'
+        - name: CLICKHOUSE_VERIFY
+          value: 'false'
+        - name: SEALOS_DATABASE_POSTGRES_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: SEALOS_DATABASE_POSTGRES_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        - name: SEALOS_DATABASE_POSTGRES_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: username
+        - name: SEALOS_DATABASE_POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: password
+        - name: DATABASE_URL
+          value: postgres://$(SEALOS_DATABASE_POSTGRES_USERNAME):$(SEALOS_DATABASE_POSTGRES_PASSWORD)@$(SEALOS_DATABASE_POSTGRES_HOST):$(SEALOS_DATABASE_POSTGRES_PORT)/posthog
+        - name: DEPLOYMENT
+          value: hobby
+        - name: DISABLE_SECURE_SSL_REDIRECT
+          value: 'true'
+        - name: ENCRYPTION_SALT_KEYS
+          value: ${{ defaults.encryption_salt_keys }}
+        - name: FLAGS_REDIS_ENABLED
+          value: 'false'
+        - name: IS_BEHIND_PROXY
+          value: 'true'
+        - name: KAFKA_HOSTS
+          value: ${{ defaults.app_name }}-kafka:9092
+        - name: S3_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key
+              key: accessKey
+        - name: S3_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key
+              key: secretKey
+        - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key
+              key: internal
+        - name: S3_BUCKET
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+              key: bucket
+        - name: OBJECT_STORAGE_ACCESS_KEY_ID
+          value: $(S3_ACCESS_KEY_ID)
+        - name: OBJECT_STORAGE_ENABLED
+          value: 'true'
+        - name: OBJECT_STORAGE_ENDPOINT
+          value: http://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+        - name: OBJECT_STORAGE_SECRET_ACCESS_KEY
+          value: $(S3_SECRET_ACCESS_KEY)
+        - name: OBJECT_STORAGE_BUCKET
+          value: $(S3_BUCKET)
+        - name: OTEL_SDK_DISABLED
+          value: 'true'
+        - name: PGHOST
+          value: ${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+        - name: PGPASSWORD
+          value: posthog
+        - name: PGUSER
+          value: posthog
+        - name: POSTHOG_SKIP_MIGRATION_CHECKS
+          value: '1'
+        - name: REDIS_HOST
+          value: ${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc
+        - name: REDIS_PORT
+          value: '6379'
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-redis-account-default
+              key: password
+        - name: REDIS_URL
+          value: redis://:$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)/
+        - name: SECRET_KEY
+          value: ${{ defaults.secret_key }}
+        - name: SESSION_RECORDING_V2_S3_ACCESS_KEY_ID
+          value: $(S3_ACCESS_KEY_ID)
+        - name: SESSION_RECORDING_V2_S3_ENDPOINT
+          value: http://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+        - name: SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY
+          value: $(S3_SECRET_ACCESS_KEY)
+        - name: SESSION_RECORDING_V2_S3_BUCKET
+          value: $(S3_BUCKET)
+        - name: SITE_URL
+          value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+        - name: WEB_CONCURRENCY
+          value: '1'
+        args:
+        - bash
+        - -c
+        - set -e; rm -f celerybeat.pid || true; SKIP_ASYNC_MIGRATIONS_SETUP=1 celery -A posthog beat -S redbeat.RedBeatScheduler & if [ -z "$CELERY_WORKER_QUEUES" ]; then . ./bin/celery-queues.env; fi; SKIP_ASYNC_MIGRATIONS_SETUP=1 CELERY_WORKER_QUEUES=$CELERY_WORKER_QUEUES celery -A posthog worker -Ofair --concurrency ${WEB_CONCURRENCY:-1} -n node@%h --without-mingle --without-heartbeat & wait -n
+      enableServiceLinks: false
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vn-share-${{ defaults.app_name }}
+  annotations:
+    path: /share
+    value: '1'
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-plugins
+  annotations:
+    originImageName: ghcr.io/posthog/posthog-node@sha256:fd156e690ca1bb7cc1abd370e513ac532c57726ee11029721623f0db5b90b72a
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-plugins
+    app: ${{ defaults.app_name }}-plugins
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-plugins
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-plugins
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+      - name: init-mmdb
+        image: ghcr.io/posthog/posthog/feature-flags@sha256:1e79e6e7e5b58da18e27ebdf0ef9b41d6c04136eac42bb9490e73a9a62f94f65
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          runAsUser: 0
+        command:
+        - sh
+        - -c
+        - |-
+          set -e
+          cp -f /app/share/GeoLite2-City.mmdb /share/GeoLite2-City.mmdb
+          printf '{"date":"seeded"}\n' > /share/GeoLite2-City.json
+          chmod 0644 /share/GeoLite2-City.mmdb /share/GeoLite2-City.json
+        volumeMounts:
+        - name: vn-share
+          mountPath: /share
+      containers:
+      - name: plugin-status-heartbeat
+        image: ghcr.io/posthog/posthog-node@sha256:fd156e690ca1bb7cc1abd370e513ac532c57726ee11029721623f0db5b90b72a
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 50m
+            memory: 64Mi
+          requests:
+            cpu: 10m
+            memory: 16Mi
+        env:
+        - name: REDIS_HOST
+          value: ${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc
+        - name: REDIS_PORT
+          value: '6379'
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-redis-account-default
+              key: password
+        - name: REDIS_URL
+          value: redis://:$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)/
+        - name: POSTHOG_PLUGIN_VERSION
+          value: posthog-node
+        - name: POSTHOG_PLUGIN_QUEUES
+          value: events,plugins,replay,logs,cdp
+        command:
+        - sh
+        - -c
+        args:
+        - |-
+          set -eu
+          node - <<'NODE'
+          const Redis = require('/code/nodejs/node_modules/ioredis')
+          const url = process.env.REDIS_URL
+          const version = process.env.POSTHOG_PLUGIN_VERSION || 'posthog-node'
+          const queues = process.env.POSTHOG_PLUGIN_QUEUES || 'events,plugins,replay,logs,cdp'
+          const redis = new Redis(url, { maxRetriesPerRequest: null })
+
+          async function tick() {
+            const now = new Date().toISOString()
+            await redis.set('@posthog-plugin-server/ping', now, 'EX', 120)
+            await redis.set('@posthog-plugin-server/version', version, 'EX', 300)
+            await redis.set('@posthog-plugin-server/enabled-job-queues', queues, 'EX', 300)
+            process.stdout.write(`heartbeat ${now}\n`)
+          }
+
+          async function loop() {
+            for (;;) {
+              try {
+                await tick()
+              } catch (e) {
+                process.stderr.write(`heartbeat error ${e && e.message ? e.message : e}\n`)
+              }
+              await new Promise((resolve) => setTimeout(resolve, 10000))
+            }
+          }
+
+          loop().catch((e) => {
+            process.stderr.write(`fatal ${e && e.message ? e.message : e}\n`)
+            process.exit(1)
+          })
+          NODE
+      - name: ${{ defaults.app_name }}-plugins
+        image: ghcr.io/posthog/posthog-node@sha256:fd156e690ca1bb7cc1abd370e513ac532c57726ee11029721623f0db5b90b72a
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 500m
+            memory: 1Gi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        env:
+        - name: CLICKHOUSE_PORT
+          value: '8123'
+        - name: SES_REGION
+          value: us-east-1
+        - name: SES_ACCESS_KEY_ID
+          value: test
+        - name: SES_SECRET_ACCESS_KEY
+          value: test
+        - name: SEALOS_BEHAVIORAL_COHORTS_DATABASE_POSTGRES_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: SEALOS_BEHAVIORAL_COHORTS_DATABASE_POSTGRES_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        - name: SEALOS_BEHAVIORAL_COHORTS_DATABASE_POSTGRES_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: username
+        - name: SEALOS_BEHAVIORAL_COHORTS_DATABASE_POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: password
+        - name: BEHAVIORAL_COHORTS_DATABASE_URL
+          value: postgres://$(SEALOS_BEHAVIORAL_COHORTS_DATABASE_POSTGRES_USERNAME):$(SEALOS_BEHAVIORAL_COHORTS_DATABASE_POSTGRES_PASSWORD)@$(SEALOS_BEHAVIORAL_COHORTS_DATABASE_POSTGRES_HOST):$(SEALOS_BEHAVIORAL_COHORTS_DATABASE_POSTGRES_PORT)/posthog
+        - name: REDIS_HOST
+          value: ${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc
+        - name: REDIS_PORT
+          value: '6379'
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-redis-account-default
+              key: password
+        - name: REDIS_URL
+          value: redis://:$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)/
+        - name: CDP_REDIS_HOST
+          value: ${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc
+        - name: CDP_REDIS_PORT
+          value: $(REDIS_PORT)
+        - name: CDP_REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-redis-account-default
+              key: password
+        - name: CLICKHOUSE_DATABASE
+          value: posthog
+        - name: CLICKHOUSE_HOST
+          value: ${{ defaults.app_name }}-clickhouse-client
+        - name: CLICKHOUSE_SECURE
+          value: 'false'
+        - name: CLICKHOUSE_VERIFY
+          value: 'false'
+        - name: COOKIELESS_REDIS_PORT
+          value: $(REDIS_PORT)
+        - name: COOKIELESS_REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-redis-account-default
+              key: password
+        - name: SEALOS_CYCLOTRON_DATABASE_POSTGRES_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: SEALOS_CYCLOTRON_DATABASE_POSTGRES_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        - name: SEALOS_CYCLOTRON_DATABASE_POSTGRES_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: username
+        - name: SEALOS_CYCLOTRON_DATABASE_POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: password
+        - name: CYCLOTRON_DATABASE_URL
+          value: postgres://$(SEALOS_CYCLOTRON_DATABASE_POSTGRES_USERNAME):$(SEALOS_CYCLOTRON_DATABASE_POSTGRES_PASSWORD)@$(SEALOS_CYCLOTRON_DATABASE_POSTGRES_HOST):$(SEALOS_CYCLOTRON_DATABASE_POSTGRES_PORT)/posthog
+        - name: SEALOS_DATABASE_POSTGRES_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: SEALOS_DATABASE_POSTGRES_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        - name: SEALOS_DATABASE_POSTGRES_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: username
+        - name: SEALOS_DATABASE_POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: password
+        - name: DATABASE_URL
+          value: postgres://$(SEALOS_DATABASE_POSTGRES_USERNAME):$(SEALOS_DATABASE_POSTGRES_PASSWORD)@$(SEALOS_DATABASE_POSTGRES_HOST):$(SEALOS_DATABASE_POSTGRES_PORT)/posthog
+        - name: ENCRYPTION_SALT_KEYS
+          value: ${{ defaults.encryption_salt_keys }}
+        - name: KAFKA_HOSTS
+          value: ${{ defaults.app_name }}-kafka:9092
+        - name: KAFKA_PRODUCER_METADATA_BROKER_LIST
+          value: ${{ defaults.app_name }}-kafka:9092
+        - name: KAFKA_CONSUMER_METADATA_BROKER_LIST
+          value: ${{ defaults.app_name }}-kafka:9092
+        - name: KAFKA_CDP_PRODUCER_METADATA_BROKER_LIST
+          value: ${{ defaults.app_name }}-kafka:9092
+        - name: KAFKA_METRICS_PRODUCER_METADATA_BROKER_LIST
+          value: ${{ defaults.app_name }}-kafka:9092
+        - name: KAFKA_WARPSTREAM_PRODUCER_METADATA_BROKER_LIST
+          value: ${{ defaults.app_name }}-kafka:9092
+        - name: LOGS_REDIS_PORT
+          value: $(REDIS_PORT)
+        - name: LOGS_REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-redis-account-default
+              key: password
+        - name: LOGS_REDIS_TLS
+          value: 'false'
+        - name: S3_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key
+              key: accessKey
+        - name: S3_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key
+              key: secretKey
+        - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key
+              key: internal
+        - name: S3_BUCKET
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+              key: bucket
+        - name: OBJECT_STORAGE_ACCESS_KEY_ID
+          value: $(S3_ACCESS_KEY_ID)
+        - name: OBJECT_STORAGE_ENABLED
+          value: 'true'
+        - name: OBJECT_STORAGE_ENDPOINT
+          value: http://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+        - name: OBJECT_STORAGE_SECRET_ACCESS_KEY
+          value: $(S3_SECRET_ACCESS_KEY)
+        - name: OBJECT_STORAGE_BUCKET
+          value: $(S3_BUCKET)
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: ''
+        - name: SEALOS_PERSONS_DATABASE_POSTGRES_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: SEALOS_PERSONS_DATABASE_POSTGRES_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        - name: SEALOS_PERSONS_DATABASE_POSTGRES_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: username
+        - name: SEALOS_PERSONS_DATABASE_POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: password
+        - name: PERSONS_DATABASE_URL
+          value: postgres://$(SEALOS_PERSONS_DATABASE_POSTGRES_USERNAME):$(SEALOS_PERSONS_DATABASE_POSTGRES_PASSWORD)@$(SEALOS_PERSONS_DATABASE_POSTGRES_HOST):$(SEALOS_PERSONS_DATABASE_POSTGRES_PORT)/posthog
+        - name: SECRET_KEY
+          value: ${{ defaults.secret_key }}
+        - name: SESSION_RECORDING_V2_S3_ACCESS_KEY_ID
+          value: $(S3_ACCESS_KEY_ID)
+        - name: SESSION_RECORDING_V2_S3_ENDPOINT
+          value: http://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+        - name: SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY
+          value: $(S3_SECRET_ACCESS_KEY)
+        - name: SESSION_RECORDING_V2_S3_BUCKET
+          value: $(S3_BUCKET)
+        - name: SESSION_RECORDING_V2_S3_TIMEOUT_MS
+          value: '120000'
+        - name: SITE_URL
+          value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+        - name: MMDB_FILE_LOCATION
+          value: /share/GeoLite2-City.mmdb
+        - name: AWS_REGION
+          value: us-east-1
+        - name: AWS_DEFAULT_REGION
+          value: us-east-1
+        volumeMounts:
+        - name: vn-share
+          mountPath: /share
+        args:
+        - sh
+        - -c
+        - export COOKIELESS_REDIS_HOST=''; export LOGS_REDIS_HOST=''; exec node nodejs/dist/index.js
+      volumes:
+      - name: vn-share
+        persistentVolumeClaim:
+          claimName: vn-share-${{ defaults.app_name }}
+      enableServiceLinks: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-capture
+  annotations:
+    originImageName: ghcr.io/posthog/posthog/capture@sha256:864754478dbbd589f17cb4543d07e1b0f63acbca8e0bceca13de10669500375b
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-capture
+    app: ${{ defaults.app_name }}-capture
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-capture
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-capture
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: ${{ defaults.app_name }}-capture
+        image: ghcr.io/posthog/posthog/capture@sha256:864754478dbbd589f17cb4543d07e1b0f63acbca8e0bceca13de10669500375b
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 20m
+            memory: 25Mi
+        env:
+        - name: ADDRESS
+          value: 0.0.0.0:3000
+        - name: CAPTURE_MODE
+          value: events
+        - name: KAFKA_HOSTS
+          value: ${{ defaults.app_name }}-kafka:9092
+        - name: KAFKA_TOPIC
+          value: events_plugin_ingestion
+        - name: REDIS_HOST
+          value: ${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc
+        - name: REDIS_PORT
+          value: '6379'
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-redis-account-default
+              key: password
+        - name: REDIS_URL
+          value: redis://:$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)/
+        - name: RUST_LOG
+          value: info,rdkafka=warn
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-replay-capture
+  annotations:
+    originImageName: ghcr.io/posthog/posthog/capture@sha256:864754478dbbd589f17cb4543d07e1b0f63acbca8e0bceca13de10669500375b
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-replay-capture
+    app: ${{ defaults.app_name }}-replay-capture
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-replay-capture
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-replay-capture
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: ${{ defaults.app_name }}-replay-capture
+        image: ghcr.io/posthog/posthog/capture@sha256:864754478dbbd589f17cb4543d07e1b0f63acbca8e0bceca13de10669500375b
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 20m
+            memory: 25Mi
+        env:
+        - name: ADDRESS
+          value: 0.0.0.0:3000
+        - name: CAPTURE_MODE
+          value: recordings
+        - name: KAFKA_HOSTS
+          value: ${{ defaults.app_name }}-kafka:9092
+        - name: KAFKA_TOPIC
+          value: session_recording_snapshot_item_events
+        - name: REDIS_HOST
+          value: ${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc
+        - name: REDIS_PORT
+          value: '6379'
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-redis-account-default
+              key: password
+        - name: REDIS_URL
+          value: redis://:$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)/
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-feature-flags
+  annotations:
+    originImageName: ghcr.io/posthog/posthog/feature-flags@sha256:1e79e6e7e5b58da18e27ebdf0ef9b41d6c04136eac42bb9490e73a9a62f94f65
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-feature-flags
+    app: ${{ defaults.app_name }}-feature-flags
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-feature-flags
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-feature-flags
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: ${{ defaults.app_name }}-feature-flags
+        image: ghcr.io/posthog/posthog/feature-flags@sha256:1e79e6e7e5b58da18e27ebdf0ef9b41d6c04136eac42bb9490e73a9a62f94f65
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 20m
+            memory: 25Mi
+        env:
+        - name: ADDRESS
+          value: 0.0.0.0:3001
+        - name: REDIS_HOST
+          value: ${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc
+        - name: REDIS_PORT
+          value: '6379'
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-redis-account-default
+              key: password
+        - name: COOKIELESS_REDIS_HOST
+          value: $(REDIS_HOST)
+        - name: COOKIELESS_REDIS_PORT
+          value: $(REDIS_PORT)
+        - name: MAXMIND_DB_PATH
+          value: /app/share/GeoLite2-City.mmdb
+        - name: SEALOS_PERSONS_READ_DATABASE_POSTGRES_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: SEALOS_PERSONS_READ_DATABASE_POSTGRES_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        - name: SEALOS_PERSONS_READ_DATABASE_POSTGRES_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: username
+        - name: SEALOS_PERSONS_READ_DATABASE_POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: password
+        - name: PERSONS_READ_DATABASE_URL
+          value: postgres://$(SEALOS_PERSONS_READ_DATABASE_POSTGRES_USERNAME):$(SEALOS_PERSONS_READ_DATABASE_POSTGRES_PASSWORD)@$(SEALOS_PERSONS_READ_DATABASE_POSTGRES_HOST):$(SEALOS_PERSONS_READ_DATABASE_POSTGRES_PORT)/posthog
+        - name: SEALOS_PERSONS_WRITE_DATABASE_POSTGRES_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: SEALOS_PERSONS_WRITE_DATABASE_POSTGRES_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        - name: SEALOS_PERSONS_WRITE_DATABASE_POSTGRES_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: username
+        - name: SEALOS_PERSONS_WRITE_DATABASE_POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: password
+        - name: PERSONS_WRITE_DATABASE_URL
+          value: postgres://$(SEALOS_PERSONS_WRITE_DATABASE_POSTGRES_USERNAME):$(SEALOS_PERSONS_WRITE_DATABASE_POSTGRES_PASSWORD)@$(SEALOS_PERSONS_WRITE_DATABASE_POSTGRES_HOST):$(SEALOS_PERSONS_WRITE_DATABASE_POSTGRES_PORT)/posthog
+        - name: SEALOS_READ_DATABASE_POSTGRES_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: SEALOS_READ_DATABASE_POSTGRES_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        - name: SEALOS_READ_DATABASE_POSTGRES_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: username
+        - name: SEALOS_READ_DATABASE_POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: password
+        - name: READ_DATABASE_URL
+          value: postgres://$(SEALOS_READ_DATABASE_POSTGRES_USERNAME):$(SEALOS_READ_DATABASE_POSTGRES_PASSWORD)@$(SEALOS_READ_DATABASE_POSTGRES_HOST):$(SEALOS_READ_DATABASE_POSTGRES_PORT)/posthog
+        - name: REDIS_URL
+          value: redis://:$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)/
+        - name: RUST_LOG
+          value: info
+        - name: SEALOS_WRITE_DATABASE_POSTGRES_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: SEALOS_WRITE_DATABASE_POSTGRES_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        - name: SEALOS_WRITE_DATABASE_POSTGRES_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: username
+        - name: SEALOS_WRITE_DATABASE_POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: password
+        - name: WRITE_DATABASE_URL
+          value: postgres://$(SEALOS_WRITE_DATABASE_POSTGRES_USERNAME):$(SEALOS_WRITE_DATABASE_POSTGRES_PASSWORD)@$(SEALOS_WRITE_DATABASE_POSTGRES_HOST):$(SEALOS_WRITE_DATABASE_POSTGRES_PORT)/posthog
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-clickhouse
+  annotations:
+    originImageName: clickhouse/clickhouse-server:25.8.12.129
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-clickhouse
+    app: ${{ defaults.app_name }}-clickhouse
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-clickhouse
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-clickhouse
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: ${{ defaults.app_name }}-clickhouse
+        image: clickhouse/clickhouse-server:25.8.12.129
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        env:
+        - name: CLICKHOUSE_SKIP_USER_SETUP
+          value: '1'
+        - name: KAFKA_HOSTS
+          value: ${{ defaults.app_name }}-kafka:9092
+        volumeMounts:
+        - name: vn-varvn-libvn-clickhouse
+          mountPath: /var/lib/clickhouse
+        - name: clickhouse-config
+          mountPath: /etc/clickhouse-server/config.d/posthog-cluster.xml
+          subPath: posthog-cluster.xml
+        - name: clickhouse-config
+          mountPath: /etc/clickhouse-server/users.d/posthog-users.xml
+          subPath: posthog-users.xml
+      volumes:
+      - name: clickhouse-config
+        configMap:
+          name: ${{ defaults.app_name }}-clickhouse-config
+  serviceName: ${{ defaults.app_name }}-clickhouse
+  volumeClaimTemplates:
+  - metadata:
+      name: vn-varvn-libvn-clickhouse
+      annotations:
+        path: /var/lib/clickhouse
+        value: '1'
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+  - name: tcp-8000
+    port: 8000
+    targetPort: 8000
+    protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-plugins
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-plugins
+spec:
+  ports:
+  - name: tcp-6738
+    port: 6738
+    targetPort: 6738
+    protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-plugins
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-clickhouse
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-clickhouse
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+  - name: tcp-8123
+    port: 8123
+    targetPort: 8123
+    protocol: TCP
+  - name: tcp-9000
+    port: 9000
+    targetPort: 9000
+    protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-clickhouse
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-clickhouse-client
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-clickhouse
+spec:
+  ports:
+  - name: tcp-8123
+    port: 8123
+    targetPort: 8123
+    protocol: TCP
+  - name: tcp-9000
+    port: 9000
+    targetPort: 9000
+    protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-clickhouse
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: 'client_header_buffer_size 64k;
+
+      large_client_header_buffers 4 128k;'
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: "if ($request_uri ~* \\.(js|css|gif|jpe?g|png))\
+      \ {\n  expires 30d;\n  add_header Cache-Control \"public\";\n}"
+spec:
+  rules:
+  - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+    http:
+      paths:
+      - pathType: Prefix
+        path: /
+        backend:
+          service:
+            name: ${{ defaults.app_name }}
+            port:
+              number: 8000
+  tls:
+  - hosts:
+    - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+    secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/posthog/logo.svg
+  name: PostHog
+  type: link

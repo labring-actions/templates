@@ -1,0 +1,1565 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: airbyte
+spec:
+  title: "Airbyte"
+  url: "https://airbyte.com"
+  gitRepo: "https://github.com/airbytehq/airbyte"
+  author: "Sealos"
+  description: "Open-source data integration platform for ELT pipelines."
+  readme: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/airbyte/README.md"
+  icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/airbyte/logo.svg"
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: "开源数据集成平台，用于构建和调度 ELT 数据同步管道。"
+      readme: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/airbyte/README_zh.md"
+  categories:
+    - dev-ops
+    - backend
+  defaults:
+    app_name:
+      type: string
+      value: airbyte-${{ random(8) }}
+    app_host:
+      type: string
+      value: airbyte-${{ random(8) }}
+    jwt_signature_secret:
+      type: string
+      value: ${{ random(64) }}
+    jwt_refresh_secret:
+      type: string
+      value: ${{ random(64) }}
+    workload_api_bearer_token:
+      type: string
+      value: ${{ random(32) }}
+  inputs:
+    auth_admin_username:
+      description: "Initial Airbyte admin username."
+      type: string
+      default: "admin"
+      required: true
+    auth_admin_password:
+      description: "Initial Airbyte admin password."
+      type: string
+      default: "${{ random(24) }}"
+      required: true
+
+---
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}
+spec:
+  policy: private
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - "*"
+    resources:
+      - "*"
+    verbs:
+      - "*"
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  componentSpecs:
+    - name: postgresql
+      componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
+      replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-admin
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-admin-role
+rules:
+  - apiGroups:
+      - "*"
+    resources:
+      - jobs
+      - pods
+      - pods/log
+      - pods/exec
+      - pods/attach
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - "*"
+    resources:
+      - secrets
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-admin-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-admin-role
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-admin
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  AIRBYTE_VERSION: "0.63.11"
+  AIRBYTE_EDITION: "community"
+  AIRBYTE_URL: ""
+  AIRBYTE_SERVER_HOST: "${{ defaults.app_name }}-server:8001"
+  API_URL: "/api/v1/"
+  CONNECTOR_BUILDER_API_URL: "/connector-builder-api"
+  CONFIG_API_HOST: "http://${{ defaults.app_name }}-server:8001"
+  CONFIG_ROOT: "/configs"
+  CONFIGS_DATABASE_MINIMUM_FLYWAY_MIGRATION_VERSION: "0.35.15.001"
+  INTERNAL_API_HOST: "http://${{ defaults.app_name }}-server:8001"
+  WORKLOAD_API_HOST: "http://localhost"
+  KEYCLOAK_INTERNAL_HOST: "localhost"
+  CONNECTOR_BUILDER_API_HOST: "${{ defaults.app_name }}-connector-builder-server:80"
+  CONNECTOR_BUILDER_SERVER_API_HOST: "http://${{ defaults.app_name }}-connector-builder-server:80"
+  AIRBYTE_API_HOST: "http://localhost:8001/api/public"
+  JOB_MAIN_CONTAINER_CPU_LIMIT: ""
+  JOB_MAIN_CONTAINER_CPU_REQUEST: ""
+  JOB_MAIN_CONTAINER_MEMORY_LIMIT: ""
+  JOB_MAIN_CONTAINER_MEMORY_REQUEST: ""
+  JOBS_DATABASE_MINIMUM_FLYWAY_MIGRATION_VERSION: "0.29.15.001"
+  LOCAL_ROOT: "/tmp/airbyte_local"
+  LOG4J_CONFIGURATION_FILE: "log4j2-minio.xml"
+  MICROMETER_METRICS_ENABLED: "false"
+  MICROMETER_METRICS_STATSD_FLAVOR: "datadog"
+  RUN_DATABASE_MIGRATION_ON_STARTUP: "true"
+  SEGMENT_WRITE_KEY: "7UDdp5K55CyiGgsauOr2pNNujGvmhaeu"
+  STORAGE_TYPE: "minio"
+  S3_PATH_STYLE_ACCESS: "true"
+  STATSD_HOST: "localhost"
+  STATSD_PORT: "8125"
+  TEMPORAL_HOST: "${{ defaults.app_name }}-temporal:7233"
+  TEMPORAL_WORKER_PORTS: "9001,9002,9003,9004,9005,9006,9007,9008,9009,9010,9011,9012,9013,9014,9015,9016,9017,9018,9019,9020,9021,9022,9023,9024,9025,9026,9027,9028,9029,9030"
+  TRACKING_STRATEGY: "segment"
+  WEBAPP_URL: "http://${{ defaults.app_name }}-webapp:80"
+  WORKER_ENVIRONMENT: "kubernetes"
+  WORKSPACE_DOCKER_MOUNT: "airbyte_workspace"
+  WORKSPACE_ROOT: "/workspace"
+  METRIC_CLIENT: ""
+  OTEL_COLLECTOR_ENDPOINT: ""
+  ACTIVITY_MAX_ATTEMPT: ""
+  ACTIVITY_INITIAL_DELAY_BETWEEN_ATTEMPTS_SECONDS: ""
+  ACTIVITY_MAX_DELAY_BETWEEN_ATTEMPTS_SECONDS: ""
+  WORKFLOW_FAILURE_RESTART_DELAY_SECONDS: ""
+  AUTO_DETECT_SCHEMA: "true"
+  LAUNCHER_MICRONAUT_ENVIRONMENTS: "control-plane,oss"
+  WORKERS_MICRONAUT_ENVIRONMENTS: "control-plane"
+  CRON_MICRONAUT_ENVIRONMENTS: "control-plane"
+  SERVER_MICRONAUT_ENVIRONMENTS: "control-plane"
+  SHOULD_RUN_NOTIFY_WORKFLOWS: "true"
+  MAX_NOTIFY_WORKERS: "5"
+  WORKLOAD_LAUNCHER_PARALLELISM: "10"
+  WORKLOAD_LAUNCHER_ENABLED: "false"
+  WORKLOAD_API_SERVER_ENABLED: "false"
+  PUB_SUB_ENABLED: "false"
+  PUB_SUB_TOPIC_NAME: ""
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-temporal
+  labels:
+    app: ${{ defaults.app_name }}-temporal
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-temporal
+data:
+  development.yaml: |
+    frontend.enableClientVersionCheck:
+      - value: true
+        constraints: {}
+    history.persistenceMaxQPS:
+      - value: 3000
+        constraints: {}
+    frontend.persistenceMaxQPS:
+      - value: 3000
+        constraints: {}
+    frontend.historyMgrNumConns:
+      - value: 30
+        constraints: {}
+    frontend.throttledLogRPS:
+      - value: 20
+        constraints: {}
+    history.historyMgrNumConns:
+      - value: 50
+        constraints: {}
+    system.advancedVisibilityWritingMode:
+      - value: "off"
+        constraints: {}
+    history.defaultActivityRetryPolicy:
+      - value:
+          InitialIntervalInSeconds: 1
+          MaximumIntervalCoefficient: 100.0
+          BackoffCoefficient: 2.0
+          MaximumAttempts: 0
+    history.defaultWorkflowRetryPolicy:
+      - value:
+          InitialIntervalInSeconds: 1
+          MaximumIntervalCoefficient: 100.0
+          BackoffCoefficient: 2.0
+          MaximumAttempts: 0
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-bootloader
+spec:
+  completions: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      serviceAccountName: ${{ defaults.app_name }}-admin
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      initContainers:
+        - name: init-db-airbyte
+          image: docker.io/apecloud/spilo:16.4.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              until pg_isready -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}"; do
+                sleep 2
+              done
+              if ! psql -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='db-airbyte'" | grep -q 1; then
+                psql -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}" -d postgres -c 'CREATE DATABASE "db-airbyte";'
+              fi
+          env:
+            - name: DATABASE_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: DATABASE_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: DATABASE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+      containers:
+        - name: bootloader
+          image: airbyte/bootloader:0.63.11
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: AIRBYTE_VERSION
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: AIRBYTE_VERSION
+            - name: RUN_DATABASE_MIGRATION_ON_STARTUP
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: RUN_DATABASE_MIGRATION_ON_STARTUP
+            - name: DATABASE_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: DATABASE_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: DATABASE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_DB
+              value: db-airbyte
+            - name: DATABASE_URL
+              value: jdbc:postgresql://$(DATABASE_HOST):$(DATABASE_PORT)/db-airbyte
+          resources:
+            limits:
+              cpu: "1"
+              memory: 1536Mi
+            requests:
+              cpu: 200m
+              memory: 512Mi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-connector-builder-server
+  annotations:
+    originImageName: airbyte/connector-builder-server:0.63.11
+    deploy.cloud.sealos.io/minReplicas: "1"
+    deploy.cloud.sealos.io/maxReplicas: "1"
+  labels:
+    app: ${{ defaults.app_name }}-connector-builder-server
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-connector-builder-server
+spec:
+  revisionHistoryLimit: 1
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-connector-builder-server
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-connector-builder-server
+    spec:
+      serviceAccountName: ${{ defaults.app_name }}-admin
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-connector-builder-server
+          image: airbyte/connector-builder-server:0.63.11
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: AIRBYTE_VERSION
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: AIRBYTE_VERSION
+            - name: MICROMETER_METRICS_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: MICROMETER_METRICS_ENABLED
+            - name: MICROMETER_METRICS_STATSD_FLAVOR
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: MICROMETER_METRICS_STATSD_FLAVOR
+            - name: SEGMENT_WRITE_KEY
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: SEGMENT_WRITE_KEY
+            - name: STATSD_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: STATSD_HOST
+            - name: STATSD_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: STATSD_PORT
+            - name: TRACKING_STRATEGY
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: TRACKING_STRATEGY
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /v1/health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /v1/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 10
+          startupProbe:
+            httpGet:
+              path: /v1/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 30
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-server
+  annotations:
+    originImageName: airbyte/server:0.63.11
+    deploy.cloud.sealos.io/minReplicas: "1"
+    deploy.cloud.sealos.io/maxReplicas: "1"
+  labels:
+    app: ${{ defaults.app_name }}-server
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-server
+spec:
+  revisionHistoryLimit: 1
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-server
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-server
+    spec:
+      serviceAccountName: ${{ defaults.app_name }}-admin
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-server
+          image: airbyte/server:0.63.11
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: AIRBYTE_API_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: AIRBYTE_API_HOST
+            - name: AIRBYTE_VERSION
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: AIRBYTE_VERSION
+            - name: AIRBYTE_EDITION
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: AIRBYTE_EDITION
+            - name: AIRBYTE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: AIRBYTE_URL
+            - name: AUTO_DETECT_SCHEMA
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: AUTO_DETECT_SCHEMA
+            - name: CONFIG_ROOT
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: CONFIG_ROOT
+            - name: LOG4J_CONFIGURATION_FILE
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: LOG4J_CONFIGURATION_FILE
+            - name: MICROMETER_METRICS_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: MICROMETER_METRICS_ENABLED
+            - name: MICROMETER_METRICS_STATSD_FLAVOR
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: MICROMETER_METRICS_STATSD_FLAVOR
+            - name: MICRONAUT_ENVIRONMENTS
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: SERVER_MICRONAUT_ENVIRONMENTS
+            - name: SEGMENT_WRITE_KEY
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: SEGMENT_WRITE_KEY
+            - name: STATSD_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: STATSD_HOST
+            - name: STATSD_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: STATSD_PORT
+            - name: TRACKING_STRATEGY
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: TRACKING_STRATEGY
+            - name: WORKER_ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: WORKER_ENVIRONMENT
+            - name: WORKSPACE_ROOT
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: WORKSPACE_ROOT
+            - name: WEBAPP_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: WEBAPP_URL
+            - name: TEMPORAL_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: TEMPORAL_HOST
+            - name: LOG_LEVEL
+              value: "INFO"
+            - name: MICRONAUT_SECURITY_ENABLED
+              value: "true"
+            - name: AIRBYTE_AUTH_INSTANCE_ADMIN_USERNAME
+              value: ${{ inputs.auth_admin_username }}
+            - name: AIRBYTE_AUTH_INSTANCE_ADMIN_PASSWORD
+              value: ${{ inputs.auth_admin_password }}
+            - name: MICRONAUT_SECURITY_TOKEN_JWT_SIGNATURES_SECRET_GENERATOR_SECRET
+              value: ${{ defaults.jwt_signature_secret }}
+            - name: MICRONAUT_SECURITY_TOKEN_JWT_GENERATOR_REFRESH_TOKEN_SECRET
+              value: ${{ defaults.jwt_refresh_secret }}
+            - name: JOB_MAIN_CONTAINER_CPU_REQUEST
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: JOB_MAIN_CONTAINER_CPU_REQUEST
+            - name: JOB_MAIN_CONTAINER_CPU_LIMIT
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: JOB_MAIN_CONTAINER_CPU_LIMIT
+            - name: JOB_MAIN_CONTAINER_MEMORY_REQUEST
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: JOB_MAIN_CONTAINER_MEMORY_REQUEST
+            - name: JOB_MAIN_CONTAINER_MEMORY_LIMIT
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: JOB_MAIN_CONTAINER_MEMORY_LIMIT
+            - name: CONFIGS_DATABASE_MINIMUM_FLYWAY_MIGRATION_VERSION
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: CONFIGS_DATABASE_MINIMUM_FLYWAY_MIGRATION_VERSION
+            - name: JOBS_DATABASE_MINIMUM_FLYWAY_MIGRATION_VERSION
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: JOBS_DATABASE_MINIMUM_FLYWAY_MIGRATION_VERSION
+            - name: KEYCLOAK_INTERNAL_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: KEYCLOAK_INTERNAL_HOST
+            - name: CONNECTOR_BUILDER_SERVER_API_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: CONNECTOR_BUILDER_SERVER_API_HOST
+            - name: AIRBYTE_API_AUTH_HEADER_NAME
+              value: "X-Airbyte-Auth"
+            - name: AIRBYTE_API_AUTH_HEADER_VALUE
+              value: "Internal server"
+            - name: WORKLOAD_LAUNCHER_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: WORKLOAD_LAUNCHER_ENABLED
+            - name: WORKLOAD_API_SERVER_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: WORKLOAD_API_SERVER_ENABLED
+            - name: SECRET_PERSISTENCE
+              value: ""
+            - name: STORAGE_TYPE
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: STORAGE_TYPE
+            - name: S3_PATH_STYLE_ACCESS
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: S3_PATH_STYLE_ACCESS
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            - name: AWS_ACCESS_KEY_ID
+              value: $(S3_ACCESS_KEY_ID)
+            - name: AWS_SECRET_ACCESS_KEY
+              value: $(S3_SECRET_ACCESS_KEY)
+            - name: MINIO_ENDPOINT
+              value: http://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+            - name: STORAGE_BUCKET_ACTIVITY_PAYLOAD
+              value: $(S3_BUCKET)
+            - name: STORAGE_BUCKET_LOG
+              value: $(S3_BUCKET)
+            - name: STORAGE_BUCKET_STATE
+              value: $(S3_BUCKET)
+            - name: STORAGE_BUCKET_WORKLOAD_OUTPUT
+              value: $(S3_BUCKET)
+            - name: DATABASE_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: DATABASE_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: DATABASE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_DB
+              value: db-airbyte
+            - name: DATABASE_URL
+              value: jdbc:postgresql://$(DATABASE_HOST):$(DATABASE_PORT)/db-airbyte
+          ports:
+            - name: http
+              containerPort: 8001
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8001
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8001
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 10
+          startupProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8001
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 30
+          resources:
+            limits:
+              cpu: 200m
+              memory: 512Mi
+            requests:
+              cpu: 20m
+              memory: 51Mi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-worker
+  annotations:
+    originImageName: airbyte/worker:0.63.11
+    deploy.cloud.sealos.io/minReplicas: "1"
+    deploy.cloud.sealos.io/maxReplicas: "1"
+  labels:
+    app: ${{ defaults.app_name }}-worker
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-worker
+spec:
+  revisionHistoryLimit: 1
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-worker
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-worker
+    spec:
+      serviceAccountName: ${{ defaults.app_name }}-admin
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-worker
+          image: airbyte/worker:0.63.11
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: AIRBYTE_VERSION
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: AIRBYTE_VERSION
+            - name: CONFIG_ROOT
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: CONFIG_ROOT
+            - name: LOG4J_CONFIGURATION_FILE
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: LOG4J_CONFIGURATION_FILE
+            - name: MICROMETER_METRICS_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: MICROMETER_METRICS_ENABLED
+            - name: MICROMETER_METRICS_STATSD_FLAVOR
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: MICROMETER_METRICS_STATSD_FLAVOR
+            - name: SEGMENT_WRITE_KEY
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: SEGMENT_WRITE_KEY
+            - name: STATSD_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: STATSD_HOST
+            - name: STATSD_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: STATSD_PORT
+            - name: TRACKING_STRATEGY
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: TRACKING_STRATEGY
+            - name: WORKSPACE_DOCKER_MOUNT
+              value: workspace
+            - name: WORKSPACE_ROOT
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: WORKSPACE_ROOT
+            - name: LOCAL_ROOT
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: LOCAL_ROOT
+            - name: WEBAPP_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: WEBAPP_URL
+            - name: TEMPORAL_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: TEMPORAL_HOST
+            - name: TEMPORAL_WORKER_PORTS
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: TEMPORAL_WORKER_PORTS
+            - name: LOG_LEVEL
+              value: "INFO"
+            - name: JOB_KUBE_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: JOB_KUBE_SERVICEACCOUNT
+              value: ${{ defaults.app_name }}-admin
+            - name: JOB_MAIN_CONTAINER_CPU_REQUEST
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: JOB_MAIN_CONTAINER_CPU_REQUEST
+            - name: JOB_MAIN_CONTAINER_CPU_LIMIT
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: JOB_MAIN_CONTAINER_CPU_LIMIT
+            - name: JOB_MAIN_CONTAINER_MEMORY_REQUEST
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: JOB_MAIN_CONTAINER_MEMORY_REQUEST
+            - name: JOB_MAIN_CONTAINER_MEMORY_LIMIT
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: JOB_MAIN_CONTAINER_MEMORY_LIMIT
+            - name: INTERNAL_API_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: INTERNAL_API_HOST
+            - name: WORKLOAD_API_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: WORKLOAD_API_HOST
+            - name: WORKLOAD_API_BEARER_TOKEN
+              value: ${{ defaults.workload_api_bearer_token }}
+            - name: CONFIGS_DATABASE_MINIMUM_FLYWAY_MIGRATION_VERSION
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: CONFIGS_DATABASE_MINIMUM_FLYWAY_MIGRATION_VERSION
+            - name: JOBS_DATABASE_MINIMUM_FLYWAY_MIGRATION_VERSION
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: JOBS_DATABASE_MINIMUM_FLYWAY_MIGRATION_VERSION
+            - name: METRIC_CLIENT
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: METRIC_CLIENT
+            - name: OTEL_COLLECTOR_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: OTEL_COLLECTOR_ENDPOINT
+            - name: ACTIVITY_MAX_ATTEMPT
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: ACTIVITY_MAX_ATTEMPT
+            - name: ACTIVITY_INITIAL_DELAY_BETWEEN_ATTEMPTS_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: ACTIVITY_INITIAL_DELAY_BETWEEN_ATTEMPTS_SECONDS
+            - name: ACTIVITY_MAX_DELAY_BETWEEN_ATTEMPTS_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: ACTIVITY_MAX_DELAY_BETWEEN_ATTEMPTS_SECONDS
+            - name: WORKFLOW_FAILURE_RESTART_DELAY_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: WORKFLOW_FAILURE_RESTART_DELAY_SECONDS
+            - name: AUTO_DETECT_SCHEMA
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: AUTO_DETECT_SCHEMA
+            - name: SHOULD_RUN_NOTIFY_WORKFLOWS
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: SHOULD_RUN_NOTIFY_WORKFLOWS
+            - name: MICRONAUT_ENVIRONMENTS
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: WORKERS_MICRONAUT_ENVIRONMENTS
+            - name: WORKLOAD_LAUNCHER_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: WORKLOAD_LAUNCHER_ENABLED
+            - name: WORKLOAD_API_SERVER_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: WORKLOAD_API_SERVER_ENABLED
+            - name: SECRET_PERSISTENCE
+              value: ""
+            - name: STORAGE_TYPE
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: STORAGE_TYPE
+            - name: S3_PATH_STYLE_ACCESS
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: S3_PATH_STYLE_ACCESS
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            - name: AWS_ACCESS_KEY_ID
+              value: $(S3_ACCESS_KEY_ID)
+            - name: AWS_SECRET_ACCESS_KEY
+              value: $(S3_SECRET_ACCESS_KEY)
+            - name: MINIO_ENDPOINT
+              value: http://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+            - name: STORAGE_BUCKET_ACTIVITY_PAYLOAD
+              value: $(S3_BUCKET)
+            - name: STORAGE_BUCKET_LOG
+              value: $(S3_BUCKET)
+            - name: STORAGE_BUCKET_STATE
+              value: $(S3_BUCKET)
+            - name: STORAGE_BUCKET_WORKLOAD_OUTPUT
+              value: $(S3_BUCKET)
+            - name: DATABASE_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: DATABASE_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: DATABASE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_DB
+              value: db-airbyte
+            - name: DATABASE_URL
+              value: jdbc:postgresql://$(DATABASE_HOST):$(DATABASE_PORT)/db-airbyte
+            - name: CONTAINER_ORCHESTRATOR_ENABLED
+              value: "true"
+          ports:
+            - name: heartbeat
+              containerPort: 9000
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 9000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 1
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 9000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 1
+          startupProbe:
+            httpGet:
+              path: /
+              port: 9000
+            initialDelaySeconds: 40
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 40
+          resources:
+            limits:
+              cpu: 200m
+              memory: 512Mi
+            requests:
+              cpu: 20m
+              memory: 51Mi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-cron
+  annotations:
+    originImageName: airbyte/cron:0.63.11
+    deploy.cloud.sealos.io/minReplicas: "1"
+    deploy.cloud.sealos.io/maxReplicas: "1"
+  labels:
+    app: ${{ defaults.app_name }}-cron
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-cron
+spec:
+  revisionHistoryLimit: 1
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-cron
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-cron
+    spec:
+      serviceAccountName: ${{ defaults.app_name }}-admin
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-cron
+          image: airbyte/cron:0.63.11
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: AIRBYTE_VERSION
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: AIRBYTE_VERSION
+            - name: CONFIGS_DATABASE_MINIMUM_FLYWAY_MIGRATION_VERSION
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: CONFIGS_DATABASE_MINIMUM_FLYWAY_MIGRATION_VERSION
+            - name: MICROMETER_METRICS_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: MICROMETER_METRICS_ENABLED
+            - name: MICROMETER_METRICS_STATSD_FLAVOR
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: MICROMETER_METRICS_STATSD_FLAVOR
+            - name: MICRONAUT_ENVIRONMENTS
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: CRON_MICRONAUT_ENVIRONMENTS
+            - name: TEMPORAL_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: TEMPORAL_HOST
+            - name: SEGMENT_WRITE_KEY
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: SEGMENT_WRITE_KEY
+            - name: STATSD_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: STATSD_HOST
+            - name: STATSD_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: STATSD_PORT
+            - name: TRACKING_STRATEGY
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: TRACKING_STRATEGY
+            - name: WORKFLOW_FAILURE_RESTART_DELAY_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: WORKFLOW_FAILURE_RESTART_DELAY_SECONDS
+            - name: WORKLOAD_API_BEARER_TOKEN
+              value: ${{ defaults.workload_api_bearer_token }}
+            - name: WORKLOAD_API_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: WORKLOAD_API_HOST
+            - name: WORKSPACE_DOCKER_MOUNT
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: WORKSPACE_DOCKER_MOUNT
+            - name: WORKSPACE_ROOT
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: WORKSPACE_ROOT
+            - name: DATABASE_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: DATABASE_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: DATABASE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_DB
+              value: db-airbyte
+            - name: DATABASE_URL
+              value: jdbc:postgresql://$(DATABASE_HOST):$(DATABASE_PORT)/db-airbyte
+          resources:
+            limits:
+              cpu: 200m
+              memory: 512Mi
+            requests:
+              cpu: 20m
+              memory: 51Mi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-temporal
+  annotations:
+    originImageName: temporalio/auto-setup:1.23.0
+    deploy.cloud.sealos.io/minReplicas: "1"
+    deploy.cloud.sealos.io/maxReplicas: "1"
+  labels:
+    app: ${{ defaults.app_name }}-temporal
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-temporal
+spec:
+  revisionHistoryLimit: 1
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-temporal
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-temporal
+    spec:
+      serviceAccountName: ${{ defaults.app_name }}-admin
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-temporal
+          image: temporalio/auto-setup:1.23.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: AUTO_SETUP
+              value: "true"
+            - name: DB
+              value: "postgresql"
+            - name: DYNAMIC_CONFIG_FILE_PATH
+              value: "config/dynamicconfig/development.yaml"
+            - name: DATABASE_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: POSTGRES_SEEDS
+              value: $(DATABASE_HOST)
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: POSTGRES_PWD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+          ports:
+            - name: grpc
+              containerPort: 7233
+              protocol: TCP
+          livenessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+          startupProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          volumeMounts:
+            - name: dynamic-config
+              mountPath: /etc/temporal/config/dynamicconfig
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+      volumes:
+        - name: dynamic-config
+          configMap:
+            name: ${{ defaults.app_name }}-temporal
+            items:
+              - key: development.yaml
+                path: development.yaml
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-webapp
+  annotations:
+    originImageName: airbyte/webapp:0.63.11
+    deploy.cloud.sealos.io/minReplicas: "1"
+    deploy.cloud.sealos.io/maxReplicas: "1"
+  labels:
+    app: ${{ defaults.app_name }}-webapp
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-webapp
+spec:
+  revisionHistoryLimit: 1
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-webapp
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-webapp
+    spec:
+      serviceAccountName: ${{ defaults.app_name }}-admin
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-webapp
+          image: airbyte/webapp:0.63.11
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: TRACKING_STRATEGY
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: TRACKING_STRATEGY
+            - name: AIRBYTE_SERVER_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: AIRBYTE_SERVER_HOST
+            - name: KEYCLOAK_INTERNAL_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: KEYCLOAK_INTERNAL_HOST
+            - name: CONNECTOR_BUILDER_API_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: CONNECTOR_BUILDER_API_HOST
+            - name: AIRBYTE_VERSION
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: AIRBYTE_VERSION
+            - name: API_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: API_URL
+            - name: CONNECTOR_BUILDER_API_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: CONNECTOR_BUILDER_API_URL
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 1
+          readinessProbe:
+            httpGet:
+              path: /index.html
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 1
+          startupProbe:
+            httpGet:
+              path: /index.html
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 1
+            failureThreshold: 30
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-connector-builder-server
+  labels:
+    app: ${{ defaults.app_name }}-connector-builder-server
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-connector-builder-server
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-connector-builder-server
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-server
+  labels:
+    app: ${{ defaults.app_name }}-server
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-server
+spec:
+  ports:
+    - name: http
+      port: 8001
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-server
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-temporal
+  labels:
+    app: ${{ defaults.app_name }}-temporal
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-temporal
+spec:
+  ports:
+    - name: grpc
+      port: 7233
+      targetPort: grpc
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-temporal
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-webapp
+  labels:
+    app: ${{ defaults.app_name }}-webapp
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-webapp
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-webapp
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-webapp
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-webapp
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-webapp
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: wildcard-cert
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
