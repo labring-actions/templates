@@ -1,0 +1,253 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: shlink
+spec:
+  title: 'Shlink'
+  author: 'Sealos'
+  date: 2025-05-14
+  url: 'https://shlink.io/'
+  gitRepo: 'https://github.com/shlinkio/shlink'
+  description: 'A self-hosted URL shortener with QR code generation, analytics, and REST API.'
+  readme: 'https://raw.githubusercontent.com/labring-actions/templates/main/template/shlink/README.md'
+  icon: 'https://shlink.io/images/shlink-logo-blue.svg'
+  templateType: inline
+  locale: en
+  categories:
+    - web
+  defaults:
+    app_name:
+      type: string
+      value: shlink-${{ random(8) }}
+    app_host:
+      type: string
+      value: ${{ random(8) }}
+  inputs:
+    initial_api_key:
+      description: 'Initial API key'
+      type: string
+      default: ${{ random(8) }}
+      required: false
+    mail_from:
+      description: 'Default "from" address for email notifications'
+      type: string
+      default: ''
+      required: false
+    geolite_license_key:
+      description: 'GeoLite license key'
+      type: string
+      default: ''
+      required: false
+---
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/shlinkio/shlink:latest
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: ghcr.io/shlinkio/shlink:latest
+          env:
+            - name: INITIAL_API_KEY
+              value: ${{ inputs.initial_api_key }}
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DB_DRIVER
+              value: postgres
+            - name: DB_NAME
+              value: shlink
+            - name: DB_USER
+              value: postgres
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DB_HOST
+              value: ${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc
+            - name: DB_PORT
+              value: "5432"
+            - name: DEFAULT_DOMAIN
+              value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: GEOIP_LICENSE_KEY
+              value: ${{ inputs.geolite_license_key }}
+            ${{ if(inputs.mail_from !== '') }}
+            - name: FROM_EMAIL
+              value: ${{ inputs.mail_from }}
+            ${{ endif() }}
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              cpu: 500m
+              memory: 2Gi
+          imagePullPolicy: IfNotPresent
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - port: 80
+      targetPort: 8080
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-14.8.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+  annotations: {}
+  name: ${{ defaults.app_name }}-pg
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-14.8.0
+  backup:
+    enabled: true
+    cronExpression: 0 18 * * *
+    method: backupTool
+    pitrEnabled: false
+    retentionPeriod: 7d
+  componentSpecs:
+    - componentDefRef: postgresql
+      monitor: true
+      name: postgresql
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 128Mi
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 5Gi
+
+  terminationPolicy: Delete
+  tolerations: []
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
