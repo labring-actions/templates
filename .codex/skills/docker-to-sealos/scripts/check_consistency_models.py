@@ -21,6 +21,9 @@ DB_SECRET_SUFFIXES = (
     "-pg-conn-credential",
     "-mysql-conn-credential",
     "-mongodb-account-root",
+    "-redis-redis-account-default",
+    # Backward compatibility for existing templates; new output should use
+    # -redis-redis-account-default.
     "-redis-account-default",
     "-broker-account-admin",
 )

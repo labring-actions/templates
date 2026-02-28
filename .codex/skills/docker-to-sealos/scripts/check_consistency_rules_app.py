@@ -1129,7 +1129,7 @@ def check_postgres_custom_db_init_job(context: ScanContext) -> List[Violation]:
             target_doc = workload_docs[0] if workload_docs else artifact_docs[0]
             add_doc_violation(
                 violations,
-                rule_id="R027",
+                rule_id="R032",
                 doc=target_doc,
                 pattern=r"postgres(?:ql)?://",
                 default_pattern=r"^\s*env\s*:",
@@ -1145,7 +1145,7 @@ def check_postgres_custom_db_init_job(context: ScanContext) -> List[Violation]:
             continue
         add_doc_violation(
             violations,
-            rule_id="R027",
+            rule_id="R032",
             doc=job_doc,
             pattern=r"^\s*command\s*:",
             default_pattern=r"^\s*containers\s*:",
@@ -1359,7 +1359,7 @@ APP_RULES: Dict[str, Rule] = {
     "R030": Rule("R030", check_configmap_labels_match_name),
     "R031": Rule("R031", check_ingress_name_matches_backends),
     "R026": Rule("R026", check_http_ingress_annotations),
-    "R027": Rule("R027", check_postgres_custom_db_init_job),
+    "R032": Rule("R032", check_postgres_custom_db_init_job),
     "R008": Rule("R008", check_deploy_manager_label_match_name),
     "R027": Rule("R027", check_app_label_match_name),
     "R028": Rule("R028", check_container_names_match_workload_name),

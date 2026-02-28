@@ -124,7 +124,7 @@ To scale Pangolin resources:
 
 - [Pangolin Documentation](https://docs.pangolin.net/)
 - [Pangolin GitHub Issues](https://github.com/fosrl/pangolin/issues)
-- [Sealos Discord](https://discord.gg/sealos)
+- [Sealos Discord](https://discord.gg/wdUn538zVP)
 
 ## Additional Resources
 

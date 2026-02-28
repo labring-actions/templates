@@ -129,7 +129,7 @@ Sealos 是构建在 Kubernetes 之上的 AI 辅助云操作系统，在统一工
 - [Pocket ID Documentation](https://docs.pocket-id.org)
 - [Pocket ID GitHub Issues](https://github.com/pocket-id/pocket-id/issues)
 - [Sealos Documentation](https://sealos.io/docs)
-- [Sealos Discord](https://discord.gg/sealos)
+- [Sealos Discord](https://discord.gg/wdUn538zVP)
 
 ## 更多资源
 

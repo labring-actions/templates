@@ -1,0 +1,467 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: woocommerce
+spec:
+  title: WooCommerce
+  url: https://woocommerce.com
+  gitRepo: https://github.com/woocommerce/woocommerce
+  author: Sealos
+  description: WooCommerce is an open-source ecommerce platform built on WordPress.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/woocommerce/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/woocommerce/logo.png
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: WooCommerce 是基于 WordPress 的开源电商平台。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/woocommerce/README_zh.md
+  categories:
+  - backend
+  defaults:
+    app_host:
+      type: string
+      value: woocommerce-${{ random(8) }}
+    app_name:
+      type: string
+      value: woocommerce-${{ random(8) }}
+  inputs:
+    WP_ADMIN_USER:
+      description: WordPress admin username for initial setup.
+      type: string
+      default: admin
+      required: true
+    WP_ADMIN_PASSWORD:
+      description: WordPress admin password for initial setup.
+      type: string
+      default: ''
+      required: true
+    WP_ADMIN_EMAIL:
+      description: WordPress admin email for initial setup.
+      type: string
+      default: admin@example.com
+      required: true
+    WP_SITE_TITLE:
+      description: WordPress site title for initial setup.
+      type: string
+      default: WooCommerce Store
+      required: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-mysql
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-mysql
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+rules:
+- apiGroups:
+  - '*'
+  resources:
+  - '*'
+  verbs:
+  - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-mysql
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-mysql
+subjects:
+- kind: ServiceAccount
+  name: ${{ defaults.app_name }}-mysql
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-mysql
+  labels:
+    kb.io/database: ac-mysql-8.0.30-1
+    clusterdefinition.kubeblocks.io/name: apecloud-mysql
+    clusterversion.kubeblocks.io/name: ac-mysql-8.0.30-1
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys:
+    - kubernetes.io/hostname
+  clusterDefinitionRef: apecloud-mysql
+  clusterVersionRef: ac-mysql-8.0.30-1
+  componentSpecs:
+  - name: mysql
+    componentDefRef: mysql
+    monitor: true
+    noCreatePDB: false
+    replicas: 1
+    serviceAccountName: ${{ defaults.app_name }}-mysql
+    switchPolicy:
+      type: Noop
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 50m
+        memory: 51Mi
+    volumeClaimTemplates:
+    - name: data
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+        storageClassName: openebs-backup
+  terminationPolicy: Delete
+  tolerations: []
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-mysql-init
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: ${{ defaults.app_name }}-mysql-init
+        image: mysql:8.0.30
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: MYSQL_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-mysql-conn-credential
+              key: host
+        - name: MYSQL_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-mysql-conn-credential
+              key: port
+        - name: MYSQL_USER
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-mysql-conn-credential
+              key: username
+        - name: MYSQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-mysql-conn-credential
+              key: password
+        - name: MYSQL_DATABASE
+          value: mydb
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -eu
+          for i in $(seq 1 90); do
+            if mysqladmin ping -h"${MYSQL_HOST}" -P"${MYSQL_PORT}" -u"${MYSQL_USER}" -p"${MYSQL_PASSWORD}" --silent; then
+              break
+            fi
+            sleep 2
+          done
+          mysql -h"${MYSQL_HOST}" -P"${MYSQL_PORT}" -u"${MYSQL_USER}" -p"${MYSQL_PASSWORD}" \
+            -e "CREATE DATABASE IF NOT EXISTS \`${MYSQL_DATABASE}\`;"
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: wordpress:6.9.1-php8.3-apache
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+      - name: ${{ defaults.app_name }}-init
+        image: wordpress:cli-2.9.0-php8.3
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          runAsUser: 0
+          runAsGroup: 0
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 20m
+            memory: 25Mi
+        env:
+        - name: WORDPRESS_DB_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-mysql-conn-credential
+              key: host
+        - name: WORDPRESS_DB_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-mysql-conn-credential
+              key: port
+        - name: WORDPRESS_DB_NAME
+          value: mydb
+        - name: WORDPRESS_DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-mysql-conn-credential
+              key: username
+        - name: WORDPRESS_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-mysql-conn-credential
+              key: password
+        - name: WP_ADMIN_USER
+          value: ${{ inputs.WP_ADMIN_USER }}
+        - name: WP_ADMIN_PASSWORD
+          value: ${{ inputs.WP_ADMIN_PASSWORD }}
+        - name: WP_ADMIN_EMAIL
+          value: ${{ inputs.WP_ADMIN_EMAIL }}
+        - name: WP_SITE_TITLE
+          value: ${{ inputs.WP_SITE_TITLE }}
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -eu
+          wpcli() {
+            php -d memory_limit=192M /usr/local/bin/wp "$@"
+          }
+          WP_PATH="/var/www/html"
+          SITE_URL="https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+          DB_HOST_PORT="${WORDPRESS_DB_HOST}:${WORDPRESS_DB_PORT}"
+          if [ ! -f "${WP_PATH}/wp-load.php" ]; then
+            wpcli core download --path="${WP_PATH}" --allow-root
+          fi
+          if [ ! -f "${WP_PATH}/wp-config.php" ]; then
+            wpcli config create \
+              --path="${WP_PATH}" \
+              --dbname="${WORDPRESS_DB_NAME}" \
+              --dbuser="${WORDPRESS_DB_USER}" \
+              --dbpass="${WORDPRESS_DB_PASSWORD}" \
+              --dbhost="${DB_HOST_PORT}" \
+              --skip-check \
+              --allow-root
+          fi
+          for i in $(seq 1 90); do
+            if wpcli db check --path="${WP_PATH}" --allow-root >/dev/null 2>&1; then
+              break
+            fi
+            sleep 2
+          done
+          if ! wpcli core is-installed --path="${WP_PATH}" --allow-root >/dev/null 2>&1; then
+            wpcli core install \
+              --path="${WP_PATH}" \
+              --url="https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}" \
+              --title="${WP_SITE_TITLE}" \
+              --admin_user="${WP_ADMIN_USER}" \
+              --admin_password="${WP_ADMIN_PASSWORD}" \
+              --admin_email="${WP_ADMIN_EMAIL}" \
+              --skip-email \
+              --allow-root
+          fi
+          HTTPS_SNIPPET_FILE="$(mktemp)"
+          cat > "${HTTPS_SNIPPET_FILE}" <<'PHP'
+          if ( isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strpos($_SERVER['HTTP_X_FORWARDED_PROTO'], 'https') !== false ) {
+              $_SERVER['HTTPS'] = 'on';
+          }
+          if ( ! defined('FORCE_SSL_ADMIN') ) {
+              define('FORCE_SSL_ADMIN', true);
+          }
+          PHP
+          if ! grep -q "HTTP_X_FORWARDED_PROTO" "${WP_PATH}/wp-config.php"; then
+            TMP_CFG="$(mktemp)"
+            awk -v snippet="${HTTPS_SNIPPET_FILE}" '
+              /stop editing! Happy publishing\./ && !done {
+                while ((getline line < snippet) > 0) print line
+                close(snippet)
+                done=1
+              }
+              { print }
+            ' "${WP_PATH}/wp-config.php" > "${TMP_CFG}"
+            cat "${TMP_CFG}" > "${WP_PATH}/wp-config.php"
+            rm -f "${TMP_CFG}"
+          fi
+          rm -f "${HTTPS_SNIPPET_FILE}"
+          wpcli option update home "${SITE_URL}" --path="${WP_PATH}" --allow-root >/dev/null 2>&1 || true
+          wpcli option update siteurl "${SITE_URL}" --path="${WP_PATH}" --allow-root >/dev/null 2>&1 || true
+          if ! wpcli plugin is-installed woocommerce --path="${WP_PATH}" --allow-root >/dev/null 2>&1; then
+            wpcli plugin install woocommerce --activate --path="${WP_PATH}" --allow-root
+          else
+            wpcli plugin activate woocommerce --path="${WP_PATH}" --allow-root >/dev/null 2>&1 || true
+          fi
+        volumeMounts:
+        - name: vn-varvn-wwwvn-html
+          mountPath: /var/www/html
+      containers:
+      - name: ${{ defaults.app_name }}
+        image: wordpress:6.9.1-php8.3-apache
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 20m
+            memory: 25Mi
+        ports:
+        - containerPort: 80
+        env:
+        - name: WORDPRESS_DB_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-mysql-conn-credential
+              key: host
+        - name: WORDPRESS_DB_NAME
+          value: mydb
+        - name: WORDPRESS_DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-mysql-conn-credential
+              key: username
+        - name: WORDPRESS_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-mysql-conn-credential
+              key: password
+        - name: WORDPRESS_TABLE_PREFIX
+          value: wp_
+        - name: WORDPRESS_DEBUG
+          value: '1'
+        livenessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 5
+        readinessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 6
+        startupProbe:
+          tcpSocket:
+            port: 80
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 30
+        volumeMounts:
+        - name: vn-varvn-wwwvn-html
+          mountPath: /var/www/html
+  serviceName: ${{ defaults.app_name }}
+  volumeClaimTemplates:
+  - metadata:
+      name: vn-varvn-wwwvn-html
+      annotations:
+        path: /var/www/html
+        value: '0.2'
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 0.2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+  - name: tcp-80
+    port: 80
+    targetPort: 80
+    protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: 'client_header_buffer_size 64k;
+
+      large_client_header_buffers 4 128k;'
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: "if ($request_uri ~* \\.(js|css|gif|jpe?g|png))\
+      \ {\n  expires 30d;\n  add_header Cache-Control \"public\";\n}"
+spec:
+  rules:
+  - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+    http:
+      paths:
+      - pathType: Prefix
+        path: /
+        backend:
+          service:
+            name: ${{ defaults.app_name }}
+            port:
+              number: 80
+  tls:
+  - hosts:
+    - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+    secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/woocommerce/logo.png
+  name: WooCommerce
+  type: link

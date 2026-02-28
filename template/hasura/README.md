@@ -115,7 +115,7 @@ To scale this deployment:
 
 - [Hasura Docs](https://hasura.io/docs/latest/)
 - [Hasura GitHub Issues](https://github.com/hasura/graphql-engine/issues)
-- [Sealos Discord](https://discord.gg/sealos)
+- [Sealos Discord](https://discord.gg/wdUn538zVP)
 
 ## Additional Resources
 

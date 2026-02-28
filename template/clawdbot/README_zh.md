@@ -177,7 +177,7 @@ https://[您的应用地址]/?token=[gateway-token]
 
 - [官方文档](https://clawd.bot)
 - [GitHub 问题追踪](https://github.com/moltbot/moltbot/issues)
-- [Sealos Discord 社区](https://discord.gg/sealos)
+- [Sealos Discord 社区](https://discord.gg/wdUn538zVP)
 
 ## 额外资源
 

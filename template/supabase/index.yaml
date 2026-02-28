@@ -1,0 +1,2104 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: supabase
+spec:
+  title: Supabase
+  url: https://supabase.com
+  gitRepo: https://github.com/supabase/supabase
+  author: Sealos
+  description: Open source Firebase alternative with Postgres database, authentication,
+    realtime, storage, and edge functions.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/supabase/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/supabase/logo.png
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: Firebase 开源替代方案，支持 Postgres 数据库，认证，realtime，storage，与 edge
+        functions。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/supabase/README_zh.md
+  categories:
+  - backend
+  - database
+  defaults:
+    app_host:
+      type: string
+      value: ${{ defaults.app_name }}
+    app_name:
+      type: string
+      value: supabase-${{ random(8) }}
+    postgres_db:
+      type: string
+      value: postgres
+    supabase_public_url:
+      type: string
+      value: https://${{ defaults.app_name }}.${{ SEALOS_CLOUD_DOMAIN }}
+    api_external_url:
+      type: string
+      value: https://${{ defaults.app_name }}.${{ SEALOS_CLOUD_DOMAIN }}
+    site_url:
+      type: string
+      value: https://${{ defaults.app_name }}.${{ SEALOS_CLOUD_DOMAIN }}
+    additional_redirect_urls:
+      type: string
+      value: ''
+    disable_signup:
+      type: string
+      value: 'false'
+    jwt_expiry:
+      type: string
+      value: '3600'
+    enable_email_signup:
+      type: string
+      value: 'true'
+    enable_anonymous_users:
+      type: string
+      value: 'false'
+    enable_email_autoconfirm:
+      type: string
+      value: 'false'
+    enable_phone_signup:
+      type: string
+      value: 'true'
+    enable_phone_autoconfirm:
+      type: string
+      value: 'true'
+    smtp_admin_email:
+      type: string
+      value: admin@example.com
+    smtp_host:
+      type: string
+      value: supabase-mail
+    smtp_port:
+      type: string
+      value: '2500'
+    smtp_user:
+      type: string
+      value: fake_mail_user
+    smtp_pass:
+      type: string
+      value: fake_mail_password
+    smtp_sender_name:
+      type: string
+      value: fake_sender
+    pgrst_db_schemas:
+      type: string
+      value: public,storage,graphql_public
+    pg_meta_crypto_key:
+      type: string
+      value: ${{ random(32) }}
+    studio_default_organization:
+      type: string
+      value: Default Organization
+    studio_default_project:
+      type: string
+      value: Default Project
+    openai_api_key:
+      type: string
+      value: ''
+    logflare_public_access_token:
+      type: string
+      value: ${{ random(32) }}
+    logflare_private_access_token:
+      type: string
+      value: ${{ random(32) }}
+    global_s3_bucket:
+      type: string
+      value: stub
+    region:
+      type: string
+      value: stub
+    storage_tenant_id:
+      type: string
+      value: stub
+    s3_protocol_access_key_id:
+      type: string
+      value: ${{ random(32) }}
+    s3_protocol_access_key_secret:
+      type: string
+      value: ${{ random(64) }}
+    functions_verify_jwt:
+      type: string
+      value: 'false'
+    secret_key_base:
+      type: string
+      value: ${{ random(64) }}
+    vault_enc_key:
+      type: string
+      value: ${{ random(32) }}
+    pooler_tenant_id:
+      type: string
+      value: ${{ random(8) }}
+    pooler_default_pool_size:
+      type: string
+      value: '20'
+    pooler_max_client_conn:
+      type: string
+      value: '100'
+    pooler_db_pool_size:
+      type: string
+      value: '5'
+    imgproxy_enable_webp_detection:
+      type: string
+      value: 'true'
+    dashboard_username:
+      type: string
+      value: supabase
+    dashboard_password:
+      type: string
+      value: ${{ random(20) }}
+  inputs:
+    jwt_secret:
+      description: JWT signing secret for Auth, PostgREST, Studio, and Storage API.
+      type: string
+      default: super-secret-jwt-token-with-at-least-32-characters-long
+      required: true
+    anon_key:
+      description: Anonymous API key in JWT format (must be signed by jwt_secret).
+      type: string
+      default: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNlYWxvcyIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNzA0MDY3MjAwLCJleHAiOjIwNTEyMjI0MDB9.V5KvFbM6nMq-n8Ic1-9662IR7z4l00fNZD1mk4q8l84
+      required: true
+    service_role_key:
+      description: Service role API key in JWT format (must be signed by jwt_secret).
+      type: string
+      default: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNlYWxvcyIsInJvbGUiOiJzZXJ2aWNlX3JvbGUiLCJpYXQiOjE3MDQwNjcyMDAsImV4cCI6MjA1MTIyMjQwMH0.gSHZ4wBeDMAbjjmkQ3TEoyOoqq7GR5F36krGv81PQLY
+      required: true
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+rules:
+- apiGroups:
+  - '*'
+  resources:
+  - '*'
+  verbs:
+  - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+- kind: ServiceAccount
+  name: ${{ defaults.app_name }}-pg
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  terminationPolicy: Delete
+  componentSpecs:
+  - name: postgresql
+    componentDefRef: postgresql
+    disableExporter: true
+    enabledLogs:
+    - running
+    replicas: 1
+    serviceAccountName: ${{ defaults.app_name }}-pg
+    switchPolicy:
+      type: Noop
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 50m
+        memory: 51Mi
+    volumeClaimTemplates:
+    - name: data
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+        storageClassName: openebs-backup
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+  labels:
+    app: ${{ defaults.app_name }}-pg-init
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-pg-init
+spec:
+  backoffLimit: 20
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-pg-init
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      containers:
+      - name: ${{ defaults.app_name }}-pg-init
+        image: postgres:16.4
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 20m
+            memory: 25Mi
+        command:
+        - /bin/sh
+        - -ec
+        args:
+        - |
+          until [ -s /db-secret/host ] && [ -s /db-secret/port ] && [ -s /db-secret/username ] && [ -s /db-secret/password ]; do
+            sleep 2
+          done
+
+          export PGHOST="$(cat /db-secret/host)"
+          export PGPORT="$(cat /db-secret/port)"
+          export PGUSER="$(cat /db-secret/username)"
+          export PGPASSWORD="$(cat /db-secret/password)"
+
+          until pg_isready -h "${PGHOST}" -p "${PGPORT}" -U "${PGUSER}"; do
+            sleep 2
+          done
+
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE SCHEMA IF NOT EXISTS auth;
+          CREATE SCHEMA IF NOT EXISTS storage;
+          CREATE SCHEMA IF NOT EXISTS realtime;
+
+          SELECT 'CREATE ROLE anon NOLOGIN NOINHERIT'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon')\gexec
+          SELECT 'CREATE ROLE authenticated NOLOGIN NOINHERIT'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated')\gexec
+          SELECT 'CREATE ROLE service_role NOLOGIN NOINHERIT'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role')\gexec
+          SELECT 'CREATE ROLE authenticator NOINHERIT LOGIN'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticator')\gexec
+          SELECT 'CREATE ROLE supabase_admin LOGIN SUPERUSER CREATEDB CREATEROLE REPLICATION BYPASSRLS'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'supabase_admin')\gexec
+          SELECT 'CREATE ROLE supabase_storage_admin NOINHERIT CREATEROLE LOGIN NOREPLICATION BYPASSRLS'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'supabase_storage_admin')\gexec
+
+          GRANT anon TO authenticator;
+          GRANT authenticated TO authenticator;
+          GRANT service_role TO authenticator;
+          GRANT authenticator TO supabase_storage_admin;
+
+          GRANT USAGE ON SCHEMA storage TO postgres, anon, authenticated, service_role;
+          GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA storage TO postgres, anon, authenticated, service_role;
+          GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA storage TO postgres, anon, authenticated, service_role;
+          ALTER DEFAULT PRIVILEGES IN SCHEMA storage GRANT ALL ON TABLES TO postgres, anon, authenticated, service_role;
+          ALTER DEFAULT PRIVILEGES IN SCHEMA storage GRANT ALL ON FUNCTIONS TO postgres, anon, authenticated, service_role;
+          ALTER DEFAULT PRIVILEGES IN SCHEMA storage GRANT ALL ON SEQUENCES TO postgres, anon, authenticated, service_role;
+
+          GRANT CREATE ON DATABASE postgres TO supabase_storage_admin;
+          GRANT ALL ON SCHEMA storage TO supabase_storage_admin WITH GRANT OPTION;
+          GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA storage TO supabase_storage_admin;
+          GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA storage TO supabase_storage_admin;
+          ALTER DEFAULT PRIVILEGES IN SCHEMA storage GRANT ALL ON TABLES TO supabase_storage_admin;
+          ALTER DEFAULT PRIVILEGES IN SCHEMA storage GRANT ALL ON SEQUENCES TO supabase_storage_admin;
+          ALTER ROLE supabase_storage_admin SET search_path = storage;
+
+          CREATE TEMP TABLE IF NOT EXISTS pg_log_compat(line text);
+          COPY pg_log_compat FROM PROGRAM 'mkdir -p ../pg_log && for i in 0 1 2 3 4 5 6 7; do f=../pg_log/postgresql-${i}.csv; [ -e "$f" ] || : > "$f"; done';
+          DROP TABLE IF EXISTS pg_log_compat;
+          SQL
+
+          DB_PASS_SQL="$(printf '%s' "${PGPASSWORD}" | sed "s/'/''/g")"
+          psql -v ON_ERROR_STOP=1 -c "ALTER ROLE authenticator WITH PASSWORD '${DB_PASS_SQL}';"
+          psql -v ON_ERROR_STOP=1 -c "ALTER ROLE supabase_admin WITH PASSWORD '${DB_PASS_SQL}';"
+          psql -v ON_ERROR_STOP=1 -c "ALTER ROLE supabase_storage_admin WITH PASSWORD '${DB_PASS_SQL}';"
+          psql -v ON_ERROR_STOP=1 -c "ALTER ROLE anon SET search_path = storage, public;"
+          psql -v ON_ERROR_STOP=1 -c "ALTER ROLE authenticated SET search_path = storage, public;"
+          psql -v ON_ERROR_STOP=1 -c "ALTER ROLE service_role SET search_path = storage, public;"
+          psql -v ON_ERROR_STOP=1 -c "ALTER ROLE CURRENT_USER SET search_path = storage, public;"
+        volumeMounts:
+        - name: pg-conn
+          mountPath: /db-secret
+          readOnly: true
+      volumes:
+      - name: pg-conn
+        secret:
+          secretName: ${{ defaults.app_name }}-pg-conn-credential
+          optional: true
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-kong-config
+  labels:
+    app: ${{ defaults.app_name }}-kong-config
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-kong-config
+data:
+  kong.yml.tpl: |
+    _format_version: '2.1'
+    _transform: true
+
+    consumers:
+      - username: DASHBOARD
+      - username: anon
+        keyauth_credentials:
+          - key: __ANON_KEY__
+      - username: service_role
+        keyauth_credentials:
+          - key: __SERVICE_ROLE_KEY__
+
+    acls:
+      - consumer: anon
+        group: anon
+      - consumer: service_role
+        group: admin
+
+    basicauth_credentials:
+      - consumer: DASHBOARD
+        username: '__DASHBOARD_USERNAME__'
+        password: '__DASHBOARD_PASSWORD__'
+
+    services:
+      - name: auth-v1-open
+        url: http://__APP_NAME__-auth:9999/verify
+        routes:
+          - name: auth-v1-open
+            strip_path: true
+            paths:
+              - /auth/v1/verify
+        plugins:
+          - name: cors
+
+      - name: auth-v1-open-callback
+        url: http://__APP_NAME__-auth:9999/callback
+        routes:
+          - name: auth-v1-open-callback
+            strip_path: true
+            paths:
+              - /auth/v1/callback
+        plugins:
+          - name: cors
+
+      - name: auth-v1-open-authorize
+        url: http://__APP_NAME__-auth:9999/authorize
+        routes:
+          - name: auth-v1-open-authorize
+            strip_path: true
+            paths:
+              - /auth/v1/authorize
+        plugins:
+          - name: cors
+
+      - name: auth-v1
+        url: http://__APP_NAME__-auth:9999/
+        routes:
+          - name: auth-v1-all
+            strip_path: true
+            paths:
+              - /auth/v1/
+        plugins:
+          - name: cors
+          - name: key-auth
+            config:
+              hide_credentials: false
+          - name: acl
+            config:
+              hide_groups_header: true
+              allow:
+                - admin
+                - anon
+
+      - name: rest-v1
+        url: http://__APP_NAME__-rest:3000/
+        routes:
+          - name: rest-v1-all
+            strip_path: true
+            paths:
+              - /rest/v1/
+        plugins:
+          - name: cors
+          - name: key-auth
+            config:
+              hide_credentials: true
+          - name: acl
+            config:
+              hide_groups_header: true
+              allow:
+                - admin
+                - anon
+
+      - name: graphql-v1
+        url: http://__APP_NAME__-rest:3000/rpc/graphql
+        routes:
+          - name: graphql-v1-all
+            strip_path: true
+            paths:
+              - /graphql/v1
+        plugins:
+          - name: cors
+          - name: key-auth
+            config:
+              hide_credentials: true
+          - name: request-transformer
+            config:
+              add:
+                headers:
+                  - Content-Profile:graphql_public
+          - name: acl
+            config:
+              hide_groups_header: true
+              allow:
+                - admin
+                - anon
+
+      - name: realtime-v1-ws
+        url: http://__APP_NAME__-realtime:4000/socket
+        protocol: ws
+        routes:
+          - name: realtime-v1-ws
+            strip_path: true
+            paths:
+              - /realtime/v1/
+        plugins:
+          - name: cors
+          - name: key-auth
+            config:
+              hide_credentials: false
+          - name: acl
+            config:
+              hide_groups_header: true
+              allow:
+                - admin
+                - anon
+
+      - name: realtime-v1-rest
+        url: http://__APP_NAME__-realtime:4000/api
+        protocol: http
+        routes:
+          - name: realtime-v1-rest
+            strip_path: true
+            paths:
+              - /realtime/v1/api
+        plugins:
+          - name: cors
+          - name: key-auth
+            config:
+              hide_credentials: false
+          - name: acl
+            config:
+              hide_groups_header: true
+              allow:
+                - admin
+                - anon
+
+      - name: storage-v1
+        url: http://__APP_NAME__-storage:5000/
+        routes:
+          - name: storage-v1-all
+            strip_path: true
+            paths:
+              - /storage/v1/
+        plugins:
+          - name: cors
+
+      - name: functions-v1
+        url: http://__APP_NAME__-functions:9000/
+        routes:
+          - name: functions-v1-all
+            strip_path: true
+            paths:
+              - /functions/v1/
+        plugins:
+          - name: cors
+
+      - name: meta
+        url: http://__APP_NAME__-meta:8080/
+        routes:
+          - name: meta-all
+            strip_path: true
+            paths:
+              - /pg/
+        plugins:
+          - name: key-auth
+            config:
+              hide_credentials: false
+          - name: acl
+            config:
+              hide_groups_header: true
+              allow:
+                - admin
+
+      - name: mcp-blocker
+        url: http://__APP_NAME__:3000/api/mcp
+        routes:
+          - name: mcp-blocker-route
+            strip_path: true
+            paths:
+              - /api/mcp
+        plugins:
+          - name: request-termination
+            config:
+              status_code: 403
+              message: Access is forbidden.
+
+      - name: mcp
+        url: http://__APP_NAME__:3000/api/mcp
+        routes:
+          - name: mcp
+            strip_path: true
+            paths:
+              - /mcp
+        plugins:
+          - name: request-termination
+            config:
+              status_code: 403
+              message: Access is forbidden.
+
+      - name: dashboard
+        url: http://__APP_NAME__:3000/
+        routes:
+          - name: dashboard-all
+            strip_path: true
+            paths:
+              - /
+        plugins:
+          - name: cors
+          - name: basic-auth
+            config:
+              hide_credentials: true
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-supavisor-config
+  labels:
+    app: ${{ defaults.app_name }}-supavisor-config
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-supavisor-config
+data:
+  pooler.exs: "{:ok, _} = Application.ensure_all_started(:supavisor)\n\n{:ok, version}\
+    \ =\n  case Supavisor.Repo.query!(\"select version()\") do\n    %{rows: [[ver]]}\
+    \ -> Supavisor.Helpers.parse_pg_version(ver)\n    _ -> nil\n  end\n\nparams =\
+    \ %{\n  \"external_id\" => System.get_env(\"POOLER_TENANT_ID\"),\n  \"db_host\"\
+    \ => System.get_env(\"POSTGRES_HOST\"),\n  \"db_port\" => System.get_env(\"POSTGRES_PORT\"\
+    ),\n  \"db_database\" => System.get_env(\"POSTGRES_DB\"),\n  \"require_user\"\
+    \ => false,\n  \"auth_query\" => \"SELECT * FROM pgbouncer.get_auth($1)\",\n \
+    \ \"default_max_clients\" => System.get_env(\"POOLER_MAX_CLIENT_CONN\"),\n  \"\
+    default_pool_size\" => System.get_env(\"POOLER_DEFAULT_POOL_SIZE\"),\n  \"default_parameter_status\"\
+    \ => %{\"server_version\" => version},\n  \"users\" => [%{\n    \"db_user\" =>\
+    \ \"pgbouncer\",\n    \"db_password\" => System.get_env(\"POSTGRES_PASSWORD\"\
+    ),\n    \"mode_type\" => System.get_env(\"POOLER_POOL_MODE\"),\n    \"pool_size\"\
+    \ => System.get_env(\"POOLER_DEFAULT_POOL_SIZE\"),\n    \"is_manager\" => true\n\
+    \  }]\n}\n\nif !Supavisor.Tenants.get_tenant_by_external_id(params[\"external_id\"\
+    ]) do\n  {:ok, _} = Supavisor.Tenants.create_tenant(params)\nend\n"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-vector-config
+  labels:
+    app: ${{ defaults.app_name }}-vector-config
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-vector-config
+data:
+  vector.yml: "api:\n  enabled: true\n  address: 0.0.0.0:9001\n\nsources:\n  internal_metrics:\n\
+    \    type: internal_metrics\n\nsinks:\n  blackhole:\n    type: blackhole\n   \
+    \ inputs:\n      - internal_metrics\n"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-functions-code
+  labels:
+    app: ${{ defaults.app_name }}-functions-code
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-functions-code
+data:
+  main-index.ts: "import * as jose from 'https://deno.land/x/jose@v4.14.4/index.ts'\n\
+    \nconsole.log('main function started')\n\nconst JWT_SECRET = Deno.env.get('JWT_SECRET')\n\
+    const VERIFY_JWT = Deno.env.get('VERIFY_JWT') === 'true'\n\nfunction getAuthToken(req:\
+    \ Request) {\n  const authHeader = req.headers.get('authorization')\n  if (!authHeader)\
+    \ {\n    throw new Error('Missing authorization header')\n  }\n  const [bearer,\
+    \ token] = authHeader.split(' ')\n  if (bearer !== 'Bearer') {\n    throw new\
+    \ Error(`Auth header is not 'Bearer {token}'`)\n  }\n  return token\n}\n\nasync\
+    \ function verifyJWT(jwt: string): Promise<boolean> {\n  const encoder = new TextEncoder()\n\
+    \  const secretKey = encoder.encode(JWT_SECRET)\n  try {\n    await jose.jwtVerify(jwt,\
+    \ secretKey)\n  } catch (err) {\n    console.error(err)\n    return false\n  }\n\
+    \  return true\n}\n\nDeno.serve(async (req: Request) => {\n  if (req.method !==\
+    \ 'OPTIONS' && VERIFY_JWT) {\n    try {\n      const token = getAuthToken(req)\n\
+    \      const isValidJWT = await verifyJWT(token)\n\n      if (!isValidJWT) {\n\
+    \        return new Response(JSON.stringify({ msg: 'Invalid JWT' }), {\n     \
+    \     status: 401,\n          headers: { 'Content-Type': 'application/json' },\n\
+    \        })\n      }\n    } catch (e) {\n      console.error(e)\n      return\
+    \ new Response(JSON.stringify({ msg: e.toString() }), {\n        status: 401,\n\
+    \        headers: { 'Content-Type': 'application/json' },\n      })\n    }\n \
+    \ }\n\n  const url = new URL(req.url)\n  const { pathname } = url\n  const path_parts\
+    \ = pathname.split('/')\n  const service_name = path_parts[1]\n\n  if (!service_name\
+    \ || service_name === '') {\n    const error = { msg: 'missing function name in\
+    \ request' }\n    return new Response(JSON.stringify(error), {\n      status:\
+    \ 400,\n      headers: { 'Content-Type': 'application/json' },\n    })\n  }\n\n\
+    \  const servicePath = `/home/deno/functions/${service_name}`\n  console.error(`serving\
+    \ the request with ${servicePath}`)\n\n  const memoryLimitMb = 150\n  const workerTimeoutMs\
+    \ = 1 * 60 * 1000\n  const noModuleCache = false\n  const importMapPath = null\n\
+    \  const envVarsObj = Deno.env.toObject()\n  const envVars = Object.keys(envVarsObj).map((k)\
+    \ => [k, envVarsObj[k]])\n\n  try {\n    const worker = await EdgeRuntime.userWorkers.create({\n\
+    \      servicePath,\n      memoryLimitMb,\n      workerTimeoutMs,\n      noModuleCache,\n\
+    \      importMapPath,\n      envVars,\n    })\n    return await worker.fetch(req)\n\
+    \  } catch (e) {\n    const error = { msg: e.toString() }\n    return new Response(JSON.stringify(error),\
+    \ {\n      status: 500,\n      headers: { 'Content-Type': 'application/json' },\n\
+    \    })\n  }\n})\n"
+  hello-index.ts: "// Follow this setup guide to integrate the Deno language server\
+    \ with your editor:\n// https://deno.land/manual/getting_started/setup_your_environment\n\
+    // This enables autocomplete, go to definition, etc.\n\nDeno.serve(async () =>\
+    \ {\n  return new Response(\n    `\"Hello from Edge Functions!\"`,\n    { headers:\
+    \ { \"Content-Type\": \"application/json\" } },\n  )\n})\n\n// To invoke:\n//\
+    \ curl 'http://localhost:<KONG_HTTP_PORT>/functions/v1/hello' \\\n//   --header\
+    \ 'Authorization: Bearer <anon/service_role API key>'\n"
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: supabase/studio:2026.02.16-sha-26c615c
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: ${{ defaults.app_name }}
+        image: supabase/studio:2026.02.16-sha-26c615c
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 20m
+            memory: 25Mi
+        env:
+        - name: HOSTNAME
+          value: '::'
+        - name: STUDIO_PG_META_URL
+          value: http://${{ defaults.app_name }}-meta:8080
+        - name: POSTGRES_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        - name: POSTGRES_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: POSTGRES_DB
+          value: postgres
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: password
+        - name: PG_META_CRYPTO_KEY
+          value: ${{ defaults.pg_meta_crypto_key }}
+        - name: DEFAULT_ORGANIZATION_NAME
+          value: ${{ defaults.studio_default_organization }}
+        - name: DEFAULT_PROJECT_NAME
+          value: ${{ defaults.studio_default_project }}
+        - name: OPENAI_API_KEY
+          value: ${{ defaults.openai_api_key }}
+        - name: SUPABASE_URL
+          value: http://${{ defaults.app_name }}-kong:8000
+        - name: SUPABASE_PUBLIC_URL
+          value: https://${{ defaults.app_name }}.${{ SEALOS_CLOUD_DOMAIN }}
+        - name: SUPABASE_ANON_KEY
+          value: ${{ inputs.anon_key }}
+        - name: SUPABASE_SERVICE_KEY
+          value: ${{ inputs.service_role_key }}
+        - name: AUTH_JWT_SECRET
+          value: ${{ inputs.jwt_secret }}
+        - name: LOGFLARE_API_KEY
+          value: ${{ defaults.logflare_public_access_token }}
+        - name: LOGFLARE_PUBLIC_ACCESS_TOKEN
+          value: ${{ defaults.logflare_public_access_token }}
+        - name: LOGFLARE_PRIVATE_ACCESS_TOKEN
+          value: ${{ defaults.logflare_private_access_token }}
+        - name: LOGFLARE_URL
+          value: http://${{ defaults.app_name }}-analytics:4000
+        - name: NEXT_PUBLIC_ENABLE_LOGS
+          value: 'True'
+        - name: NEXT_ANALYTICS_BACKEND_PROVIDER
+          value: postgres
+        - name: SNIPPETS_MANAGEMENT_FOLDER
+          value: /app/snippets
+        - name: EDGE_FUNCTIONS_MANAGEMENT_FOLDER
+          value: /app/edge-functions
+        livenessProbe:
+          httpGet: &id001
+            path: /api/platform/profile
+            port: 3000
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet: *id001
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 10
+          failureThreshold: 3
+        volumeMounts:
+        - name: vn-appvn-snippets
+          mountPath: /app/snippets
+        - name: vn-appvn-edgevn-functions
+          mountPath: /app/edge-functions
+  serviceName: ${{ defaults.app_name }}
+  volumeClaimTemplates:
+  - metadata:
+      name: vn-appvn-snippets
+      annotations:
+        path: /app/snippets
+        value: '1'
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+  - metadata:
+      name: vn-appvn-edgevn-functions
+      annotations:
+        path: /app/edge-functions
+        value: '1'
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-kong
+  annotations:
+    originImageName: kong:2.8.1
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-kong
+    app: ${{ defaults.app_name }}-kong
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-kong
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-kong
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: ${{ defaults.app_name }}-kong
+        image: kong:2.8.1
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 20m
+            memory: 25Mi
+        ports:
+        - containerPort: 8000
+        - containerPort: 8443
+        env:
+        - name: APP_NAME
+          value: ${{ defaults.app_name }}
+        - name: KONG_DATABASE
+          value: 'off'
+        - name: KONG_DECLARATIVE_CONFIG
+          value: /tmp/kong.yml
+        - name: KONG_DNS_ORDER
+          value: LAST,A,CNAME
+        - name: KONG_PLUGINS
+          value: request-transformer,cors,key-auth,acl,basic-auth,request-termination,ip-restriction
+        - name: KONG_NGINX_PROXY_PROXY_BUFFER_SIZE
+          value: 160k
+        - name: KONG_NGINX_PROXY_PROXY_BUFFERS
+          value: 64 160k
+        - name: KONG_NGINX_WORKER_PROCESSES
+          value: '1'
+        - name: SUPABASE_ANON_KEY
+          value: ${{ inputs.anon_key }}
+        - name: SUPABASE_SERVICE_KEY
+          value: ${{ inputs.service_role_key }}
+        - name: DASHBOARD_USERNAME
+          value: ${{ defaults.dashboard_username }}
+        - name: DASHBOARD_PASSWORD
+          value: ${{ defaults.dashboard_password }}
+        command:
+        - /bin/sh
+        - -ec
+        args:
+        - |
+          sed \
+            -e "s|__APP_NAME__|${APP_NAME}|g" \
+            -e "s|__ANON_KEY__|${SUPABASE_ANON_KEY}|g" \
+            -e "s|__SERVICE_ROLE_KEY__|${SUPABASE_SERVICE_KEY}|g" \
+            -e "s|__DASHBOARD_USERNAME__|${DASHBOARD_USERNAME}|g" \
+            -e "s|__DASHBOARD_PASSWORD__|${DASHBOARD_PASSWORD}|g" \
+            /etc/kong-template/kong.yml.tpl > /tmp/kong.yml
+          exec /docker-entrypoint.sh kong docker-start
+        volumeMounts:
+        - name: kong-config
+          mountPath: /etc/kong-template/kong.yml.tpl
+          subPath: kong.yml.tpl
+          readOnly: true
+      volumes:
+      - name: kong-config
+        configMap:
+          name: ${{ defaults.app_name }}-kong-config
+  serviceName: ${{ defaults.app_name }}-kong
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-auth
+  annotations:
+    originImageName: supabase/gotrue:v2.186.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-auth
+    app: ${{ defaults.app_name }}-auth
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-auth
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-auth
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: ${{ defaults.app_name }}-auth
+        image: supabase/gotrue:v2.186.0
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 20m
+            memory: 25Mi
+        env:
+        - name: GOTRUE_API_HOST
+          value: 0.0.0.0
+        - name: GOTRUE_API_PORT
+          value: '9999'
+        - name: API_EXTERNAL_URL
+          value: https://${{ defaults.app_name }}.${{ SEALOS_CLOUD_DOMAIN }}
+        - name: GOTRUE_DB_DRIVER
+          value: postgres
+        - name: GOTRUE_DB_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: GOTRUE_DB_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        - name: GOTRUE_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: password
+        - name: GOTRUE_DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: username
+        - name: GOTRUE_DB_DATABASE_URL
+          value: postgres://$(GOTRUE_DB_USER):$(GOTRUE_DB_PASSWORD)@$(GOTRUE_DB_HOST):$(GOTRUE_DB_PORT)/postgres
+        - name: GOTRUE_SITE_URL
+          value: https://${{ defaults.app_name }}.${{ SEALOS_CLOUD_DOMAIN }}
+        - name: GOTRUE_URI_ALLOW_LIST
+          value: ${{ defaults.additional_redirect_urls }}
+        - name: GOTRUE_DISABLE_SIGNUP
+          value: ${{ defaults.disable_signup }}
+        - name: GOTRUE_JWT_ADMIN_ROLES
+          value: service_role
+        - name: GOTRUE_JWT_AUD
+          value: authenticated
+        - name: GOTRUE_JWT_DEFAULT_GROUP_NAME
+          value: authenticated
+        - name: GOTRUE_JWT_EXP
+          value: ${{ defaults.jwt_expiry }}
+        - name: GOTRUE_JWT_SECRET
+          value: ${{ inputs.jwt_secret }}
+        - name: GOTRUE_EXTERNAL_EMAIL_ENABLED
+          value: ${{ defaults.enable_email_signup }}
+        - name: GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED
+          value: ${{ defaults.enable_anonymous_users }}
+        - name: GOTRUE_MAILER_AUTOCONFIRM
+          value: ${{ defaults.enable_email_autoconfirm }}
+        - name: GOTRUE_SMTP_ADMIN_EMAIL
+          value: ${{ defaults.smtp_admin_email }}
+        - name: GOTRUE_SMTP_HOST
+          value: ${{ defaults.smtp_host }}
+        - name: GOTRUE_SMTP_PORT
+          value: ${{ defaults.smtp_port }}
+        - name: GOTRUE_SMTP_USER
+          value: ${{ defaults.smtp_user }}
+        - name: GOTRUE_SMTP_PASS
+          value: ${{ defaults.smtp_pass }}
+        - name: GOTRUE_SMTP_SENDER_NAME
+          value: ${{ defaults.smtp_sender_name }}
+        - name: GOTRUE_MAILER_URLPATHS_INVITE
+          value: /auth/v1/verify
+        - name: GOTRUE_MAILER_URLPATHS_CONFIRMATION
+          value: /auth/v1/verify
+        - name: GOTRUE_MAILER_URLPATHS_RECOVERY
+          value: /auth/v1/verify
+        - name: GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE
+          value: /auth/v1/verify
+        - name: GOTRUE_EXTERNAL_PHONE_ENABLED
+          value: ${{ defaults.enable_phone_signup }}
+        - name: GOTRUE_SMS_AUTOCONFIRM
+          value: ${{ defaults.enable_phone_autoconfirm }}
+        livenessProbe:
+          httpGet: &id001
+            path: /health
+            port: 9999
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet: *id001
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 3
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-rest
+  annotations:
+    originImageName: postgrest/postgrest@sha256:b574528fe109c8343c1247155734d03df8c34b462f342dca0ccc20244fc36ef9
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-rest
+    app: ${{ defaults.app_name }}-rest
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-rest
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-rest
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: ${{ defaults.app_name }}-rest
+        image: postgrest/postgrest@sha256:b574528fe109c8343c1247155734d03df8c34b462f342dca0ccc20244fc36ef9
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 20m
+            memory: 25Mi
+        env:
+        - name: PGRST_DB_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: PGRST_DB_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        - name: PGRST_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: password
+        - name: PGRST_DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: username
+        - name: PGRST_DB_URI
+          value: postgres://$(PGRST_DB_USER):$(PGRST_DB_PASSWORD)@$(PGRST_DB_HOST):$(PGRST_DB_PORT)/postgres
+        - name: PGRST_DB_SCHEMAS
+          value: ${{ defaults.pgrst_db_schemas }}
+        - name: PGRST_DB_ANON_ROLE
+          value: anon
+        - name: PGRST_JWT_SECRET
+          value: ${{ inputs.jwt_secret }}
+        - name: PGRST_DB_USE_LEGACY_GUCS
+          value: 'false'
+        - name: PGRST_APP_SETTINGS_JWT_SECRET
+          value: ${{ inputs.jwt_secret }}
+        - name: PGRST_APP_SETTINGS_JWT_EXP
+          value: ${{ defaults.jwt_expiry }}
+        args:
+        - postgrest
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-realtime
+  annotations:
+    originImageName: supabase/realtime:v2.76.5
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-realtime
+    app: ${{ defaults.app_name }}-realtime
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-realtime
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-realtime
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: ${{ defaults.app_name }}-realtime
+        image: supabase/realtime:v2.76.5
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 20m
+            memory: 25Mi
+        env:
+        - name: PORT
+          value: '4000'
+        - name: DB_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: DB_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: username
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: password
+        - name: DB_NAME
+          value: postgres
+        - name: DB_AFTER_CONNECT_QUERY
+          value: SET search_path TO public
+        - name: DB_ENC_KEY
+          value: supabaserealtime
+        - name: API_JWT_SECRET
+          value: ${{ inputs.jwt_secret }}
+        - name: SECRET_KEY_BASE
+          value: ${{ defaults.secret_key_base }}
+        - name: ERL_AFLAGS
+          value: -proto_dist inet_tcp
+        - name: DNS_NODES
+          value: ''''''
+        - name: RLIMIT_NOFILE
+          value: '10000'
+        - name: APP_NAME
+          value: realtime
+        - name: SEED_SELF_HOST
+          value: 'true'
+        - name: RUN_JANITOR
+          value: 'true'
+        - name: DISABLE_HEALTHCHECK_LOGGING
+          value: 'true'
+        livenessProbe:
+          tcpSocket: &id001
+            port: 4000
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          tcpSocket: *id001
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        startupProbe:
+          tcpSocket: *id001
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 4
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-storage
+  annotations:
+    originImageName: supabase/storage-api:v1.37.8
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-storage
+    app: ${{ defaults.app_name }}-storage
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-storage
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-storage
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: ${{ defaults.app_name }}-storage
+        image: supabase/storage-api:v1.37.8
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 20m
+            memory: 25Mi
+        env:
+        - name: ANON_KEY
+          value: ${{ inputs.anon_key }}
+        - name: SERVICE_KEY
+          value: ${{ inputs.service_role_key }}
+        - name: POSTGREST_URL
+          value: http://${{ defaults.app_name }}-rest:3000
+        - name: PGRST_JWT_SECRET
+          value: ${{ inputs.jwt_secret }}
+        - name: STORAGE_DB_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: STORAGE_DB_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        - name: STORAGE_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: password
+        - name: STORAGE_DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: username
+        - name: DATABASE_URL
+          value: postgres://$(STORAGE_DB_USER):$(STORAGE_DB_PASSWORD)@$(STORAGE_DB_HOST):$(STORAGE_DB_PORT)/postgres
+        - name: REQUEST_ALLOW_X_FORWARDED_PATH
+          value: 'true'
+        - name: FILE_SIZE_LIMIT
+          value: '52428800'
+        - name: STORAGE_BACKEND
+          value: file
+        - name: GLOBAL_S3_BUCKET
+          value: ${{ defaults.global_s3_bucket }}
+        - name: FILE_STORAGE_BACKEND_PATH
+          value: /var/lib/storage
+        - name: TENANT_ID
+          value: ${{ defaults.storage_tenant_id }}
+        - name: REGION
+          value: ${{ defaults.region }}
+        - name: ENABLE_IMAGE_TRANSFORMATION
+          value: 'true'
+        - name: IMGPROXY_URL
+          value: http://${{ defaults.app_name }}-imgproxy:5001
+        - name: S3_PROTOCOL_ACCESS_KEY_ID
+          value: ${{ defaults.s3_protocol_access_key_id }}
+        - name: S3_PROTOCOL_ACCESS_KEY_SECRET
+          value: ${{ defaults.s3_protocol_access_key_secret }}
+        livenessProbe:
+          httpGet: &id001
+            path: /status
+            port: 5000
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet: *id001
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 3
+        volumeMounts:
+        - name: vn-varvn-libvn-storage
+          mountPath: /var/lib/storage
+  serviceName: ${{ defaults.app_name }}-storage
+  volumeClaimTemplates:
+  - metadata:
+      name: vn-varvn-libvn-storage
+      annotations:
+        path: /var/lib/storage
+        value: '1'
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-imgproxy
+  annotations:
+    originImageName: darthsim/imgproxy:v3.30.1
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-imgproxy
+    app: ${{ defaults.app_name }}-imgproxy
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-imgproxy
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-imgproxy
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: ${{ defaults.app_name }}-imgproxy
+        image: darthsim/imgproxy:v3.30.1
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 20m
+            memory: 25Mi
+        env:
+        - name: IMGPROXY_BIND
+          value: :5001
+        - name: IMGPROXY_LOCAL_FILESYSTEM_ROOT
+          value: /
+        - name: IMGPROXY_USE_ETAG
+          value: 'true'
+        - name: IMGPROXY_ENABLE_WEBP_DETECTION
+          value: ${{ defaults.imgproxy_enable_webp_detection }}
+        - name: IMGPROXY_MAX_SRC_RESOLUTION
+          value: '16.8'
+        livenessProbe:
+          exec: &id001
+            command:
+            - imgproxy
+            - health
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec: *id001
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 3
+        volumeMounts:
+        - name: vn-varvn-libvn-storage
+          mountPath: /var/lib/storage
+  serviceName: ${{ defaults.app_name }}-imgproxy
+  volumeClaimTemplates:
+  - metadata:
+      name: vn-varvn-libvn-storage
+      annotations:
+        path: /var/lib/storage
+        value: '1'
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-meta
+  annotations:
+    originImageName: supabase/postgres-meta:v0.95.2
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-meta
+    app: ${{ defaults.app_name }}-meta
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-meta
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-meta
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: ${{ defaults.app_name }}-meta
+        image: supabase/postgres-meta:v0.95.2
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 20m
+            memory: 25Mi
+        env:
+        - name: PG_META_PORT
+          value: '8080'
+        - name: PG_META_DB_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: PG_META_DB_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        - name: PG_META_DB_NAME
+          value: postgres
+        - name: PG_META_DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: username
+        - name: PG_META_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: password
+        - name: CRYPTO_KEY
+          value: ${{ defaults.pg_meta_crypto_key }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-functions
+  annotations:
+    originImageName: supabase/edge-runtime:v1.70.3
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-functions
+    app: ${{ defaults.app_name }}-functions
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-functions
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-functions
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: ${{ defaults.app_name }}-functions
+        image: supabase/edge-runtime:v1.70.3
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 20m
+            memory: 25Mi
+        env:
+        - name: JWT_SECRET
+          value: ${{ inputs.jwt_secret }}
+        - name: SUPABASE_URL
+          value: http://${{ defaults.app_name }}-kong:8000
+        - name: SUPABASE_PUBLIC_URL
+          value: https://${{ defaults.app_name }}.${{ SEALOS_CLOUD_DOMAIN }}
+        - name: SUPABASE_ANON_KEY
+          value: ${{ inputs.anon_key }}
+        - name: SUPABASE_SERVICE_ROLE_KEY
+          value: ${{ inputs.service_role_key }}
+        - name: SUPABASE_DB_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: SUPABASE_DB_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        - name: SUPABASE_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: password
+        - name: SUPABASE_DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: username
+        - name: SUPABASE_DB_URL
+          value: postgresql://$(SUPABASE_DB_USER):$(SUPABASE_DB_PASSWORD)@$(SUPABASE_DB_HOST):$(SUPABASE_DB_PORT)/postgres
+        - name: VERIFY_JWT
+          value: ${{ defaults.functions_verify_jwt }}
+        args:
+        - start
+        - --main-service
+        - /home/deno/functions/main
+        volumeMounts:
+        - name: functions-code
+          mountPath: /home/deno/functions/main/index.ts
+          subPath: main-index.ts
+          readOnly: true
+        - name: functions-code
+          mountPath: /home/deno/functions/hello/index.ts
+          subPath: hello-index.ts
+          readOnly: true
+        - name: vn-rootvn-cachevn-deno
+          mountPath: /root/.cache/deno
+      volumes:
+      - name: functions-code
+        configMap:
+          name: ${{ defaults.app_name }}-functions-code
+  serviceName: ${{ defaults.app_name }}-functions
+  volumeClaimTemplates:
+  - metadata:
+      name: vn-rootvn-cachevn-deno
+      annotations:
+        path: /root/.cache/deno
+        value: '1'
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-analytics
+  annotations:
+    originImageName: supabase/logflare:1.31.2
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-analytics
+    app: ${{ defaults.app_name }}-analytics
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-analytics
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-analytics
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: ${{ defaults.app_name }}-analytics
+        image: supabase/logflare:1.31.2
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 200m
+            memory: 1024Mi
+          requests:
+            cpu: 20m
+            memory: 102Mi
+        env:
+        - name: LOGFLARE_NODE_HOST
+          value: 127.0.0.1
+        - name: DB_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: username
+        - name: DB_DATABASE
+          value: postgres
+        - name: DB_HOSTNAME
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: DB_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: password
+        - name: DB_SCHEMA
+          value: public
+        - name: LOGFLARE_PUBLIC_ACCESS_TOKEN
+          value: ${{ defaults.logflare_public_access_token }}
+        - name: LOGFLARE_PRIVATE_ACCESS_TOKEN
+          value: ${{ defaults.logflare_private_access_token }}
+        - name: LOGFLARE_SINGLE_TENANT
+          value: 'true'
+        - name: LOGFLARE_SUPABASE_MODE
+          value: 'true'
+        - name: ANALYTICS_DB_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: ANALYTICS_DB_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        - name: ANALYTICS_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: password
+        - name: POSTGRES_BACKEND_URL
+          value: postgresql://$(DB_USERNAME):$(ANALYTICS_DB_PASSWORD)@$(ANALYTICS_DB_HOST):$(ANALYTICS_DB_PORT)/postgres
+        - name: POSTGRES_BACKEND_SCHEMA
+          value: public
+        - name: LOGFLARE_FEATURE_FLAG_OVERRIDE
+          value: multibackend=true
+        livenessProbe:
+          httpGet: &id001
+            path: /health
+            port: 4000
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 10
+        readinessProbe:
+          httpGet: *id001
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 10
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-vector
+  annotations:
+    originImageName: timberio/vector:0.53.0-alpine
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-vector
+    app: ${{ defaults.app_name }}-vector
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-vector
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-vector
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: ${{ defaults.app_name }}-vector
+        image: timberio/vector:0.53.0-alpine
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 20m
+            memory: 25Mi
+        env:
+        - name: LOGFLARE_PUBLIC_ACCESS_TOKEN
+          value: ${{ defaults.logflare_public_access_token }}
+        args:
+        - --config
+        - /etc/vector/vector.yml
+        livenessProbe:
+          httpGet: &id001
+            path: /health
+            port: 9001
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet: *id001
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 3
+        volumeMounts:
+        - name: vector-config
+          mountPath: /etc/vector/vector.yml
+          subPath: vector.yml
+          readOnly: true
+      volumes:
+      - name: vector-config
+        configMap:
+          name: ${{ defaults.app_name }}-vector-config
+  serviceName: ${{ defaults.app_name }}-vector
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-supavisor
+  annotations:
+    originImageName: supabase/supavisor:2.7.4
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-supavisor
+    app: ${{ defaults.app_name }}-supavisor
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-supavisor
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-supavisor
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: ${{ defaults.app_name }}-supavisor
+        image: supabase/supavisor:2.7.4
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 20m
+            memory: 25Mi
+        ports:
+        - containerPort: 5432
+        - containerPort: 6543
+        env:
+        - name: PORT
+          value: '4000'
+        - name: POSTGRES_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        - name: POSTGRES_DB
+          value: postgres
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: password
+        - name: SUPAVISOR_DB_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: SUPAVISOR_DB_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        - name: SUPAVISOR_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: password
+        - name: SUPAVISOR_DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: username
+        - name: DATABASE_URL
+          value: ecto://$(SUPAVISOR_DB_USER):$(SUPAVISOR_DB_PASSWORD)@$(SUPAVISOR_DB_HOST):$(SUPAVISOR_DB_PORT)/postgres
+        - name: CLUSTER_POSTGRES
+          value: 'True'
+        - name: SECRET_KEY_BASE
+          value: ${{ defaults.secret_key_base }}
+        - name: VAULT_ENC_KEY
+          value: ${{ defaults.vault_enc_key }}
+        - name: API_JWT_SECRET
+          value: ${{ inputs.jwt_secret }}
+        - name: METRICS_JWT_SECRET
+          value: ${{ inputs.jwt_secret }}
+        - name: REGION
+          value: ${{ defaults.region }}
+        - name: ERL_AFLAGS
+          value: -proto_dist inet_tcp
+        - name: POOLER_TENANT_ID
+          value: ${{ defaults.pooler_tenant_id }}
+        - name: POOLER_DEFAULT_POOL_SIZE
+          value: ${{ defaults.pooler_default_pool_size }}
+        - name: POOLER_MAX_CLIENT_CONN
+          value: ${{ defaults.pooler_max_client_conn }}
+        - name: POOLER_POOL_MODE
+          value: transaction
+        - name: DB_POOL_SIZE
+          value: ${{ defaults.pooler_db_pool_size }}
+        - name: POSTGRES_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        args:
+        - /bin/sh
+        - -c
+        - /app/bin/migrate && /app/bin/supavisor eval "$(cat /etc/pooler/pooler.exs)"
+          && /app/bin/server
+        livenessProbe:
+          httpGet: &id001
+            path: /api/health
+            port: 5432
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 5
+        readinessProbe:
+          httpGet: *id001
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 5
+        volumeMounts:
+        - name: supavisor-config
+          mountPath: /etc/pooler/pooler.exs
+          subPath: pooler.exs
+          readOnly: true
+      volumes:
+      - name: supavisor-config
+        configMap:
+          name: ${{ defaults.app_name }}-supavisor-config
+  serviceName: ${{ defaults.app_name }}-supavisor
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-kong
+  labels:
+    app: ${{ defaults.app_name }}-kong
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-kong
+spec:
+  ports:
+  - name: tcp-8000
+    port: 8000
+    targetPort: 8000
+    protocol: TCP
+  - name: tcp-8443
+    port: 8443
+    targetPort: 8443
+    protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-kong
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-supavisor
+  labels:
+    app: ${{ defaults.app_name }}-supavisor
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-supavisor
+spec:
+  ports:
+  - name: tcp-5432
+    port: 5432
+    targetPort: 5432
+    protocol: TCP
+  - name: tcp-6543
+    port: 6543
+    targetPort: 6543
+    protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-supavisor
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+  - name: tcp-3000
+    port: 3000
+    targetPort: 3000
+    protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-auth
+  labels:
+    app: ${{ defaults.app_name }}-auth
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-auth
+spec:
+  ports:
+  - name: tcp-9999
+    port: 9999
+    targetPort: 9999
+    protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-auth
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-rest
+  labels:
+    app: ${{ defaults.app_name }}-rest
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-rest
+spec:
+  ports:
+  - name: tcp-3000
+    port: 3000
+    targetPort: 3000
+    protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-rest
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-realtime
+  labels:
+    app: ${{ defaults.app_name }}-realtime
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-realtime
+spec:
+  ports:
+  - name: tcp-4000
+    port: 4000
+    targetPort: 4000
+    protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-realtime
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-storage
+  labels:
+    app: ${{ defaults.app_name }}-storage
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-storage
+spec:
+  ports:
+  - name: tcp-5000
+    port: 5000
+    targetPort: 5000
+    protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-storage
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-imgproxy
+  labels:
+    app: ${{ defaults.app_name }}-imgproxy
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-imgproxy
+spec:
+  ports:
+  - name: tcp-5001
+    port: 5001
+    targetPort: 5001
+    protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-imgproxy
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-meta
+  labels:
+    app: ${{ defaults.app_name }}-meta
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-meta
+spec:
+  ports:
+  - name: tcp-8080
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-meta
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-functions
+  labels:
+    app: ${{ defaults.app_name }}-functions
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-functions
+spec:
+  ports:
+  - name: tcp-9000
+    port: 9000
+    targetPort: 9000
+    protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-functions
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-analytics
+  labels:
+    app: ${{ defaults.app_name }}-analytics
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-analytics
+spec:
+  ports:
+  - name: tcp-4000
+    port: 4000
+    targetPort: 4000
+    protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-analytics
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-kong
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-kong
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_name }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: 'client_header_buffer_size 64k;
+
+      large_client_header_buffers 4 128k;'
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: "if ($request_uri ~* \\.(js|css|gif|jpe?g|png))\
+      \ {\n  expires 30d;\n  add_header Cache-Control \"public\";\n}"
+spec:
+  rules:
+  - host: ${{ defaults.app_name }}.${{ SEALOS_CLOUD_DOMAIN }}
+    http:
+      paths:
+      - pathType: Prefix
+        path: /
+        backend:
+          service:
+            name: ${{ defaults.app_name }}-kong
+            port:
+              number: 8000
+  tls:
+  - hosts:
+    - ${{ defaults.app_name }}.${{ SEALOS_CLOUD_DOMAIN }}
+    secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_name }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/supabase/logo.png
+  name: Supabase
+  type: link

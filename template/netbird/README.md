@@ -150,7 +150,7 @@ To scale the deployment:
 - [NetBird Docs](https://docs.netbird.io/)
 - [NetBird GitHub Issues](https://github.com/netbirdio/netbird/issues)
 - [NetBird Community](https://netbird.io/community/)
-- [Sealos Discord](https://discord.gg/sealos)
+- [Sealos Discord](https://discord.gg/wdUn538zVP)
 
 ## Additional Resources
 

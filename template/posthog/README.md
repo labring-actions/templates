@@ -128,7 +128,7 @@ For most workloads, scale ingestion and worker components first, then scale web 
 
 - [PostHog Docs](https://posthog.com/docs)
 - [PostHog GitHub Issues](https://github.com/PostHog/posthog/issues)
-- [Sealos Discord](https://discord.gg/sealos)
+- [Sealos Discord](https://discord.gg/wdUn538zVP)
 
 ## Additional Resources
 

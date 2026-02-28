@@ -44,14 +44,14 @@ DB_FQDN_BY_TYPE: Dict[str, str] = {
     "postgres": "${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc.cluster.local",
     "mysql": "${{ defaults.app_name }}-mysql-mysql.${{ SEALOS_NAMESPACE }}.svc.cluster.local",
     "mongodb": "${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc.cluster.local",
-    "redis": "${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local",
+    "redis": "${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local",
     "kafka": "${{ defaults.app_name }}-broker-kafka.${{ SEALOS_NAMESPACE }}.svc.cluster.local",
 }
 DB_SECRET_NAME_BY_TYPE: Dict[str, str] = {
     "postgres": "${{ defaults.app_name }}-pg-conn-credential",
     "mysql": "${{ defaults.app_name }}-mysql-conn-credential",
     "mongodb": "${{ defaults.app_name }}-mongodb-account-root",
-    "redis": "${{ defaults.app_name }}-redis-account-default",
+    "redis": "${{ defaults.app_name }}-redis-redis-account-default",
     "kafka": "${{ defaults.app_name }}-broker-account-admin",
 }
 DB_ENV_HINTS_BY_TYPE: Dict[str, Tuple[str, ...]] = {
@@ -1772,6 +1772,11 @@ def infer_db_secret_ref(env_name: str, value: str, db_services: Mapping[str, str
     if db_type is None:
         return None
 
+    # Redis credentials secret currently provides username/password only.
+    # Host/port should use fixed redis Service/FQDN values.
+    if db_type == "redis" and connection_key in {"host", "port"}:
+        return None
+
     secret_name = DB_SECRET_NAME_BY_TYPE.get(db_type)
     if not isinstance(secret_name, str):
         return None
@@ -1803,27 +1808,38 @@ def build_db_url_composed_env_entries(
     user_var = f"SEALOS_{env_token}_{db_token}_USERNAME"
     password_var = f"SEALOS_{env_token}_{db_token}_PASSWORD"
 
-    helper_entries: List[Dict[str, Any]] = [
-        build_secret_ref_env_entry(host_var, secret_name, "host"),
-        build_secret_ref_env_entry(port_var, secret_name, "port"),
-    ]
+    helper_entries: List[Dict[str, Any]]
+    if db_type == "redis":
+        helper_entries = [
+            {"name": host_var, "value": DB_FQDN_BY_TYPE["redis"]},
+            {"name": port_var, "value": "6379"},
+        ]
+    else:
+        helper_entries = [
+            build_secret_ref_env_entry(host_var, secret_name, "host"),
+            build_secret_ref_env_entry(port_var, secret_name, "port"),
+        ]
 
     auth_prefix = ""
-    if parsed.username is not None:
+    has_auth = "@" in parsed.netloc
+    has_username = parsed.username not in (None, "")
+    has_password = parsed.password is not None
+
+    if has_username:
         helper_entries.append(build_secret_ref_env_entry(user_var, secret_name, "username"))
-        if parsed.password is not None:
-            helper_entries.append(build_secret_ref_env_entry(password_var, secret_name, "password"))
-            auth_prefix = f"$({user_var}):$({password_var})@"
-        else:
-            auth_prefix = f"$({user_var})@"
-    elif parsed.password is not None:
-        # Compose URLs with password but no username are uncommon; keep generated form explicit.
-        helper_entries.append(build_secret_ref_env_entry(user_var, secret_name, "username"))
+    if has_password:
         helper_entries.append(build_secret_ref_env_entry(password_var, secret_name, "password"))
-        auth_prefix = f"$({user_var}):$({password_var})@"
+
+    if has_auth:
+        if has_username and has_password:
+            auth_prefix = f"$({user_var}):$({password_var})@"
+        elif has_username:
+            auth_prefix = f"$({user_var})@"
+        elif has_password:
+            auth_prefix = f":$({password_var})@"
 
     host_port = f"$({host_var})"
-    if parsed.port is not None:
+    if parsed.port is not None or db_type == "redis":
         host_port = f"{host_port}:$({port_var})"
 
     suffix = parsed.path or ""

@@ -129,7 +129,7 @@ For storage growth, edit the PVC capacity from the storage-related resource card
 - [Pocket ID Documentation](https://docs.pocket-id.org)
 - [Pocket ID GitHub Issues](https://github.com/pocket-id/pocket-id/issues)
 - [Sealos Documentation](https://sealos.io/docs)
-- [Sealos Discord](https://discord.gg/sealos)
+- [Sealos Discord](https://discord.gg/wdUn538zVP)
 
 ## Additional Resources
 

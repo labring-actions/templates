@@ -1,0 +1,307 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: opencart
+spec:
+  title: OpenCart
+  url: https://www.opencart.com/
+  gitRepo: https://github.com/opencart/opencart
+  author: Sealos
+  description: Open-source eCommerce platform for building online stores.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/opencart/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/opencart/logo.png
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: 开源电商平台，用于快速搭建在线商店。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/opencart/README_zh.md
+  categories:
+  - frontend
+  - backend
+  defaults:
+    app_host:
+      type: string
+      value: opencart-${{ random(8) }}
+    app_name:
+      type: string
+      value: opencart-${{ random(8) }}
+  inputs:
+    OPENCART_USERNAME:
+      description: OpenCart admin username for initial setup.
+      type: string
+      default: admin
+      required: true
+    OPENCART_PASSWORD:
+      description: OpenCart admin password for initial setup.
+      type: string
+      default: ''
+      required: true
+    OPENCART_ADMIN_EMAIL:
+      description: OpenCart admin email for initial setup.
+      type: string
+      default: admin@example.com
+      required: true
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-mysql
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-mysql
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+rules:
+- apiGroups:
+  - '*'
+  resources:
+  - '*'
+  verbs:
+  - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-mysql
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-mysql
+subjects:
+- kind: ServiceAccount
+  name: ${{ defaults.app_name }}-mysql
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-mysql
+  labels:
+    kb.io/database: ac-mysql-8.0.30-1
+    clusterdefinition.kubeblocks.io/name: apecloud-mysql
+    clusterversion.kubeblocks.io/name: ac-mysql-8.0.30-1
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys:
+    - kubernetes.io/hostname
+  clusterDefinitionRef: apecloud-mysql
+  clusterVersionRef: ac-mysql-8.0.30-1
+  componentSpecs:
+  - name: mysql
+    componentDefRef: mysql
+    monitor: true
+    noCreatePDB: false
+    replicas: 1
+    serviceAccountName: ${{ defaults.app_name }}-mysql
+    switchPolicy:
+      type: Noop
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 50m
+        memory: 51Mi
+    volumeClaimTemplates:
+    - name: data
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+        storageClassName: openebs-backup
+  terminationPolicy: Delete
+  tolerations: []
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/yangchuansheng/opencart:4.1.0.3@sha256:eb92c3f24fe3a2b44a09af51dcd8c2ba9aeb2454b26dcae9e85036afb1d04d94
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  serviceName: ${{ defaults.app_name }}
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: ${{ defaults.app_name }}
+        image: ghcr.io/yangchuansheng/opencart:4.1.0.3@sha256:eb92c3f24fe3a2b44a09af51dcd8c2ba9aeb2454b26dcae9e85036afb1d04d94
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 20m
+            memory: 25Mi
+        ports:
+        - containerPort: 80
+        env:
+        - name: OPENCART_USERNAME
+          value: ${{ inputs.OPENCART_USERNAME }}
+        - name: OPENCART_PASSWORD
+          value: ${{ inputs.OPENCART_PASSWORD }}
+        - name: OPENCART_ADMIN_EMAIL
+          value: ${{ inputs.OPENCART_ADMIN_EMAIL }}
+        - name: OPENCART_HTTP_SERVER
+          value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/
+        - name: OPENCART_AUTO_INSTALL
+          value: 'true'
+        - name: OPENCART_REMOVE_INSTALLER
+          value: 'true'
+        - name: OPENCART_STORAGE_PATH
+          value: /var/www/storage
+        - name: OPENCART_ADMIN_PATH
+          value: admincp
+        - name: DB_DRIVER
+          value: mysqli
+        - name: DB_HOSTNAME
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-mysql-conn-credential
+              key: host
+        - name: DB_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-mysql-conn-credential
+              key: username
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-mysql-conn-credential
+              key: password
+        - name: DB_DATABASE
+          value: opencart
+        - name: DB_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-mysql-conn-credential
+              key: port
+        - name: DB_PREFIX
+          value: oc_
+        volumeMounts:
+        - name: vn-varvn-wwwvn-htmlvn-image
+          mountPath: /var/www/html/image
+        - name: vn-varvn-wwwvn-storage
+          mountPath: /var/www/storage
+  volumeClaimTemplates:
+  - metadata:
+      annotations:
+        path: /var/www/html/image
+        value: '0.1'
+      name: vn-varvn-wwwvn-htmlvn-image
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 0.1Gi
+  - metadata:
+      annotations:
+        path: /var/www/storage
+        value: '0.1'
+      name: vn-varvn-wwwvn-storage
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 0.1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+  - name: tcp-80
+    port: 80
+    targetPort: 80
+    protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: 'client_header_buffer_size 64k;
+
+      large_client_header_buffers 4 128k;'
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: "if ($request_uri ~* \\.(js|css|gif|jpe?g|png))\
+      \ {\n  expires 30d;\n  add_header Cache-Control \"public\";\n}"
+spec:
+  rules:
+  - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+    http:
+      paths:
+      - pathType: Prefix
+        path: /
+        backend:
+          service:
+            name: ${{ defaults.app_name }}
+            port:
+              number: 80
+  tls:
+  - hosts:
+    - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+    secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/opencart/logo.png
+  name: OpenCart
+  type: link
