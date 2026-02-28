@@ -177,7 +177,7 @@ To scale your Openclaw deployment:
 
 - [Official Documentation](https://clawd.bot)
 - [GitHub Issues](https://github.com/moltbot/moltbot/issues)
-- [Sealos Discord](https://discord.gg/sealos)
+- [Sealos Discord](https://discord.gg/wdUn538zVP)
 
 ## Additional Resources
 

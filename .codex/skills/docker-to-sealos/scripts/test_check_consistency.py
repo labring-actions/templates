@@ -1257,6 +1257,7 @@ class CheckConsistencyTests(unittest.TestCase):
                   name: demo
                   labels:
                     cloud.sealos.io/app-deploy-manager: demo
+                    app: demo
                   annotations:
                     originImageName: ghcr.io/posthog/posthog:1.0.0
                 spec:
@@ -1279,7 +1280,7 @@ class CheckConsistencyTests(unittest.TestCase):
                 rules_file,
                 additional_include_paths=["template/demo/index.yaml"],
             )
-            self.assertTrue(any(item.rule_id == "R027" for item in violations))
+            self.assertTrue(any(item.rule_id == "R032" for item in violations))
 
     def test_detects_non_robust_pg_init_job_for_custom_postgres_database(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1314,6 +1315,7 @@ class CheckConsistencyTests(unittest.TestCase):
                   name: demo
                   labels:
                     cloud.sealos.io/app-deploy-manager: demo
+                    app: demo
                   annotations:
                     originImageName: ghcr.io/posthog/posthog:1.0.0
                 spec:
@@ -1354,7 +1356,7 @@ class CheckConsistencyTests(unittest.TestCase):
                 rules_file,
                 additional_include_paths=["template/demo/index.yaml"],
             )
-            self.assertTrue(any(item.rule_id == "R027" for item in violations))
+            self.assertTrue(any(item.rule_id == "R032" for item in violations))
 
     def test_allows_robust_pg_init_job_for_custom_postgres_database(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1389,6 +1391,7 @@ class CheckConsistencyTests(unittest.TestCase):
                   name: demo
                   labels:
                     cloud.sealos.io/app-deploy-manager: demo
+                    app: demo
                   annotations:
                     originImageName: ghcr.io/posthog/posthog:1.0.0
                 spec:
@@ -1433,7 +1436,7 @@ class CheckConsistencyTests(unittest.TestCase):
                 rules_file,
                 additional_include_paths=["template/demo/index.yaml"],
             )
-            self.assertFalse(any(item.rule_id == "R027" for item in violations))
+            self.assertFalse(any(item.rule_id == "R032" for item in violations))
 
     def test_ignores_latest_tag_in_negative_example_block(self):
         violations = self.run_checker(
@@ -1570,6 +1573,65 @@ class CheckConsistencyTests(unittest.TestCase):
         )
         self.assertFalse(any(item.rule_id == "R007" for item in violations))
         self.assertFalse(any(item.rule_id == "R017" for item in violations))
+
+    def test_allows_redis_service_host_port_with_new_secret_name(self):
+        violations = self.run_checker(
+            """
+            ```yaml
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo
+            spec:
+              template:
+                spec:
+                  containers:
+                    - name: demo
+                      image: nginx:1.27.2
+                      imagePullPolicy: IfNotPresent
+                      env:
+                        - name: REDIS_HOST
+                          value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+                        - name: REDIS_PORT
+                          value: "6379"
+                        - name: REDIS_PASSWORD
+                          valueFrom:
+                            secretKeyRef:
+                              name: ${{ defaults.app_name }}-redis-redis-account-default
+                              key: password
+                        - name: REDIS_URL
+                          value: redis://:$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)/0
+            ```
+            """
+        )
+        self.assertFalse(any(item.rule_id == "R007" for item in violations))
+        self.assertFalse(any(item.rule_id == "R017" for item in violations))
+
+    def test_allows_legacy_redis_secret_name_for_backward_compatibility(self):
+        violations = self.run_checker(
+            """
+            ```yaml
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo
+            spec:
+              template:
+                spec:
+                  containers:
+                    - name: demo
+                      image: nginx:1.27.2
+                      imagePullPolicy: IfNotPresent
+                      env:
+                        - name: REDIS_PASSWORD
+                          valueFrom:
+                            secretKeyRef:
+                              name: ${{ defaults.app_name }}-redis-account-default
+                              key: password
+            ```
+            """
+        )
+        self.assertFalse(any(item.rule_id == "R007" for item in violations))
 
     def test_detects_database_connection_env_without_secret_ref(self):
         violations = self.run_checker(

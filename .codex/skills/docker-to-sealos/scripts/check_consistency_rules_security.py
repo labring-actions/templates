@@ -39,13 +39,20 @@ DB_CONNECTION_INDICATOR_HINTS: Set[str] = {
     "REDIS",
     "KAFKA",
 }
+# These envs contain DB-related tokens (PG/URL/PORT) in names but are not
+# direct database connection fields and should not be forced to secretKeyRef.
+NON_DB_CONNECTION_ENV_EXACT: Set[str] = {
+    "STUDIO_PG_META_URL",
+    "POSTGREST_URL",
+    "PG_META_PORT",
+}
 ENV_VALUE_REF_RE = re.compile(r"\$\(([A-Za-z_][A-Za-z0-9_]*)\)")
 DB_COMPOSABLE_KEYS: Set[str] = {"endpoint", "host", "port", "username", "password"}
 REDIS_SERVICE_HOST_TEMPLATE_PATTERN = re.compile(
-    rf"^{APP_NAME_PLACEHOLDER}-redis-redis\.\$\{{\{{\s*SEALOS_NAMESPACE\s*\}}\}}\.svc(?:\.cluster\.local)?$"
+    rf"^{APP_NAME_PLACEHOLDER}-redis-redis(?:-redis)?\.\$\{{\{{\s*SEALOS_NAMESPACE\s*\}}\}}\.svc(?:\.cluster\.local)?$"
 )
 REDIS_SERVICE_HOST_RUNTIME_PATTERN = re.compile(
-    r"^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?\.svc(?:\.cluster\.local)?$"
+    r"^[a-z0-9](?:[-a-z0-9]*redis[-a-z0-9]*)\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?\.svc(?:\.cluster\.local)?$"
 )
 
 
@@ -69,6 +76,8 @@ def normalize_env_name(env_name: str) -> str:
 
 def infer_db_connection_field(env_name: str) -> Optional[str]:
     upper = normalize_env_name(env_name)
+    if upper in NON_DB_CONNECTION_ENV_EXACT:
+        return None
     if not any(hint in upper for hint in DB_CONNECTION_INDICATOR_HINTS):
         return None
 

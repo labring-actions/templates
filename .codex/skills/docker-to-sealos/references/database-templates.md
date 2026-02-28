@@ -572,10 +572,10 @@ subjects:
 
 以下规范与数据库升级文档保持一致：
 
-- 业务容器中的数据库连接字段（`endpoint`/`host`/`port`/`username`/`password`）必须通过 `secretKeyRef` 获取
+- 业务容器中的数据库连接字段（`endpoint`/`host`/`port`/`username`/`password`）默认通过 `secretKeyRef` 获取；Redis 在仅提供凭据 secret 时可使用固定 Service FQDN + `6379` 作为 `host`/`port`
 - PostgreSQL Cluster 使用 `postgresql-16.4.0`，并包含 `kb.io/database`、`disableExporter: true`、`enabledLogs: [running]`
 - Secret 命名升级：
-  - `xxx-redis-conn-credential` → `xxx-redis-account-default`
+  - `xxx-redis-conn-credential` → `xxx-redis-redis-account-default`
   - `xxx-mongo-conn-credential` → `xxx-mongodb-account-root`
   - `xxx-conn-credential`(kafka) → `xxx-broker-account-admin`
 
@@ -584,17 +584,21 @@ subjects:
 - PostgreSQL: `${{ defaults.app_name }}-pg-conn-credential`
 - MySQL: `${{ defaults.app_name }}-mysql-conn-credential`
 - MongoDB: `${{ defaults.app_name }}-mongodb-account-root`
-- Redis: `${{ defaults.app_name }}-redis-account-default`
+- Redis: `${{ defaults.app_name }}-redis-redis-account-default`（兼容 `${{ defaults.app_name }}-redis-account-default`）
 - Kafka: `${{ defaults.app_name }}-broker-account-admin`
 
 ### Secret 包含的 Keys
 
-所有数据库 secret 都包含：
+PostgreSQL/MySQL/MongoDB/Kafka secret 通常包含：
 - `endpoint`: 完整的连接端点（host:port）
 - `host`: 主机名
 - `password`: 密码
 - `port`: 端口号
 - `username`: 用户名
+
+Redis 默认账号 secret（`*-redis-redis-account-default`）通常包含：
+- `username`
+- `password`
 
 ### 环境变量配置示例
 
@@ -667,29 +671,18 @@ env:
         key: password
 
   # Redis
-  - name: REDIS_ENDPOINT
-    valueFrom:
-      secretKeyRef:
-        name: ${{ defaults.app_name }}-redis-account-default
-        key: endpoint
   - name: REDIS_HOST
-    valueFrom:
-      secretKeyRef:
-        name: ${{ defaults.app_name }}-redis-account-default
-        key: host
+    value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
   - name: REDIS_PORT
-    valueFrom:
-      secretKeyRef:
-        name: ${{ defaults.app_name }}-redis-account-default
-        key: port
+    value: "6379"
   - name: REDIS_USERNAME
     valueFrom:
       secretKeyRef:
-        name: ${{ defaults.app_name }}-redis-account-default
+        name: ${{ defaults.app_name }}-redis-redis-account-default
         key: username
   - name: REDIS_PASSWORD
     valueFrom:
       secretKeyRef:
-        name: ${{ defaults.app_name }}-redis-account-default
+        name: ${{ defaults.app_name }}-redis-redis-account-default
         key: password
 ```

@@ -150,7 +150,7 @@ Sealos 是构建在 Kubernetes 之上的 AI 辅助云操作系统，覆盖从部
 - [NetBird Docs](https://docs.netbird.io/)
 - [NetBird GitHub Issues](https://github.com/netbirdio/netbird/issues)
 - [NetBird Community](https://netbird.io/community/)
-- [Sealos Discord](https://discord.gg/sealos)
+- [Sealos Discord](https://discord.gg/wdUn538zVP)
 
 ## 更多资源
 

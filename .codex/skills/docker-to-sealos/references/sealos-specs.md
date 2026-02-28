@@ -656,7 +656,7 @@ env:
 ### 其他数据库
 
 其他数据库（Redis、MySQL、MongoDB）也遵循类似的模式：
-- Redis: `${{ defaults.app_name }}-redis-account-default`
+- Redis: `${{ defaults.app_name }}-redis-redis-account-default`（兼容历史命名 `${{ defaults.app_name }}-redis-account-default`）
 - MySQL: `${{ defaults.app_name }}-mysql-conn-credential`
 - MongoDB: `${{ defaults.app_name }}-mongodb-account-root`
 
@@ -738,7 +738,7 @@ env:
   - name: COUCH_DB_URL
     value: http://${{ defaults.app_name }}-svc-couchdb.${{ SEALOS_NAMESPACE }}.svc.cluster.local:5984
   - name: REDIS_URL
-    value: redis://:$(REDIS_PASSWORD)@${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc:6379
+    value: redis://:$(REDIS_PASSWORD)@${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local:6379
 
 # 错误示例：直接使用服务名
 # - name: WORKER_URL
@@ -757,10 +757,10 @@ env:
   - name: REDIS_PASSWORD
     valueFrom:
       secretKeyRef:
-        name: ${{ defaults.app_name }}-redis-account-default
+        name: ${{ defaults.app_name }}-redis-redis-account-default
         key: password
   - name: REDIS_URL
-    value: redis://:$(REDIS_PASSWORD)@${{ defaults.app_name }}-redis.${{ SEALOS_NAMESPACE }}.svc:6379
+    value: redis://:$(REDIS_PASSWORD)@${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local:6379
   
   # 错误示例：如果 REDIS_URL 在 REDIS_PASSWORD 之前定义
   # - name: REDIS_URL

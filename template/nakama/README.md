@@ -158,7 +158,7 @@ To scale your Nakama deployment:
 - [Nakama Documentation](https://heroiclabs.com/docs/nakama/)
 - [Nakama GitHub Issues](https://github.com/heroiclabs/nakama/issues)
 - [Sealos Documentation](https://sealos.io/docs/)
-- [Sealos Discord](https://discord.gg/sealos)
+- [Sealos Discord](https://discord.gg/wdUn538zVP)
 
 ## Additional Resources
 

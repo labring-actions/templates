@@ -128,7 +128,7 @@ Sealos 是一个构建于 Kubernetes 之上的 AI 辅助云操作系统，能同
 
 - [PostHog Docs](https://posthog.com/docs)
 - [PostHog GitHub Issues](https://github.com/PostHog/posthog/issues)
-- [Sealos Discord](https://discord.gg/sealos)
+- [Sealos Discord](https://discord.gg/wdUn538zVP)
 
 ## 更多资源
 

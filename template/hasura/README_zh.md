@@ -115,7 +115,7 @@ Sealos 是构建在 Kubernetes 之上的 AI 辅助云操作系统，覆盖开发
 
 - [Hasura Docs](https://hasura.io/docs/latest/)
 - [Hasura GitHub Issues](https://github.com/hasura/graphql-engine/issues)
-- [Sealos Discord](https://discord.gg/sealos)
+- [Sealos Discord](https://discord.gg/wdUn538zVP)
 
 ## 更多资源
 

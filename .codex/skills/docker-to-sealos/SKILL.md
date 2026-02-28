@@ -139,7 +139,7 @@ If validation fails, fix template/rules/examples first.
 ### Env and secrets
 
 - Non-database sensitive values/inputs use direct `env[].value`.
-- Business containers must source database connection fields (`endpoint`, `host`, `port`, `username`, `password`) from approved Kubeblocks database secrets via `env[].valueFrom.secretKeyRef`.
+- Business containers must source database connection fields (`endpoint`, `host`, `port`, `username`, `password`) from approved Kubeblocks database secrets via `env[].valueFrom.secretKeyRef`; exception: Redis `host`/`port` may use Sealos Redis Service FQDN and `6379` when the Redis secret only exposes credentials.
 - Business containers must not use custom `Secret` or `secretKeyRef` except approved Kubeblocks database secrets and object storage secrets.
 - Database connection/bootstrap may use Kubeblocks-provided secrets, and reserved Kubeblocks database secret names must not be redefined by custom `Secret` resources.
 - Env vars must be declared before referenced (for example password before URL composition).
@@ -160,7 +160,7 @@ If validation fails, fix template/rules/examples first.
 - Database cluster component resources must use `limits(cpu=500m,memory=512Mi)` and `requests(cpu=50m,memory=51Mi)` unless source docs explicitly require otherwise.
 - Secret naming:
   - MongoDB: `${{ defaults.app_name }}-mongodb-account-root`
-  - Redis: `${{ defaults.app_name }}-redis-account-default`
+  - Redis: `${{ defaults.app_name }}-redis-redis-account-default` (legacy `${{ defaults.app_name }}-redis-account-default` may be accepted for backward compatibility)
   - Kafka: `${{ defaults.app_name }}-broker-account-admin`
   - Do not use legacy naming outside supported exceptions.
 

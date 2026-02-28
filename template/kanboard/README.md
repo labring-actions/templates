@@ -109,7 +109,7 @@ For most Kanboard installations, keep a single application replica and scale ver
 
 - [Kanboard Documentation](https://docs.kanboard.org)
 - [Kanboard GitHub Issues](https://github.com/kanboard/kanboard/issues)
-- [Sealos Discord](https://discord.gg/sealos)
+- [Sealos Discord](https://discord.gg/wdUn538zVP)
 
 ## Additional Resources
 

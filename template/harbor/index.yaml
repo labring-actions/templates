@@ -1,0 +1,1445 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: harbor
+spec:
+  title: 'Harbor'
+  url: 'https://goharbor.io/'
+  gitRepo: 'https://github.com/goharbor/harbor'
+  author: 'Sealos'
+  description: 'Harbor is an open-source OCI artifact registry that secures software supply chains with vulnerability scanning, signing, and access control.'
+  readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/harbor/README.md'
+  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/harbor/logo.png'
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: 'Harbor 是一个开源 OCI 制品仓库，提供漏洞扫描、签名与访问控制能力，用于保障软件供应链安全。'
+      readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/harbor/README_zh.md'
+  categories:
+    - dev-ops
+    - storage
+  defaults:
+    app_name:
+      type: string
+      value: harbor-${{ random(8) }}
+    app_host:
+      type: string
+      value: harbor-${{ random(8) }}
+    secret_key:
+      type: string
+      value: ${{ random(16) }}
+    core_secret:
+      type: string
+      value: ${{ random(16) }}
+    jobservice_secret:
+      type: string
+      value: ${{ random(16) }}
+    registry_http_secret:
+      type: string
+      value: ${{ random(16) }}
+    csrf_key:
+      type: string
+      value: ${{ random(32) }}
+  inputs:
+    harbor_admin_password:
+      description: Harbor admin password for initial login.
+      type: string
+      default: ''
+      required: true
+
+---
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  policy: private
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  terminationPolicy: Delete
+  componentSpecs:
+    - name: postgresql
+      componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
+      replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: ${{ defaults.app_name }}-pg-init
+          image: postgres:16.4
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: endpoint
+            - name: PG_DATABASE
+              value: registry
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              for i in $(seq 1 60); do
+                if pg_isready -h "${PG_ENDPOINT%:*}" -p "${PG_ENDPOINT##*:}" -U postgres -d postgres >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 2
+              done
+              pg_isready -h "${PG_ENDPOINT%:*}" -p "${PG_ENDPOINT##*:}" -U postgres -d postgres >/dev/null 2>&1
+              if ! psql "postgresql://postgres:$(PG_PASSWORD)@$(PG_ENDPOINT)/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='$(PG_DATABASE)'" | grep -q 1; then
+                psql "postgresql://postgres:$(PG_PASSWORD)@$(PG_ENDPOINT)/postgres" -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"$(PG_DATABASE)\";"
+              fi
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-redis
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-redis
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    kb.io/database: redis-7.2.7
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/version: 7.2.7
+    clusterversion.kubeblocks.io/name: redis-7.2.7
+    clusterdefinition.kubeblocks.io/name: redis
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys:
+      - kubernetes.io/hostname
+  clusterDefinitionRef: redis
+  terminationPolicy: Delete
+  topology: replication
+  componentSpecs:
+    - name: redis
+      componentDef: redis-7
+      serviceVersion: 7.2.7
+      replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      enabledLogs:
+        - running
+      env:
+        - name: CUSTOM_SENTINEL_MASTER_NAME
+      switchPolicy:
+        type: Noop
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+    - name: redis-sentinel
+      componentDef: redis-sentinel-7
+      serviceVersion: 7.2.7
+      replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-core
+  labels:
+    app: ${{ defaults.app_name }}-core
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-core
+data:
+  app.conf: |
+    appname = Harbor
+    runmode = prod
+    enablegzip = true
+
+    [prod]
+    httpport = 8080
+  PORT: '8080'
+  DATABASE_TYPE: postgresql
+  POSTGRESQL_DATABASE: registry
+  POSTGRESQL_SSLMODE: disable
+  POSTGRESQL_MAX_IDLE_CONNS: '100'
+  POSTGRESQL_MAX_OPEN_CONNS: '900'
+  EXT_ENDPOINT: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  CORE_URL: http://${{ defaults.app_name }}-core
+  JOBSERVICE_URL: http://${{ defaults.app_name }}-jobservice
+  REGISTRY_URL: http://${{ defaults.app_name }}-registry:5000
+  TOKEN_SERVICE_URL: http://${{ defaults.app_name }}-core/service/token
+  CORE_LOCAL_URL: http://127.0.0.1:8080
+  WITH_TRIVY: 'true'
+  TRIVY_ADAPTER_URL: http://${{ defaults.app_name }}-trivy:8080
+  REGISTRY_STORAGE_PROVIDER_NAME: s3
+  LOG_LEVEL: info
+  CONFIG_PATH: /etc/core/app.conf
+  CHART_CACHE_DRIVER: redis
+  PORTAL_URL: http://${{ defaults.app_name }}-portal
+  REGISTRY_CONTROLLER_URL: http://${{ defaults.app_name }}-registryctl:8080
+  REGISTRY_CREDENTIAL_USERNAME: harbor_registry_user
+  REGISTRY_CREDENTIAL_PASSWORD: harbor_registry_password
+  HARBOR_ADMIN_PASSWORD: ${{ inputs.harbor_admin_password }}
+  CSRF_KEY: ${{ defaults.csrf_key }}
+  HTTP_PROXY: ''
+  HTTPS_PROXY: ''
+  NO_PROXY: ${{ defaults.app_name }}-core,${{ defaults.app_name }}-jobservice,${{ defaults.app_name }}-registry,${{ defaults.app_name }}-portal,${{ defaults.app_name }}-trivy,127.0.0.1,localhost,.local,.internal
+  PERMITTED_REGISTRY_TYPES_FOR_PROXY_CACHE: docker-hub,harbor,azure-acr,ali-acr,aws-ecr,google-gcr,docker-registry,github-ghcr,jfrog-artifactory
+  REPLICATION_ADAPTER_WHITELIST: ali-acr,aws-ecr,azure-acr,docker-hub,docker-registry,github-ghcr,google-gcr,harbor,huawei-SWR,jfrog-artifactory,tencent-tcr,volcengine-cr
+  CACHE_ENABLED: 'true'
+  CACHE_EXPIRE_HOURS: '24'
+  QUOTA_UPDATE_PROVIDER: db
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-core-keys
+  labels:
+    app: ${{ defaults.app_name }}-core-keys
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-core-keys
+data:
+  key: ${{ defaults.secret_key }}
+  tls.key: |
+    -----BEGIN PRIVATE KEY-----
+    MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDHbOXQ3EMsr/Kx
+    lB154FRthyCCWI3RT5LQPbmhJpyL/1Qzy3lioPA05Iy6N1N7KV4HKPXUBGA/0IwP
+    KvFUsBv0/7x2ayTlSixkivOfEdIK6tt4cYMh6AzIbE3J9EIHMZdt+KV10V2kIhnJ
+    +Cv05I93l08pezQZLXBhfa2lkVsS2jINj53kGqud83EwnyhenOgKTaEfOmaaBYJh
+    yd5ACZkdKgghYMOEBKyq3yTnl1AltcuDs/XysFw1uJKSEF1CKpXk8iuCwVpSwTdx
+    asP9oZsnE2XPvse3ZpLXECz6f5iKK6hqedyxLy0n/BjyuxuhCoDdtkCfo0FU/8fW
+    oSFeWkoPAgMBAAECggEASlOyC/gsKTmisMDNg6Eylmfom+w5XyvTQj3fM8raSetu
+    DKfno/Tr0irksHryaFLwsqZ3iP/gh6hIq1aL/85rfRLbwR8J71OH3ClVx5GywVLr
+    XaahA0Ajk4eaLo0VFu1KzTgBIzpXNldnWTlf2LRfLGl+na1Hq6Kd4hgfYjgcw5da
+    eZNiSUI64SCbAo9Ul5YZgnOM3xnRSvLFi8MhMw0rHGr8EbFb1h8GZ9i5SdMBdwL9
+    BppRVhGrYl2oQsQoJrNE3GOkiJiATRgHmLz368woEnWLbQk2PHuQEnZ6gzYJyo0+
+    MzXWA1/newofp3ejfgtUMTDjfcKpGR+LwUokOVKdsQKBgQDyoU4Zjh5fYt0jQ4nO
+    tGgxLP8fPvTjNygyiswviNYvbdXxHI83s9WjW3rGsg5x+GFDMM1m//G4gJR025K0
+    yE5eyrBv/8Ng/EowoJq5jJSo/fI8IT9vmSGqrA3u/cNwNldzYHxPPB+TotiktncY
+    LZDkVBpnuINcmLtafAkL6muXiwKBgQDSah6OE32wtHVSBbWWS9S9/Ewal9J5QP2L
+    jYkbVcTcg9qSg/nBOl1QNoUpFmdxLaPOwgtN3AMazySiLwOHM5VJcn+ZuDkN7QwY
+    j9OpAW5VV8sY1/kdqROpvrzvF59eAMpeU/Ze+TOfhqw9cmqCX/jy3x6TWLZNdc9J
+    UA04cV3IDQKBgQCY/xpuhu2kHIVxrS8DB0QEbmlZ3KszdB6G8HsdJl5ZfhtAdU/i
+    QiZfYlojXTg6qfM7GVUMtCxKudnjbmouUXkJ0So9FbywNabazwuCIaHEho3vWM/V
+    oWxXYTNQFvjck4fFm3wHwtPuluuhweWLe4A4Wshjyzgadbz+q+RQfTvnTQKBgDGr
+    6YCiq0Y+o390Z5SOXC9pUtHoS0BijjgWdmpkie+AlOWHkDsEOykHZdH4Pv0hyAy0
+    FBUSPg1jHwPGU2/kRnarN+Ii8h0Oe4+EzHOWKeStr/0yZtWQp1qn81QB4JZBW4R/
+    D6cF7yDWmux6iRgz7cHv1/jytT599CwbYLOVV401AoGAZe5Xv+YZD5KZfqKgG8m9
+    u4dpMijHx3bsdVQ9ZxVChX8DZwbkgPyayE/uOmljbd5nXi/8cOO7JTV5EqOnqckU
+    ktDx8LvCIKjmi/6XzNRAb7FG0443H7E0dcxVon9cD2phyeq7OOoxF5gZHVofeMfL
+    aGyiV2izp/lA4vK7/VCBlKA=
+    -----END PRIVATE KEY-----
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-jobservice-env
+  labels:
+    app: ${{ defaults.app_name }}-jobservice-env
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-jobservice-env
+data:
+  CORE_URL: http://${{ defaults.app_name }}-core
+  TOKEN_SERVICE_URL: http://${{ defaults.app_name }}-core/service/token
+  REGISTRY_URL: http://${{ defaults.app_name }}-registry:5000
+  REGISTRY_CONTROLLER_URL: http://${{ defaults.app_name }}-registryctl:8080
+  REGISTRY_CREDENTIAL_USERNAME: harbor_registry_user
+  JOBSERVICE_WEBHOOK_JOB_MAX_RETRY: '3'
+  JOBSERVICE_WEBHOOK_JOB_HTTP_CLIENT_TIMEOUT: '3'
+  LOG_LEVEL: info
+  HTTP_PROXY: ''
+  HTTPS_PROXY: ''
+  NO_PROXY: ${{ defaults.app_name }}-core,${{ defaults.app_name }}-jobservice,${{ defaults.app_name }}-registry,${{ defaults.app_name }}-portal,${{ defaults.app_name }}-trivy,127.0.0.1,localhost,.local,.internal
+  CACHE_ENABLED: 'true'
+  CACHE_EXPIRE_HOURS: '24'
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-jobservice
+  labels:
+    app: ${{ defaults.app_name }}-jobservice
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-jobservice
+data:
+  config.yml: |
+    protocol: "http"
+    port: 8080
+    worker_pool:
+      workers: 10
+      backend: "redis"
+      redis_pool:
+        redis_url: "redis://localhost:6379/1"
+        namespace: "harbor_job_service_namespace"
+        idle_timeout_second: 3600
+    job_loggers:
+      - name: "FILE"
+        level: INFO
+        settings:
+          base_dir: "/var/log/jobs"
+        sweeper:
+          duration: 14
+          settings:
+            work_dir: "/var/log/jobs"
+    metric:
+      enabled: false
+      path: /metrics
+      port: 8001
+    loggers:
+      - name: "STD_OUTPUT"
+        level: INFO
+    reaper:
+      max_update_hours: 24
+      max_dangling_hours: 168
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-portal
+  labels:
+    app: ${{ defaults.app_name }}-portal
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-portal
+data:
+  nginx.conf: |
+    worker_processes auto;
+    pid /tmp/nginx.pid;
+    events {
+      worker_connections 1024;
+    }
+    http {
+      client_body_temp_path /tmp/client_body_temp;
+      proxy_temp_path /tmp/proxy_temp;
+      fastcgi_temp_path /tmp/fastcgi_temp;
+      uwsgi_temp_path /tmp/uwsgi_temp;
+      scgi_temp_path /tmp/scgi_temp;
+      server {
+        listen 8080;
+        listen [::]:8080;
+        server_name localhost;
+        root /usr/share/nginx/html;
+        index index.html index.htm;
+        include /etc/nginx/mime.types;
+        gzip on;
+        gzip_min_length 1000;
+        gzip_proxied expired no-cache no-store private auth;
+        gzip_types text/plain text/css application/json application/javascript application/x-javascript text/xml application/xml application/xml+rss text/javascript;
+        location /devcenter-api-2.0 {
+          try_files $uri $uri/ /swagger-ui-index.html;
+        }
+        location / {
+          try_files $uri $uri/ /index.html;
+        }
+        location = /index.html {
+          add_header Cache-Control "no-store, no-cache, must-revalidate";
+        }
+      }
+    }
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-registry
+  labels:
+    app: ${{ defaults.app_name }}-registry
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-registry
+data:
+  config.yml: |
+    version: 0.1
+    log:
+      level: info
+      fields:
+        service: registry
+    storage:
+      s3:
+        region: us-west-1
+        bucket: placeholder
+        regionendpoint: http://127.0.0.1:9000
+        v4auth: true
+      cache:
+        layerinfo: redis
+      maintenance:
+        uploadpurging:
+          enabled: true
+          age: 168h
+          interval: 24h
+          dryrun: false
+      delete:
+        enabled: true
+      redirect:
+        disable: false
+    redis:
+      addr: localhost:6379
+      db: 2
+      password: placeholder
+      readtimeout: 10s
+      writetimeout: 10s
+      dialtimeout: 10s
+      enableTLS: false
+      pool:
+        maxidle: 100
+        maxactive: 500
+        idletimeout: 60s
+    http:
+      addr: :5000
+      relativeurls: false
+      secret: placeholder
+      debug:
+        addr: localhost:5001
+    auth:
+      htpasswd:
+        realm: harbor-registry-basic-realm
+        path: /etc/registry/passwd
+    validation:
+      disabled: true
+    compatibility:
+      schema1:
+        enabled: true
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-registryctl
+  labels:
+    app: ${{ defaults.app_name }}-registryctl
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-registryctl
+data:
+  config.yml: |
+    protocol: "http"
+    port: 8080
+    log_level: info
+    registry_config: "/etc/registry/config.yml"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-registry-htpasswd
+  labels:
+    app: ${{ defaults.app_name }}-registry-htpasswd
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-registry-htpasswd
+data:
+  passwd: |
+    harbor_registry_user:$2a$10$E/ql1tWtk7mXJdoeI/2QcOspqNLdO10mrOtpTf.MdccH3Na.6Rja6
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-core
+  annotations:
+    originImageName: goharbor/harbor-core:v2.14.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}-core
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-core
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-core
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-core
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-core
+          image: goharbor/harbor-core:v2.14.0
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: ${{ defaults.app_name }}-core
+          env:
+            - name: POSTGRESQL_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: POSTGRESQL_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: POSTGRESQL_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
+            - name: _REDIS_URL_CORE
+              value: redis://:$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)/0?idle_timeout_seconds=30
+            - name: _REDIS_URL_REG
+              value: redis://:$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)/2?idle_timeout_seconds=30
+            - name: CORE_SECRET
+              value: ${{ defaults.core_secret }}
+            - name: JOBSERVICE_SECRET
+              value: ${{ defaults.jobservice_secret }}
+          ports:
+            - name: http
+              containerPort: 8080
+          startupProbe:
+            httpGet:
+              path: /api/v2.0/ping
+              port: 8080
+              scheme: HTTP
+            failureThreshold: 360
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/v2.0/ping
+              port: 8080
+              scheme: HTTP
+            failureThreshold: 2
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /api/v2.0/ping
+              port: 8080
+              scheme: HTTP
+            failureThreshold: 2
+            periodSeconds: 10
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          volumeMounts:
+            - name: core-config
+              mountPath: /etc/core/app.conf
+              subPath: app.conf
+            - name: core-secret-key
+              mountPath: /etc/core/key
+              subPath: key
+            - name: core-token-private-key
+              mountPath: /etc/core/private_key.pem
+              subPath: tls.key
+      volumes:
+        - name: core-config
+          configMap:
+            name: ${{ defaults.app_name }}-core
+            items:
+              - key: app.conf
+                path: app.conf
+        - name: core-secret-key
+          configMap:
+            name: ${{ defaults.app_name }}-core-keys
+            items:
+              - key: key
+                path: key
+        - name: core-token-private-key
+          configMap:
+            name: ${{ defaults.app_name }}-core-keys
+            items:
+              - key: tls.key
+                path: tls.key
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-jobservice
+  annotations:
+    originImageName: goharbor/harbor-jobservice:v2.14.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}-jobservice
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-jobservice
+spec:
+  serviceName: ${{ defaults.app_name }}-jobservice
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-jobservice
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-jobservice
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-jobservice
+          image: goharbor/harbor-jobservice:v2.14.0
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: ${{ defaults.app_name }}-jobservice-env
+          env:
+            - name: CORE_SECRET
+              value: ${{ defaults.core_secret }}
+            - name: JOBSERVICE_SECRET
+              value: ${{ defaults.jobservice_secret }}
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
+            - name: JOB_SERVICE_POOL_REDIS_URL
+              value: redis://:$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)/1
+            - name: JOB_SERVICE_POOL_REDIS_NAMESPACE
+              value: harbor_job_service_namespace
+            - name: JOB_SERVICE_POOL_REDIS_CONN_IDLE_TIMEOUT_SECOND
+              value: '3600'
+            - name: _REDIS_URL_CORE
+              value: redis://:$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)/0?idle_timeout_seconds=30
+          ports:
+            - name: http
+              containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /api/v1/stats
+              port: 8080
+              scheme: HTTP
+            initialDelaySeconds: 300
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /api/v1/stats
+              port: 8080
+              scheme: HTTP
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          volumeMounts:
+            - name: jobservice-config
+              mountPath: /etc/jobservice/config.yml
+              subPath: config.yml
+            - name: job-logs
+              mountPath: /var/log/jobs
+      volumes:
+        - name: jobservice-config
+          configMap:
+            name: ${{ defaults.app_name }}-jobservice
+  volumeClaimTemplates:
+    - metadata:
+        name: job-logs
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+        storageClassName: openebs-backup
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-portal
+  annotations:
+    originImageName: goharbor/harbor-portal:v2.14.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}-portal
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-portal
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-portal
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-portal
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-portal
+          image: goharbor/harbor-portal:v2.14.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+              scheme: HTTP
+            initialDelaySeconds: 300
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+              scheme: HTTP
+            initialDelaySeconds: 1
+            periodSeconds: 10
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          volumeMounts:
+            - name: portal-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+      volumes:
+        - name: portal-config
+          configMap:
+            name: ${{ defaults.app_name }}-portal
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-registry
+  annotations:
+    originImageName: goharbor/registry-photon:v2.14.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}-registry
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-registry
+spec:
+  serviceName: ${{ defaults.app_name }}-registry
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-registry
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-registry
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-registry
+          image: goharbor/registry-photon:v2.14.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: REGISTRY_HTTP_SECRET
+              value: ${{ defaults.registry_http_secret }}
+            - name: REGISTRY_STORAGE_S3_ACCESSKEY
+              value: $(S3_ACCESS_KEY_ID)
+            - name: REGISTRY_STORAGE_S3_SECRETKEY
+              value: $(S3_SECRET_ACCESS_KEY)
+            - name: REGISTRY_STORAGE_S3_BUCKET
+              value: $(S3_BUCKET)
+            - name: REGISTRY_STORAGE_S3_REGIONENDPOINT
+              value: http://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+            - name: REGISTRY_STORAGE_S3_V4AUTH
+              value: 'true'
+            - name: REGISTRY_REDIS_ADDR
+              value: $(REDIS_HOST):$(REDIS_PORT)
+            - name: REGISTRY_REDIS_PASSWORD
+              value: $(REDIS_PASSWORD)
+            - name: REGISTRY_REDIS_DB
+              value: '2'
+          ports:
+            - name: registry
+              containerPort: 5000
+            - name: debug
+              containerPort: 5001
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 5000
+              scheme: HTTP
+            initialDelaySeconds: 300
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 5000
+              scheme: HTTP
+            initialDelaySeconds: 1
+            periodSeconds: 10
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          volumeMounts:
+            - name: registry-data
+              mountPath: /storage
+            - name: registry-htpasswd
+              mountPath: /etc/registry/passwd
+              subPath: passwd
+            - name: registry-config
+              mountPath: /etc/registry/config.yml
+              subPath: config.yml
+      volumes:
+        - name: registry-htpasswd
+          configMap:
+            name: ${{ defaults.app_name }}-registry-htpasswd
+            items:
+              - key: passwd
+                path: passwd
+        - name: registry-config
+          configMap:
+            name: ${{ defaults.app_name }}-registry
+            items:
+              - key: config.yml
+                path: config.yml
+  volumeClaimTemplates:
+    - metadata:
+        name: registry-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+        storageClassName: openebs-backup
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-registryctl
+  annotations:
+    originImageName: goharbor/harbor-registryctl:v2.14.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}-registryctl
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-registryctl
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-registryctl
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-registryctl
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-registryctl
+          image: goharbor/harbor-registryctl:v2.14.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: CORE_SECRET
+              value: ${{ defaults.core_secret }}
+            - name: JOBSERVICE_SECRET
+              value: ${{ defaults.jobservice_secret }}
+          ports:
+            - name: http
+              containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 8080
+              scheme: HTTP
+            initialDelaySeconds: 300
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 8080
+              scheme: HTTP
+            initialDelaySeconds: 1
+            periodSeconds: 10
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          volumeMounts:
+            - name: registry-config
+              mountPath: /etc/registry/config.yml
+              subPath: config.yml
+            - name: registryctl-config
+              mountPath: /etc/registryctl/config.yml
+              subPath: config.yml
+      volumes:
+        - name: registry-config
+          configMap:
+            name: ${{ defaults.app_name }}-registry
+            items:
+              - key: config.yml
+                path: config.yml
+        - name: registryctl-config
+          configMap:
+            name: ${{ defaults.app_name }}-registryctl
+            items:
+              - key: config.yml
+                path: config.yml
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-trivy
+  annotations:
+    originImageName: goharbor/trivy-adapter-photon:v2.14.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}-trivy
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-trivy
+spec:
+  serviceName: ${{ defaults.app_name }}-trivy
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-trivy
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-trivy
+    spec:
+      securityContext:
+        fsGroup: 10000
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-trivy
+          image: goharbor/trivy-adapter-photon:v2.14.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
+            - name: HTTP_PROXY
+              value: ''
+            - name: HTTPS_PROXY
+              value: ''
+            - name: NO_PROXY
+              value: ${{ defaults.app_name }}-core,${{ defaults.app_name }}-jobservice,${{ defaults.app_name }}-registry,${{ defaults.app_name }}-portal,${{ defaults.app_name }}-trivy,127.0.0.1,localhost,.local,.internal
+            - name: SCANNER_LOG_LEVEL
+              value: info
+            - name: SCANNER_TRIVY_CACHE_DIR
+              value: /home/scanner/.cache/trivy
+            - name: SCANNER_TRIVY_REPORTS_DIR
+              value: /home/scanner/.cache/reports
+            - name: SCANNER_TRIVY_DEBUG_MODE
+              value: 'false'
+            - name: SCANNER_TRIVY_VULN_TYPE
+              value: os,library
+            - name: SCANNER_TRIVY_TIMEOUT
+              value: 5m0s
+            - name: SCANNER_TRIVY_GITHUB_TOKEN
+              value: ''
+            - name: SCANNER_TRIVY_SEVERITY
+              value: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+            - name: SCANNER_TRIVY_IGNORE_UNFIXED
+              value: 'false'
+            - name: SCANNER_TRIVY_SKIP_UPDATE
+              value: 'false'
+            - name: SCANNER_TRIVY_SKIP_JAVA_DB_UPDATE
+              value: 'false'
+            - name: SCANNER_TRIVY_DB_REPOSITORY
+              value: mirror.gcr.io/aquasec/trivy-db,ghcr.io/aquasecurity/trivy-db
+            - name: SCANNER_TRIVY_JAVA_DB_REPOSITORY
+              value: mirror.gcr.io/aquasec/trivy-java-db,ghcr.io/aquasecurity/trivy-java-db
+            - name: SCANNER_TRIVY_OFFLINE_SCAN
+              value: 'false'
+            - name: SCANNER_TRIVY_SECURITY_CHECKS
+              value: vuln
+            - name: SCANNER_TRIVY_INSECURE
+              value: 'false'
+            - name: SCANNER_API_SERVER_ADDR
+              value: :8080
+            - name: SCANNER_REDIS_URL
+              value: redis://:$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)/5?idle_timeout_seconds=30
+            - name: SCANNER_STORE_REDIS_URL
+              value: redis://:$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)/5?idle_timeout_seconds=30
+            - name: SCANNER_JOB_QUEUE_REDIS_URL
+              value: redis://:$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)/5?idle_timeout_seconds=30
+          ports:
+            - name: api-server
+              containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /probe/healthy
+              port: api-server
+              scheme: HTTP
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            successThreshold: 1
+            failureThreshold: 10
+          readinessProbe:
+            httpGet:
+              path: /probe/ready
+              port: api-server
+              scheme: HTTP
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            successThreshold: 1
+            failureThreshold: 3
+          resources:
+            limits:
+              cpu: '1'
+              memory: 1Gi
+            requests:
+              cpu: 200m
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /home/scanner/.cache
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+        storageClassName: openebs-backup
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-core
+  labels:
+    app: ${{ defaults.app_name }}-core
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-core
+spec:
+  type: ClusterIP
+  selector:
+    app: ${{ defaults.app_name }}-core
+  ports:
+    - name: http-web
+      port: 80
+      targetPort: 8080
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-jobservice
+  labels:
+    app: ${{ defaults.app_name }}-jobservice
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-jobservice
+spec:
+  type: ClusterIP
+  selector:
+    app: ${{ defaults.app_name }}-jobservice
+  ports:
+    - name: http-jobservice
+      port: 80
+      targetPort: 8080
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-portal
+  labels:
+    app: ${{ defaults.app_name }}-portal
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-portal
+spec:
+  type: ClusterIP
+  selector:
+    app: ${{ defaults.app_name }}-portal
+  ports:
+    - name: http-portal
+      port: 80
+      targetPort: 8080
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-registry
+  labels:
+    app: ${{ defaults.app_name }}-registry
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-registry
+spec:
+  type: ClusterIP
+  selector:
+    app: ${{ defaults.app_name }}-registry
+  ports:
+    - name: http-registry
+      port: 5000
+      targetPort: 5000
+    - name: http-registry-debug
+      port: 5001
+      targetPort: 5001
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-registryctl
+  labels:
+    app: ${{ defaults.app_name }}-registryctl
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-registryctl
+spec:
+  type: ClusterIP
+  selector:
+    app: ${{ defaults.app_name }}-registryctl
+  ports:
+    - name: http-controller
+      port: 8080
+      targetPort: 8080
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-trivy
+  labels:
+    app: ${{ defaults.app_name }}-trivy
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-trivy
+spec:
+  type: ClusterIP
+  selector:
+    app: ${{ defaults.app_name }}-trivy
+  ports:
+    - name: http-trivy
+      port: 8080
+      targetPort: 8080
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-core
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-core
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - path: /api/
+            pathType: Prefix
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-core
+                port:
+                  number: 80
+          - path: /service/
+            pathType: Prefix
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-core
+                port:
+                  number: 80
+          - path: /v2/
+            pathType: Prefix
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-core
+                port:
+                  number: 80
+          - path: /c/
+            pathType: Prefix
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-core
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-portal
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-portal
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-portal
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/harbor/logo.png
+  name: ${{ defaults.app_name }}
+  type: link
