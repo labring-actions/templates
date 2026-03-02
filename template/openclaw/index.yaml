@@ -4,13 +4,17 @@ metadata:
   name: openclaw-standalone
 spec:
   title: OpenClaw
-  url: https://docs.openclaw.ai/zh-CN
-  gitRepo: GitHub - openclaw/openclaw: Your own personal AI assistant. Any OS. Any Platform. The lobster way. 🦞
+  url: https://docs.openclaw.ai
+  gitRepo: https://github.com/openclaw/openclaw
   author: Sealos
   description: OpenClaw standalone gateway (OpenAI/Anthropic compatible)
-  icon: "https://mintcdn.com/clawdhub/A8OxQpxR3DcyCCHY/assets/pixel-lobster.svg?fit=max&auto=format&n=A8OxQpxR3DcyCCHY&q=85&s=7d28d01258a677dc2c3e3ad383948e91"
+  readme: https://raw.githubusercontent.com/labring-actions/templates/main/template/openclaw/README.md
+  icon: https://openclaw.ai/favicon.svg
   templateType: inline
   locale: en
+  i18n:
+    zh:
+      readme: https://raw.githubusercontent.com/labring-actions/templates/main/template/openclaw/README_zh.md
   categories: [ai, tool]
 
   defaults:
@@ -45,7 +49,6 @@ spec:
       type: string
       default: claude-opus-4-6
       required: true
-
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -82,6 +85,13 @@ spec:
               set -eu
               mkdir -p /home/node/.openclaw /home/node/workspace /home/node/.npm
               chown -R 1000:1000 /home/node/.openclaw /home/node/workspace /home/node/.npm
+          volumeMounts:
+            - name: home-openclaw
+              mountPath: /home/node/.openclaw
+            - name: workspace
+              mountPath: /home/node/workspace
+            - name: npm-cache
+              mountPath: /home/node/.npm
       containers:
         - name: openclaw
           image: ghcr.io/openclaw/openclaw:2026.3.1
@@ -136,6 +146,20 @@ spec:
             - name: gateway
               containerPort: 3000
               protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
           volumeMounts:
             - name: home-openclaw
               mountPath: /home/node/.openclaw
@@ -178,7 +202,6 @@ spec:
         resources:
           requests:
             storage: 1Gi
-
 ---
 apiVersion: v1
 kind: Service
@@ -195,7 +218,6 @@ spec:
       port: 3000
       targetPort: 3000
       protocol: TCP
-
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -226,7 +248,6 @@ spec:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
-
 ---
 apiVersion: app.sealos.io/v1
 kind: App
@@ -238,6 +259,6 @@ spec:
   data:
     url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/?token=${{ defaults.gateway_token }}&gatewayUrl=wss%3A%2F%2F${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
   displayType: normal
-  icon: "https://mintcdn.com/clawdhub/A8OxQpxR3DcyCCHY/assets/pixel-lobster.svg?fit=max&auto=format&n=A8OxQpxR3DcyCCHY&q=85&s=7d28d01258a677dc2c3e3ad383948e91"
+  icon: https://openclaw.ai/favicon.svg
   name: OpenClaw
   type: link
