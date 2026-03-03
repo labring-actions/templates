@@ -1,0 +1,958 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: insforge
+spec:
+  title: InsForge
+  url: https://insforge.dev
+  gitRepo: https://github.com/insforge/insforge
+  author: insforge
+  description: InsForge is the Agent-Native Supabase Alternative, enabling AI agents to build and manage full-stack applications autonomously.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/insforge/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/insforge/logo.svg
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: InsForge 是面向 AI 编码代理的后端平台替代方案，支持数据库、认证、存储与函数能力的一体化部署。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/insforge/README_zh.md
+  categories:
+    - backend
+  defaults:
+    app_host:
+      type: string
+      value: insforge-${{ random(8) }}
+    app_name:
+      type: string
+      value: insforge-${{ random(8) }}
+    jwt_secret:
+      type: string
+      value: ${{ random(32) }}
+    encryption_key:
+      type: string
+      value: ${{ random(32) }}
+  inputs:
+    admin_email:
+      description: Administrator email address
+      type: string
+      default: admin@example.com
+      required: false
+    admin_password:
+      description: Administrator password
+      type: string
+      default: change-this-password
+      required: true
+    openrouter_api_key:
+      description: OpenRouter API key
+      type: string
+      default: ""
+      required: false
+    google_client_id:
+      description: Google OAuth client ID
+      type: string
+      default: ""
+      required: false
+    google_client_secret:
+      description: Google OAuth client secret
+      type: string
+      default: ""
+      required: false
+    github_client_id:
+      description: GitHub OAuth client ID
+      type: string
+      default: ""
+      required: false
+    github_client_secret:
+      description: GitHub OAuth client secret
+      type: string
+      default: ""
+      required: false
+    discord_client_id:
+      description: Discord OAuth client ID
+      type: string
+      default: ""
+      required: false
+    discord_client_secret:
+      description: Discord OAuth client secret
+      type: string
+      default: ""
+      required: false
+    microsoft_client_id:
+      description: Microsoft OAuth client ID
+      type: string
+      default: ""
+      required: false
+    microsoft_client_secret:
+      description: Microsoft OAuth client secret
+      type: string
+      default: ""
+      required: false
+    linkedin_client_id:
+      description: LinkedIn OAuth client ID
+      type: string
+      default: ""
+      required: false
+    linkedin_client_secret:
+      description: LinkedIn OAuth client secret
+      type: string
+      default: ""
+      required: false
+    x_client_id:
+      description: X OAuth client ID
+      type: string
+      default: ""
+      required: false
+    x_client_secret:
+      description: X OAuth client secret
+      type: string
+      default: ""
+      required: false
+    apple_client_id:
+      description: Apple OAuth client ID
+      type: string
+      default: ""
+      required: false
+    apple_client_secret:
+      description: Apple OAuth client secret
+      type: string
+      default: ""
+      required: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - "*"
+    resources:
+      - "*"
+    verbs:
+      - "*"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  terminationPolicy: Delete
+  componentSpecs:
+    - name: postgresql
+      componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
+      replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg-ext-installer
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg-ext-installer
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - pods/exec
+    verbs:
+      - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg-ext-installer
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg-ext-installer
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg-ext-installer
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-ext-init
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      serviceAccountName: ${{ defaults.app_name }}-pg-ext-installer
+      automountServiceAccountToken: true
+      restartPolicy: OnFailure
+      containers:
+        - name: pg-ext-init
+          image: apecloud/kubeblocks-tools:0.9.3
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 1001
+            seccompProfile:
+              type: RuntimeDefault
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              set -eu
+
+              kubectl wait --for=condition=Ready pod \
+                -l "app.kubernetes.io/instance=${{ defaults.app_name }}-pg,app.kubernetes.io/component=postgresql" \
+                --timeout=600s
+
+              PG_POD="$(kubectl get pod \
+                -l "app.kubernetes.io/instance=${{ defaults.app_name }}-pg,app.kubernetes.io/component=postgresql" \
+                -o jsonpath='{.items[0].metadata.name}')"
+
+              kubectl exec -i "${PG_POD}" -c postgresql -- bash -s <<'EOS'
+              set -euo pipefail
+
+              apt-get update
+              DEBIAN_FRONTEND=noninteractive apt-get install -y --reinstall postgresql-16-http
+
+              ls /usr/share/postgresql/16/extension/http.control /usr/lib/postgresql/16/lib/http.so >/dev/null
+
+              psql -v ON_ERROR_STOP=1 -d postgres <<'SQL'
+              CREATE EXTENSION IF NOT EXISTS pg_cron;
+              CREATE EXTENSION IF NOT EXISTS http;
+              CREATE EXTENSION IF NOT EXISTS pgcrypto;
+              SELECT 'CREATE ROLE anon NOLOGIN'
+              WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon')\gexec
+              SELECT 'CREATE ROLE authenticated NOLOGIN'
+              WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated')\gexec
+              SELECT 'CREATE ROLE project_admin NOLOGIN'
+              WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'project_admin')\gexec
+              SQL
+              EOS
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+  ttlSecondsAfterFinished: 300
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ${{ defaults.app_name }}-pg-ext-ensure
+  labels:
+    cloud.sealos.io/cronjob: ${{ defaults.app_name }}-pg-ext-ensure
+    cronjob-launchpad-name: ""
+    cronjob-type: image
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          serviceAccountName: ${{ defaults.app_name }}-pg-ext-installer
+          automountServiceAccountToken: true
+          restartPolicy: OnFailure
+          containers:
+            - name: pg-ext-ensure
+              image: apecloud/kubeblocks-tools:0.9.3
+              imagePullPolicy: IfNotPresent
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                runAsNonRoot: true
+                runAsUser: 1001
+                seccompProfile:
+                  type: RuntimeDefault
+              command:
+                - /bin/sh
+                - -ec
+              args:
+                - |
+                  set -eu
+
+                  kubectl wait --for=condition=Ready pod \
+                    -l "app.kubernetes.io/instance=${{ defaults.app_name }}-pg,app.kubernetes.io/component=postgresql" \
+                    --timeout=300s
+
+                  PG_POD="$(kubectl get pod \
+                    -l "app.kubernetes.io/instance=${{ defaults.app_name }}-pg,app.kubernetes.io/component=postgresql" \
+                    -o jsonpath='{.items[0].metadata.name}')"
+
+                  kubectl exec -i "${PG_POD}" -c postgresql -- bash -s <<'EOS'
+                  set -euo pipefail
+
+                  if [ ! -f /usr/share/postgresql/16/extension/http.control ] || [ ! -f /usr/lib/postgresql/16/lib/http.so ]; then
+                    apt-get update
+                    DEBIAN_FRONTEND=noninteractive apt-get install -y --reinstall postgresql-16-http
+                  fi
+
+                  psql -v ON_ERROR_STOP=1 -d postgres <<'SQL'
+                  CREATE EXTENSION IF NOT EXISTS pg_cron;
+                  CREATE EXTENSION IF NOT EXISTS http;
+                  CREATE EXTENSION IF NOT EXISTS pgcrypto;
+                  SELECT 'CREATE ROLE anon NOLOGIN'
+                  WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon')\gexec
+                  SELECT 'CREATE ROLE authenticated NOLOGIN'
+                  WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated')\gexec
+                  SELECT 'CREATE ROLE project_admin NOLOGIN'
+                  WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'project_admin')\gexec
+                  SQL
+                  EOS
+              resources:
+                limits:
+                  cpu: 100m
+                  memory: 128Mi
+                requests:
+                  cpu: 10m
+                  memory: 12Mi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/insforge/insforge-oss:v1.5.0
+    deploy.cloud.sealos.io/minReplicas: "1"
+    deploy.cloud.sealos.io/maxReplicas: "1"
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: wait-db-prerequisites
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: SEALOS_DATABASE_POSTGRES_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: SEALOS_DATABASE_POSTGRES_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: SEALOS_DATABASE_POSTGRES_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: SEALOS_DATABASE_POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+          command:
+            - /bin/sh
+            - -ec
+          args:
+            - |
+              set -eu
+              DB_URL="postgresql://$(SEALOS_DATABASE_POSTGRES_USERNAME):$(SEALOS_DATABASE_POSTGRES_PASSWORD)@$(SEALOS_DATABASE_POSTGRES_HOST):$(SEALOS_DATABASE_POSTGRES_PORT)/postgres"
+
+              until pg_isready -h "$(SEALOS_DATABASE_POSTGRES_HOST)" -p "$(SEALOS_DATABASE_POSTGRES_PORT)" -U "$(SEALOS_DATABASE_POSTGRES_USERNAME)" -d postgres >/dev/null 2>&1; do
+                sleep 2
+              done
+
+              until psql "${DB_URL}" -tAc "SELECT 1 FROM pg_available_extensions WHERE name='http'" | grep -q 1; do
+                sleep 2
+              done
+
+              until psql "${DB_URL}" -tAc "SELECT 1 FROM pg_extension WHERE extname='http'" | grep -q 1; do
+                sleep 2
+              done
+
+              until psql "${DB_URL}" -tAc "SELECT 1 FROM pg_roles WHERE rolname='authenticated'" | grep -q 1; do
+                sleep 2
+              done
+
+              until psql "${DB_URL}" -tAc "SELECT 1 FROM pg_roles WHERE rolname='project_admin'" | grep -q 1; do
+                sleep 2
+              done
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: ghcr.io/insforge/insforge-oss:v1.5.0
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          ports:
+            - containerPort: 7130
+            - containerPort: 7131
+            - containerPort: 7132
+          env:
+            - name: PORT
+              value: "7130"
+            - name: PROJECT_ROOT
+              value: /app
+            - name: API_BASE_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: VITE_API_BASE_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: JWT_SECRET
+              value: ${{ defaults.jwt_secret }}
+            - name: ENCRYPTION_KEY
+              value: ${{ defaults.encryption_key }}
+            - name: ADMIN_EMAIL
+              value: ${{ inputs.admin_email }}
+            - name: ADMIN_PASSWORD
+              value: ${{ inputs.admin_password }}
+            - name: POSTGRES_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: POSTGRES_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: POSTGRES_DB
+              value: postgres
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: SEALOS_DATABASE_POSTGRES_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: SEALOS_DATABASE_POSTGRES_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: SEALOS_DATABASE_POSTGRES_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: SEALOS_DATABASE_POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgresql://$(SEALOS_DATABASE_POSTGRES_USERNAME):$(SEALOS_DATABASE_POSTGRES_PASSWORD)@$(SEALOS_DATABASE_POSTGRES_HOST):$(SEALOS_DATABASE_POSTGRES_PORT)/postgres
+            - name: POSTGREST_BASE_URL
+              value: http://${{ defaults.app_name }}-postgrest.${{ SEALOS_NAMESPACE }}.svc.cluster.local:3000
+            - name: DENO_RUNTIME_URL
+              value: http://${{ defaults.app_name }}-deno.${{ SEALOS_NAMESPACE }}.svc.cluster.local:7133
+            - name: OPENROUTER_API_KEY
+              value: ${{ inputs.openrouter_api_key }}
+            - name: GOOGLE_CLIENT_ID
+              value: ${{ inputs.google_client_id }}
+            - name: GOOGLE_CLIENT_SECRET
+              value: ${{ inputs.google_client_secret }}
+            - name: GITHUB_CLIENT_ID
+              value: ${{ inputs.github_client_id }}
+            - name: GITHUB_CLIENT_SECRET
+              value: ${{ inputs.github_client_secret }}
+            - name: DISCORD_CLIENT_ID
+              value: ${{ inputs.discord_client_id }}
+            - name: DISCORD_CLIENT_SECRET
+              value: ${{ inputs.discord_client_secret }}
+            - name: MICROSOFT_CLIENT_ID
+              value: ${{ inputs.microsoft_client_id }}
+            - name: MICROSOFT_CLIENT_SECRET
+              value: ${{ inputs.microsoft_client_secret }}
+            - name: LINKEDIN_CLIENT_ID
+              value: ${{ inputs.linkedin_client_id }}
+            - name: LINKEDIN_CLIENT_SECRET
+              value: ${{ inputs.linkedin_client_secret }}
+            - name: X_CLIENT_ID
+              value: ${{ inputs.x_client_id }}
+            - name: X_CLIENT_SECRET
+              value: ${{ inputs.x_client_secret }}
+            - name: APPLE_CLIENT_ID
+              value: ${{ inputs.apple_client_id }}
+            - name: APPLE_CLIENT_SECRET
+              value: ${{ inputs.apple_client_secret }}
+            - name: LOGS_DIR
+              value: /insforge-logs
+            - name: STORAGE_DIR
+              value: /insforge-storage
+            - name: AUTH_APP_URL
+              value: http://${{ defaults.app_name }}.${{ SEALOS_NAMESPACE }}.svc.cluster.local:7132
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 7130
+              scheme: HTTP
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 7130
+              scheme: HTTP
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: 7130
+              scheme: HTTP
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          volumeMounts:
+            - name: vn-insforgevn-storage
+              mountPath: /insforge-storage
+            - name: vn-insforgevn-logs
+              mountPath: /insforge-logs
+  serviceName: ${{ defaults.app_name }}
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-insforgevn-storage
+        annotations:
+          path: /insforge-storage
+          value: "0.1"
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 103Mi
+    - metadata:
+        name: vn-insforgevn-logs
+        annotations:
+          path: /insforge-logs
+          value: "0.1"
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 103Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-postgrest
+  annotations:
+    originImageName: postgrest/postgrest:v12.2.12
+    deploy.cloud.sealos.io/minReplicas: "1"
+    deploy.cloud.sealos.io/maxReplicas: "1"
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-postgrest
+    app: ${{ defaults.app_name }}-postgrest
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-postgrest
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-postgrest
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-postgrest
+          image: postgrest/postgrest:v12.2.12
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          ports:
+            - containerPort: 3000
+          env:
+            - name: SEALOS_DATABASE_POSTGRES_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: SEALOS_DATABASE_POSTGRES_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: SEALOS_DATABASE_POSTGRES_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: SEALOS_DATABASE_POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PGRST_DB_URI
+              value: postgresql://$(SEALOS_DATABASE_POSTGRES_USERNAME):$(SEALOS_DATABASE_POSTGRES_PASSWORD)@$(SEALOS_DATABASE_POSTGRES_HOST):$(SEALOS_DATABASE_POSTGRES_PORT)/postgres
+            - name: PGRST_OPENAPI_SERVER_PROXY_URI
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: PGRST_DB_SCHEMA
+              value: public
+            - name: PGRST_DB_ANON_ROLE
+              value: anon
+            - name: PGRST_JWT_SECRET
+              value: ${{ defaults.jwt_secret }}
+            - name: PGRST_DB_CHANNEL_ENABLED
+              value: "true"
+            - name: PGRST_DB_CHANNEL
+              value: pgrst
+          livenessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          startupProbe:
+            tcpSocket:
+              port: 3000
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-deno
+  annotations:
+    originImageName: ghcr.io/insforge/deno-runtime:2.0.6
+    deploy.cloud.sealos.io/minReplicas: "1"
+    deploy.cloud.sealos.io/maxReplicas: "1"
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-deno
+    app: ${{ defaults.app_name }}-deno
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-deno
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-deno
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-deno
+          image: ghcr.io/insforge/deno-runtime:2.0.6
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          ports:
+            - containerPort: 7133
+          env:
+            - name: PORT
+              value: "7133"
+            - name: DENO_ENV
+              value: production
+            - name: DENO_DIR
+              value: /deno-dir
+            - name: POSTGRES_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: POSTGRES_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: POSTGRES_DB
+              value: postgres
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: POSTGREST_BASE_URL
+              value: http://${{ defaults.app_name }}-postgrest.${{ SEALOS_NAMESPACE }}.svc.cluster.local:3000
+            - name: WORKER_TIMEOUT_MS
+              value: "60000"
+            - name: ENCRYPTION_KEY
+              value: ${{ defaults.encryption_key }}
+            - name: JWT_SECRET
+              value: ${{ defaults.jwt_secret }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 7133
+              scheme: HTTP
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 7133
+              scheme: HTTP
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 7133
+              scheme: HTTP
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          volumeMounts:
+            - name: vn-denovn-dir
+              mountPath: /deno-dir
+  serviceName: ${{ defaults.app_name }}-deno
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-denovn-dir
+        annotations:
+          path: /deno-dir
+          value: "0.1"
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 103Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - name: http-api
+      port: 7130
+      targetPort: 7130
+      protocol: TCP
+    - name: http-dashboard
+      port: 7131
+      targetPort: 7131
+      protocol: TCP
+    - name: http-auth
+      port: 7132
+      targetPort: 7132
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-postgrest
+  labels:
+    app: ${{ defaults.app_name }}-postgrest
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-postgrest
+spec:
+  ports:
+    - name: http-postgrest
+      port: 3000
+      targetPort: 3000
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-postgrest
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-deno
+  labels:
+    app: ${{ defaults.app_name }}-deno
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-deno
+spec:
+  ports:
+    - name: http-deno
+      port: 7133
+      targetPort: 7133
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-deno
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 7130
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/insforge/logo.svg
+  name: InsForge
+  type: link

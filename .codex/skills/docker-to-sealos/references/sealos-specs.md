@@ -81,6 +81,22 @@ kind: ObjectStorageBucket
 4. **Ingress**
 5. **App**
 
+## CronJob 标签规范
+
+当模板中包含 `batch/v1` `CronJob` 资源时，`metadata.labels` 必须包含以下键值：
+
+```yaml
+labels:
+  cloud.sealos.io/cronjob: <CronJob metadata.name>
+  cronjob-launchpad-name: ""
+  cronjob-type: image
+```
+
+要求：
+1. `cloud.sealos.io/cronjob` 的值必须与该 `CronJob` 的 `metadata.name` 完全一致。
+2. `cronjob-launchpad-name` 必须是空字符串 `""`。
+3. `cronjob-type` 必须是固定值 `image`。
+
 ### 示例结构
 ```
 Template CR
