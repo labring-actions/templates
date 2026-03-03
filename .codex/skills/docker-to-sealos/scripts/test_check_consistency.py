@@ -2225,6 +2225,91 @@ class CheckConsistencyTests(unittest.TestCase):
         )
         self.assertTrue(any(item.rule_id == "R011" for item in violations))
 
+    def test_detects_missing_cronjob_required_labels(self):
+        violations = self.run_checker(
+            """
+            ```yaml
+            apiVersion: batch/v1
+            kind: CronJob
+            metadata:
+              name: demo-task
+              labels:
+                cronjob-type: image
+            spec:
+              schedule: "*/5 * * * *"
+              jobTemplate:
+                spec:
+                  template:
+                    spec:
+                      restartPolicy: OnFailure
+                      containers:
+                        - name: demo-task
+                          image: busybox:1.36.1
+                          imagePullPolicy: IfNotPresent
+                          command: ["sh", "-c", "echo ok"]
+            ```
+            """
+        )
+        self.assertTrue(any(item.rule_id == "R033" for item in violations))
+
+    def test_detects_mismatched_cronjob_required_label_values(self):
+        violations = self.run_checker(
+            """
+            ```yaml
+            apiVersion: batch/v1
+            kind: CronJob
+            metadata:
+              name: demo-task
+              labels:
+                cloud.sealos.io/cronjob: another-name
+                cronjob-launchpad-name: "manual"
+                cronjob-type: pod
+            spec:
+              schedule: "*/5 * * * *"
+              jobTemplate:
+                spec:
+                  template:
+                    spec:
+                      restartPolicy: OnFailure
+                      containers:
+                        - name: demo-task
+                          image: busybox:1.36.1
+                          imagePullPolicy: IfNotPresent
+                          command: ["sh", "-c", "echo ok"]
+            ```
+            """
+        )
+        self.assertTrue(any(item.rule_id == "R033" for item in violations))
+
+    def test_passes_cronjob_required_labels(self):
+        violations = self.run_checker(
+            """
+            ```yaml
+            apiVersion: batch/v1
+            kind: CronJob
+            metadata:
+              name: demo-task
+              labels:
+                cloud.sealos.io/cronjob: demo-task
+                cronjob-launchpad-name: ""
+                cronjob-type: image
+            spec:
+              schedule: "*/5 * * * *"
+              jobTemplate:
+                spec:
+                  template:
+                    spec:
+                      restartPolicy: OnFailure
+                      containers:
+                        - name: demo-task
+                          image: busybox:1.36.1
+                          imagePullPolicy: IfNotPresent
+                          command: ["sh", "-c", "echo ok"]
+            ```
+            """
+        )
+        self.assertFalse(any(item.rule_id == "R033" for item in violations))
+
     def test_registry_rule_scope_filters_violations(self):
         rules_yaml = render_registry(
             overrides={

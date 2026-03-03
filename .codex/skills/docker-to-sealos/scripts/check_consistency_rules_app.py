@@ -72,6 +72,11 @@ HTTP_INGRESS_REQUIRED_ANNOTATIONS: Dict[str, str] = {
         "}"
     ),
 }
+CRONJOB_LABEL_KEY = "cloud.sealos.io/cronjob"
+CRONJOB_REQUIRED_LABELS: Dict[str, str] = {
+    "cronjob-launchpad-name": "",
+    "cronjob-type": "image",
+}
 POSTGRES_URL_DATABASE_RE = re.compile(r"postgres(?:ql)?://[^/\s]+/([^?\s'\";]+)", re.IGNORECASE)
 DEFAULT_POSTGRES_DATABASE_NAMES = {"postgres", "template0", "template1"}
 OFFICIAL_HEALTH_HTTP_EXPECTATIONS: Dict[str, Dict[str, str]] = {
@@ -1303,6 +1308,63 @@ def check_official_health_probes(context: ScanContext) -> List[Violation]:
     return violations
 
 
+def check_cronjob_required_labels(context: ScanContext) -> List[Violation]:
+    violations: List[Violation] = []
+
+    for doc in iter_documents_by_kind(context, "CronJob"):
+        metadata = doc.data.get("metadata") if isinstance(doc.data, dict) else None
+        if not isinstance(metadata, dict):
+            continue
+        name = metadata.get("name")
+        if not isinstance(name, str) or not name.strip():
+            continue
+
+        labels = metadata.get("labels")
+        if not isinstance(labels, dict):
+            add_doc_violation(
+                violations,
+                rule_id="R033",
+                doc=doc,
+                pattern=r"^\s*labels\s*:",
+                default_pattern=r"^\s*metadata\s*:",
+                message=(
+                    "CronJob metadata.labels must define cloud.sealos.io/cronjob, "
+                    "cronjob-launchpad-name, and cronjob-type"
+                ),
+            )
+            continue
+
+        cronjob_label_value = labels.get(CRONJOB_LABEL_KEY)
+        if cronjob_label_value != name:
+            add_doc_violation(
+                violations,
+                rule_id="R033",
+                doc=doc,
+                pattern=re.escape(CRONJOB_LABEL_KEY),
+                default_pattern=r"^\s*labels\s*:",
+                message=(
+                    "CronJob label cloud.sealos.io/cronjob must exist and exactly match metadata.name"
+                ),
+            )
+
+        for label_key, expected_value in CRONJOB_REQUIRED_LABELS.items():
+            if labels.get(label_key) == expected_value:
+                continue
+            add_doc_violation(
+                violations,
+                rule_id="R033",
+                doc=doc,
+                pattern=re.escape(label_key),
+                default_pattern=r"^\s*labels\s*:",
+                message=(
+                    f"CronJob label {label_key} must exist and be set to "
+                    f"{expected_value!r}"
+                ),
+            )
+
+    return violations
+
+
 def check_revision_history_limit(context: ScanContext) -> List[Violation]:
     return check_managed_workload_setting(
         context,
@@ -1353,6 +1415,7 @@ APP_RULES: Dict[str, Rule] = {
     "R022": Rule("R022", check_template_i18n_zh_title_absent),
     "R023": Rule("R023", check_template_categories_allowed),
     "R024": Rule("R024", check_official_health_probes),
+    "R033": Rule("R033", check_cronjob_required_labels),
     "R015": Rule("R015", check_origin_image_name_matches_container),
     "R020": Rule("R020", check_service_ports_have_names),
     "R029": Rule("R029", check_service_labels_match_selector_app),

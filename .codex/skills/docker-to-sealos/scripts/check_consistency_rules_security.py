@@ -44,6 +44,8 @@ DB_CONNECTION_INDICATOR_HINTS: Set[str] = {
 NON_DB_CONNECTION_ENV_EXACT: Set[str] = {
     "STUDIO_PG_META_URL",
     "POSTGREST_URL",
+    "POSTGREST_BASE_URL",
+    "PGRST_OPENAPI_SERVER_PROXY_URI",
     "PG_META_PORT",
 }
 ENV_VALUE_REF_RE = re.compile(r"\$\(([A-Za-z_][A-Za-z0-9_]*)\)")

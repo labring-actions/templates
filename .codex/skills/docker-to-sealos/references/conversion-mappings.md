@@ -31,6 +31,18 @@
 
 ## 核心概念映射
 
+### CronJob 标签映射
+
+对于输出中的任意 `CronJob`，必须补齐以下固定标签：
+
+```yaml
+metadata:
+  labels:
+    cloud.sealos.io/cronjob: <metadata.name>
+    cronjob-launchpad-name: ""
+    cronjob-type: image
+```
+
 ### Docker Compose Service → Sealos Resources
 
 Docker Compose 中的一个 service 需要转换为多个 Sealos 资源：
