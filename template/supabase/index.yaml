@@ -297,6 +297,15 @@ spec:
           CREATE SCHEMA IF NOT EXISTS auth;
           CREATE SCHEMA IF NOT EXISTS storage;
           CREATE SCHEMA IF NOT EXISTS realtime;
+          CREATE SCHEMA IF NOT EXISTS _realtime;
+
+          SELECT 'CREATE DATABASE _supabase'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname='_supabase')\gexec
+          \connect _supabase
+          CREATE SCHEMA IF NOT EXISTS _analytics;
+          ALTER SCHEMA _analytics OWNER TO CURRENT_USER;
+          \connect postgres
+          ALTER SCHEMA _realtime OWNER TO CURRENT_USER;
 
           SELECT 'CREATE ROLE anon NOLOGIN NOINHERIT'
           WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon')\gexec
@@ -330,6 +339,13 @@ spec:
           ALTER DEFAULT PRIVILEGES IN SCHEMA storage GRANT ALL ON TABLES TO supabase_storage_admin;
           ALTER DEFAULT PRIVILEGES IN SCHEMA storage GRANT ALL ON SEQUENCES TO supabase_storage_admin;
           ALTER ROLE supabase_storage_admin SET search_path = storage;
+
+          ALTER SYSTEM SET log_directory = '../pg_log';
+          ALTER SYSTEM SET log_filename = 'postgresql-%w';
+          ALTER SYSTEM SET log_rotation_age = '1d';
+          ALTER SYSTEM SET log_truncate_on_rotation = 'on';
+          SELECT pg_reload_conf();
+          SELECT pg_rotate_logfile();
 
           CREATE TEMP TABLE IF NOT EXISTS pg_log_compat(line text);
           COPY pg_log_compat FROM PROGRAM 'mkdir -p ../pg_log && for i in 0 1 2 3 4 5 6 7; do f=../pg_log/postgresql-${i}.csv; [ -e "$f" ] || : > "$f"; done';
@@ -776,15 +792,21 @@ spec:
             port: 3000
             scheme: HTTP
           initialDelaySeconds: 10
-          periodSeconds: 5
-          timeoutSeconds: 10
-          failureThreshold: 3
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 12
         readinessProbe:
           httpGet: *id001
           initialDelaySeconds: 10
-          periodSeconds: 5
-          timeoutSeconds: 10
-          failureThreshold: 3
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 6
+        startupProbe:
+          httpGet: *id001
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 30
         volumeMounts:
         - name: vn-appvn-snippets
           mountPath: /app/snippets
@@ -1160,7 +1182,7 @@ spec:
         - name: DB_NAME
           value: postgres
         - name: DB_AFTER_CONNECT_QUERY
-          value: SET search_path TO public
+          value: SET search_path TO _realtime
         - name: DB_ENC_KEY
           value: supabaserealtime
         - name: API_JWT_SECRET
@@ -1604,7 +1626,7 @@ spec:
               name: ${{ defaults.app_name }}-pg-conn-credential
               key: username
         - name: DB_DATABASE
-          value: postgres
+          value: _supabase
         - name: DB_HOSTNAME
           valueFrom:
             secretKeyRef:
@@ -1621,7 +1643,7 @@ spec:
               name: ${{ defaults.app_name }}-pg-conn-credential
               key: password
         - name: DB_SCHEMA
-          value: public
+          value: _analytics
         - name: LOGFLARE_PUBLIC_ACCESS_TOKEN
           value: ${{ defaults.logflare_public_access_token }}
         - name: LOGFLARE_PRIVATE_ACCESS_TOKEN
@@ -1646,9 +1668,9 @@ spec:
               name: ${{ defaults.app_name }}-pg-conn-credential
               key: password
         - name: POSTGRES_BACKEND_URL
-          value: postgresql://$(DB_USERNAME):$(ANALYTICS_DB_PASSWORD)@$(ANALYTICS_DB_HOST):$(ANALYTICS_DB_PORT)/postgres
+          value: postgresql://$(DB_USERNAME):$(ANALYTICS_DB_PASSWORD)@$(ANALYTICS_DB_HOST):$(ANALYTICS_DB_PORT)/_supabase
         - name: POSTGRES_BACKEND_SCHEMA
-          value: public
+          value: _analytics
         - name: LOGFLARE_FEATURE_FLAG_OVERRIDE
           value: multibackend=true
         livenessProbe:
