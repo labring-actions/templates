@@ -3,35 +3,29 @@ kind: Template
 metadata:
   name: nexus
 spec:
-  title: 'Nexus'
-  url: 'https://www.sonatype.com/products/sonatype-nexus-repository'
-  gitRepo: 'https://github.com/sonatype/nexus-public'
-  author: '孤城落寞'
-  description: 'A robust package registry built on extensive enterprise storage capabilities.'
-  readme: 'https://raw.githubusercontent.com/sonatype/nexus-public/main/README.md'
-  icon: 'https://www.sonatype.com/hubfs/2-2023-Product%20Logos/Repo%20Nav%20Icon%20updated.png'
+  title: Nexus
+  url: https://www.sonatype.com/products/sonatype-nexus-repository
+  gitRepo: https://github.com/sonatype/nexus-public
+  author: Sonatype
+  description: A robust package registry built on extensive enterprise storage capabilities.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/nexus/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/nexus/logo.png
   templateType: inline
   locale: en
   i18n:
     zh:
-      title: 'Nexus'
-      description: '一个强大的软件仓库管理工具，主要用于存储和管理软件开发过程中的各类组件（artifacts）。'
-      readme: 'https://git.icloudnative.io/labring-actions/templates/main/template/nexus/README_cn.md'
+      description: 一个强大的软件仓库管理工具，用于存储和管理软件开发过程中的各类组件。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/nexus/README_zh.md
   categories:
     - tool
+    - dev-ops
   defaults:
     app_host:
       type: string
-      value: ${{ random(8) }}
+      value: nexus-${{ random(8) }}
     app_name:
       type: string
       value: nexus-${{ random(8) }}
-  inputs:
-    nexus_storage:
-        description: "Storage size for nexus in Gi"
-        type: number
-        default: "5"
-        required: true
 
 ---
 apiVersion: apps/v1
@@ -39,7 +33,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: sonatype/nexus3:3.75.1
+    originImageName: sonatype/nexus3:3.89.1
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -62,25 +56,26 @@ spec:
       automountServiceAccountToken: false
       initContainers:
         - name: take-data-dir-ownership
-          image: alpine
-          command: ["/bin/sh", "-c", "chmod -R 777 /nexus-data"]
+          image: alpine:3.22.2
+          command:
+            - /bin/sh
+            - -c
+            - chown -R 200:200 /nexus-data
           imagePullPolicy: IfNotPresent
           volumeMounts:
             - name: vn-nexus-data
               mountPath: /nexus-data
       containers:
         - name: ${{ defaults.app_name }}
-          image: sonatype/nexus3:3.75.1
+          image: sonatype/nexus3:3.89.1
+          imagePullPolicy: IfNotPresent
           env:
             - name: TZ
               value: Asia/Shanghai
             - name: INSTALL4J_ADD_VM_PARAMS
-              value: "
-                  -Xms1200M
-                  -Xmx1200M
-                  -XX:MaxDirectMemorySize=2G
-                  -XX:+UnlockExperimentalVMOptions
-                 "
+              value: >-
+                -Xms1200M -Xmx1200M -XX:MaxDirectMemorySize=2G
+                -XX:+UnlockExperimentalVMOptions
           resources:
             requests:
               cpu: 500m
@@ -88,27 +83,45 @@ spec:
             limits:
               cpu: 2000m
               memory: 2048Mi
-          command: []
-          args: []
           ports:
-            - containerPort: 8081
-          imagePullPolicy: IfNotPresent
+            - name: http
+              containerPort: 8081
+              protocol: TCP
+          startupProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 60
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 12
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 180
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
           volumeMounts:
             - name: vn-nexus-data
               mountPath: /nexus-data
-      volumes: []
   volumeClaimTemplates:
     - metadata:
         annotations:
           path: /nexus-data
-          value: "${{ inputs.nexus_storage }} "
+          value: '1'
         name: vn-nexus-data
       spec:
         accessModes:
           - ReadWriteOnce
         resources:
           requests:
-            storage: ${{ inputs.nexus_storage }}Gi
+            storage: 1Gi
 
 ---
 apiVersion: v1
@@ -117,9 +130,13 @@ metadata:
   name: ${{ defaults.app_name }}
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 8081
+    - name: http
+      port: 8081
+      targetPort: http
+      protocol: TCP
   selector:
     app: ${{ defaults.app_name }}
 
@@ -133,14 +150,16 @@ metadata:
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
     kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/proxy-body-size: 256m
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
     nginx.ingress.kubernetes.io/server-snippet: |
       client_header_buffer_size 64k;
       large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
     nginx.ingress.kubernetes.io/configuration-snippet: |
       if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
         expires 30d;
@@ -174,6 +193,6 @@ spec:
   data:
     url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
   displayType: normal
-  icon: "https://www.sonatype.com/hubfs/2-2023-Product%20Logos/Repo%20Nav%20Icon%20updated.png"
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/nexus/logo.png
   name: Nexus
   type: link

@@ -1,0 +1,445 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: zot
+spec:
+  title: Zot Registry
+  url: https://zotregistry.dev
+  gitRepo: https://github.com/project-zot/zot
+  author: Sealos
+  description: OCI-native container image registry with basic auth and optional S3-compatible object storage backend.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/zot/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/zot/logo.svg
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: Zot Registry 是一个 OCI 原生容器镜像仓库，默认启用基础认证，并支持在本地存储与 S3 兼容对象存储之间按需选择。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/zot/README_zh.md
+  categories:
+  - storage
+  defaults:
+    app_host:
+      type: string
+      value: zot-${{ random(8) }}
+    app_name:
+      type: string
+      value: zot-${{ random(8) }}
+  inputs:
+    zot_storage_backend:
+      description: Storage backend for image layers and manifests.
+      type: choice
+      default: filesystem
+      required: true
+      options:
+      - filesystem
+      - objectstorage
+    zot_admin_user:
+      description: Zot basic auth admin username.
+      type: string
+      default: admin
+      required: true
+    zot_admin_password:
+      description: Zot basic auth admin password.
+      type: string
+      default: ''
+      required: true
+      if: inputs.zot_storage_backend === 'filesystem'
+    zot_admin_htpasswd_hash:
+      description: Admin htpasswd hash for object storage mode (bcrypt or SHA-crypt hash, not plain password).
+      type: string
+      default: ''
+      required: true
+      if: inputs.zot_storage_backend === 'objectstorage'
+    zot_s3_region:
+      description: Region for S3-compatible object storage backend.
+      type: string
+      default: us-east-1
+      required: true
+      if: inputs.zot_storage_backend === 'objectstorage'
+---
+${{ if(inputs.zot_storage_backend === 'objectstorage') }}
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  policy: private
+---
+${{ endif() }}
+---
+${{ if(inputs.zot_storage_backend === 'objectstorage') }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-config
+  labels:
+    app: ${{ defaults.app_name }}-config
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-config
+data:
+  vn-etcvn-zotvn-configvn-json: |-
+    {
+      "distSpecVersion": "1.1.1",
+      "storage": {
+        "rootDirectory": "/var/lib/registry",
+        "dedupe": false,
+        "storageDriver": {
+          "name": "s3",
+          "rootdirectory": "/zot",
+          "region": "${{ inputs.zot_s3_region }}",
+          "bucket": "${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}",
+          "regionendpoint": "http://object-storage.objectstorage-system.svc.cluster.local",
+          "forcepathstyle": true,
+          "secure": false,
+          "skipverify": false
+        }
+      },
+      "http": {
+        "address": "0.0.0.0",
+        "port": "5000",
+        "auth": {
+          "htpasswd": {
+            "path": "/etc/zot/htpasswd"
+          }
+        },
+        "accessControl": {
+          "repositories": {
+            "**": {
+              "defaultPolicy": [],
+              "anonymousPolicy": []
+            }
+          },
+          "adminPolicy": {
+            "users": ["${{ inputs.zot_admin_user }}"],
+            "actions": ["read", "create", "update", "delete"]
+          }
+        }
+      },
+      "log": {
+        "level": "debug"
+      },
+      "extensions": {
+        "search": {
+          "enable": true
+        },
+        "ui": {
+          "enable": true
+        }
+      }
+    }
+  vn-etcvn-zotvn-htpasswd: ${{ inputs.zot_admin_user }}:${{ inputs.zot_admin_htpasswd_hash }}
+---
+${{ endif() }}
+---
+${{ if(inputs.zot_storage_backend === 'filesystem') }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/project-zot/zot:v2.1.14
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+      - name: init-auth
+        image: httpd:2.4.63-alpine3.22
+        imagePullPolicy: IfNotPresent
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -eu
+          mkdir -p /work/auth
+          mkdir -p /work/config
+          htpasswd -Bbn "${ZOT_ADMIN_USER}" "${ZOT_ADMIN_PASSWORD}" > /work/auth/htpasswd
+          cat > /work/config/config.json <<EOF
+          {
+            "distSpecVersion": "1.1.1",
+            "storage": {
+              "rootDirectory": "/var/lib/registry"
+            },
+            "http": {
+              "address": "0.0.0.0",
+              "port": "5000",
+              "auth": {
+                "htpasswd": {
+                  "path": "/etc/zot/htpasswd"
+                }
+              },
+              "accessControl": {
+                "repositories": {
+                  "**": {
+                    "defaultPolicy": [],
+                    "anonymousPolicy": []
+                  }
+                },
+                "adminPolicy": {
+                  "users": ["${ZOT_ADMIN_USER}"],
+                  "actions": ["read", "create", "update", "delete"]
+                }
+              }
+            },
+            "log": {
+              "level": "debug"
+            },
+            "extensions": {
+              "search": {
+                "cve": {
+                  "updateInterval": "2h"
+                }
+              },
+              "ui": {
+                "enable": true
+              }
+            }
+          }
+          EOF
+          chmod 600 /work/auth/htpasswd /work/config/config.json
+        env:
+        - name: ZOT_ADMIN_USER
+          value: ${{ inputs.zot_admin_user }}
+        - name: ZOT_ADMIN_PASSWORD
+          value: ${{ inputs.zot_admin_password }}
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 20m
+            memory: 25Mi
+        volumeMounts:
+        - name: vn-varvn-libvn-registry
+          mountPath: /work
+      containers:
+      - name: ${{ defaults.app_name }}
+        image: ghcr.io/project-zot/zot:v2.1.14
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 20m
+            memory: 25Mi
+        ports:
+        - containerPort: 5000
+        livenessProbe:
+          initialDelaySeconds: 5
+          httpGet:
+            path: /livez
+            port: 5000
+            scheme: HTTP
+        readinessProbe:
+          initialDelaySeconds: 5
+          httpGet:
+            path: /readyz
+            port: 5000
+            scheme: HTTP
+        startupProbe:
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          failureThreshold: 3
+          httpGet:
+            path: /startupz
+            port: 5000
+            scheme: HTTP
+        volumeMounts:
+        - name: vn-varvn-libvn-registry
+          mountPath: /var/lib/registry
+        - name: vn-varvn-libvn-registry
+          mountPath: /etc/zot/htpasswd
+          subPath: auth/htpasswd
+        - name: vn-varvn-libvn-registry
+          mountPath: /etc/zot/config.json
+          subPath: config/config.json
+  serviceName: ${{ defaults.app_name }}
+  volumeClaimTemplates:
+  - metadata:
+      name: vn-varvn-libvn-registry
+      annotations:
+        path: /var/lib/registry
+        value: '1'
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+---
+${{ endif() }}
+---
+${{ if(inputs.zot_storage_backend === 'objectstorage') }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/project-zot/zot:v2.1.14
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: ${{ defaults.app_name }}
+        image: ghcr.io/project-zot/zot:v2.1.14
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+              key: accessKey
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+              key: secretKey
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 20m
+            memory: 25Mi
+        ports:
+        - containerPort: 5000
+        livenessProbe:
+          initialDelaySeconds: 5
+          httpGet:
+            path: /livez
+            port: 5000
+            scheme: HTTP
+        readinessProbe:
+          initialDelaySeconds: 5
+          httpGet:
+            path: /readyz
+            port: 5000
+            scheme: HTTP
+        startupProbe:
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          failureThreshold: 3
+          httpGet:
+            path: /startupz
+            port: 5000
+            scheme: HTTP
+        volumeMounts:
+        - name: vn-etcvn-zotvn-configvn-json
+          mountPath: /etc/zot/config.json
+          subPath: ./etc/zot/config.json
+        - name: vn-etcvn-zotvn-htpasswd
+          mountPath: /etc/zot/htpasswd
+          subPath: ./etc/zot/htpasswd
+      volumes:
+      - name: vn-etcvn-zotvn-configvn-json
+        configMap:
+          name: ${{ defaults.app_name }}-config
+          items:
+          - key: vn-etcvn-zotvn-configvn-json
+            path: ./etc/zot/config.json
+      - name: vn-etcvn-zotvn-htpasswd
+        configMap:
+          name: ${{ defaults.app_name }}-config
+          items:
+          - key: vn-etcvn-zotvn-htpasswd
+            path: ./etc/zot/htpasswd
+---
+${{ endif() }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+  - name: tcp-5000
+    port: 5000
+    targetPort: 5000
+    protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: 'client_header_buffer_size 64k;
+
+      large_client_header_buffers 4 128k;'
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: "if ($request_uri ~* \\.(js|css|gif|jpe?g|png))\
+      \ {\n  expires 30d;\n  add_header Cache-Control \"public\";\n}"
+spec:
+  rules:
+  - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+    http:
+      paths:
+      - pathType: Prefix
+        path: /
+        backend:
+          service:
+            name: ${{ defaults.app_name }}
+            port:
+              number: 5000
+  tls:
+  - hosts:
+    - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+    secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/zot/logo.svg
+  name: Zot Registry
+  type: link
