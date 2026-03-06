@@ -1,0 +1,656 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: quay
+spec:
+  title: Project Quay
+  url: https://quay.io
+  gitRepo: https://github.com/quay/quay
+  author: Sealos
+  description: Container registry for building, storing, and distributing container
+    images.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/quay/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/quay/logo.svg
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: 用于构建、存储和分发容器镜像的企业级容器镜像仓库。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/quay/README_zh.md
+  categories:
+  - dev-ops
+  - storage
+  defaults:
+    app_host:
+      type: string
+      value: quay-${{ random(8) }}
+    app_name:
+      type: string
+      value: quay-${{ random(8) }}
+    database_secret_key:
+      type: string
+      value: ${{ random(64) }}
+    secret_key:
+      type: string
+      value: ${{ random(64) }}
+  inputs:
+    initial_admin_username:
+      description: Initial Quay admin username
+      type: string
+      default: admin
+      required: true
+    initial_admin_password:
+      description: Initial Quay admin password
+      type: string
+      default: ''
+      required: true
+    initial_admin_email:
+      description: Initial Quay admin email
+      type: string
+      default: admin@example.com
+      required: true
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+rules:
+- apiGroups:
+  - '*'
+  resources:
+  - '*'
+  verbs:
+  - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+- kind: ServiceAccount
+  name: ${{ defaults.app_name }}-pg
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  terminationPolicy: Delete
+  componentSpecs:
+  - name: postgresql
+    componentDefRef: postgresql
+    disableExporter: true
+    enabledLogs:
+    - running
+    replicas: 1
+    serviceAccountName: ${{ defaults.app_name }}-pg
+    switchPolicy:
+      type: Noop
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 50m
+        memory: 51Mi
+    volumeClaimTemplates:
+    - name: data
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+        storageClassName: openebs-backup
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: ${{ defaults.app_name }}-pg-init
+        image: postgres:16.4
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: PG_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: PG_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        - name: PG_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: username
+        - name: PG_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: password
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -eu
+          for i in $(seq 1 60); do
+            if pg_isready -h "${PG_HOST}" -p "${PG_PORT}" -U "${PG_USERNAME}" -d postgres >/dev/null 2>&1; then
+              break
+            fi
+            sleep 2
+          done
+          pg_isready -h "${PG_HOST}" -p "${PG_PORT}" -U "${PG_USERNAME}" -d postgres >/dev/null 2>&1
+          psql "postgresql://${PG_USERNAME}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/postgres" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+rules:
+- apiGroups:
+  - '*'
+  resources:
+  - '*'
+  verbs:
+  - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-redis
+subjects:
+- kind: ServiceAccount
+  name: ${{ defaults.app_name }}-redis
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    kb.io/database: redis-7.2.7
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/version: 7.2.7
+    clusterversion.kubeblocks.io/name: redis-7.2.7
+    clusterdefinition.kubeblocks.io/name: redis
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys:
+    - kubernetes.io/hostname
+  clusterDefinitionRef: redis
+  componentSpecs:
+  - name: redis
+    componentDef: redis-7
+    serviceVersion: 7.2.7
+    replicas: 1
+    serviceAccountName: ${{ defaults.app_name }}-redis
+    enabledLogs:
+    - running
+    env:
+    - name: CUSTOM_SENTINEL_MASTER_NAME
+    switchPolicy:
+      type: Noop
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 50m
+        memory: 51Mi
+    volumeClaimTemplates:
+    - name: data
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+        storageClassName: openebs-backup
+  - name: redis-sentinel
+    componentDef: redis-sentinel-7
+    serviceVersion: 7.2.7
+    replicas: 1
+    serviceAccountName: ${{ defaults.app_name }}-redis
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 50m
+        memory: 51Mi
+    volumeClaimTemplates:
+    - name: data
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+  terminationPolicy: Delete
+  topology: replication
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: quay.io/projectquay/quay:v3.9.8
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      securityContext:
+        fsGroup: 1001
+        fsGroupChangePolicy: OnRootMismatch
+      automountServiceAccountToken: false
+      volumes:
+      - name: k8s-sa-token
+        projected:
+          sources:
+          - serviceAccountToken:
+              path: token
+              expirationSeconds: 3600
+              audience: api
+      containers:
+      - name: ${{ defaults.app_name }}
+        image: quay.io/projectquay/quay:v3.9.8
+        imagePullPolicy: IfNotPresent
+        command:
+        - /bin/bash
+        - -ec
+        args:
+        - |
+          set -euo pipefail
+          rm -rf /tmp/quay-conf
+          mkdir -p /tmp/quay-conf
+          for p in /quay-registry/conf/*; do
+            if [ "$(basename "$p")" = "stack" ]; then
+              continue
+            fi
+            cp -a "$p" /tmp/quay-conf/
+          done
+          mkdir -p /tmp/quay-conf/stack
+          cat > /tmp/quay-conf/stack/config.yaml <<EOF
+          AUTHENTICATION_TYPE: Database
+          BUILDLOGS_REDIS:
+            host: "${REDIS_HOST}"
+            port: ${REDIS_PORT}
+            password: "${REDIS_PASSWORD}"
+          USER_EVENTS_REDIS:
+            host: "${REDIS_HOST}"
+            port: ${REDIS_PORT}
+            password: "${REDIS_PASSWORD}"
+          PULL_METRICS_REDIS:
+            host: "${REDIS_HOST}"
+            port: ${REDIS_PORT}
+            password: "${REDIS_PASSWORD}"
+            db: 1
+          DB_URI: "postgresql://${PG_USERNAME}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/postgres"
+          DATABASE_SECRET_KEY: "${DATABASE_SECRET_KEY}"
+          SECRET_KEY: "${SECRET_KEY}"
+          DISTRIBUTED_STORAGE_CONFIG:
+            default:
+              - LocalStorage
+              - storage_path: /datastorage/registry
+          DISTRIBUTED_STORAGE_DEFAULT_LOCATIONS: []
+          DISTRIBUTED_STORAGE_PREFERENCE:
+            - default
+          FEATURE_USER_CREATION: true
+          FEATURE_USER_INITIALIZE: true
+          FEATURE_MAILING: false
+          SUPER_USERS:
+            - "${INITIAL_ADMIN_USERNAME}"
+          DEFAULT_TAG_EXPIRATION: 2w
+          TAG_EXPIRATION_OPTIONS:
+            - 0s
+            - 1d
+            - 1w
+            - 2w
+            - 4w
+          EXTERNAL_TLS_TERMINATION: true
+          PREFERRED_URL_SCHEME: https
+          SERVER_HOSTNAME: "${SERVER_HOSTNAME}"
+          SETUP_COMPLETE: true
+          EOF
+          export QUAYCONF=/tmp/quay-conf
+          exec /quay-registry/quay-entrypoint.sh registry
+        resources:
+          limits:
+            cpu: 200m
+            memory: 2048Mi
+          requests:
+            cpu: 20m
+            memory: 204Mi
+        ports:
+        - containerPort: 8080
+        - containerPort: 8443
+        env:
+        - name: QUAY_VERSION
+          value: v3.9.8
+        - name: DEBUGLOG
+          value: 'true'
+        - name: QUAYRUN
+          value: /tmp
+        - name: WORKER_COUNT_UNSUPPORTED_MINIMUM
+          value: '1'
+        - name: WORKER_COUNT
+          value: '1'
+        - name: INITIAL_ADMIN_USERNAME
+          value: ${{ inputs.initial_admin_username }}
+        - name: QUAY_SERVICES
+          value: dnsmasq,gunicorn-registry,gunicorn-web,gunicorn-secscan,memcache,nginx,servicekey,pushgateway
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: QE_K8S_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: QE_K8S_CONFIG_SECRET
+          value: ${{ defaults.app_name }}-config-secret
+        - name: PG_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: PG_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        - name: PG_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: username
+        - name: PG_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: password
+        - name: REDIS_HOST
+          value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+        - name: REDIS_PORT
+          value: '6379'
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-redis-redis-account-default
+              key: password
+        - name: DATABASE_SECRET_KEY
+          value: ${{ defaults.database_secret_key }}
+        - name: SECRET_KEY
+          value: ${{ defaults.secret_key }}
+        - name: SERVER_HOSTNAME
+          value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+        livenessProbe:
+          httpGet:
+            path: /health/instance
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 120
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 10
+        readinessProbe:
+          httpGet:
+            path: /health/endtoend
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 120
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 10
+        startupProbe:
+          httpGet:
+            path: /health/instance
+            port: 8080
+            scheme: HTTP
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 20
+        volumeMounts:
+        - name: vn-quayvn-registryvn-data
+          mountPath: /datastorage
+        - name: k8s-sa-token
+          mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+          readOnly: true
+  serviceName: ${{ defaults.app_name }}
+  volumeClaimTemplates:
+  - metadata:
+      name: vn-quayvn-registryvn-data
+      annotations:
+        path: /datastorage
+        value: '1'
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+  - name: tcp-8080
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+  - name: tcp-8443
+    port: 8443
+    targetPort: 8443
+    protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-init-admin
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: ${{ defaults.app_name }}-init-admin
+        image: python:3.12.8-alpine3.20
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: QUAY_BASE_URL
+          value: http://${{ defaults.app_name }}:8080
+        - name: QUAY_INIT_USERNAME
+          value: ${{ inputs.initial_admin_username }}
+        - name: QUAY_INIT_PASSWORD
+          value: ${{ inputs.initial_admin_password }}
+        - name: QUAY_INIT_EMAIL
+          value: ${{ inputs.initial_admin_email }}
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -eu
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          import time
+          import urllib.error
+          import urllib.request
+
+          base_url = os.environ["QUAY_BASE_URL"].rstrip("/")
+          username = os.environ["QUAY_INIT_USERNAME"]
+          password = os.environ["QUAY_INIT_PASSWORD"]
+          email = os.environ["QUAY_INIT_EMAIL"]
+
+          health_url = f"{base_url}/health/instance"
+          initialize_url = f"{base_url}/api/v1/user/initialize"
+
+          for _ in range(120):
+              try:
+                  with urllib.request.urlopen(health_url, timeout=5) as response:
+                      if response.status == 200:
+                          break
+              except Exception:
+                  pass
+              time.sleep(2)
+          else:
+              print("quay health check timeout", file=sys.stderr)
+              sys.exit(1)
+
+          payload = json.dumps(
+              {"username": username, "password": password, "email": email}
+          ).encode("utf-8")
+          request = urllib.request.Request(
+              initialize_url,
+              data=payload,
+              headers={"Content-Type": "application/json"},
+              method="POST",
+          )
+
+          try:
+              with urllib.request.urlopen(request, timeout=15) as response:
+                  body = response.read().decode("utf-8", "ignore")
+                  print(f"initialize status={response.status} body={body}")
+                  sys.exit(0)
+          except urllib.error.HTTPError as exc:
+              body = exc.read().decode("utf-8", "ignore")
+              print(f"initialize status={exc.code} body={body}")
+              if exc.code == 400 and "non-empty database" in body:
+                  sys.exit(0)
+              sys.exit(1)
+          PY
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: 'client_header_buffer_size 64k;
+
+      large_client_header_buffers 4 128k;'
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: "if ($request_uri ~* \\.(js|css|gif|jpe?g|png))\
+      \ {\n  expires 30d;\n  add_header Cache-Control \"public\";\n}"
+spec:
+  rules:
+  - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+    http:
+      paths:
+      - pathType: Prefix
+        path: /
+        backend:
+          service:
+            name: ${{ defaults.app_name }}
+            port:
+              number: 8080
+  tls:
+  - hosts:
+    - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+    secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/quay/logo.svg
+  name: Project Quay
+  type: link

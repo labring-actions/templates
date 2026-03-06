@@ -39,7 +39,7 @@ Extract from Docker Compose/docs:
 Infer and normalize:
 
 - app name, title, description, categories
-- official URL, gitRepo, icon source
+- official URL, gitRepo, icon source (prefer square/circular icon-first assets such as app icon/favicon/avatar; avoid rectangular wordmark logos)
 - locale/i18n metadata
 
 ### Step 3: Plan resources in strict order
@@ -79,7 +79,7 @@ Apply field-level mappings from `references/conversion-mappings.md`, including:
 Always produce:
 
 - `template/<app-name>/index.yaml`
-- `template/<app-name>/logo.<ext>` when official icon is resolvable
+- `template/<app-name>/logo.<ext>` when official icon is resolvable, prioritizing square/circular icon-first assets and avoiding rectangular wordmark logos
 
 ### Step 7: Validate before output
 
@@ -96,6 +96,7 @@ If validation fails, fix template/rules/examples first.
 - Template `spec.readme` must be `https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/<app-name>/README.md`.
 - Template `spec.i18n.zh.readme` must be `https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/<app-name>/README_zh.md`.
 - `icon` URL must point to template repo raw path for this app on `kb-0.9` branch.
+- `template/<app-name>/logo.<ext>` must use square/circular icon-first artwork (for example app icon/favicon/avatar), and must not use rectangular wordmark/text logos.
 - `i18n.zh.description` must be written in Simplified Chinese.
 - Omit `i18n.zh.title` when it is identical to `title`.
 - `categories` must only use predefined values (`tool`, `ai`, `game`, `database`, `low-code`, `monitor`, `dev-ops`, `blog`, `storage`, `frontend`, `backend`).
@@ -246,6 +247,7 @@ Load only needed references for current task:
 - Never ask users for missing fields; infer from compose/docs and platform conventions.
 - Keep App resource in `spec.data.url` format; never use `spec.template`.
 - Keep business-env, object storage, and DB-secret policy consistent with MUST rules.
+- Prefer square/circular icon-first logo assets (app icon/favicon/avatar) and avoid rectangular wordmark/text logos.
 - Prefer Sealos-managed ingress over bundled edge proxies: if a Traefik gateway is only acting as ingress/front-proxy and at least one business service exists, do not emit Traefik workload resources.
 - Prefer gateway TLS termination in Sealos Ingress over in-container TLS: for dual-port HTTP/HTTPS workloads, keep HTTP service port and remove redundant HTTPS/certificate mounts unless official docs require HTTPS backend.
 - Prefer fixing references/examples over adding exceptions when conflicts appear.
