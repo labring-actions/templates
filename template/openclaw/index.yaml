@@ -1,0 +1,264 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: openclaw-standalone
+spec:
+  title: OpenClaw
+  url: https://docs.openclaw.ai
+  gitRepo: https://github.com/openclaw/openclaw
+  author: Sealos
+  description: OpenClaw standalone gateway (OpenAI/Anthropic compatible)
+  readme: https://raw.githubusercontent.com/labring-actions/templates/main/template/openclaw/README.md
+  icon: https://openclaw.ai/favicon.svg
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      readme: https://raw.githubusercontent.com/labring-actions/templates/main/template/openclaw/README_zh.md
+  categories: [ai, tool]
+
+  defaults:
+    app_name:
+      type: string
+      value: openclaw-${{ random(8) }}
+    app_host:
+      type: string
+      value: openclaw-${{ random(8) }}
+    gateway_token:
+      type: string
+      value: ${{ random(64) }}
+
+  inputs:
+    provider_kind:
+      description: provider kind (openai_compat or anthropic_compat)
+      type: string
+      default: anthropic_compat
+      required: true
+    base_url:
+      description: Compatible provider base URL (must end with /v1 for OpenAI-compatible)
+      type: string
+      default: https://aiproxy.usw-1.sealos.io/v1
+      required: true
+    api_key:
+      description: Provider API key
+      type: string
+      default: ""
+      required: true
+    model:
+      description: Default model id (raw id, e.g. gpt-5.2 / claude-opus-4-6-20251101)
+      type: string
+      default: claude-opus-4-6
+      required: true
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/openclaw/openclaw:2026.3.1
+    deploy.cloud.sealos.io/minReplicas: "1"
+    deploy.cloud.sealos.io/maxReplicas: "1"
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  serviceName: ${{ defaults.app_name }}
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 1000
+      initContainers:
+        - name: init-openclaw-data
+          image: busybox:1.36
+          command:
+            - /bin/sh
+            - -lc
+            - |
+              set -eu
+              mkdir -p /home/node/.openclaw /home/node/workspace /home/node/.npm
+              chown -R 1000:1000 /home/node/.openclaw /home/node/workspace /home/node/.npm
+          volumeMounts:
+            - name: home-openclaw
+              mountPath: /home/node/.openclaw
+            - name: workspace
+              mountPath: /home/node/workspace
+            - name: npm-cache
+              mountPath: /home/node/.npm
+      containers:
+        - name: openclaw
+          image: ghcr.io/openclaw/openclaw:2026.3.1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: GATEWAY_TOKEN
+              value: ${{ defaults.gateway_token }}
+            - name: OPENCLAW_PROVIDER_KIND
+              value: ${{ inputs.provider_kind }}
+            - name: OPENCLAW_DEFAULT_MODEL
+              value: ${{ inputs.model }}
+            - name: OPENAI_API_KEY
+              value: ${{ inputs.api_key }}
+            - name: OPENAI_BASE_URL
+              value: ${{ inputs.base_url }}
+            - name: ANTHROPIC_API_KEY
+              value: ${{ inputs.api_key }}
+            - name: ANTHROPIC_BASE_URL
+              value: ${{ inputs.base_url }}
+          command:
+            - /bin/sh
+            - -lc
+            - |
+              set -eu
+
+              node openclaw.mjs config set gateway.controlUi.allowInsecureAuth true --json >/dev/null
+              node openclaw.mjs config set gateway.controlUi.dangerouslyDisableDeviceAuth true --json >/dev/null
+              node openclaw.mjs config set gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback true --json >/dev/null
+
+              MODEL_RAW="${OPENCLAW_DEFAULT_MODEL:-}"
+              MODEL_RAW="${MODEL_RAW#openai/}"
+              MODEL_RAW="${MODEL_RAW#anthropic/}"
+              MODEL_RAW="${MODEL_RAW#google/}"
+
+              if [ "${OPENCLAW_PROVIDER_KIND}" = "openai_compat" ]; then
+                CONF=$(node -e 'const m=process.argv[1];const c={baseUrl:process.env.OPENAI_BASE_URL,apiKey:process.env.OPENAI_API_KEY,api:"openai-completions",models:[{id:"compat_openai/"+m,name:m}]};process.stdout.write(JSON.stringify(c));' "$MODEL_RAW")
+                node openclaw.mjs config set models.providers.compat_openai "$CONF" --json >/dev/null
+                node openclaw.mjs config set agents.defaults.model.primary "compat_openai/$MODEL_RAW" >/dev/null
+              elif [ "${OPENCLAW_PROVIDER_KIND}" = "anthropic_compat" ]; then
+                CONF=$(node -e 'const m=process.argv[1];const c={baseUrl:process.env.ANTHROPIC_BASE_URL,apiKey:process.env.ANTHROPIC_API_KEY,api:"anthropic-messages",models:[{id:"compat_anthropic/"+m,name:m}]};process.stdout.write(JSON.stringify(c));' "$MODEL_RAW")
+                node openclaw.mjs config set models.providers.compat_anthropic "$CONF" --json >/dev/null
+                node openclaw.mjs config set agents.defaults.model.primary "compat_anthropic/$MODEL_RAW" >/dev/null
+              else
+                echo "Unsupported provider_kind: ${OPENCLAW_PROVIDER_KIND}" >&2
+                exit 1
+              fi
+
+              node openclaw.mjs gateway --allow-unconfigured --bind lan --port 3000 --token "${GATEWAY_TOKEN}"
+          ports:
+            - name: gateway
+              containerPort: 3000
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+          volumeMounts:
+            - name: home-openclaw
+              mountPath: /home/node/.openclaw
+            - name: workspace
+              mountPath: /home/node/workspace
+            - name: npm-cache
+              mountPath: /home/node/.npm
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 2Gi
+  volumeClaimTemplates:
+    - metadata:
+        name: home-openclaw
+        annotations:
+          path: /home/node/.openclaw
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 5Gi
+    - metadata:
+        name: workspace
+        annotations:
+          path: /home/node/workspace
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 5Gi
+    - metadata:
+        name: npm-cache
+        annotations:
+          path: /home/node/.npm
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: ClusterIP
+  selector:
+    app: ${{ defaults.app_name }}
+  ports:
+    - name: gateway
+      port: 3000
+      targetPort: 3000
+      protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 3000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/?token=${{ defaults.gateway_token }}&gatewayUrl=wss%3A%2F%2F${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://openclaw.ai/favicon.svg
+  name: OpenClaw
+  type: link
