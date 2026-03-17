@@ -1,0 +1,508 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: new-api
+spec:
+  title: New API
+  url: https://docs.newapi.pro/
+  gitRepo: https://github.com/QuantumNous/new-api
+  author: Sealos
+  description: Open-source AI model gateway compatible with the OpenAI API, with multi-provider routing, quota management, channel orchestration, and an admin dashboard.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/new-api/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/new-api/logo.png
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: 开源 AI 模型网关与分发平台，兼容 OpenAI API，支持多供应商模型路由、额度管理、渠道编排和管理后台。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/new-api/README_zh.md
+  categories:
+    - ai
+    - backend
+  defaults:
+    app_host:
+      type: string
+      value: new-api-${{ random(8) }}
+    app_name:
+      type: string
+      value: new-api-${{ random(8) }}
+    session_secret:
+      type: string
+      value: ${{ random(32) }}
+    crypto_secret:
+      type: string
+      value: ${{ random(32) }}
+  inputs:
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-redis
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-redis
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    kb.io/database: redis-7.2.7
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/version: 7.2.7
+    clusterversion.kubeblocks.io/name: redis-7.2.7
+    clusterdefinition.kubeblocks.io/name: redis
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys:
+      - kubernetes.io/hostname
+  clusterDefinitionRef: redis
+  componentSpecs:
+    - name: redis
+      componentDef: redis-7
+      serviceVersion: 7.2.7
+      replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      enabledLogs:
+        - running
+      env:
+        - name: CUSTOM_SENTINEL_MASTER_NAME
+      switchPolicy:
+        type: Noop
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+    - name: redis-sentinel
+      componentDef: redis-sentinel-7
+      serviceVersion: 7.2.7
+      replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+  terminationPolicy: Delete
+  topology: replication
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  terminationPolicy: Delete
+  componentSpecs:
+    - name: postgresql
+      componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
+      replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: pgsql-init
+          image: postgres:16.4
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              for i in $(seq 1 60); do
+                if pg_isready -h "${PG_HOST}" -p "${PG_PORT}" -U "${PG_USERNAME}" -d postgres >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 2
+              done
+              pg_isready -h "${PG_HOST}" -p "${PG_PORT}" -U "${PG_USERNAME}" -d postgres >/dev/null 2>&1
+              if ! PGPASSWORD="${PG_PASSWORD}" psql "postgresql://${PG_USERNAME}@${PG_HOST}:${PG_PORT}/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='new-api'" | grep -q 1; then
+                PGPASSWORD="${PG_PASSWORD}" psql "postgresql://${PG_USERNAME}@${PG_HOST}:${PG_PORT}/postgres" -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"new-api\";"
+              fi
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: calciumion/new-api:v0.11.4
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  serviceName: ${{ defaults.app_name }}
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: calciumion/new-api:v0.11.4
+          imagePullPolicy: IfNotPresent
+          args:
+            - --log-dir
+            - /app/logs
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: SQL_DSN
+              value: postgresql://$(PG_USERNAME):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/new-api
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
+            - name: REDIS_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: username
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
+            - name: REDIS_CONN_STRING
+              value: redis://$(REDIS_USERNAME):$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)
+            - name: SESSION_SECRET
+              value: ${{ defaults.session_secret }}
+            - name: CRYPTO_SECRET
+              value: ${{ defaults.crypto_secret }}
+            - name: TZ
+              value: Asia/Shanghai
+            - name: ERROR_LOG_ENABLED
+              value: 'true'
+            - name: BATCH_UPDATE_ENABLED
+              value: 'true'
+          ports:
+            - name: http
+              containerPort: 3000
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          livenessProbe:
+            httpGet:
+              path: /api/status
+              port: 3000
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/status
+              port: 3000
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /api/status
+              port: 3000
+              scheme: HTTP
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 30
+          volumeMounts:
+            - name: vn-data
+              mountPath: /data
+            - name: vn-appvn-logs
+              mountPath: /app/logs
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-data
+        annotations:
+          path: /data
+          value: '0.1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 103Mi
+    - metadata:
+        name: vn-appvn-logs
+        annotations:
+          path: /app/logs
+          value: '0.1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 103Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - name: tcp-3000
+      port: 3000
+      targetPort: 3000
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 3000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/new-api/logo.png
+  name: ${{ defaults.app_name }}
+  type: link

@@ -1,0 +1,808 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: keystone
+spec:
+  title: "Keystone"
+  url: "https://keystonejs.com/"
+  gitRepo: "https://github.com/keystonejs/keystone"
+  author: "Sealos"
+  description: "Keystone is an open-source headless CMS and application framework for building GraphQL-powered backends and Admin UIs."
+  readme: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/keystone/README.md"
+  icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/keystone/logo.svg"
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: "Keystone 是一个开源无头 CMS 与应用框架，用于构建基于 GraphQL 的后端和 Admin UI。"
+      readme: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/keystone/README_zh.md"
+  categories:
+    - backend
+    - low-code
+  defaults:
+    app_name:
+      type: string
+      value: keystone-${{ random(8) }}
+    app_host:
+      type: string
+      value: keystone-${{ random(8) }}
+    session_secret:
+      type: string
+      value: ${{ random(64) }}
+  inputs:
+    admin_name:
+      description: "Initial administrator display name."
+      type: string
+      default: "Administrator"
+      required: true
+    admin_email:
+      description: "Initial administrator email address."
+      type: string
+      default: ""
+      required: true
+    admin_password:
+      description: "Initial administrator password."
+      type: string
+      default: ""
+      required: true
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - "*"
+    resources:
+      - "*"
+    verbs:
+      - "*"
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  terminationPolicy: Delete
+  componentSpecs:
+    - name: postgresql
+      componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
+      replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+spec:
+  backoffLimit: 5
+  template:
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: pg-init
+          image: postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PGPASSWORD
+              value: $(PG_PASSWORD)
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -c 'SELECT 1;' >/dev/null 2>&1; do
+                sleep 2
+              done
+              psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -tc "SELECT 1 FROM pg_database WHERE datname='keystone'" | grep -q 1 || \
+                psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -c "CREATE DATABASE \"keystone\";"
+      restartPolicy: Never
+  ttlSecondsAfterFinished: 300
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-bootstrapvn-packagevn-json: |
+    {
+      "name": "keystone-app",
+      "version": "1.0.0",
+      "private": true,
+      "scripts": {
+        "dev": "keystone dev",
+        "start": "keystone start",
+        "build": "keystone build"
+      },
+      "dependencies": {
+        "@keystone-6/auth": "8.1.0",
+        "@keystone-6/core": "6.5.1",
+        "typescript": "5.9.3"
+      }
+    }
+  vn-bootstrapvn-tsconfigvn-json: |
+    {
+      "compilerOptions": {
+        "target": "esnext",
+        "module": "commonjs",
+        "strict": true,
+        "noEmit": true,
+        "esModuleInterop": true,
+        "forceConsistentCasingInFileNames": true
+      }
+    }
+  vn-bootstrapvn-authvn-ts: |
+    import { createAuth } from '@keystone-6/auth'
+    import { statelessSessions } from '@keystone-6/core/session'
+
+    const { withAuth } = createAuth({
+      listKey: 'User',
+      identityField: 'email',
+      sessionData: 'name email createdAt',
+      secretField: 'password',
+    })
+
+    const sessionMaxAge = 60 * 60 * 24 * 30
+
+    const session = statelessSessions({
+      maxAge: sessionMaxAge,
+      secret: process.env.SESSION_SECRET || 'replace-me-with-a-long-session-secret',
+    })
+
+    export { withAuth, session }
+  vn-bootstrapvn-keystonevn-ts: |
+    import { config } from '@keystone-6/core'
+    import type { KeystoneContext } from '@keystone-6/core/types'
+    import { lists } from './schema'
+    import { withAuth, session } from './auth'
+
+    async function seedAdmin(context: KeystoneContext) {
+      const existingUsers = await context.sudo().db.User.count({})
+      if (existingUsers > 0) {
+        return
+      }
+
+      const name = process.env.INIT_ADMIN_NAME
+      const email = process.env.INIT_ADMIN_EMAIL
+      const password = process.env.INIT_ADMIN_PASSWORD
+
+      if (!name || !email || !password) {
+        console.warn('Initial admin credentials are missing; skipping bootstrap.')
+        return
+      }
+
+      await context.sudo().db.User.createOne({
+        data: {
+          name,
+          email,
+          password,
+        },
+      })
+
+      console.log(`Created initial Keystone admin user: ${email}`)
+    }
+
+    export default withAuth(
+      config({
+        db: {
+          provider: 'postgresql',
+          url: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/keystone',
+          async onConnect(context) {
+            await seedAdmin(context)
+          },
+        },
+        lists,
+        session,
+      })
+    )
+  vn-bootstrapvn-schemavn-ts: |
+    import { list } from '@keystone-6/core'
+    import { text, relationship, password, timestamp } from '@keystone-6/core/fields'
+    import { type Lists } from '.keystone/types'
+
+    const isSignedIn = ({ session }: { session?: unknown }) => Boolean(session)
+
+    const authenticatedAccess = {
+      operation: {
+        query: isSignedIn,
+        create: isSignedIn,
+        update: isSignedIn,
+        delete: isSignedIn,
+      },
+    }
+
+    export const lists = {
+      User: list({
+        access: authenticatedAccess,
+        fields: {
+          name: text({ validation: { isRequired: true } }),
+          email: text({
+            validation: { isRequired: true },
+            isIndexed: 'unique',
+          }),
+          password: password({ validation: { isRequired: true } }),
+          posts: relationship({ ref: 'Post.author', many: true }),
+          createdAt: timestamp({
+            defaultValue: { kind: 'now' },
+          }),
+        },
+      }),
+      Post: list({
+        access: authenticatedAccess,
+        fields: {
+          title: text({ validation: { isRequired: true } }),
+          content: text({
+            ui: {
+              displayMode: 'textarea',
+            },
+          }),
+          author: relationship({
+            ref: 'User.posts',
+            ui: {
+              displayMode: 'cards',
+              cardFields: ['name', 'email'],
+              inlineEdit: { fields: ['name', 'email'] },
+              linkToItem: true,
+              inlineConnect: true,
+            },
+            many: false,
+          }),
+          tags: relationship({
+            ref: 'Tag.posts',
+            many: true,
+            ui: {
+              displayMode: 'cards',
+              cardFields: ['name'],
+              inlineEdit: { fields: ['name'] },
+              linkToItem: true,
+              inlineConnect: true,
+              inlineCreate: { fields: ['name'] },
+            },
+          }),
+        },
+      }),
+      Tag: list({
+        access: authenticatedAccess,
+        ui: {
+          hideNavigation: true,
+        },
+        fields: {
+          name: text(),
+          posts: relationship({ ref: 'Post.tags', many: true }),
+        },
+      }),
+    } satisfies Lists
+  vn-bootstrapvn-bootstrapvn-sh: |
+    #!/bin/sh
+    set -eu
+
+    APP_DIR=/app
+    BOOTSTRAP_MODE="${KEYSTONE_BOOTSTRAP_MODE:-init}"
+    BUILD_MARKER="${APP_DIR}/.keystone/admin/.next/BUILD_ID"
+    BOOTSTRAP_HASH_FILE="${APP_DIR}/.keystone-bootstrap.sha256"
+    PRERENDER_MANIFEST="${APP_DIR}/.keystone/admin/.next/prerender-manifest.json"
+    BOOTSTRAP_PACKAGE=/tmp/keystone-bootstrap-package.json
+    BOOTSTRAP_TSCONFIG=/tmp/keystone-bootstrap-tsconfig.json
+    BOOTSTRAP_AUTH=/tmp/keystone-bootstrap-auth.ts
+    BOOTSTRAP_KEYSTONE=/tmp/keystone-bootstrap-keystone.ts
+    BOOTSTRAP_SCHEMA=/tmp/keystone-bootstrap-schema.ts
+
+    BOOTSTRAP_CHANGED=0
+
+    sync_managed_file() {
+      source_path="$1"
+      target_name="$2"
+      if [ ! -f "${APP_DIR}/${target_name}" ] || ! cmp -s "${source_path}" "${APP_DIR}/${target_name}"; then
+        cp "${source_path}" "${APP_DIR}/${target_name}"
+        BOOTSTRAP_CHANGED=1
+      fi
+    }
+
+    compute_bootstrap_hash() {
+      sha256sum \
+        "${BOOTSTRAP_PACKAGE}" \
+        "${BOOTSTRAP_TSCONFIG}" \
+        "${BOOTSTRAP_AUTH}" \
+        "${BOOTSTRAP_KEYSTONE}" \
+        "${BOOTSTRAP_SCHEMA}" \
+        "${0}" | sha256sum | awk '{print $1}'
+    }
+
+    ensure_openssl_compat() {
+      if command -v apk >/dev/null 2>&1; then
+        apk info -e openssl1.1-compat >/dev/null 2>&1 || apk add --no-cache --repository=https://dl-cdn.alpinelinux.org/alpine/v3.18/main --repository=https://dl-cdn.alpinelinux.org/alpine/v3.18/community openssl1.1-compat >/dev/null
+      fi
+    }
+
+    ensure_prisma_engine_aliases() {
+      ENGINES_DIR="${APP_DIR}/node_modules/@prisma/engines"
+      CLIENT_DIR="${APP_DIR}/node_modules/.prisma/client"
+
+      if [ ! -d "${ENGINES_DIR}" ]; then
+        ENGINES_DIR=
+      fi
+
+      if [ -n "${ENGINES_DIR}" ] && [ ! -e "${ENGINES_DIR}/schema-engine-linux-musl-openssl-3.0.x" ] && [ -e "${ENGINES_DIR}/schema-engine-linux-musl" ]; then
+        ln -sf schema-engine-linux-musl "${ENGINES_DIR}/schema-engine-linux-musl-openssl-3.0.x"
+      fi
+
+      if [ -n "${ENGINES_DIR}" ] && [ ! -e "${ENGINES_DIR}/libquery_engine-linux-musl-openssl-3.0.x.so.node" ] && [ -e "${ENGINES_DIR}/libquery_engine-linux-musl.so.node" ]; then
+        ln -sf libquery_engine-linux-musl.so.node "${ENGINES_DIR}/libquery_engine-linux-musl-openssl-3.0.x.so.node"
+      fi
+
+      if [ -d "${CLIENT_DIR}" ] && [ ! -e "${CLIENT_DIR}/libquery_engine-linux-musl-openssl-3.0.x.so.node" ] && [ -e "${CLIENT_DIR}/libquery_engine-linux-musl.so.node" ]; then
+        ln -sf libquery_engine-linux-musl.so.node "${CLIENT_DIR}/libquery_engine-linux-musl-openssl-3.0.x.so.node"
+      fi
+    }
+
+    ensure_admin_prerender_manifest() {
+      if [ -d "${APP_DIR}/.keystone/admin/.next" ] && [ ! -f "${PRERENDER_MANIFEST}" ]; then
+        cat > "${PRERENDER_MANIFEST}" <<'EOF'
+    {"version":4,"routes":{},"dynamicRoutes":{},"preview":{"previewModeId":"keystone","previewModeSigningKey":"keystone","previewModeEncryptionKey":"keystone"},"notFoundRoutes":[]}
+    EOF
+      fi
+    }
+
+    mkdir -p "${APP_DIR}"
+
+    CURRENT_BOOTSTRAP_HASH="$(compute_bootstrap_hash)"
+    if [ ! -f "${BOOTSTRAP_HASH_FILE}" ] || [ "$(cat "${BOOTSTRAP_HASH_FILE}")" != "${CURRENT_BOOTSTRAP_HASH}" ]; then
+      BOOTSTRAP_CHANGED=1
+    fi
+
+    sync_managed_file "${BOOTSTRAP_PACKAGE}" package.json
+    sync_managed_file "${BOOTSTRAP_TSCONFIG}" tsconfig.json
+    sync_managed_file "${BOOTSTRAP_AUTH}" auth.ts
+    sync_managed_file "${BOOTSTRAP_KEYSTONE}" keystone.ts
+    sync_managed_file "${BOOTSTRAP_SCHEMA}" schema.ts
+
+    cd "${APP_DIR}"
+
+    ensure_openssl_compat
+    ensure_prisma_engine_aliases
+    ensure_admin_prerender_manifest
+
+    if [ "${BOOTSTRAP_MODE}" = "runtime" ] && [ "${BOOTSTRAP_CHANGED}" != "1" ] && [ -f "${BUILD_MARKER}" ] && [ -f "${BOOTSTRAP_HASH_FILE}" ]; then
+      exit 0
+    fi
+
+    if [ ! -x node_modules/.bin/keystone ] || [ "${BOOTSTRAP_CHANGED}" = "1" ]; then
+      npm install --no-fund --no-audit
+    fi
+
+    ensure_prisma_engine_aliases
+
+    if [ "${BOOTSTRAP_CHANGED}" = "1" ] || [ ! -f "${BUILD_MARKER}" ]; then
+      rm -rf "${APP_DIR}/.keystone"
+      npm run build
+    fi
+
+    ensure_admin_prerender_manifest
+
+    ./node_modules/.bin/keystone prisma db push --accept-data-loss
+    printf '%s\n' "${CURRENT_BOOTSTRAP_HASH}" > "${BOOTSTRAP_HASH_FILE}"
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: node:22.22.1-alpine
+    deploy.cloud.sealos.io/minReplicas: "1"
+    deploy.cloud.sealos.io/maxReplicas: "1"
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      volumes:
+        - name: vn-bootstrapvn-packagevn-json
+          configMap:
+            name: ${{ defaults.app_name }}
+            items:
+              - key: vn-bootstrapvn-packagevn-json
+                path: package.json
+            defaultMode: 420
+        - name: vn-bootstrapvn-tsconfigvn-json
+          configMap:
+            name: ${{ defaults.app_name }}
+            items:
+              - key: vn-bootstrapvn-tsconfigvn-json
+                path: tsconfig.json
+            defaultMode: 420
+        - name: vn-bootstrapvn-authvn-ts
+          configMap:
+            name: ${{ defaults.app_name }}
+            items:
+              - key: vn-bootstrapvn-authvn-ts
+                path: auth.ts
+            defaultMode: 420
+        - name: vn-bootstrapvn-keystonevn-ts
+          configMap:
+            name: ${{ defaults.app_name }}
+            items:
+              - key: vn-bootstrapvn-keystonevn-ts
+                path: keystone.ts
+            defaultMode: 420
+        - name: vn-bootstrapvn-schemavn-ts
+          configMap:
+            name: ${{ defaults.app_name }}
+            items:
+              - key: vn-bootstrapvn-schemavn-ts
+                path: schema.ts
+            defaultMode: 420
+        - name: vn-bootstrapvn-bootstrapvn-sh
+          configMap:
+            name: ${{ defaults.app_name }}
+            items:
+              - key: vn-bootstrapvn-bootstrapvn-sh
+                path: bootstrap.sh
+            defaultMode: 420
+      initContainers:
+        - name: bootstrap
+          image: node:22.22.1-alpine
+          imagePullPolicy: IfNotPresent
+          workingDir: /app
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: HOST
+              value: 0.0.0.0
+            - name: PORT
+              value: "3000"
+            - name: SESSION_SECRET
+              value: ${{ defaults.session_secret }}
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgresql://$(PG_USERNAME):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/keystone
+            - name: KEYSTONE_BOOTSTRAP_MODE
+              value: init
+          command:
+            - /bin/sh
+            - -ec
+            - /bin/sh /tmp/keystone-bootstrap.sh
+          volumeMounts:
+            - name: vn-app
+              mountPath: /app
+            - name: vn-bootstrapvn-packagevn-json
+              mountPath: /tmp/keystone-bootstrap-package.json
+              subPath: package.json
+              readOnly: true
+            - name: vn-bootstrapvn-tsconfigvn-json
+              mountPath: /tmp/keystone-bootstrap-tsconfig.json
+              subPath: tsconfig.json
+              readOnly: true
+            - name: vn-bootstrapvn-authvn-ts
+              mountPath: /tmp/keystone-bootstrap-auth.ts
+              subPath: auth.ts
+              readOnly: true
+            - name: vn-bootstrapvn-keystonevn-ts
+              mountPath: /tmp/keystone-bootstrap-keystone.ts
+              subPath: keystone.ts
+              readOnly: true
+            - name: vn-bootstrapvn-schemavn-ts
+              mountPath: /tmp/keystone-bootstrap-schema.ts
+              subPath: schema.ts
+              readOnly: true
+            - name: vn-bootstrapvn-bootstrapvn-sh
+              mountPath: /tmp/keystone-bootstrap.sh
+              subPath: bootstrap.sh
+              readOnly: true
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 50m
+              memory: 51Mi
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: node:22.22.1-alpine
+          imagePullPolicy: IfNotPresent
+          workingDir: /app
+          command:
+            - /bin/sh
+            - -ec
+            - /bin/sh /tmp/keystone-bootstrap.sh && exec npm run start
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: HOST
+              value: 0.0.0.0
+            - name: PORT
+              value: "3000"
+            - name: SESSION_SECRET
+              value: ${{ defaults.session_secret }}
+            - name: INIT_ADMIN_NAME
+              value: ${{ inputs.admin_name }}
+            - name: INIT_ADMIN_EMAIL
+              value: ${{ inputs.admin_email }}
+            - name: INIT_ADMIN_PASSWORD
+              value: ${{ inputs.admin_password }}
+            - name: KEYSTONE_BOOTSTRAP_MODE
+              value: runtime
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgresql://$(PG_USERNAME):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/keystone
+          ports:
+            - name: http
+              containerPort: 3000
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 50m
+              memory: 51Mi
+          startupProbe:
+            tcpSocket:
+              port: 3000
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
+          readinessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          volumeMounts:
+            - name: vn-app
+              mountPath: /app
+            - name: vn-bootstrapvn-packagevn-json
+              mountPath: /tmp/keystone-bootstrap-package.json
+              subPath: package.json
+              readOnly: true
+            - name: vn-bootstrapvn-tsconfigvn-json
+              mountPath: /tmp/keystone-bootstrap-tsconfig.json
+              subPath: tsconfig.json
+              readOnly: true
+            - name: vn-bootstrapvn-authvn-ts
+              mountPath: /tmp/keystone-bootstrap-auth.ts
+              subPath: auth.ts
+              readOnly: true
+            - name: vn-bootstrapvn-keystonevn-ts
+              mountPath: /tmp/keystone-bootstrap-keystone.ts
+              subPath: keystone.ts
+              readOnly: true
+            - name: vn-bootstrapvn-schemavn-ts
+              mountPath: /tmp/keystone-bootstrap-schema.ts
+              subPath: schema.ts
+              readOnly: true
+            - name: vn-bootstrapvn-bootstrapvn-sh
+              mountPath: /tmp/keystone-bootstrap.sh
+              subPath: bootstrap.sh
+              readOnly: true
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-app
+        annotations:
+          path: /app
+          value: "1"
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 3000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/keystone/logo.svg"
+  name: Keystone
+  type: link
