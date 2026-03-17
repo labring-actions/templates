@@ -1,0 +1,572 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: typo3
+spec:
+  title: TYPO3
+  url: https://typo3.org
+  gitRepo: https://github.com/TYPO3/typo3
+  author: Sealos
+  description: Open-source enterprise content management system for building and managing websites.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/typo3/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/typo3/logo.png
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: 开源企业级内容管理系统，用于构建和管理网站。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/typo3/README_zh.md
+  categories:
+    - frontend
+    - backend
+  defaults:
+    app_host:
+      type: string
+      value: typo3-${{ random(8) }}
+    app_name:
+      type: string
+      value: typo3-${{ random(8) }}
+  inputs:
+    TYPO3_SETUP_ADMIN_EMAIL:
+      description: TYPO3 administrator email used during initial setup.
+      type: string
+      default: admin@example.com
+      required: true
+    TYPO3_SETUP_ADMIN_USERNAME:
+      description: TYPO3 administrator username used during initial setup.
+      type: string
+      default: admin
+      required: true
+    TYPO3_SETUP_ADMIN_PASSWORD:
+      description: TYPO3 administrator password used during initial setup. Must be at least 8 characters and include upper case, lower case, digit, and special character.
+      type: string
+      default: ''
+      required: true
+    TYPO3_PROJECT_NAME:
+      description: TYPO3 site name used during initial setup.
+      type: string
+      default: TYPO3 Site
+      required: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-mysql
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-mysql
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-mysql
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-mysql
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-mysql
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-mysql
+  labels:
+    kb.io/database: ac-mysql-8.0.30-1
+    clusterdefinition.kubeblocks.io/name: apecloud-mysql
+    clusterversion.kubeblocks.io/name: ac-mysql-8.0.30-1
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys:
+      - kubernetes.io/hostname
+  clusterDefinitionRef: apecloud-mysql
+  clusterVersionRef: ac-mysql-8.0.30-1
+  componentSpecs:
+    - name: mysql
+      componentDefRef: mysql
+      monitor: true
+      noCreatePDB: false
+      replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-mysql
+      switchPolicy:
+        type: Noop
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+  tolerations: []
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-mysql-init
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-mysql-init
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: ${{ defaults.app_name }}-mysql-init
+          image: mysql:8.0.30
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MYSQL_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: host
+            - name: MYSQL_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: port
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: username
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: password
+            - name: MYSQL_DATABASE
+              value: typo3
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              for i in $(seq 1 90); do
+                if mysqladmin ping -h"${MYSQL_HOST}" -P"${MYSQL_PORT}" -u"${MYSQL_USER}" -p"${MYSQL_PASSWORD}" --silent; then
+                  break
+                fi
+                sleep 2
+              done
+              mysql -h"${MYSQL_HOST}" -P"${MYSQL_PORT}" -u"${MYSQL_USER}" -p"${MYSQL_PASSWORD}" \
+                -e "CREATE DATABASE IF NOT EXISTS \`${MYSQL_DATABASE}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-varvn-wwwvn-htmlvn-typo3confvn-systemvn-additionalvn-php: |
+    <?php
+
+    use TYPO3\CMS\Core\Core\Environment;
+
+    if (Environment::getContext()->isProduction()) {
+        $trustedProxyRanges = getenv('TYPO3_REVERSE_PROXY_TRUSTED_CIDRS') ?: '10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10,127.0.0.1/32';
+        $trustedHost = getenv('TYPO3_TRUSTED_HOST') ?: '';
+
+        $customChanges = [
+            'SYS' => [
+                'reverseProxyIP' => $trustedProxyRanges,
+                'reverseProxySSL' => $trustedProxyRanges,
+                'reverseProxyHeaderMultiValue' => 'first',
+            ],
+        ];
+
+        if ($trustedHost !== '') {
+            $customChanges['SYS']['trustedHostsPattern'] = '^' . preg_quote($trustedHost, '/') . '$';
+        }
+
+        $GLOBALS['TYPO3_CONF_VARS'] = array_replace_recursive($GLOBALS['TYPO3_CONF_VARS'], $customChanges);
+    }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: martinhelmich/typo3:13.4@sha256:7436d068b583c1dae2dd37ebca973b957de5371fe2acfdf9239598c3a8dbda25
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  serviceName: ${{ defaults.app_name }}
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 33
+        fsGroupChangePolicy: OnRootMismatch
+      initContainers:
+        - name: ${{ defaults.app_name }}-setup
+          image: martinhelmich/typo3:13.4@sha256:7436d068b583c1dae2dd37ebca973b957de5371fe2acfdf9239598c3a8dbda25
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 33
+            runAsGroup: 33
+          env:
+            - name: TYPO3_CONTEXT
+              value: Production
+            - name: TYPO3_DB_DRIVER
+              value: mysqli
+            - name: TYPO3_DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: host
+            - name: TYPO3_DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: port
+            - name: TYPO3_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: username
+            - name: TYPO3_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: password
+            - name: TYPO3_DB_DBNAME
+              value: typo3
+            - name: TYPO3_SETUP_ADMIN_EMAIL
+              value: ${{ inputs.TYPO3_SETUP_ADMIN_EMAIL }}
+            - name: TYPO3_SETUP_ADMIN_USERNAME
+              value: ${{ inputs.TYPO3_SETUP_ADMIN_USERNAME }}
+            - name: TYPO3_SETUP_ADMIN_PASSWORD
+              value: ${{ inputs.TYPO3_SETUP_ADMIN_PASSWORD }}
+            - name: TYPO3_PROJECT_NAME
+              value: ${{ inputs.TYPO3_PROJECT_NAME }}
+            - name: TYPO3_SETUP_CREATE_SITE
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              mkdir -p /var/www/html/fileadmin /var/www/html/typo3conf/system /var/www/html/typo3temp
+              php -r '
+                $password = getenv("TYPO3_SETUP_ADMIN_PASSWORD") ?: "";
+                $errors = [];
+                if (strlen($password) < 8) {
+                  $errors[] = "minimum length 8";
+                }
+                if (!preg_match("/[A-Z]/", $password)) {
+                  $errors[] = "at least one upper case char";
+                }
+                if (!preg_match("/[a-z]/", $password)) {
+                  $errors[] = "at least one lower case char";
+                }
+                if (!preg_match("/[0-9]/", $password)) {
+                  $errors[] = "at least one digit";
+                }
+                if (!preg_match("/[^a-zA-Z0-9]/", $password)) {
+                  $errors[] = "at least one special char";
+                }
+                if ($errors !== []) {
+                  fwrite(STDERR, "TYPO3_SETUP_ADMIN_PASSWORD does not satisfy TYPO3 default password policy: " . implode(", ", $errors) . PHP_EOL);
+                  exit(1);
+                }
+              '
+              has_backend_user() {
+                php -r '
+                  mysqli_report(MYSQLI_REPORT_OFF);
+                  $link = @new mysqli(
+                    getenv("TYPO3_DB_HOST"),
+                    getenv("TYPO3_DB_USERNAME"),
+                    getenv("TYPO3_DB_PASSWORD"),
+                    getenv("TYPO3_DB_DBNAME"),
+                    (int)getenv("TYPO3_DB_PORT")
+                  );
+                  if ($link->connect_errno) {
+                    exit(2);
+                  }
+                  $tables = $link->query("SHOW TABLES LIKE '\''be_users'\''");
+                  if (!$tables || $tables->num_rows === 0) {
+                    exit(1);
+                  }
+                  $result = $link->query("SELECT COUNT(*) AS cnt FROM be_users WHERE deleted = 0");
+                  if (!$result) {
+                    exit(1);
+                  }
+                  $row = $result->fetch_assoc();
+                  $link->close();
+                  exit(((int)($row["cnt"] ?? 0)) > 0 ? 0 : 1);
+                ' >/dev/null 2>&1
+              }
+              if [ -f /var/www/html/typo3conf/system/settings.php ] && has_backend_user; then
+                echo "TYPO3 is already configured and backend users exist, skipping setup."
+                exit 0
+              fi
+              for i in $(seq 1 90); do
+                if php -r '
+                  mysqli_report(MYSQLI_REPORT_OFF);
+                  $link = @new mysqli(
+                    getenv("TYPO3_DB_HOST"),
+                    getenv("TYPO3_DB_USERNAME"),
+                    getenv("TYPO3_DB_PASSWORD"),
+                    getenv("TYPO3_DB_DBNAME"),
+                    (int)getenv("TYPO3_DB_PORT")
+                  );
+                  if ($link->connect_errno) {
+                    exit(1);
+                  }
+                  $link->close();
+                ' >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 2
+              done
+              ./typo3/sysext/core/bin/typo3 setup --no-interaction --force --server-type=apache
+              if ! has_backend_user; then
+                TYPO3_BE_USER_NAME="${TYPO3_SETUP_ADMIN_USERNAME}" \
+                TYPO3_BE_USER_PASSWORD="${TYPO3_SETUP_ADMIN_PASSWORD}" \
+                TYPO3_BE_USER_EMAIL="${TYPO3_SETUP_ADMIN_EMAIL}" \
+                TYPO3_BE_USER_ADMIN=1 \
+                ./typo3/sysext/core/bin/typo3 backend:user:create --no-interaction
+              fi
+          volumeMounts:
+            - name: vn-varvn-wwwvn-htmlvn-fileadmin
+              mountPath: /var/www/html/fileadmin
+            - name: vn-varvn-wwwvn-htmlvn-typo3conf
+              mountPath: /var/www/html/typo3conf
+            - name: vn-varvn-wwwvn-htmlvn-typo3temp
+              mountPath: /var/www/html/typo3temp
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: martinhelmich/typo3:13.4@sha256:7436d068b583c1dae2dd37ebca973b957de5371fe2acfdf9239598c3a8dbda25
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: TYPO3_CONTEXT
+              value: Production
+            - name: TYPO3_TRUSTED_HOST
+              value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: TYPO3_REVERSE_PROXY_TRUSTED_CIDRS
+              value: 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10,127.0.0.1/32
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /typo3/
+              port: http
+              scheme: HTTP
+              httpHeaders:
+                - name: Host
+                  value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /typo3/
+              port: http
+              scheme: HTTP
+              httpHeaders:
+                - name: Host
+                  value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          startupProbe:
+            httpGet:
+              path: /typo3/
+              port: http
+              scheme: HTTP
+              httpHeaders:
+                - name: Host
+                  value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 60
+          volumeMounts:
+            - name: vn-varvn-wwwvn-htmlvn-fileadmin
+              mountPath: /var/www/html/fileadmin
+            - name: vn-varvn-wwwvn-htmlvn-typo3conf
+              mountPath: /var/www/html/typo3conf
+            - name: vn-varvn-wwwvn-htmlvn-typo3temp
+              mountPath: /var/www/html/typo3temp
+            - name: vn-varvn-wwwvn-htmlvn-typo3confvn-systemvn-additionalvn-php
+              mountPath: /var/www/html/typo3conf/system/additional.php
+              subPath: additional.php
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+      volumes:
+        - name: vn-varvn-wwwvn-htmlvn-typo3confvn-systemvn-additionalvn-php
+          configMap:
+            name: ${{ defaults.app_name }}
+            items:
+              - key: vn-varvn-wwwvn-htmlvn-typo3confvn-systemvn-additionalvn-php
+                path: additional.php
+            defaultMode: 420
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-varvn-wwwvn-htmlvn-fileadmin
+        annotations:
+          path: /var/www/html/fileadmin
+          value: '0.1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 103Mi
+    - metadata:
+        name: vn-varvn-wwwvn-htmlvn-typo3conf
+        annotations:
+          path: /var/www/html/typo3conf
+          value: '0.1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 103Mi
+    - metadata:
+        name: vn-varvn-wwwvn-htmlvn-typo3temp
+        annotations:
+          path: /var/www/html/typo3temp
+          value: '0.1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 103Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/typo3/logo.png
+  name: TYPO3
+  type: link
