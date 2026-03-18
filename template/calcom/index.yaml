@@ -1,0 +1,427 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: calcom
+spec:
+  title: Cal.com
+  url: https://cal.com/
+  gitRepo: https://github.com/calcom/cal.com
+  author: Sealos
+  description: Open-source scheduling platform for individuals, teams, and enterprises.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/calcom/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/calcom/logo.svg
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: 开源日程预约平台，适合个人、团队与企业自托管。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/calcom/README_zh.md
+  categories:
+  - tool
+  defaults:
+    app_host:
+      type: string
+      value: calcom-${{ random(8) }}
+    app_name:
+      type: string
+      value: calcom-${{ random(8) }}
+    nextauth_secret:
+      type: string
+      value: ${{ random(64) }}
+    calendso_encryption_key:
+      type: string
+      value: ${{ random(32) }}
+    cron_api_key:
+      type: string
+      value: ${{ random(32) }}
+    cron_secret:
+      type: string
+      value: ${{ random(32) }}
+  inputs:
+    email_from:
+      description: Sender email address used for notifications and verification emails
+      type: string
+      default: ''
+      required: false
+    email_from_name:
+      description: Sender display name used for outbound emails
+      type: string
+      default: Cal.com
+      required: false
+    email_server_host:
+      description: SMTP server hostname for outbound email delivery
+      type: string
+      default: ''
+      required: false
+    email_server_port:
+      description: SMTP server port for outbound email delivery
+      type: string
+      default: '587'
+      required: false
+    email_server_user:
+      description: SMTP username for outbound email delivery
+      type: string
+      default: ''
+      required: false
+    email_server_password:
+      description: SMTP password for outbound email delivery
+      type: string
+      default: ''
+      required: false
+    calcom_license_key:
+      description: Enterprise license key for enabling paid Cal.com features
+      type: string
+      default: ''
+      required: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+rules:
+- apiGroups:
+  - '*'
+  resources:
+  - '*'
+  verbs:
+  - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+- kind: ServiceAccount
+  name: ${{ defaults.app_name }}-pg
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  terminationPolicy: Delete
+  componentSpecs:
+  - name: postgresql
+    componentDefRef: postgresql
+    disableExporter: true
+    enabledLogs:
+    - running
+    replicas: 1
+    serviceAccountName: ${{ defaults.app_name }}-pg
+    switchPolicy:
+      type: Noop
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 50m
+        memory: 51Mi
+    volumeClaimTemplates:
+    - name: data
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+        storageClassName: openebs-backup
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+spec:
+  completions: 1
+  template:
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: pg-init
+        image: public.ecr.aws/docker/library/postgres:16.4-alpine
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: PG_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: PG_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        - name: PG_USER
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: username
+        - name: PG_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: password
+        - name: PGPASSWORD
+          value: $(PG_PASSWORD)
+        command:
+        - /bin/sh
+        - -ec
+        - |
+          until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; do
+            sleep 2
+          done
+          if ! psql "postgresql://$PG_USER:$PG_PASSWORD@$PG_HOST:$PG_PORT/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='calendso'" | grep -q 1; then
+            createdb -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" calendso
+          fi
+      restartPolicy: Never
+  backoffLimit: 5
+  ttlSecondsAfterFinished: 300
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: calcom.docker.scarf.sh/calcom/cal.com:v6.2.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: ${{ defaults.app_name }}
+        image: calcom.docker.scarf.sh/calcom/cal.com:v6.2.0
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 500m
+            memory: 2048Mi
+          requests:
+            cpu: 50m
+            memory: 204Mi
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        - name: DB_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: DB_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        - name: DB_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: username
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: password
+        - name: DATABASE_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: DATABASE_URL
+          value: postgresql://$(DB_USERNAME):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/calendso
+        - name: DATABASE_DIRECT_URL
+          value: postgresql://$(DB_USERNAME):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/calendso
+        - name: NEXT_PUBLIC_WEBAPP_URL
+          value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+        - name: NEXTAUTH_URL
+          value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/api/auth
+        - name: NEXT_PUBLIC_WEBSITE_URL
+          value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+        - name: NEXT_PUBLIC_EMBED_LIB_URL
+          value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/embed/embed.js
+        - name: NEXTAUTH_SECRET
+          value: ${{ defaults.nextauth_secret }}
+        - name: CALENDSO_ENCRYPTION_KEY
+          value: ${{ defaults.calendso_encryption_key }}
+        - name: CRON_API_KEY
+          value: ${{ defaults.cron_api_key }}
+        - name: CRON_SECRET
+          value: ${{ defaults.cron_secret }}
+        - name: CALCOM_LICENSE_KEY
+          value: ${{ inputs.calcom_license_key }}
+        - name: CALCOM_TELEMETRY_DISABLED
+          value: '1'
+        - name: NODE_OPTIONS
+          value: --max-old-space-size=1536
+        - name: NODE_ENV
+          value: production
+        - name: ALLOWED_HOSTNAMES
+          value: '"${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"'
+        - name: RESERVED_SUBDOMAINS
+          value: '"app","auth","docs","design","console","go","status","api","saml","www","matrix","developer","cal","my","team","support","security","blog","learn","admin"'
+        - name: EMAIL_FROM
+          value: ${{ inputs.email_from }}
+        - name: EMAIL_FROM_NAME
+          value: ${{ inputs.email_from_name }}
+        - name: EMAIL_SERVER_HOST
+          value: ${{ inputs.email_server_host }}
+        - name: EMAIL_SERVER_PORT
+          value: ${{ inputs.email_server_port }}
+        - name: EMAIL_SERVER_USER
+          value: ${{ inputs.email_server_user }}
+        - name: EMAIL_SERVER_PASSWORD
+          value: ${{ inputs.email_server_password }}
+        command:
+        - /bin/sh
+        - -ec
+        args:
+        - |
+          set -eu
+          /calcom/scripts/replace-placeholder.sh "http://localhost:3000" "${NEXT_PUBLIC_WEBAPP_URL}"
+          /calcom/scripts/wait-for-it.sh "${DB_HOST}:${DB_PORT}" -t 120 -- echo "database is up"
+          until npx prisma migrate deploy --schema /calcom/packages/prisma/schema.prisma; do
+            echo "prisma migrate failed, retrying in 5s"
+            sleep 5
+          done
+          npx ts-node --transpile-only /calcom/scripts/seed-app-store.ts || true
+          exec yarn start
+        startupProbe:
+          httpGet:
+            path: /
+            port: 3000
+            scheme: HTTP
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 90
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 3000
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 6
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 3000
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 6
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+  - name: http
+    port: 3000
+    targetPort: 3000
+    protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+  - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+    http:
+      paths:
+      - pathType: Prefix
+        path: /
+        backend:
+          service:
+            name: ${{ defaults.app_name }}
+            port:
+              number: 3000
+  tls:
+  - hosts:
+    - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+    secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/calcom/logo.svg
+  name: Cal.com
+  type: link
