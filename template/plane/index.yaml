@@ -8,9 +8,14 @@ spec:
   gitRepo: 'https://github.com/makeplane/plane'
   author: 'Sealos'
   description: 'Open Source JIRA, Linear, Monday, and Asana Alternative. Plane helps you track your issues, epics, and product roadmaps in the simplest way possible.'
-  readme: 'https://raw.githubusercontent.com/makeplane/plane/preview/README.md'
-  icon: 'https://avatars.githubusercontent.com/u/115727700?s=48&v=4'
+  readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/plane/README.md'
+  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/plane/logo.png'
   templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: '开源的 Plane 项目管理平台，可替代 JIRA、Linear、Monday 和 Asana，用更简单的方式管理问题、史诗和产品路线图。'
+      readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/plane/README_zh.md'
   categories:
     - tool
   defaults:
@@ -26,7 +31,7 @@ spec:
 apiVersion: objectstorage.sealos.io/v1
 kind: ObjectStorageBucket
 metadata:
-  name: ${{ defaults.app_name }}-private
+  name: ${{ defaults.app_name }}
 spec:
   policy: private
 
@@ -134,19 +139,38 @@ spec:
       containers:
         - name: pgsql-init
           image: senzing/postgresql-client:2.2.4
+          imagePullPolicy: IfNotPresent
           env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
             - name: PG_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
             - name: DATABASE_URL
-              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
+              value: postgresql://$(PG_USERNAME):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/postgres
           command:
             - /bin/sh
             - -c
             - |
-              until psql ${DATABASE_URL} -c 'CREATE DATABASE plane;' &>/dev/null; do sleep 1; done
+              until pg_isready -d "${DATABASE_URL}" >/dev/null 2>&1; do sleep 1; done
+              if ! psql "${DATABASE_URL}" -tAc "SELECT 1 FROM pg_database WHERE datname='plane'" | grep -q 1; then
+                psql "${DATABASE_URL}" -c 'CREATE DATABASE plane;'
+              fi
       restartPolicy: Never
   backoffLimit: 0
   ttlSecondsAfterFinished: 300
@@ -163,6 +187,7 @@ spec:
       containers:
         - name: ${{ defaults.app_name }}-api-migrate
           image: makeplane/plane-backend:v0.22-dev
+          imagePullPolicy: IfNotPresent
           env:
             - name: DEBUG
               value: "0"
@@ -172,8 +197,22 @@ spec:
               value: "1"
             - name: WEB_URL
               value: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: APP_BASE_URL
+              value: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: APP_BASE_PATH
+              value: ""
+            - name: ADMIN_BASE_URL
+              value: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: ADMIN_BASE_PATH
+              value: "/god-mode"
+            - name: SPACE_BASE_URL
+              value: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: SPACE_BASE_PATH
+              value: "/spaces"
             - name: CORS_ALLOWED_ORIGINS
               value: "http://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }},https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: REDIS_HOST
+              value: "${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local"
             - name: REDIS_PORT
               value: '6379'
             - name: REDIS_USER
@@ -187,12 +226,17 @@ spec:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
             - name: REDIS_URL
-              value: "redis://$(REDIS_USER):$(REDIS_PASSWORD)@${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc:$(REDIS_PORT)"
+              value: "redis://$(REDIS_USER):$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)"
             - name: DATABASE_PORT
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: port
+            - name: DATABASE_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
             - name: DATABASE_USER
               valueFrom:
                 secretKeyRef:
@@ -204,33 +248,41 @@ spec:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
             - name: DATABASE_URL
-              value: "postgresql://$(DATABASE_USER):$(DATABASE_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:$(DATABASE_PORT)/plane"
+              value: "postgresql://$(DATABASE_USER):$(DATABASE_PASSWORD)@$(DATABASE_HOST):$(DATABASE_PORT)/plane"
             - name: SECRET_KEY
               value: "NjBncDBieWZ6MmR2ZmZhNDVjeGwyMHAxc2N5OXhicGY2ZDhjNXkwZ2VlamdreXAxYjU="
             - name: FILE_SIZE_LIMIT
               value: "5242880"
             - name: AWS_S3_BUCKET_NAME
               value: "upload"
-            - name: AWS_SECRET_ACCESS_KEY
+            - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: secretKey
-            - name: AWS_ACCESS_KEY_ID
+            - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: accessKey
-            - name: BACKEND_STORAGE_PRIVATE_BUCKET
+            - name: S3_BUCKET
               valueFrom:
                 secretKeyRef:
-                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-private
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
                   key: bucket
-            - name: BACKEND_STORAGE_MINIO_ENDPOINT
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
-                  key: internal
+                  key: external
+            - name: AWS_SECRET_ACCESS_KEY
+              value: "$(S3_SECRET_ACCESS_KEY)"
+            - name: AWS_ACCESS_KEY_ID
+              value: "$(S3_ACCESS_KEY_ID)"
+            - name: BACKEND_STORAGE_PRIVATE_BUCKET
+              value: "$(S3_BUCKET)"
+            - name: BACKEND_STORAGE_MINIO_ENDPOINT
+              value: "$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)"
             - name: AWS_S3_ENDPOINT_URL
               value: "http://$(BACKEND_STORAGE_MINIO_ENDPOINT)/$(BACKEND_STORAGE_PRIVATE_BUCKET)"
             - name: USE_MINIO
@@ -316,11 +368,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 100m
-          memory: 100Mi
+          cpu: 500m
+          memory: 512Mi
         requests:
-          cpu: 10m
-          memory: 10Mi
+          cpu: 50m
+          memory: 51Mi
       serviceVersion: 7.2.7
       volumeClaimTemplates:
         - name: data
@@ -406,6 +458,19 @@ spec:
           args:
             - admin/server.js
             - admin
+          env:
+            - name: NEXT_PUBLIC_API_BASE_URL
+              value: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: NEXT_PUBLIC_WEB_BASE_URL
+              value: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: NEXT_PUBLIC_ADMIN_BASE_URL
+              value: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: NEXT_PUBLIC_ADMIN_BASE_PATH
+              value: "/god-mode"
+            - name: NEXT_PUBLIC_SPACE_BASE_URL
+              value: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: NEXT_PUBLIC_SPACE_BASE_PATH
+              value: "/spaces"
           resources:
             requests:
               cpu: 10m
@@ -425,9 +490,12 @@ metadata:
   name: ${{ defaults.app_name }}-admin
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-admin
+    app: ${{ defaults.app_name }}-admin
 spec:
   ports:
-    - port: 3000
+    - name: http
+      port: 3000
+      targetPort: 3000
   selector:
     app: ${{ defaults.app_name }}-admin
 
@@ -474,8 +542,22 @@ spec:
               value: "1"
             - name: WEB_URL
               value: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: APP_BASE_URL
+              value: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: APP_BASE_PATH
+              value: ""
+            - name: ADMIN_BASE_URL
+              value: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: ADMIN_BASE_PATH
+              value: "/god-mode"
+            - name: SPACE_BASE_URL
+              value: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: SPACE_BASE_PATH
+              value: "/spaces"
             - name: CORS_ALLOWED_ORIGINS
               value: "http://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }},https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: REDIS_HOST
+              value: "${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local"
             - name: REDIS_PORT
               value: '6379'
             - name: REDIS_USER
@@ -489,12 +571,17 @@ spec:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
             - name: REDIS_URL
-              value: "redis://$(REDIS_USER):$(REDIS_PASSWORD)@${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc:$(REDIS_PORT)"
+              value: "redis://$(REDIS_USER):$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)"
             - name: DATABASE_PORT
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: port
+            - name: DATABASE_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
             - name: DATABASE_USER
               valueFrom:
                 secretKeyRef:
@@ -506,33 +593,41 @@ spec:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
             - name: DATABASE_URL
-              value: "postgresql://$(DATABASE_USER):$(DATABASE_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:$(DATABASE_PORT)/plane"
+              value: "postgresql://$(DATABASE_USER):$(DATABASE_PASSWORD)@$(DATABASE_HOST):$(DATABASE_PORT)/plane"
             - name: SECRET_KEY
               value: "NjBncDBieWZ6MmR2ZmZhNDVjeGwyMHAxc2N5OXhicGY2ZDhjNXkwZ2VlamdreXAxYjU="
             - name: FILE_SIZE_LIMIT
               value: "5242880"
             - name: AWS_S3_BUCKET_NAME
               value: "upload"
-            - name: AWS_SECRET_ACCESS_KEY
+            - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: secretKey
-            - name: AWS_ACCESS_KEY_ID
+            - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: accessKey
-            - name: BACKEND_STORAGE_PRIVATE_BUCKET
+            - name: S3_BUCKET
               valueFrom:
                 secretKeyRef:
-                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-private
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
                   key: bucket
-            - name: BACKEND_STORAGE_MINIO_ENDPOINT
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
-                  key: internal
+                  key: external
+            - name: AWS_SECRET_ACCESS_KEY
+              value: "$(S3_SECRET_ACCESS_KEY)"
+            - name: AWS_ACCESS_KEY_ID
+              value: "$(S3_ACCESS_KEY_ID)"
+            - name: BACKEND_STORAGE_PRIVATE_BUCKET
+              value: "$(S3_BUCKET)"
+            - name: BACKEND_STORAGE_MINIO_ENDPOINT
+              value: "$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)"
             - name: AWS_S3_ENDPOINT_URL
               value: "http://$(BACKEND_STORAGE_MINIO_ENDPOINT)/$(BACKEND_STORAGE_PRIVATE_BUCKET)"
             - name: USE_MINIO
@@ -562,9 +657,12 @@ metadata:
   name: ${{ defaults.app_name }}-api
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-api
+    app: ${{ defaults.app_name }}-api
 spec:
   ports:
-    - port: 8000
+    - name: http
+      port: 8000
+      targetPort: 8000
   selector:
     app: ${{ defaults.app_name }}-api
 
@@ -611,8 +709,22 @@ spec:
               value: "1"
             - name: WEB_URL
               value: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: APP_BASE_URL
+              value: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: APP_BASE_PATH
+              value: ""
+            - name: ADMIN_BASE_URL
+              value: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: ADMIN_BASE_PATH
+              value: "/god-mode"
+            - name: SPACE_BASE_URL
+              value: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: SPACE_BASE_PATH
+              value: "/spaces"
             - name: CORS_ALLOWED_ORIGINS
               value: "http://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }},https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: REDIS_HOST
+              value: "${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local"
             - name: REDIS_PORT
               value: '6379'
             - name: REDIS_USER
@@ -626,12 +738,17 @@ spec:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
             - name: REDIS_URL
-              value: "redis://$(REDIS_USER):$(REDIS_PASSWORD)@${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc:$(REDIS_PORT)"
+              value: "redis://$(REDIS_USER):$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)"
             - name: DATABASE_PORT
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: port
+            - name: DATABASE_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
             - name: DATABASE_USER
               valueFrom:
                 secretKeyRef:
@@ -643,33 +760,41 @@ spec:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
             - name: DATABASE_URL
-              value: "postgresql://$(DATABASE_USER):$(DATABASE_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:$(DATABASE_PORT)/plane"
+              value: "postgresql://$(DATABASE_USER):$(DATABASE_PASSWORD)@$(DATABASE_HOST):$(DATABASE_PORT)/plane"
             - name: SECRET_KEY
               value: "NjBncDBieWZ6MmR2ZmZhNDVjeGwyMHAxc2N5OXhicGY2ZDhjNXkwZ2VlamdreXAxYjU="
             - name: FILE_SIZE_LIMIT
               value: "5242880"
             - name: AWS_S3_BUCKET_NAME
               value: "upload"
-            - name: AWS_SECRET_ACCESS_KEY
+            - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: secretKey
-            - name: AWS_ACCESS_KEY_ID
+            - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: accessKey
-            - name: BACKEND_STORAGE_PRIVATE_BUCKET
+            - name: S3_BUCKET
               valueFrom:
                 secretKeyRef:
-                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-private
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
                   key: bucket
-            - name: BACKEND_STORAGE_MINIO_ENDPOINT
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
-                  key: internal
+                  key: external
+            - name: AWS_SECRET_ACCESS_KEY
+              value: "$(S3_SECRET_ACCESS_KEY)"
+            - name: AWS_ACCESS_KEY_ID
+              value: "$(S3_ACCESS_KEY_ID)"
+            - name: BACKEND_STORAGE_PRIVATE_BUCKET
+              value: "$(S3_BUCKET)"
+            - name: BACKEND_STORAGE_MINIO_ENDPOINT
+              value: "$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)"
             - name: AWS_S3_ENDPOINT_URL
               value: "http://$(BACKEND_STORAGE_MINIO_ENDPOINT)/$(BACKEND_STORAGE_PRIVATE_BUCKET)"
             - name: USE_MINIO
@@ -726,8 +851,22 @@ spec:
               value: "1"
             - name: WEB_URL
               value: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: APP_BASE_URL
+              value: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: APP_BASE_PATH
+              value: ""
+            - name: ADMIN_BASE_URL
+              value: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: ADMIN_BASE_PATH
+              value: "/god-mode"
+            - name: SPACE_BASE_URL
+              value: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: SPACE_BASE_PATH
+              value: "/spaces"
             - name: CORS_ALLOWED_ORIGINS
               value: "http://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }},https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: REDIS_HOST
+              value: "${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local"
             - name: REDIS_PORT
               value: '6379'
             - name: REDIS_USER
@@ -741,12 +880,17 @@ spec:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
             - name: REDIS_URL
-              value: "redis://$(REDIS_USER):$(REDIS_PASSWORD)@${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc:$(REDIS_PORT)"
+              value: "redis://$(REDIS_USER):$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)"
             - name: DATABASE_PORT
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: port
+            - name: DATABASE_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
             - name: DATABASE_USER
               valueFrom:
                 secretKeyRef:
@@ -758,33 +902,41 @@ spec:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
             - name: DATABASE_URL
-              value: "postgresql://$(DATABASE_USER):$(DATABASE_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:$(DATABASE_PORT)/plane"
+              value: "postgresql://$(DATABASE_USER):$(DATABASE_PASSWORD)@$(DATABASE_HOST):$(DATABASE_PORT)/plane"
             - name: SECRET_KEY
               value: "NjBncDBieWZ6MmR2ZmZhNDVjeGwyMHAxc2N5OXhicGY2ZDhjNXkwZ2VlamdreXAxYjU="
             - name: FILE_SIZE_LIMIT
               value: "5242880"
             - name: AWS_S3_BUCKET_NAME
               value: "upload"
-            - name: AWS_SECRET_ACCESS_KEY
+            - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: secretKey
-            - name: AWS_ACCESS_KEY_ID
+            - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: accessKey
-            - name: BACKEND_STORAGE_PRIVATE_BUCKET
+            - name: S3_BUCKET
               valueFrom:
                 secretKeyRef:
-                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-private
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
                   key: bucket
-            - name: BACKEND_STORAGE_MINIO_ENDPOINT
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
-                  key: internal
+                  key: external
+            - name: AWS_SECRET_ACCESS_KEY
+              value: "$(S3_SECRET_ACCESS_KEY)"
+            - name: AWS_ACCESS_KEY_ID
+              value: "$(S3_ACCESS_KEY_ID)"
+            - name: BACKEND_STORAGE_PRIVATE_BUCKET
+              value: "$(S3_BUCKET)"
+            - name: BACKEND_STORAGE_MINIO_ENDPOINT
+              value: "$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)"
             - name: AWS_S3_ENDPOINT_URL
               value: "http://$(BACKEND_STORAGE_MINIO_ENDPOINT)/$(BACKEND_STORAGE_PRIVATE_BUCKET)"
             - name: USE_MINIO
@@ -835,6 +987,19 @@ spec:
           args:
             - space/server.js
             - space
+          env:
+            - name: NEXT_PUBLIC_API_BASE_URL
+              value: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: NEXT_PUBLIC_WEB_BASE_URL
+              value: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: NEXT_PUBLIC_ADMIN_BASE_URL
+              value: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: NEXT_PUBLIC_ADMIN_BASE_PATH
+              value: "/god-mode"
+            - name: NEXT_PUBLIC_SPACE_BASE_URL
+              value: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: NEXT_PUBLIC_SPACE_BASE_PATH
+              value: "/spaces"
           resources:
             requests:
               cpu: 10m
@@ -851,9 +1016,12 @@ metadata:
   name: ${{ defaults.app_name }}-space
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-space
+    app: ${{ defaults.app_name }}-space
 spec:
   ports:
-    - port: 3000
+    - name: http
+      port: 3000
+      targetPort: 3000
   selector:
     app: ${{ defaults.app_name }}-space
 
@@ -894,6 +1062,19 @@ spec:
           args:
             - web/server.js
             - web
+          env:
+            - name: NEXT_PUBLIC_API_BASE_URL
+              value: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: NEXT_PUBLIC_WEB_BASE_URL
+              value: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: NEXT_PUBLIC_ADMIN_BASE_URL
+              value: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: NEXT_PUBLIC_ADMIN_BASE_PATH
+              value: "/god-mode"
+            - name: NEXT_PUBLIC_SPACE_BASE_URL
+              value: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: NEXT_PUBLIC_SPACE_BASE_PATH
+              value: "/spaces"
           resources:
             requests:
               cpu: 10m
@@ -910,9 +1091,12 @@ metadata:
   name: ${{ defaults.app_name }}-web
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-web
+    app: ${{ defaults.app_name }}-web
 spec:
   ports:
-    - port: 3000
+    - name: http
+      port: 3000
+      targetPort: 3000
   selector:
     app: ${{ defaults.app_name }}-web
 
@@ -925,10 +1109,6 @@ metadata:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-web
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
-    higress.io/response-header-control-remove: X-Frame-Options
-    higress.io/response-header-control-update: |
-      Content-Security-Policy "default-src * blob: data: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; img-src * data: blob: resource: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; connect-src * wss: blob: resource:; style-src 'self' 'unsafe-inline' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource: *.baidu.com *.bdstatic.com; frame-src 'self' *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} mailto: tel: weixin: mtt: *.baidu.com; frame-ancestors 'self' https://${{ SEALOS_CLOUD_DOMAIN }} https://*.${{ SEALOS_CLOUD_DOMAIN }}"
-      X-Xss-Protection "1; mode=block"
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/proxy-body-size: 32m
     nginx.ingress.kubernetes.io/server-snippet: |
@@ -941,9 +1121,6 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
     nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
     nginx.ingress.kubernetes.io/configuration-snippet: |
-      more_clear_headers "X-Frame-Options:";
-      more_set_headers "Content-Security-Policy: default-src * blob: data: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; img-src * data: blob: resource: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; connect-src * wss: blob: resource:; style-src 'self' 'unsafe-inline' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource: *.baidu.com *.bdstatic.com; frame-src 'self' *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} mailto: tel: weixin: mtt: *.baidu.com; frame-ancestors 'self' https://${{ SEALOS_CLOUD_DOMAIN }} https://*.${{ SEALOS_CLOUD_DOMAIN }}";
-      more_set_headers "X-Xss-Protection: 1; mode=block";
       if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
         expires 30d;
         add_header Cache-Control "public";
@@ -960,6 +1137,41 @@ spec:
                 name: ${{ defaults.app_name }}-web
                 port:
                   number: 3000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-api
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-api
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
           - pathType: Prefix
             path: /api
             backend:
@@ -974,6 +1186,41 @@ spec:
                 name: ${{ defaults.app_name }}-api
                 port:
                   number: 8000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-space
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-space
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
           - pathType: Prefix
             path: /spaces
             backend:
@@ -981,6 +1228,41 @@ spec:
                 name: ${{ defaults.app_name }}-space
                 port:
                   number: 3000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-admin
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-admin
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
           - pathType: Prefix
             path: /god-mode
             backend:
