@@ -1,0 +1,294 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: ace-step
+spec:
+  title: 'ACE-Step 1.5'
+  url: 'https://ace-step.github.io/ace-step-v1.5.github.io/'
+  gitRepo: 'https://github.com/ace-step/ACE-Step'
+  author: 'ACE-Step'
+  description: 'Open-source music generation AI. Commercial-grade quality, under 2s per song on A100. Supports text-to-music, cover generation, repainting, LoRA training, and 50+ languages.'
+  readme: 'https://raw.githubusercontent.com/ace-step/ACE-Step/main/README.md'
+  icon: 'https://raw.githubusercontent.com/ace-step/ACE-Step/main/assets/Logo_StepFun.png'
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      title: 'ACE-Step 1.5'
+      description: '开源音乐生成AI。商业级质量，A100上每首歌不到2秒。支持文本生成音乐、翻唱、重绘、LoRA训练，支持50+语言。'
+  categories:
+    - ai
+  defaults:
+    app_name:
+      type: string
+      value: ace-step-${{ random(8) }}
+    app_host:
+      type: string
+      value: ace-step-${{ random(8) }}
+    api_host:
+      type: string
+      value: ace-step-api-${{ random(8) }}
+  inputs:
+    gpu_count:
+      description: 'Number of GPUs (NVIDIA)'
+      type: string
+      default: '1'
+      required: true
+    cpu_limit:
+      description: 'CPU limit (millicores, e.g. 4000 = 4 cores)'
+      type: string
+      default: '4000'
+      required: false
+    memory_limit:
+      description: 'Memory limit (MiB)'
+      type: string
+      default: '16384'
+      required: false
+    volume_size:
+      description: 'Model storage size in GiB (checkpoints ~20GB)'
+      type: string
+      default: '30'
+      required: true
+    output_volume_size:
+      description: 'Output storage size in GiB (generated audio files)'
+      type: string
+      default: '10'
+      required: false
+    startup_mode:
+      description: 'Startup mode: gradio (Web UI on port 7860) or api (REST API server on port 8001)'
+      type: string
+      default: 'gradio'
+      required: true
+    llm_backend:
+      description: 'LLM backend: vllm (recommended for >=24GB VRAM) or pt (PyTorch, lower VRAM)'
+      type: string
+      default: 'pt'
+      required: false
+    init_service:
+      description: 'Auto-initialize models on startup (true/false). Set false to defer to UI button.'
+      type: string
+      default: 'true'
+      required: false
+    dit_model:
+      description: 'DiT model config: acestep-v15-turbo (fast) or acestep-v15 (quality)'
+      type: string
+      default: 'acestep-v15-turbo'
+      required: false
+    lm_model:
+      description: 'LM model: acestep-5Hz-lm-4B (best quality, >=24GB) / acestep-5Hz-lm-1.7B / acestep-5Hz-lm-0.6B (low VRAM)'
+      type: string
+      default: 'acestep-5Hz-lm-1.7B'
+      required: false
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/ace-step/ace-step-1.5:v0.1.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      terminationGracePeriodSeconds: 30
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: ghcr.io/ace-step/ace-step-1.5:v0.1.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: ACESTEP_MODE
+              value: '${{ inputs.startup_mode }}'
+            - name: GRADIO_SERVER_NAME
+              value: '0.0.0.0'
+            - name: GRADIO_PORT
+              value: '7860'
+            - name: ACESTEP_API_HOST
+              value: '0.0.0.0'
+            - name: ACESTEP_API_PORT
+              value: '8001'
+            - name: ACESTEP_LLM_BACKEND
+              value: '${{ inputs.llm_backend }}'
+            - name: ACESTEP_INIT_SERVICE
+              value: '${{ inputs.init_service }}'
+            - name: ACESTEP_CONFIG_PATH
+              value: '${{ inputs.dit_model }}'
+            - name: ACESTEP_LM_MODEL_PATH
+              value: '${{ inputs.lm_model }}'
+            - name: TOKENIZERS_PARALLELISM
+              value: 'false'
+          ports:
+            - containerPort: 7860
+              name: gradio
+              protocol: TCP
+            - containerPort: 8001
+              name: api
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 500m
+              memory: 4096Mi
+              nvidia.com/gpu: '${{ inputs.gpu_count }}'
+            limits:
+              cpu: ${{ inputs.cpu_limit }}m
+              memory: ${{ inputs.memory_limit }}Mi
+              nvidia.com/gpu: '${{ inputs.gpu_count }}'
+          volumeMounts:
+            - name: vn-checkpoints
+              mountPath: /app/checkpoints
+            - name: vn-outputs
+              mountPath: /app/gradio_outputs
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /app/checkpoints
+          value: '${{ inputs.volume_size }}'
+        name: vn-checkpoints
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: ${{ inputs.volume_size }}Gi
+    - metadata:
+        annotations:
+          path: /app/gradio_outputs
+          value: '${{ inputs.output_volume_size }}'
+        name: vn-outputs
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: ${{ inputs.output_volume_size }}Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - port: 7860
+      targetPort: 7860
+      protocol: TCP
+      name: gradio
+    - port: 8001
+      targetPort: 8001
+      protocol: TCP
+      name: api
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 128m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '600'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '600'
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: '60'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 7860
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-api
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.api_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 128m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '600'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '600'
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: '60'
+spec:
+  rules:
+    - host: ${{ defaults.api_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 8001
+  tls:
+    - hosts:
+        - ${{ defaults.api_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: 'https://raw.githubusercontent.com/ace-step/ACE-Step/main/assets/Logo_StepFun.png'
+  name: 'ACE-Step 1.5'
+  type: link
