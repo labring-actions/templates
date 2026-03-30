@@ -21,6 +21,9 @@ spec:
     app_host:
       type: string
       value: ${{ random(8) }}
+    tokenizer_jwt_secret:
+      type: string
+      value: ${{ random(32) }}
   inputs:
 
 ---
@@ -252,7 +255,7 @@ data:
                 <name>quantile</name>
             </argument>
             <format>CSV</format>
-            <command>/var/lib/clickhouse/user_scripts/histogramQuantile</command>
+            <command>./histogramQuantile</command>
         </function>
     </functions>
   cluster.xml: |
@@ -282,20 +285,14 @@ kind: ConfigMap
 metadata:
   name: ${{ defaults.app_name }}-signoz
 data:
-  prometheus.yml: |
-    global:
-      scrape_interval: 5s
-      evaluation_interval: 15s
-    alerting:
-      alertmanagers:
-      - static_configs:
-        - targets:
-          - alertmanager:9093
-    rule_files: []
-    scrape_configs: []
-    remote_read:
-      - url: tcp://${{ defaults.app_name }}-clickhouse-0:9000/signoz_metrics
   otel-collector-config.yaml: |
+    connectors:
+      signozmeter:
+        metrics_flush_interval: 1h
+        dimensions:
+          - name: service.name
+          - name: deployment.environment
+          - name: host.name
     receivers:
       otlp:
         protocols:
@@ -311,7 +308,7 @@ data:
             - job_name: otel-collector
               static_configs:
               - targets:
-                  - localhost:8888
+                - localhost:8888
                 labels:
                   job_name: otel-collector
     processors:
@@ -319,11 +316,16 @@ data:
         send_batch_size: 10000
         send_batch_max_size: 11000
         timeout: 10s
+      batch/meter:
+        send_batch_max_size: 25000
+        send_batch_size: 20000
+        timeout: 1s
       resourcedetection:
+        # Using OTEL_RESOURCE_ATTRIBUTES envvar, env detector adds custom labels.
         detectors: [env, system]
         timeout: 2s
       signozspanmetrics/delta:
-        metrics_exporter: clickhousemetricswrite, signozclickhousemetrics
+        metrics_exporter: signozclickhousemetrics
         metrics_flush_interval: 60s
         latency_histogram_buckets: [100us, 1ms, 2ms, 6ms, 10ms, 50ms, 100ms, 250ms, 500ms, 1000ms, 1400ms, 2000ms, 5s, 10s, 20s, 40s, 60s ]
         dimensions_cache_size: 100000
@@ -334,6 +336,9 @@ data:
             default: default
           - name: deployment.environment
             default: default
+          # This is added to ensure the uniqueness of the timeseries
+          # Otherwise, identical timeseries produced by multiple replicas of
+          # collectors result in incorrect APM metrics
           - name: signoz.collector.id
           - name: service.version
           - name: browser.platform
@@ -354,26 +359,27 @@ data:
         datasource: tcp://${{ defaults.app_name }}-clickhouse-0:9000/signoz_traces
         low_cardinal_exception_grouping: ${env:LOW_CARDINAL_EXCEPTION_GROUPING}
         use_new_schema: true
-      clickhousemetricswrite:
-        endpoint: tcp://${{ defaults.app_name }}-clickhouse-0:9000/signoz_metrics
-        disable_v2: true
-        resource_to_telemetry_conversion:
-          enabled: true
-      clickhousemetricswrite/prometheus:
-        endpoint: tcp://${{ defaults.app_name }}-clickhouse-0:9000/signoz_metrics
-        disable_v2: true
       signozclickhousemetrics:
         dsn: tcp://${{ defaults.app_name }}-clickhouse-0:9000/signoz_metrics
       clickhouselogsexporter:
         dsn: tcp://${{ defaults.app_name }}-clickhouse-0:9000/signoz_logs
         timeout: 10s
         use_new_schema: true
+      signozclickhousemeter:
+        dsn: tcp://${{ defaults.app_name }}-clickhouse-0:9000/signoz_meter
+        timeout: 45s
+        sending_queue:
+          enabled: false
+      metadataexporter:
+        cache:
+          provider: in_memory
+        dsn: tcp://${{ defaults.app_name }}-clickhouse-0:9000/signoz_metadata
+        enabled: true
+        timeout: 45s
     service:
       telemetry:
         logs:
           encoding: json
-        metrics:
-          address: 0.0.0.0:8888
       extensions:
         - health_check
         - pprof
@@ -381,19 +387,23 @@ data:
         traces:
           receivers: [otlp]
           processors: [signozspanmetrics/delta, batch]
-          exporters: [clickhousetraces]
+          exporters: [clickhousetraces, metadataexporter, signozmeter]
         metrics:
           receivers: [otlp]
           processors: [batch]
-          exporters: [clickhousemetricswrite, signozclickhousemetrics]
+          exporters: [signozclickhousemetrics, metadataexporter, signozmeter]
         metrics/prometheus:
           receivers: [prometheus]
           processors: [batch]
-          exporters: [clickhousemetricswrite/prometheus, signozclickhousemetrics]
+          exporters: [signozclickhousemetrics, metadataexporter, signozmeter]
         logs:
           receivers: [otlp]
           processors: [batch]
-          exporters: [clickhouselogsexporter]
+          exporters: [clickhouselogsexporter, metadataexporter, signozmeter]
+        metrics/meter:
+          receivers: [signozmeter]
+          processors: [batch/meter]
+          exporters: [signozclickhousemeter]
   otel-collector-opamp-config.yaml: |
     server_endpoint: ws://${{ defaults.app_name }}:4320/v1/opamp
 
@@ -403,7 +413,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}-zookeeper
   annotations:
-    originImageName: bitnamilegacy/zookeeper:3.7.1
+    originImageName: signoz/zookeeper:3.7.1
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -418,11 +428,12 @@ spec:
       app: ${{ defaults.app_name }}-zookeeper
   template:
     metadata:
-      labels:
-        app: ${{ defaults.app_name }}-zookeeper
+      annotations:
         signoz.io/scrape: "true"
         signoz.io/port: "9141"
-        signoz.io/path: "metrics"
+        signoz.io/path: "/metrics"
+      labels:
+        app: ${{ defaults.app_name }}-zookeeper
     spec:
       terminationGracePeriodSeconds: 10
       automountServiceAccountToken: false
@@ -435,7 +446,7 @@ spec:
           mountPath: /bitnami/zookeeper
       containers:
       - name: ${{ defaults.app_name }}-zookeeper
-        image: bitnamilegacy/zookeeper:3.7.1
+        image: signoz/zookeeper:3.7.1
         ports:
         - containerPort: 2181
           name: client
@@ -505,7 +516,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}-clickhouse
   annotations:
-    originImageName: clickhouse/clickhouse-server:24.1.2-alpine
+    originImageName: clickhouse/clickhouse-server:25.5.6
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -520,29 +531,29 @@ spec:
       app: ${{ defaults.app_name }}-clickhouse
   template:
     metadata:
-      labels:
-        app: ${{ defaults.app_name }}-clickhouse
+      annotations:
         signoz.io/scrape: "true"
         signoz.io/port: "9363"
-        signoz.io/path: "metrics"
+        signoz.io/path: "/metrics"
+      labels:
+        app: ${{ defaults.app_name }}-clickhouse
     spec:
       initContainers:
       - name: init-clickhouse
-        image: clickhouse/clickhouse-server:24.1.2-alpine
+        image: clickhouse/clickhouse-server:25.5.6
         command:
         - bash
         - -c
         - |
-          if [ -f /var/lib/clickhouse/user_scripts/histogramQuantile ]; then
-              mkdir -p /var/lib/clickhouse/user_scripts
-              version="v0.0.1"
-              node_arch=$$(uname -m | sed s/aarch64/arm64/ | sed s/x86_64/amd64/)
-              echo "Fetching histogram-binary for $${node_arch}"
-              cd /tmp
-              wget -O histogram-quantile.tar.gz "https://github.com/SigNoz/signoz/releases/download/histogram-quantile/$${version}/histogram-quantile_linux_$${node_arch}.tar.gz"
-              tar -xvzf histogram-quantile.tar.gz
-              mv histogram-quantile /var/lib/clickhouse/user_scripts/histogramQuantile
-          fi
+          version="v0.0.1"
+          node_os=$$(uname -s | tr '[:upper:]' '[:lower:]')
+          node_arch=$$(uname -m | sed s/aarch64/arm64/ | sed s/x86_64/amd64/)
+          echo "Fetching histogram-binary for $${node_os}/$${node_arch}"
+          cd /tmp
+          wget -O histogram-quantile.tar.gz "https://github.com/SigNoz/signoz/releases/download/histogram-quantile%2F$${version}/histogram-quantile_$${node_os}_$${node_arch}.tar.gz"
+          tar -xvzf histogram-quantile.tar.gz
+          mkdir -p /var/lib/clickhouse/user_scripts
+          mv histogram-quantile /var/lib/clickhouse/user_scripts/histogramQuantile
         volumeMounts:
         - name: vn-varvn-libvn-clickhouse
           mountPath: /var/lib/clickhouse
@@ -551,7 +562,7 @@ spec:
         command: ['sh', '-c', 'until nc -z ${{ defaults.app_name }}-zookeeper-0 2181; do echo waiting for zookeeper; sleep 2; done;']
       containers:
       - name: clickhouse
-        image: clickhouse/clickhouse-server:24.1.2-alpine
+        image: clickhouse/clickhouse-server:25.5.6
         ports:
         - containerPort: 8123
           name: http
@@ -578,6 +589,9 @@ spec:
           mountPath: /var/lib/clickhouse
         - name: vn-varvn-logvn-clickhouse-server
           mountPath: /var/log/clickhouse-server
+        env:
+        - name: CLICKHOUSE_SKIP_USER_SETUP
+          value: "1"
         resources:
           limits:
             cpu: 2
@@ -654,7 +668,7 @@ spec:
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: ${{ defaults.app_name }}-schema-migrator
+  name: ${{ defaults.app_name }}-telemetrystore-migrator
 spec:
   template:
     spec:
@@ -663,37 +677,32 @@ spec:
         - name: wait-for-clickhouse
           image: busybox:1.28
           command: ['sh', '-c', 'until nc -z ${{ defaults.app_name }}-clickhouse-0 9000; do echo waiting for clickhouse; sleep 2; done;']
-        - name: schema-migrator-sync
-          image: signoz/signoz-schema-migrator:v0.111.41
-          args:
-            - sync
-            - --dev=true
-            - --dsn=tcp://${{ defaults.app_name }}-clickhouse-0:9000
-            - --up=
-          resources:
-            limits:
-              cpu: 500m
-              memory: 512Mi
-            requests:
-              cpu: 50m
-              memory: 51Mi
-        - name: schema-migrator-async
-          image: signoz/signoz-schema-migrator:v0.111.41
-          args:
-            - async
-            - --dsn=tcp://${{ defaults.app_name }}-clickhouse-0:9000
-            - --up=
-          resources:
-            limits:
-              cpu: 500m
-              memory: 512Mi
-            requests:
-              cpu: 50m
-              memory: 51Mi
       containers:
-        - name: ${{ defaults.app_name }}-schema-migrator-done
-          image: busybox:1.28
-          command: ['sh', '-c', 'echo done;']
+        - name: ${{ defaults.app_name }}-telemetrystore-migrator
+          image: signoz/signoz-otel-collector:v0.144.2
+          command:
+            - /bin/sh
+            - -c
+            - |
+              /signoz-otel-collector migrate bootstrap &&
+              /signoz-otel-collector migrate sync up &&
+              /signoz-otel-collector migrate async up
+          env:
+            - name: SIGNOZ_OTEL_COLLECTOR_CLICKHOUSE_DSN
+              value: tcp://${{ defaults.app_name }}-clickhouse-0:9000
+            - name: SIGNOZ_OTEL_COLLECTOR_CLICKHOUSE_CLUSTER
+              value: cluster
+            - name: SIGNOZ_OTEL_COLLECTOR_CLICKHOUSE_REPLICATION
+              value: "true"
+            - name: SIGNOZ_OTEL_COLLECTOR_TIMEOUT
+              value: 10m
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 50m
+              memory: 51Mi
       restartPolicy: OnFailure
 
 ---
@@ -702,7 +711,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: signoz/signoz:v0.85.0
+    originImageName: signoz/signoz:v0.117.0
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -721,20 +730,19 @@ spec:
         app: ${{ defaults.app_name }}
     spec:
       automountServiceAccountToken: false
+      initContainers:
+      - name: wait-for-clickhouse
+        image: busybox:1.28
+        command: ['sh', '-c', 'until nc -z ${{ defaults.app_name }}-clickhouse-0 9000; do echo waiting for clickhouse; sleep 2; done;']
       containers:
       - name: ${{ defaults.app_name }}
-        image: signoz/signoz:v0.85.0
-        args:
-        - --config=/root/config/prometheus.yml
+        image: signoz/signoz:v0.117.0
         ports:
         - containerPort: 8080
           name: http
         - containerPort: 4320
           name: server
         volumeMounts:
-        - name: signoz-config
-          mountPath: /root/config/prometheus.yml
-          subPath: prometheus.yml
         - name: vn-varvn-libvn-signoz
           mountPath: /var/lib/signoz
         env:
@@ -744,16 +752,8 @@ spec:
           value: tcp://${{ defaults.app_name }}-clickhouse-0:9000
         - name: SIGNOZ_SQLSTORE_SQLITE_PATH
           value: /var/lib/signoz/signoz.db
-        - name: DASHBOARDS_PATH
-          value: /root/config/dashboards
-        - name: STORAGE
-          value: clickhouse
-        - name: GODEBUG
-          value: netdns=go
-        - name: TELEMETRY_ENABLED
-          value: 'false'
-        - name: DEPLOYMENT_TYPE
-          value: 'kubernetes'
+        - name: SIGNOZ_TOKENIZER_JWT_SECRET
+          value: ${{ defaults.tokenizer_jwt_secret }}
         resources:
           limits:
             cpu: 1000m
@@ -777,10 +777,6 @@ spec:
           periodSeconds: 30
           timeoutSeconds: 5
           failureThreshold: 3
-      volumes:
-      - name: signoz-config
-        configMap:
-          name: ${{ defaults.app_name }}-signoz
   volumeClaimTemplates:
     - metadata:
         name: vn-varvn-libvn-signoz
@@ -817,7 +813,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-otel-collector
   annotations:
-    originImageName: signoz/signoz-otel-collector:v0.111.41
+    originImageName: signoz/signoz-otel-collector:v0.144.2
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -834,22 +830,24 @@ spec:
       labels:
         app: ${{ defaults.app_name }}-otel-collector
     spec:
+      initContainers:
+      - name: wait-for-clickhouse
+        image: busybox:1.28
+        command: ['sh', '-c', 'until nc -z ${{ defaults.app_name }}-clickhouse-0 9000; do echo waiting for clickhouse; sleep 2; done;']
       containers:
       - name: otel-collector
-        image: signoz/signoz-otel-collector:v0.111.41
+        image: signoz/signoz-otel-collector:v0.144.2
         command:
-        - /signoz-otel-collector
-        - --config=/etc/otel-collector-config.yaml
-        - --manager-config=/etc/manager-config.yaml
-        - --copy-path=/var/tmp/collector-config.yaml
-        - --feature-gates=-pkg.translator.prometheus.NormalizeName
+        - /bin/sh
+        - -c
+        - |
+          /signoz-otel-collector migrate sync check &&
+          /signoz-otel-collector --config=/etc/otel-collector-config.yaml --manager-config=/etc/manager-config.yaml --copy-path=/var/tmp/collector-config.yaml
         ports:
         - containerPort: 4317
           name: otlp-grpc
         - containerPort: 4318
           name: otlp-http
-        - containerPort: 8888
-          name: metrics
         volumeMounts:
         - name: signoz-config
           mountPath: /etc/otel-collector-config.yaml
@@ -862,6 +860,14 @@ spec:
           value: host.name=signoz-host,os.type=linux
         - name: LOW_CARDINAL_EXCEPTION_GROUPING
           value: "false"
+        - name: SIGNOZ_OTEL_COLLECTOR_CLICKHOUSE_DSN
+          value: tcp://${{ defaults.app_name }}-clickhouse-0:9000
+        - name: SIGNOZ_OTEL_COLLECTOR_CLICKHOUSE_CLUSTER
+          value: cluster
+        - name: SIGNOZ_OTEL_COLLECTOR_CLICKHOUSE_REPLICATION
+          value: "true"
+        - name: SIGNOZ_OTEL_COLLECTOR_TIMEOUT
+          value: 10m
         resources:
           limits:
             cpu: 1
@@ -888,8 +894,6 @@ spec:
     name: otlp-grpc
   - port: 4318
     name: otlp-http
-  - port: 8888
-    name: metrics
   selector:
     app: ${{ defaults.app_name }}-otel-collector
 
