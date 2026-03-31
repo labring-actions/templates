@@ -1,6 +1,6 @@
 # 在 Sealos 上部署 RustFS
 
-RustFS 是一个使用 Rust 构建的高性能、S3 兼容对象存储系统。该 Sealos 模板会将 RustFS 部署为一个 4 副本的分布式集群，并自动配置持久化存储、用于副本发现的 headless Service，以及对外暴露的 HTTPS 控制台入口。
+RustFS 是一个使用 Rust 构建的高性能分布式对象存储系统。该 Sealos 模板会将 RustFS 部署为一个 4 副本的分布式集群，并自动配置持久化存储、用于副本发现的 headless Service，以及对外暴露的 HTTPS 控制台入口。
 
 ## 关于 RustFS 托管
 

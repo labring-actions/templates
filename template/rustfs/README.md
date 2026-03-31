@@ -1,6 +1,6 @@
 # Deploy RustFS on Sealos
 
-RustFS is a high-performance, S3-compatible object storage system built with Rust. This Sealos template deploys RustFS as a 4-replica distributed cluster with persistent storage, a headless service for intra-cluster communication, and a public HTTPS console entrypoint.
+RustFS is a high-performance, distributed object storage system built in Rust. This Sealos template deploys RustFS as a 4-replica distributed cluster with persistent storage, a headless service for intra-cluster communication, and a public HTTPS console entrypoint.
 
 ## About RustFS Hosting
 
