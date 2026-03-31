@@ -18,6 +18,7 @@ from check_consistency_helpers_workload import (
     is_app_workload_document,
     iter_containers,
     iter_documents_by_kind,
+    iter_workload_secret_refs,
 )
 
 
@@ -1049,6 +1050,67 @@ def _is_postgres_cluster_document(doc) -> bool:
     return False
 
 
+def _collect_postgres_expected_conn_secrets(artifact_docs) -> Dict[Path, set[str]]:
+    expected_by_path: Dict[Path, set[str]] = {}
+    for doc in artifact_docs:
+        if not _is_postgres_cluster_document(doc):
+            continue
+        metadata = doc.data.get("metadata") if isinstance(doc.data, dict) else None
+        cluster_name = metadata.get("name") if isinstance(metadata, dict) else None
+        if not isinstance(cluster_name, str) or not cluster_name.strip():
+            continue
+        expected_by_path.setdefault(doc.path, set()).add(f"{cluster_name.strip()}-conn-credential")
+    return expected_by_path
+
+
+def check_postgres_secret_refs_match_cluster_name(context: ScanContext) -> List[Violation]:
+    violations: List[Violation] = []
+
+    artifact_docs = [doc for doc in context.yaml_documents if _is_template_artifact_document(doc)]
+    if not artifact_docs:
+        return violations
+
+    expected_by_path = _collect_postgres_expected_conn_secrets(artifact_docs)
+    if not expected_by_path:
+        return violations
+
+    seen: set[tuple[Path, str]] = set()
+    for doc in artifact_docs:
+        if not isinstance(doc.data, dict):
+            continue
+        expected = expected_by_path.get(doc.path)
+        if not expected:
+            continue
+
+        for _, secret_name, _, secret_key in iter_workload_secret_refs(doc.data):
+            if not isinstance(secret_name, str) or not secret_name.endswith("-pg-conn-credential"):
+                continue
+            if secret_name in expected:
+                continue
+            if secret_key is not None and secret_key not in {"host", "port", "username", "password", "endpoint"}:
+                continue
+
+            marker = (doc.path, secret_name)
+            if marker in seen:
+                continue
+            seen.add(marker)
+
+            expected_list = ", ".join(sorted(expected))
+            add_doc_violation(
+                violations,
+                rule_id="R034",
+                doc=doc,
+                pattern=rf"^\s*name\s*:\s*{re.escape(secret_name)}\s*$",
+                default_pattern=r"^\s*env\s*:",
+                message=(
+                    f"PostgreSQL secret reference '{secret_name}' must match the "
+                    f"Cluster metadata.name-derived secret ({expected_list})"
+                ),
+            )
+
+    return violations
+
+
 def _extract_job_script(doc) -> str:
     if not isinstance(doc.data, dict):
         return ""
@@ -1423,6 +1485,7 @@ APP_RULES: Dict[str, Rule] = {
     "R031": Rule("R031", check_ingress_name_matches_backends),
     "R026": Rule("R026", check_http_ingress_annotations),
     "R032": Rule("R032", check_postgres_custom_db_init_job),
+    "R034": Rule("R034", check_postgres_secret_refs_match_cluster_name),
     "R008": Rule("R008", check_deploy_manager_label_match_name),
     "R027": Rule("R027", check_app_label_match_name),
     "R028": Rule("R028", check_container_names_match_workload_name),

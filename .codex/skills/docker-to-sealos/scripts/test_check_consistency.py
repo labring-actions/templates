@@ -1836,6 +1836,178 @@ class CheckConsistencyTests(unittest.TestCase):
         self.assertTrue(any(item.rule_id == "R007" for item in violations))
         self.assertTrue(any("reserved" in item.message for item in violations if item.rule_id == "R007"))
 
+    def test_detects_postgres_secret_reference_mismatch_with_cluster_name_in_artifact(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            skill = root / "SKILL.md"
+            refs_dir = root / "references"
+            refs_file = refs_dir / "sample.md"
+            rules_file = refs_dir / "rules-registry.yaml"
+            artifact_file = root / "template" / "demo" / "index.yaml"
+
+            write_file(skill, "# no yaml snippets\n")
+            write_file(refs_file, "# refs\n")
+            write_registry(rules_file)
+            write_file(
+                artifact_file,
+                """
+                apiVersion: apps.kubeblocks.io/v1alpha1
+                kind: Cluster
+                metadata:
+                  name: demo
+                  labels:
+                    clusterdefinition.kubeblocks.io/name: postgresql
+                spec:
+                  clusterDefinitionRef: postgresql
+                  clusterVersionRef: postgresql-16.4.0
+                ---
+                apiVersion: batch/v1
+                kind: Job
+                metadata:
+                  name: demo-pg-init
+                spec:
+                  template:
+                    spec:
+                      restartPolicy: OnFailure
+                      containers:
+                        - name: demo-pg-init
+                          image: postgres:16.4-alpine
+                          imagePullPolicy: IfNotPresent
+                          env:
+                            - name: PG_ENDPOINT
+                              valueFrom:
+                                secretKeyRef:
+                                  name: demo-pg-conn-credential
+                                  key: endpoint
+                ---
+                apiVersion: apps/v1
+                kind: StatefulSet
+                metadata:
+                  name: demo
+                  labels:
+                    cloud.sealos.io/app-deploy-manager: demo
+                    app: demo
+                  annotations:
+                    originImageName: ghcr.io/example/demo:v2.2.0
+                spec:
+                  serviceName: demo
+                  revisionHistoryLimit: 1
+                  selector:
+                    matchLabels:
+                      app: demo
+                  template:
+                    metadata:
+                      labels:
+                        app: demo
+                    spec:
+                      automountServiceAccountToken: false
+                      containers:
+                        - name: demo
+                          image: ghcr.io/example/demo:v2.2.0
+                          imagePullPolicy: IfNotPresent
+                          env:
+                            - name: DB_HOST
+                              valueFrom:
+                                secretKeyRef:
+                                  name: demo-pg-conn-credential
+                                  key: host
+                """,
+            )
+
+            violations = CHECKER.run_checks(
+                skill,
+                refs_dir,
+                rules_file,
+                additional_include_paths=["template/demo/index.yaml"],
+            )
+            self.assertTrue(any(item.rule_id == "R034" for item in violations))
+
+    def test_allows_postgres_secret_reference_matching_cluster_name_in_artifact(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            skill = root / "SKILL.md"
+            refs_dir = root / "references"
+            refs_file = refs_dir / "sample.md"
+            rules_file = refs_dir / "rules-registry.yaml"
+            artifact_file = root / "template" / "demo" / "index.yaml"
+
+            write_file(skill, "# no yaml snippets\n")
+            write_file(refs_file, "# refs\n")
+            write_registry(rules_file)
+            write_file(
+                artifact_file,
+                """
+                apiVersion: apps.kubeblocks.io/v1alpha1
+                kind: Cluster
+                metadata:
+                  name: demo-pg
+                  labels:
+                    clusterdefinition.kubeblocks.io/name: postgresql
+                spec:
+                  clusterDefinitionRef: postgresql
+                  clusterVersionRef: postgresql-16.4.0
+                ---
+                apiVersion: batch/v1
+                kind: Job
+                metadata:
+                  name: demo-pg-init
+                spec:
+                  template:
+                    spec:
+                      restartPolicy: OnFailure
+                      containers:
+                        - name: demo-pg-init
+                          image: postgres:16.4-alpine
+                          imagePullPolicy: IfNotPresent
+                          env:
+                            - name: PG_ENDPOINT
+                              valueFrom:
+                                secretKeyRef:
+                                  name: demo-pg-conn-credential
+                                  key: endpoint
+                ---
+                apiVersion: apps/v1
+                kind: StatefulSet
+                metadata:
+                  name: demo
+                  labels:
+                    cloud.sealos.io/app-deploy-manager: demo
+                    app: demo
+                  annotations:
+                    originImageName: ghcr.io/example/demo:v2.2.0
+                spec:
+                  serviceName: demo
+                  revisionHistoryLimit: 1
+                  selector:
+                    matchLabels:
+                      app: demo
+                  template:
+                    metadata:
+                      labels:
+                        app: demo
+                    spec:
+                      automountServiceAccountToken: false
+                      containers:
+                        - name: demo
+                          image: ghcr.io/example/demo:v2.2.0
+                          imagePullPolicy: IfNotPresent
+                          env:
+                            - name: DB_HOST
+                              valueFrom:
+                                secretKeyRef:
+                                  name: demo-pg-conn-credential
+                                  key: host
+                """,
+            )
+
+            violations = CHECKER.run_checks(
+                skill,
+                refs_dir,
+                rules_file,
+                additional_include_paths=["template/demo/index.yaml"],
+            )
+            self.assertFalse(any(item.rule_id == "R034" for item in violations))
+
     def test_allows_object_storage_secret_refs(self):
         violations = self.run_checker(
             """
