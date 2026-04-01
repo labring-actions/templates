@@ -22,6 +22,48 @@ spec:
   categories:
     - tool
     - backend
+  inputs:
+    ctx_yaml:
+      description: "ctx.yaml content defining your data sources (CSV, databases, S3, vector stores, etc.)"
+      type: string
+      default: |
+        data_sources:
+          - name: "products"
+            type: "csv"
+            path: "/data/products.csv"
+            enable_cache: true
+            options:
+              has_header: true
+              delimiter: ","
+              schema_infer_max_records: 100
+            description: "Sample product catalog — replace with your own data sources"
+      required: true
+    pipeline_yaml:
+      description: "Initial pipeline YAML file (saved as pipeline.yaml in the pipelines directory). Add more pipelines post-deploy by editing the ConfigMap — each .yaml file becomes its own HTTP endpoint."
+      type: string
+      default: |
+        metadata:
+          name: product-search
+          version: 1.0.0
+          description: "Sample product search pipeline — replace with your own SQL queries"
+
+        query: |
+          SELECT
+            "Index"        AS product_id,
+            "Name"         AS product_name,
+            "Brand"        AS brand,
+            "Category"     AS category,
+            "Price"        AS price,
+            "Color"        AS color,
+            "Availability" AS availability
+          FROM products
+          WHERE 1=1
+            AND ({brand}    IS NULL OR "Brand"    = {brand})
+            AND ({max_price} IS NULL OR "Price"   < {max_price})
+            AND ({category} IS NULL OR "Category" = {category})
+          ORDER BY "Price" ASC
+          LIMIT {limit}
+      required: true
   defaults:
     app_host:
       type: string
@@ -34,43 +76,21 @@ spec:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: ${{ defaults.app_name }}-config
+  name: ${{ defaults.app_name }}-ctx
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 data:
-  ctx.yaml: |
-    data_sources:
-      - name: "products"
-        type: "csv"
-        path: "/data/products.csv"
-        enable_cache: true
-        options:
-          has_header: true
-          delimiter: ","
-          schema_infer_max_records: 100
-        description: "Sample product catalog — replace with your own data sources"
-  pipeline.yaml: |
-    metadata:
-      name: product-search
-      version: 1.0.0
-      description: "Sample product search pipeline — replace with your own SQL queries"
+  ctx.yaml: ${{ inputs.ctx_yaml }}
 
-    query: |
-      SELECT
-        "Index"        AS product_id,
-        "Name"         AS product_name,
-        "Brand"        AS brand,
-        "Category"     AS category,
-        "Price"        AS price,
-        "Color"        AS color,
-        "Availability" AS availability
-      FROM products
-      WHERE 1=1
-        AND ({brand}    IS NULL OR "Brand"    = {brand})
-        AND ({max_price} IS NULL OR "Price"   < {max_price})
-        AND ({category} IS NULL OR "Category" = {category})
-      ORDER BY "Price" ASC
-      LIMIT {limit}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-pipelines
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  pipeline.yaml: ${{ inputs.pipeline_yaml }}
 
 ---
 apiVersion: apps/v1
@@ -133,7 +153,7 @@ spec:
             - --ctx
             - /config/ctx.yaml
             - --pipeline
-            - /config/pipeline.yaml
+            - /config/pipelines
             - --port
             - "8080"
           env:
@@ -175,13 +195,20 @@ spec:
           volumeMounts:
             - name: vn-data
               mountPath: /data
-            - name: config
-              mountPath: /config
+            - name: ctx
+              mountPath: /config/ctx.yaml
+              subPath: ctx.yaml
+              readOnly: true
+            - name: pipelines
+              mountPath: /config/pipelines
               readOnly: true
       volumes:
-        - name: config
+        - name: ctx
           configMap:
-            name: ${{ defaults.app_name }}-config
+            name: ${{ defaults.app_name }}-ctx
+        - name: pipelines
+          configMap:
+            name: ${{ defaults.app_name }}-pipelines
   volumeClaimTemplates:
     - metadata:
         name: vn-data
