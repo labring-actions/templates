@@ -10,14 +10,14 @@ spec:
   url: 'https://github.com/SkardiLabs/skardi'
   gitRepo: 'https://github.com/SkardiLabs/skardi'
   author: 'Sealos'
-  description: 'SQL across anything: query, join, and aggregate over files, databases, S3, and vector stores — turn any SQL into a parameterized HTTP API with zero application code, written in Rust'
+  description: 'Federated SQL query server that turns YAML-defined queries into parameterized HTTP APIs across files, databases, object storage, and vector stores.'
   readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/skardi/README.md'
   icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/skardi/logo.png'
   templateType: inline
   locale: en
   i18n:
     zh:
-      description: '跨多源 SQL 查询引擎：零代码将 SQL 查询转为参数化 HTTP API，支持文件、数据库、S3 和向量存储，基于 Rust 与 Apache DataFusion 构建'
+      description: '一个联邦 SQL 查询服务，可将 YAML 定义的查询直接发布为参数化 HTTP API，并支持文件、数据库、对象存储和向量存储。'
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/skardi/README_zh.md'
   categories:
     - tool
@@ -31,36 +31,45 @@ spec:
           - name: "products"
             type: "csv"
             path: "/data/products.csv"
-            enable_cache: true
             options:
               has_header: true
               delimiter: ","
-              schema_infer_max_records: 100
-            description: "Sample product catalog — replace with your own data sources"
+              schema_infer_max_records: 1000
+            description: "Product catalog dataset bundled with the Sealos demo template"
       required: true
     pipeline_yaml:
-      description: "Initial pipeline YAML file (saved as pipeline.yaml in the pipelines directory). Add more pipelines post-deploy by editing the ConfigMap — each .yaml file becomes its own HTTP endpoint."
+      description: "Pipeline YAML defining a parameterized SQL query served as an HTTP endpoint."
       type: string
       default: |
         metadata:
-          name: product-search
+          name: product-search-demo
           version: 1.0.0
-          description: "Sample product search pipeline — replace with your own SQL queries"
+          description: Demonstrates SQL serving pipeline for product search and filtering
+          author: Skardi Demo
+          created_at: 2025-01-15T00:00:00.000+00:00
+          updated_at: 2025-01-15T00:00:00.000+00:00
 
         query: |
           SELECT
             "Index"        AS product_id,
             "Name"         AS product_name,
+            "Description"  AS description,
             "Brand"        AS brand,
             "Category"     AS category,
             "Price"        AS price,
+            "Currency"     AS currency,
+            "Stock"        AS stock_quantity,
             "Color"        AS color,
-            "Availability" AS availability
+            "Size"         AS size,
+            "Availability" AS availability_status
           FROM products
           WHERE 1=1
-            AND ({brand}    IS NULL OR "Brand"    = {brand})
-            AND ({max_price} IS NULL OR "Price"   < {max_price})
-            AND ({category} IS NULL OR "Category" = {category})
+            AND ({brand}        IS NULL OR "Brand"        = {brand})
+            AND ({max_price}    IS NULL OR "Price"        < {max_price})
+            AND ({min_price}    IS NULL OR "Price"        >= {min_price})
+            AND ({color}        IS NULL OR "Color"        = {color})
+            AND ({category}     IS NULL OR "Category"     = {category})
+            AND ({availability} IS NULL OR "Availability" = {availability})
           ORDER BY "Price" ASC
           LIMIT {limit}
       required: true
@@ -78,7 +87,8 @@ kind: ConfigMap
 metadata:
   name: ${{ defaults.app_name }}-ctx
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}-ctx
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-ctx
 data:
   ctx.yaml: ${{ inputs.ctx_yaml }}
 
@@ -86,19 +96,36 @@ data:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: ${{ defaults.app_name }}-pipelines
+  name: ${{ defaults.app_name }}-pipeline
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}-pipeline
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-pipeline
 data:
   pipeline.yaml: ${{ inputs.pipeline_yaml }}
 
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-data
+  labels:
+    app: ${{ defaults.app_name }}-data
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-data
+data:
+  products.csv: |
+    Index,Name,Description,Brand,Category,Price,Currency,Stock,Color,Size,Availability
+    1,Skardi Tee,"Soft cotton t-shirt for daily wear",Skardi,Apparel,29.9,USD,42,Black,M,In Stock
+    2,Skardi Bottle,"Insulated steel bottle for work and travel",Skardi,Gear,19.5,USD,18,Silver,750ml,In Stock
+    3,DataFusion Mug,"Ceramic mug for coffee and coding",Skardi,Accessories,12.0,USD,0,White,350ml,Out of Stock
+    4,Rust Notebook,"Hardcover notebook for architecture sketches",Skardi,Stationery,15.0,USD,8,Orange,A5,In Stock
+
+---
 apiVersion: apps/v1
-kind: StatefulSet
+kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: ghcr.io/skardilabs/skardi/skardi-server:latest
+    originImageName: ghcr.io/skardilabs/skardi/skardi-server:v0.1.0
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -110,50 +137,21 @@ spec:
   selector:
     matchLabels:
       app: ${{ defaults.app_name }}
-  serviceName: ${{ defaults.app_name }}
   template:
     metadata:
       labels:
         app: ${{ defaults.app_name }}
     spec:
       automountServiceAccountToken: false
-      initContainers:
-        - name: init-sample-data
-          image: busybox:1.36
-          imagePullPolicy: IfNotPresent
-          command:
-            - /bin/sh
-            - -c
-            - |
-              set -eu
-              # Only write sample data on first run — preserves any files the user uploads later
-              if [ ! -f /data/products.csv ]; then
-                cat > /data/products.csv << 'CSVEOF'
-              Index,Name,Description,Brand,Category,Price,Currency,Stock,Color,Availability
-              1,Smart Fan,Portable wireless fan,Herman Ltd,Appliances,29.99,USD,194,Blue,in_stock
-              2,Wireless Speaker,Premium audio quality,Braun,Electronics,79.99,USD,52,Black,in_stock
-              3,Eco Charger,Fast charging eco-friendly,Peck-Coleman,Electronics,24.99,USD,312,White,in_stock
-              4,Premium Grill,Portable outdoor grill,Hines Ltd,Outdoors,149.99,USD,18,Silver,limited_stock
-              5,Smart Watch,Health tracking wearable,TechCo,Electronics,199.99,USD,89,Black,pre_order
-              6,Running Shoes,Lightweight performance shoes,SpeedFit,Footwear,89.99,USD,245,Red,in_stock
-              7,Coffee Maker,12-cup programmable,BrewMaster,Kitchen,59.99,USD,67,Stainless,in_stock
-              8,Yoga Mat,Non-slip eco material,ZenFit,Sports,34.99,USD,188,Purple,in_stock
-              9,Laptop Stand,Adjustable aluminum,DeskPro,Accessories,49.99,USD,134,Silver,in_stock
-              10,LED Desk Lamp,Touch-controlled brightness,LightTech,Lighting,39.99,USD,76,White,in_stock
-              CSVEOF
-              fi
-          volumeMounts:
-            - name: vn-data
-              mountPath: /data
       containers:
         - name: ${{ defaults.app_name }}
-          image: ghcr.io/skardilabs/skardi/skardi-server:latest
+          image: ghcr.io/skardilabs/skardi/skardi-server:v0.1.0
           imagePullPolicy: IfNotPresent
           args:
             - --ctx
             - /config/ctx.yaml
             - --pipeline
-            - /config/pipelines
+            - /config/pipeline.yaml
             - --port
             - "8080"
           env:
@@ -161,11 +159,11 @@ spec:
               value: info
           resources:
             requests:
-              cpu: 50m
-              memory: 64Mi
+              cpu: 20m
+              memory: 25Mi
             limits:
-              cpu: 500m
-              memory: 512Mi
+              cpu: 200m
+              memory: 256Mi
           ports:
             - name: http
               containerPort: 8080
@@ -182,45 +180,41 @@ spec:
             httpGet:
               path: /health
               port: http
-            periodSeconds: 30
+            initialDelaySeconds: 20
+            periodSeconds: 10
             timeoutSeconds: 5
-            failureThreshold: 5
+            failureThreshold: 6
           readinessProbe:
             httpGet:
               path: /health
               port: http
+            initialDelaySeconds: 5
             periodSeconds: 10
             timeoutSeconds: 5
-            failureThreshold: 3
+            failureThreshold: 6
           volumeMounts:
-            - name: vn-data
-              mountPath: /data
-            - name: ctx
+            - name: vn-config-ctx-yaml
               mountPath: /config/ctx.yaml
               subPath: ctx.yaml
               readOnly: true
-            - name: pipelines
-              mountPath: /config/pipelines
+            - name: vn-config-pipeline-yaml
+              mountPath: /config/pipeline.yaml
+              subPath: pipeline.yaml
+              readOnly: true
+            - name: vn-data-products-csv
+              mountPath: /data/products.csv
+              subPath: products.csv
               readOnly: true
       volumes:
-        - name: ctx
+        - name: vn-config-ctx-yaml
           configMap:
             name: ${{ defaults.app_name }}-ctx
-        - name: pipelines
+        - name: vn-config-pipeline-yaml
           configMap:
-            name: ${{ defaults.app_name }}-pipelines
-  volumeClaimTemplates:
-    - metadata:
-        name: vn-data
-        annotations:
-          path: /data
-          value: '1'
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 1Gi
+            name: ${{ defaults.app_name }}-pipeline
+        - name: vn-data-products-csv
+          configMap:
+            name: ${{ defaults.app_name }}-data
 
 ---
 apiVersion: v1
@@ -290,7 +284,7 @@ metadata:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   data:
-    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/pipelines
   displayType: normal
   icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/skardi/logo.png'
   name: 'Skardi'
