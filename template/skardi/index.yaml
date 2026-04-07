@@ -1,0 +1,260 @@
+# Template CR
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: skardi
+  labels:
+    cloud.sealos.io/app-deploy-manager: skardi
+spec:
+  title: 'Skardi'
+  url: 'https://github.com/SkardiLabs/skardi'
+  gitRepo: 'https://github.com/SkardiLabs/skardi'
+  author: 'Sealos'
+  description: 'Federated SQL query server that turns YAML-defined queries into parameterized HTTP APIs across files, databases, object storage, and vector stores.'
+  readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/skardi/README.md'
+  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/skardi/logo.png'
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: '一个联邦 SQL 查询服务，可将 YAML 定义的查询直接发布为参数化 HTTP API，并支持文件、数据库、对象存储和向量存储。'
+      readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/skardi/README_zh.md'
+  categories:
+    - tool
+    - backend
+  defaults:
+    app_host:
+      type: string
+      value: skardi-${{ random(8) }}
+    app_name:
+      type: string
+      value: skardi-${{ random(8) }}
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  ctx.yaml: |
+    data_sources:
+      - name: "products"
+        type: "csv"
+        path: "/data/products.csv"
+        options:
+          has_header: true
+          delimiter: ","
+          schema_infer_max_records: 1000
+        description: "Product catalog dataset bundled with the Sealos demo template"
+  pipeline.yaml: |
+    metadata:
+      name: product-search-demo
+      version: 1.0.0
+      description: Demonstrates SQL serving pipeline for product search and filtering
+      author: Skardi Demo
+      created_at: 2025-01-15T00:00:00.000+00:00
+      updated_at: 2025-01-15T00:00:00.000+00:00
+
+    query: |
+      SELECT
+        "Index"        AS product_id,
+        "Name"         AS product_name,
+        "Description"  AS description,
+        "Brand"        AS brand,
+        "Category"     AS category,
+        "Price"        AS price,
+        "Currency"     AS currency,
+        "Stock"        AS stock_quantity,
+        "Color"        AS color,
+        "Size"         AS size,
+        "Availability" AS availability_status
+      FROM products
+      WHERE 1=1
+        AND ({brand}        IS NULL OR "Brand"        = {brand})
+        AND ({max_price}    IS NULL OR "Price"        < {max_price})
+        AND ({min_price}    IS NULL OR "Price"        >= {min_price})
+        AND ({color}        IS NULL OR "Color"        = {color})
+        AND ({category}     IS NULL OR "Category"     = {category})
+        AND ({availability} IS NULL OR "Availability" = {availability})
+      ORDER BY "Price" ASC
+      LIMIT {limit}
+  products.csv: |
+    Index,Name,Description,Brand,Category,Price,Currency,Stock,Color,Size,Availability
+    1,Skardi Tee,"Soft cotton t-shirt for daily wear",Skardi,Apparel,29.9,USD,42,Black,M,In Stock
+    2,Skardi Bottle,"Insulated steel bottle for work and travel",Skardi,Gear,19.5,USD,18,Silver,750ml,In Stock
+    3,DataFusion Mug,"Ceramic mug for coffee and coding",Skardi,Accessories,12.0,USD,0,White,350ml,Out of Stock
+    4,Rust Notebook,"Hardcover notebook for architecture sketches",Skardi,Stationery,15.0,USD,8,Orange,A5,In Stock
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/skardilabs/skardi/skardi-server:0.1.1
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: ghcr.io/skardilabs/skardi/skardi-server:0.1.1
+          imagePullPolicy: IfNotPresent
+          args:
+            - --ctx
+            - /config/ctx.yaml
+            - --pipeline
+            - /config/pipeline.yaml
+            - --port
+            - "8080"
+          env:
+            - name: RUST_LOG
+              value: info
+          resources:
+            requests:
+              cpu: 20m
+              memory: 25Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          volumeMounts:
+            - name: vn-config-ctx-yaml
+              mountPath: /config/ctx.yaml
+              subPath: ctx.yaml
+              readOnly: true
+            - name: vn-config-pipeline-yaml
+              mountPath: /config/pipeline.yaml
+              subPath: pipeline.yaml
+              readOnly: true
+            - name: vn-data-products-csv
+              mountPath: /data/products.csv
+              subPath: products.csv
+              readOnly: true
+      volumes:
+        - name: vn-config-ctx-yaml
+          configMap:
+            name: ${{ defaults.app_name }}
+        - name: vn-config-pipeline-yaml
+          configMap:
+            name: ${{ defaults.app_name }}
+        - name: vn-data-products-csv
+          configMap:
+            name: ${{ defaults.app_name }}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 8080
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/skardi/logo.png'
+  name: 'Skardi'
+  type: link
