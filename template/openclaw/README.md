@@ -2,6 +2,8 @@
 
 Openclaw is an AI agent gateway with multi-channel support including WhatsApp, Telegram, and Discord integration. This template deploys a production-ready Openclaw instance with persistent storage on Sealos Cloud.
 
+This template is aligned with the current OpenClaw Docker gateway flow and pins the official `2026.3.28` container image.
+
 ## About Hosting Openclaw
 
 Openclaw runs as a single-node AI agent gateway service that provides a unified interface for deploying and managing AI agents across multiple messaging platforms. The Sealos template automatically provisions persistent storage for your agent configurations, workspace data, and WhatsApp session files, ensuring your data is safely stored and survives restarts.
@@ -33,9 +35,7 @@ The Sealos template includes all required dependencies: runtime environment, per
 This template deploys the following services:
 
 - **Openclaw Gateway**: Main AI agent gateway service running on port 18789
-- **Persistent Storage**: Two persistent volumes are automatically provisioned:
-  - Configuration storage (1Gi): Stores agent configurations, model settings, and channel credentials
-  - Workspace storage (1Gi): Stores agent workspace data and generated files
+- **Persistent Storage**: A persistent volume is mounted at `/home/node/.openclaw`, which also contains the default workspace path `/home/node/.openclaw/workspace`
 
 **Configuration:**
 
@@ -47,7 +47,7 @@ The Openclaw gateway is configured through environment variables and a configura
 - **Gateway Token**: Authentication token for accessing the gateway control UI
 - **Channel Tokens**: Optional tokens for Discord, Telegram, WhatsApp, and Slack
 
-The control UI is enabled by default and accessible through the gateway URL with the gateway token parameter. The UI allows you to manage agents, configure channels, and monitor activity without modifying configuration files.
+The control UI is enabled by default and accessible through the gateway URL with a token fragment. The UI allows you to manage agents, configure channels, and monitor activity without modifying configuration files.
 
 **Channel Support:**
 
@@ -76,16 +76,19 @@ Deploy Openclaw on Sealos and focus on building intelligent AI agents instead of
 
 ## Deployment Guide
 
-1. Open the [OpenClaw template](https://sealos.io/products/app-store/clawdbot) and click **Deploy Now**.
+1. Open the [OpenClaw template](https://sealos.io/products/app-store/openclaw) and click **Deploy Now**.
 2. Configure the parameters in the popup dialog:
-   - **provider_kind**: Select `openai_compat` or `anthropic_compat`
-   - **base_url**: Compatible provider base URL (default: `https://aiproxy.usw-1.sealos.io/v1`)
-   - **api_key**: Provider API key
-   - **model**: Default model ID (for example `claude-opus-4-6` or `gpt-5.2`)
+   - **模型提供商类型**: Select `openai_compat` or `anthropic_compat`. The default is `openai_compat`, which matches the default `/v1` endpoint
+   - **模型接口地址**: Compatible provider base URL (default: `https://aiproxy.usw-1.sealos.io/v1`)
+   - **API密钥**: Provider API key
+   - **登录令牌**: Control UI login token. The form defaults to `sealos2026`, but you can replace it with your own token.
+   - **默认模型**: Default model ID (for example `claude-opus-4-6` or `gpt-5.2`)
 3. Wait for deployment to complete (typically 2-3 minutes). After deployment, you will be redirected to the Canvas. For later changes, describe your requirements in the AI dialog or click resource cards to modify settings.
 4. Access your application via the provided URLs:
-   - **Control UI**: Open the generated URL from App resources (includes token and `gatewayUrl` query parameters)
+   - **Control UI**: Open the generated URL from App resources (includes a `#token=...` fragment)
    - **Gateway Endpoint**: Use `https://<your-domain>/` as the OpenClaw gateway base endpoint
+
+Security note: OpenClaw's Control UI is an admin surface. This template is designed for convenient self-hosting on a Sealos HTTPS domain, so keep the generated token private and rotate it if you ever suspect exposure.
 
 ## Configuration
 
@@ -95,10 +98,10 @@ After deployment, you can configure Openclaw through multiple methods:
 
 Access the control UI at:
 ```
-https://[your-app-url]/?token=[gateway-token]
+https://[your-app-url]/#token=[gateway-token]
 ```
 
-The gateway token is automatically generated and included in the App access URL shown on the Canvas App card after deployment. The UI provides a web-based interface for:
+The gateway token comes from the deployment form and is included in the App access URL shown on the Canvas App card after deployment. The form defaults to `sealos2026`, and the token is passed in the URL fragment so it is not sent to the server. The UI provides a web-based interface for:
 - Managing AI agents
 - Configuring messaging channels (Telegram, Discord, WhatsApp, Slack)
 - Monitoring agent activity
@@ -130,7 +133,7 @@ Each messaging platform requires specific setup:
 4. Invite the bot to your server
 
 **WhatsApp:**
-1. WhatsApp session data is stored in persistent storage at `/home/node/.openclaw/whatsapp`
+1. WhatsApp session data is stored in persistent storage under `/home/node/.openclaw`
 2. Follow the WhatsApp Web QR code authentication process through the control UI
 3. Session data persists across container restarts
 
@@ -171,7 +174,7 @@ To scale your Openclaw deployment:
 
 **Issue: Cannot access control UI**
 - Cause: Incorrect gateway token or URL
-- Solution: Use the App URL from the Canvas App card (it already includes token parameters), or append `?token=[gateway-token]` to your gateway URL manually
+- Solution: Use the App URL from the Canvas App card (it already includes the token fragment), or append `#token=[gateway-token]` to your gateway URL manually
 
 ### Getting Help
 
