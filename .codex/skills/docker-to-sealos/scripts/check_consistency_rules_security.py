@@ -47,6 +47,8 @@ NON_DB_CONNECTION_ENV_EXACT: Set[str] = {
     "POSTGREST_BASE_URL",
     "PGRST_OPENAPI_SERVER_PROXY_URI",
     "PG_META_PORT",
+    "CODE_SANDBOX_URL",
+    "SANDBOX_URL",
 }
 ENV_VALUE_REF_RE = re.compile(r"\$\(([A-Za-z_][A-Za-z0-9_]*)\)")
 DB_COMPOSABLE_KEYS: Set[str] = {"endpoint", "host", "port", "username", "password"}

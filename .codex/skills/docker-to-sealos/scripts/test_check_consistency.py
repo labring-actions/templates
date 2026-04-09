@@ -1865,6 +1865,31 @@ class CheckConsistencyTests(unittest.TestCase):
         )
         self.assertFalse(any(item.rule_id == "R017" for item in violations))
 
+    def test_allows_sandbox_urls_without_db_secret_ref(self):
+        violations = self.run_checker(
+            """
+            ```yaml
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo
+            spec:
+              template:
+                spec:
+                  containers:
+                    - name: demo
+                      image: nginx:1.27.2
+                      imagePullPolicy: IfNotPresent
+                      env:
+                        - name: CODE_SANDBOX_URL
+                          value: http://${{ defaults.app_name }}-code-sandbox.${{ SEALOS_NAMESPACE }}.svc.cluster.local:3000
+                        - name: SANDBOX_URL
+                          value: http://${{ defaults.app_name }}-code-sandbox.${{ SEALOS_NAMESPACE }}.svc.cluster.local:3000
+            ```
+            """
+        )
+        self.assertFalse(any(item.rule_id == "R017" for item in violations))
+
     def test_detects_reserved_database_secret_name_override(self):
         violations = self.run_checker(
             """
