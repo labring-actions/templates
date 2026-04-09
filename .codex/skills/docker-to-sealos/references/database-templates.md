@@ -572,18 +572,18 @@ subjects:
 
 以下规范与数据库升级文档保持一致：
 
-- 业务容器中的数据库连接字段（`endpoint`/`host`/`port`/`username`/`password`）默认通过 `secretKeyRef` 获取；Redis 在仅提供凭据 secret 时可使用固定 Service FQDN + `6379` 作为 `host`/`port`
+- 业务容器中的数据库连接字段（`endpoint`/`host`/`port`/`username`/`password`）默认通过 `secretKeyRef` 获取；Redis 在仅提供凭据 secret 时可使用固定 Service FQDN + `6379` 作为 `host`/`port`，MongoDB 在仅提供凭据 secret 时可直接使用固定 Service FQDN + `27017` 组装 `MONGODB_URI`
 - PostgreSQL Cluster 使用 `postgresql-16.4.0`，并包含 `kb.io/database`、`disableExporter: true`、`enabledLogs: [running]`
 - Secret 命名升级：
   - `xxx-redis-conn-credential` → `xxx-redis-redis-account-default`
-  - `xxx-mongo-conn-credential` → `xxx-mongodb-account-root`
+  - `xxx-mongo-conn-credential` → `xxx-mongo-mongodb-account-root`（若 MongoDB Cluster 名为 `xxx-mongodb`，则对应 `xxx-mongodb-mongodb-account-root`）
   - `xxx-conn-credential`(kafka) → `xxx-broker-account-admin`
 
 ### Secret 命名规则
 
 - PostgreSQL: `${{ defaults.app_name }}-pg-conn-credential`
 - MySQL: `${{ defaults.app_name }}-mysql-conn-credential`
-- MongoDB: `${{ defaults.app_name }}-mongodb-account-root`
+- MongoDB: `${{ defaults.app_name }}-mongo-mongodb-account-root`（若 MongoDB Cluster 名为 `${{ defaults.app_name }}-mongodb`，则对应 `${{ defaults.app_name }}-mongodb-mongodb-account-root`）
 - Redis: `${{ defaults.app_name }}-redis-redis-account-default`（兼容 `${{ defaults.app_name }}-redis-account-default`）
 - Kafka: `${{ defaults.app_name }}-broker-account-admin`
 
@@ -643,32 +643,19 @@ env:
         name: ${{ defaults.app_name }}-mysql-conn-credential
         key: password
 
-  # MongoDB
-  - name: MONGO_ENDPOINT
-    valueFrom:
-      secretKeyRef:
-        name: ${{ defaults.app_name }}-mongodb-account-root
-        key: endpoint
-  - name: MONGO_HOST
-    valueFrom:
-      secretKeyRef:
-        name: ${{ defaults.app_name }}-mongodb-account-root
-        key: host
-  - name: MONGO_PORT
-    valueFrom:
-      secretKeyRef:
-        name: ${{ defaults.app_name }}-mongodb-account-root
-        key: port
+  # MongoDB（凭据 secret + 固定 Service FQDN）
   - name: MONGO_USERNAME
     valueFrom:
       secretKeyRef:
-        name: ${{ defaults.app_name }}-mongodb-account-root
+        name: ${{ defaults.app_name }}-mongo-mongodb-account-root
         key: username
   - name: MONGO_PASSWORD
     valueFrom:
       secretKeyRef:
-        name: ${{ defaults.app_name }}-mongodb-account-root
+        name: ${{ defaults.app_name }}-mongo-mongodb-account-root
         key: password
+  - name: MONGODB_URI
+    value: mongodb://$(MONGO_USERNAME):$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017/fastgpt?authSource=admin
 
   # Redis
   - name: REDIS_HOST

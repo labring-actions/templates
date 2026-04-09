@@ -50,7 +50,7 @@ DB_FQDN_BY_TYPE: Dict[str, str] = {
 DB_SECRET_NAME_BY_TYPE: Dict[str, str] = {
     "postgres": "${{ defaults.app_name }}-pg-conn-credential",
     "mysql": "${{ defaults.app_name }}-mysql-conn-credential",
-    "mongodb": "${{ defaults.app_name }}-mongodb-account-root",
+    "mongodb": "${{ defaults.app_name }}-mongo-mongodb-account-root",
     "redis": "${{ defaults.app_name }}-redis-redis-account-default",
     "kafka": "${{ defaults.app_name }}-broker-account-admin",
 }
@@ -1813,6 +1813,11 @@ def build_db_url_composed_env_entries(
         helper_entries = [
             {"name": host_var, "value": DB_FQDN_BY_TYPE["redis"]},
             {"name": port_var, "value": "6379"},
+        ]
+    elif db_type == "mongodb":
+        helper_entries = [
+            {"name": host_var, "value": DB_FQDN_BY_TYPE["mongodb"]},
+            {"name": port_var, "value": "27017"},
         ]
     else:
         helper_entries = [

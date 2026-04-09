@@ -1566,7 +1566,7 @@ class CheckConsistencyTests(unittest.TestCase):
                         - name: DB_PASS
                           valueFrom:
                             secretKeyRef:
-                              name: ${{ defaults.app_name }}-mongodb-account-root
+                              name: ${{ defaults.app_name }}-mongo-mongodb-account-root
                               key: password
             ```
             """
@@ -1628,6 +1628,37 @@ class CheckConsistencyTests(unittest.TestCase):
                             secretKeyRef:
                               name: ${{ defaults.app_name }}-redis-account-default
                               key: password
+            ```
+            """
+        )
+        self.assertFalse(any(item.rule_id == "R007" for item in violations))
+
+    def test_allows_object_storage_bucket_secret_with_bucket_suffix(self):
+        violations = self.run_checker(
+            """
+            ```yaml
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo
+            spec:
+              template:
+                spec:
+                  containers:
+                    - name: demo
+                      image: nginx:1.27.2
+                      imagePullPolicy: IfNotPresent
+                      env:
+                        - name: STORAGE_PUBLIC_BUCKET
+                          valueFrom:
+                            secretKeyRef:
+                              name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-public
+                              key: bucket
+                        - name: STORAGE_PRIVATE_BUCKET
+                          valueFrom:
+                            secretKeyRef:
+                              name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-private
+                              key: bucket
             ```
             """
         )
@@ -1800,6 +1831,64 @@ class CheckConsistencyTests(unittest.TestCase):
             """
         )
         self.assertTrue(any(item.rule_id == "R017" for item in violations))
+
+    def test_allows_mongodb_endpoint_with_service_host_and_secret_credentials(self):
+        violations = self.run_checker(
+            """
+            ```yaml
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo
+            spec:
+              template:
+                spec:
+                  containers:
+                    - name: demo
+                      image: nginx:1.27.2
+                      imagePullPolicy: IfNotPresent
+                      env:
+                        - name: MONGO_USERNAME
+                          valueFrom:
+                            secretKeyRef:
+                              name: ${{ defaults.app_name }}-mongo-mongodb-account-root
+                              key: username
+                        - name: MONGO_PASSWORD
+                          valueFrom:
+                            secretKeyRef:
+                              name: ${{ defaults.app_name }}-mongo-mongodb-account-root
+                              key: password
+                        - name: MONGODB_URI
+                          value: mongodb://$(MONGO_USERNAME):$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017/fastgpt?authSource=admin
+            ```
+            """
+        )
+        self.assertFalse(any(item.rule_id == "R017" for item in violations))
+
+    def test_allows_sandbox_urls_without_db_secret_ref(self):
+        violations = self.run_checker(
+            """
+            ```yaml
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo
+            spec:
+              template:
+                spec:
+                  containers:
+                    - name: demo
+                      image: nginx:1.27.2
+                      imagePullPolicy: IfNotPresent
+                      env:
+                        - name: CODE_SANDBOX_URL
+                          value: http://${{ defaults.app_name }}-code-sandbox.${{ SEALOS_NAMESPACE }}.svc.cluster.local:3000
+                        - name: SANDBOX_URL
+                          value: http://${{ defaults.app_name }}-code-sandbox.${{ SEALOS_NAMESPACE }}.svc.cluster.local:3000
+            ```
+            """
+        )
+        self.assertFalse(any(item.rule_id == "R017" for item in violations))
 
     def test_detects_reserved_database_secret_name_override(self):
         violations = self.run_checker(

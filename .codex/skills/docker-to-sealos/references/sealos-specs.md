@@ -674,7 +674,7 @@ env:
 其他数据库（Redis、MySQL、MongoDB）也遵循类似的模式：
 - Redis: `${{ defaults.app_name }}-redis-redis-account-default`（兼容历史命名 `${{ defaults.app_name }}-redis-account-default`）
 - MySQL: `${{ defaults.app_name }}-mysql-conn-credential`
-- MongoDB: `${{ defaults.app_name }}-mongodb-account-root`
+- MongoDB: `${{ defaults.app_name }}-mongo-mongodb-account-root` (or `${{ defaults.app_name }}-mongodb-mongodb-account-root` when the MongoDB cluster name uses `-mongodb`)
 
 ### PostgreSQL 数据库初始化
 
