@@ -444,10 +444,15 @@ spec:
         - name: ${{ defaults.app_name }}
           image: c121914yu/fast-gpt:v1.0.0
           env:
+            - name: MONGO_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mongo-mongodb-account-root
+                  key: username
             - name: MONGO_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: ${{ defaults.app_name }}-mongodb-account-root
+                  name: ${{ defaults.app_name }}-mongo-mongodb-account-root
                   key: password
             - name: PG_PASSWORD
               valueFrom:
@@ -470,7 +475,7 @@ spec:
               value: rootkey
             - name: MONGODB_URI
               value: >-
-                mongodb://root:$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongo-mongo.${{ SEALOS_NAMESPACE }}.svc:27017
+                mongodb://$(MONGO_USERNAME):$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017
             - name: MONGODB_NAME
               value: fastgpt
             - name: PG_HOST
@@ -1426,7 +1431,7 @@ spec:
         - name: MONGO_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: ${{ defaults.app_name }}-mongodb-account-root
+              name: ${{ defaults.app_name }}-mongo-mongodb-account-root
               key: password
 ...
 ```

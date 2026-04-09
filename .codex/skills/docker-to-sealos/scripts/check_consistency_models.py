@@ -20,6 +20,10 @@ APP_WORKLOAD_KINDS = {"Deployment", "StatefulSet", "DaemonSet"}
 DB_SECRET_SUFFIXES = (
     "-pg-conn-credential",
     "-mysql-conn-credential",
+    "-mongo-mongodb-account-root",
+    "-mongodb-mongodb-account-root",
+    # Backward compatibility for legacy templates; new output should use
+    # the Mongo cluster-name-qualified secret form above.
     "-mongodb-account-root",
     "-redis-redis-account-default",
     # Backward compatibility for existing templates; new output should use

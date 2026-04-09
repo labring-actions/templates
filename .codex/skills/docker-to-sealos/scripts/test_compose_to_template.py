@@ -650,6 +650,55 @@ class ComposeToTemplateTests(unittest.TestCase):
                 self.assertEqual("${{ defaults.app_name }}-pg-conn-credential", secret_ref.get("name"))
                 self.assertEqual(key, secret_ref.get("key"))
 
+    def test_composes_mongodb_url_with_service_fqdn_and_secret_credentials(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = root / "docker-compose.yml"
+            write_file(
+                compose,
+                """
+                services:
+                  app:
+                    image: ghcr.io/example/demo:1.0.0
+                    environment:
+                      MONGODB_URI: mongodb://myusername:mypassword@mongo:27017/fastgpt?authSource=admin
+                  mongo:
+                    image: mongo:8.0.4
+                """,
+            )
+            index_path, _ = convert_compose_to_template(
+                compose_path=compose,
+                output_root=root / "template",
+                meta=self._meta("demo"),
+            )
+            docs = parse_yaml_documents(index_path)
+            deployment = next(doc for doc in docs if doc.get("kind") == "Deployment")
+            env = deployment["spec"]["template"]["spec"]["containers"][0]["env"]
+
+            mongo_uri = next(item for item in env if item["name"] == "MONGODB_URI")
+            mongo_host = next(item for item in env if item["name"] == "SEALOS_MONGODB_MONGODB_HOST")
+            mongo_port = next(item for item in env if item["name"] == "SEALOS_MONGODB_MONGODB_PORT")
+            mongo_username = next(item for item in env if item["name"] == "SEALOS_MONGODB_MONGODB_USERNAME")
+            mongo_password = next(item for item in env if item["name"] == "SEALOS_MONGODB_MONGODB_PASSWORD")
+
+            self.assertEqual(
+                "mongodb://$(SEALOS_MONGODB_MONGODB_USERNAME):$(SEALOS_MONGODB_MONGODB_PASSWORD)"
+                "@$(SEALOS_MONGODB_MONGODB_HOST):$(SEALOS_MONGODB_MONGODB_PORT)/fastgpt?authSource=admin",
+                mongo_uri.get("value"),
+            )
+            self.assertEqual(
+                "${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc.cluster.local",
+                mongo_host.get("value"),
+            )
+            self.assertEqual("27017", mongo_port.get("value"))
+            for item, key in (
+                (mongo_username, "username"),
+                (mongo_password, "password"),
+            ):
+                secret_ref = item.get("valueFrom", {}).get("secretKeyRef", {})
+                self.assertEqual("${{ defaults.app_name }}-mongo-mongodb-account-root", secret_ref.get("name"))
+                self.assertEqual(key, secret_ref.get("key"))
+
     def test_uses_statefulset_when_service_has_persistent_mount(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -815,7 +864,7 @@ class ComposeToTemplateTests(unittest.TestCase):
             env = deployment["spec"]["template"]["spec"]["containers"][0]["env"]
             mongo_host = next(item for item in env if item["name"] == "MONGO_HOST")
             host_ref = mongo_host.get("valueFrom", {}).get("secretKeyRef", {})
-            self.assertEqual("${{ defaults.app_name }}-mongodb-account-root", host_ref.get("name"))
+            self.assertEqual("${{ defaults.app_name }}-mongo-mongodb-account-root", host_ref.get("name"))
             self.assertEqual("host", host_ref.get("key"))
 
     def test_generates_kafka_cluster_resources_and_secret_env_mapping(self):
