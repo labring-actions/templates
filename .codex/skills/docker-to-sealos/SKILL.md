@@ -76,10 +76,17 @@ Apply field-level mappings from `references/conversion-mappings.md`, including:
 
 ### Step 6: Generate output files
 
-Always produce:
+Always produce only:
 
 - `template/<app-name>/index.yaml`
 - `template/<app-name>/logo.<ext>` when official icon is resolvable, prioritizing square/circular icon-first assets and avoiding rectangular wordmark logos
+
+Never create:
+
+- `template/<app-name>/README.md`
+- `template/<app-name>/README_zh.md`
+
+README authoring is out of scope for this skill. If the Template CR requires README URLs, populate the URL fields in `index.yaml` only and leave file creation to a dedicated README skill.
 
 ### Step 7: Validate before output
 
@@ -93,8 +100,9 @@ If validation fails, fix template/rules/examples first.
 - Template `metadata.name` must be hardcoded lowercase; do not use `${{ defaults.app_name }}`.
 - Template CR folder name must match `metadata.name`.
 - Template CR must include required metadata fields (`title`, `url`, `gitRepo`, `author`, `description`, `icon`, `templateType`, `locale`, `i18n`, `categories`).
-- Template `spec.readme` must be `https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/<app-name>/README.md`.
-- Template `spec.i18n.zh.readme` must be `https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/<app-name>/README_zh.md`.
+- Template `spec.readme` must point to `https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/<app-name>/README.md`.
+- Template `spec.i18n.zh.readme` must point to `https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/<app-name>/README_zh.md`.
+- These README fields are URL references in `index.yaml` only; this skill must not create or update the referenced README files.
 - `icon` URL must point to template repo raw path for this app on `kb-0.9` branch.
 - `template/<app-name>/logo.<ext>` must use square/circular icon-first artwork (for example app icon/favicon/avatar), and must not use rectangular wordmark/text logos.
 - `i18n.zh.description` must be written in Simplified Chinese.
@@ -206,6 +214,8 @@ When conversion is complete, provide:
 3. complete template YAML
 4. key decisions only where ambiguity existed
 
+Do not create or output README content in this skill. README generation is delegated to another skill.
+
 ## Reference Navigation (Progressive Loading)
 
 Load only needed references for current task:
@@ -250,5 +260,6 @@ Load only needed references for current task:
 - Prefer square/circular icon-first logo assets (app icon/favicon/avatar) and avoid rectangular wordmark/text logos.
 - Prefer Sealos-managed ingress over bundled edge proxies: if a Traefik gateway is only acting as ingress/front-proxy and at least one business service exists, do not emit Traefik workload resources.
 - Prefer gateway TLS termination in Sealos Ingress over in-container TLS: for dual-port HTTP/HTTPS workloads, keep HTTP service port and remove redundant HTTPS/certificate mounts unless official docs require HTTPS backend.
+- Never create `template/<app-name>/README.md` or `template/<app-name>/README_zh.md`; only keep README URL references inside `index.yaml` when required by the template schema.
 - Prefer fixing references/examples over adding exceptions when conflicts appear.
 - If official Kubernetes installation docs/manifests exist for the target app, do not ignore them; use them to refine runtime semantics beyond Compose defaults.
