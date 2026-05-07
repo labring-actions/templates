@@ -1,33 +1,32 @@
 # FastGPT
 
-这个模板基于上游 `deploy/docker/cn/docker-compose.pg.yml` 的最新拓扑进行转换，并映射为 Sealos 原生资源。
+## 应用概览
 
-它会部署：
+FastGPT 是一款开源 AI 知识库与工作流平台，提供 RAG 检索、模型编排、MCP 接入和插件扩展能力。
 
-- FastGPT 主应用
-- FastGPT Plugin
-- FastGPT Code Sandbox
-- FastGPT MCP Server
-- AIProxy
-- MongoDB
-- FastGPT 向量检索用 PostgreSQL
-- AIProxy 用 PostgreSQL
-- Redis
-- Sealos 对象存储公共桶和私有桶
+此 Sealos 模板会将 **FastGPT** 部署为 `fastgpt` 应用。部署、网络和存储配置都由仓库中的 Sealos 模板维护。
 
-## 使用说明
+## 在 Sealos 上部署
 
-1. 部署完成后请等待几分钟，让数据库集群和 AIProxy 的数据库初始化任务执行完成。
-2. 登录用户名是 `root`，密码为部署时填写的 `root_password`。
-3. 模型能力仍需要在部署后继续配置。AIProxy 会以内网服务方式部署，并通过 FastGPT 内置集成来调用。
-4. MCP 的公网地址已经预写入 `config.json`。
-5. Agent sandbox 默认不开启，因为上游 Docker 方案依赖 Docker Socket 相关服务，不能直接照搬到 Sealos。如果你已经有托管的沙盒服务，可在部署时填写 `agent_sandbox_baseurl` 和 `agent_sandbox_token`。
-6. Ingress 注解遵循当前模板规范，默认上传上限是 32 MB。如果你需要更大的上传体积，请在部署后调整 ingress 的 `nginx.ingress.kubernetes.io/proxy-body-size`。
+在 Sealos 应用商店打开此模板，检查配置项后点击 **部署**。Sealos 会渲染模板变量，创建所需的 Kubernetes 资源，并为应用管理公网访问入口。
 
-## 对象存储
+## 访问方式
 
-这个模板使用 Sealos 对象存储来替代上游 compose 中内置的 MinIO。公共桶和私有桶会自动创建，并自动注入到 FastGPT 与 FastGPT Plugin 中。
+部署完成后，打开 `https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}`。实际域名由 `defaults.app_host` 和当前 Sealos Cloud 域名生成。
 
-## 数据库
+## 配置说明
 
-FastGPT 使用的 PostgreSQL 运行在 Sealos Database 上，对应上游 `pgvector` 部署路径。
+部署时可以配置以下用户可见输入项：
+
+| 名称 | 说明 | 必填 | 默认值 |
+|------|------|------|--------|
+| `agent_sandbox_baseurl` | `agent_sandbox_baseurl` 部署参数。 | `否` | `` |
+| `agent_sandbox_token` | `agent_sandbox_token` 部署参数。 | `否` | `<已隐藏>` |
+| `root_password` | `root_password` 部署参数。 | `是` | `<已隐藏>` |
+
+请将敏感信息保存在 Sealos 管理的输入项或生成默认值中，不要把私有凭据提交到模板仓库。
+
+## 官方链接
+
+- 官方网站: https://fastgpt.io/
+- 源码仓库: https://github.com/labring/FastGPT

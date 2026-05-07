@@ -1,14 +1,32 @@
-## 幻兽帕鲁私服部署
+# 幻兽帕鲁私服
 
-> **《幻兽帕鲁》**(日语：パルワールド，英语：**Palworld**) 是由日本开发商 Pocket Pair 推出的一款动作冒险生存游戏。游戏设定在一个由类似动物的生物 “帕鲁” 居住的开放世界中。玩家可以战斗并捕捉帕鲁，然后用它们来进行战斗、建造、做农活，工业生产等。《幻兽帕鲁》可单人游玩，也支持最多 32 名玩家在一个服务器上进行网络游戏。该游戏于2021年首次公布，于2024年1月11日通过抢先体验在 Windows、Xbox One 和 Xbox Series X/S 上发布。
+## Overview
 
-## 私服交流群
+该私服默认最多可容纳 4~6 个玩家流畅玩耍，如需支撑更多玩家则需要调大 CPU 和内存
 
-最后，我们建了一个幻兽帕鲁私服交流qun，大家在部署私服的过程中如果遇到了什么问题，可以在qun里互相**深入**指导一下，QQ 群号：**343680491**
+This Sealos template deploys **幻兽帕鲁私服** as the `palworld` application. It uses the repository-maintained Sealos manifest and keeps deployment, networking, and storage configuration inside the template.
 
-+ [「幻兽帕鲁」一键部署教程](https://forum.laf.run/d/1174)
-+ [修改「幻兽帕鲁」私服配置](https://forum.laf.run/d/1180)
-+ [任意存档一键导入「幻兽帕鲁」私服](https://forum.laf.run/d/1182)
-+ [「幻兽帕鲁」定时开服关服](https://forum.laf.run/d/1246)
-+ [「幻兽帕鲁」高级玩法](https://forum.laf.run/d/1248)
-+ [「幻兽帕鲁」答疑](https://forum.laf.run/d/1247)
+## Deploy on Sealos
+
+Open this template in the Sealos App Store, review the configuration values, and click **Deploy**. Sealos renders the template variables, creates the required Kubernetes resources, and manages the public endpoint for the application.
+
+## Access
+
+After deployment, open `https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}`. The concrete hostname is generated from `defaults.app_host` and your Sealos Cloud domain.
+
+## Configuration
+
+The following user-facing inputs are available during deployment:
+
+| Name | Description | Required | Default |
+|------|-------------|----------|---------|
+| `ADMIN_PASSWORD` | Secure administration access in the server with a password | `true` | `<redacted>` |
+| `SERVER_NAME` | A name for your community server | `false` | `` |
+| `SERVER_PASSWORD` | Secure your community server with a password | `false` | `<redacted>` |
+
+Keep sensitive values in Sealos-managed inputs or generated defaults. Do not commit private credentials to the template repository.
+
+## Official Links
+
+- Official website: https://github.com/thijsvanloef/palworld-server-docker
+- Source repository: https://github.com/thijsvanloef/palworld-server-docker
