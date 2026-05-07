@@ -1,31 +1,27 @@
-# 帕鲁管理器
+通过可视化界面管理幻兽帕鲁 / PalWorld 专用服务器，基于 SAV 存档文件解析及 RCON 实现。
 
-## 应用概览
+![](https://cdn.jsdelivr.net/gh/yangchuansheng/imghosting6@main/uPic/2024-02-04-12-53-Z5ir5z.jpg)
 
-帕鲁管理器 是一个可在 Sealos 上一键部署的应用，模板会创建所需资源并提供应用访问入口。
+需要填写两个参数：
 
-此 Sealos 模板会将 **帕鲁管理器** 部署为 `palworld-management` 应用。部署、网络和存储配置都由仓库中的 Sealos 模板维护。
+### 1. APP_NAME
 
-## 在 Sealos 上部署
+这是你的帕鲁私服应用名称，你需要在 Sealos 桌面打开「应用管理」，在应用列表中找到你的帕鲁私服应用名字，就是我红框圈出来的部分，复制这个名字作为 APP_NAME 的值。
 
-在 Sealos 应用商店打开此模板，检查配置项后点击 **部署**。Sealos 会渲染模板变量，创建所需的 Kubernetes 资源，并为应用管理公网访问入口。
+![](https://cdn.jsdelivr.net/gh/yangchuansheng/imghosting6@main/uPic/2024-01-29-16-25-r1LlVk.jpg)
 
-## 访问方式
+### 2. ADMIN_PASSWORD
 
-部署完成后，打开 `https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}`。实际域名由 `defaults.app_host` 和当前 Sealos Cloud 域名生成。
+这是你的帕鲁私服管理员密码，你需要在 Sealos 桌面打开「应用管理」，然后进入你的帕鲁私服应用详情页面，左边环境变量区域 `ADMIN_PASSWORD` 的值就是私服管理员密码，也就是我红框框出来的部分，复制这个值作为 `ADMIN_PASSWORD` 的值。
 
-## 配置说明
+![](https://cdn.jsdelivr.net/gh/yangchuansheng/imghosting6@main/uPic/2024-01-29-16-25-IEV2x1.jpg)
 
-部署时可以配置以下用户可见输入项：
+---
 
-| 名称 | 说明 | 必填 | 默认值 |
-|------|------|------|--------|
-| `ADMIN_PASSWORD` | 帕鲁私服管理员密码 | `是` | `<已隐藏>` |
-| `APP_NAME` | 帕鲁私服应用名称 | `是` | `` |
+填写好参数以后，点击右上角的「部署应用」开始部署，部署完成后，直接点击应用的「详情」进入该应用的详情页面。
 
-请将敏感信息保存在 Sealos 管理的输入项或生成默认值中，不要把私有凭据提交到模板仓库。
+![](https://cdn.jsdelivr.net/gh/yangchuansheng/imghosting6@main/uPic/2024-01-29-16-33-mfQYKn.jpg)
 
-## 官方链接
+然后点击外网地址即可打开帕鲁私服的管理界面：
 
-- 官方网站: https://github.com/zaigie/palworld-server-tool
-- 源码仓库: https://github.com/zaigie/palworld-server-tool
+![](https://cdn.jsdelivr.net/gh/yangchuansheng/imghosting6@main/uPic/2024-01-29-16-33-RZidDy.jpg)

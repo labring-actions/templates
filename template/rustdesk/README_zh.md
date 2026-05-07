@@ -1,30 +1,23 @@
-# RustDesk
+为远程连接工具 rustdesk 在 sealos 中建立服务端。    
 
-## 应用概览
+1. 按照模板一键部署    
 
-RustDesk 是一个可在 Sealos 上一键部署的应用，模板会创建所需资源并提供应用访问入口。
+> TIPS：建议 ENCRYPTED_ONLY 选择 1，这样只允许建立加密连接，不易被别人白嫖    
 
-此 Sealos 模板会将 **RustDesk** 部署为 `rustdesk` 应用。部署、网络和存储配置都由仓库中的 Sealos 模板维护。
+2. 部署成功，应用处于 running 状态后，在日志中找到暴露的域名 (这里示例是 ENCRYPTED_ONLY=0 的情况)：   
 
-## 在 Sealos 上部署
+![](https://github.com/labring-actions/templates/assets/45360163/6c4042f7-3537-4aee-8c5f-d5a136d18c03)
 
-在 Sealos 应用商店打开此模板，检查配置项后点击 **部署**。Sealos 会渲染模板变量，创建所需的 Kubernetes 资源，并为应用管理公网访问入口。
+3. 在我的应用--Other 中找到映射的端口：    
 
-## 访问方式
+![](https://github.com/labring-actions/templates/assets/45360163/e8edc007-f41a-4415-bb0e-244bcb4e91f9)
 
-部署完成后，打开 `https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}`。实际域名由 `defaults.app_host` 和当前 Sealos Cloud 域名生成。
+4. 在你的客户端填入信息如下：
 
-## 配置说明
+> TIPS：当 ENCRYPTED_ONLY 选择1时，必须填入下图设置中的 Key。其内容从上面图 1 中的日志获取。
 
-部署时可以配置以下用户可见输入项：
+![](https://github.com/labring-actions/templates/assets/45360163/437b342e-2439-4312-a697-6e0e8117bea8)
 
-| 名称 | 说明 | 必填 | 默认值 |
-|------|------|------|--------|
-| `ENCRYPTED_ONLY` | `ENCRYPTED_ONLY` 部署参数。 | `是` | `` |
+5. 点击客户端左上角**主页**，看到底部状态栏绿色**就绪**，即部署+连接成功。Enjoy！
 
-请将敏感信息保存在 Sealos 管理的输入项或生成默认值中，不要把私有凭据提交到模板仓库。
-
-## 官方链接
-
-- 官方网站: https://rustdesk.com/
-- 源码仓库: https://github.com/rustdesk/rustdesk
+> TIPS：管理好自己的中继/ID 服务器信息，泄密会造成难以评估的后果！

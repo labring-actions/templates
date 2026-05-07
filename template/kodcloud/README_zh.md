@@ -1,29 +1,39 @@
-# kodcloud
+## 可道云
+> 可道云-私有云存储&协同办公平台_企业网盘_企业云盘_网盘_云盘
 
-## 应用概览
+### 云端存储&协同办公新体验
+* 如Windows体验的私有云盘/企业网盘
+* 完全支持私有化部署，存储安全可控
+* 数百种文件格式在线预览、编辑和播放
+* 轻松分享，高效协作，细粒度权限管控
+* 全平台客户端覆盖，随时随地访问，轻松同步挂载
 
-kodcloud 是一个可在 Sealos 上一键部署的应用，模板会创建所需资源并提供应用访问入口。
+#### 颜值担当，WebOS级别操作体验
+![img.png](https://kodcloud.com/static/images/kodbox/opt-1.png)
 
-此 Sealos 模板会将 **kodcloud** 部署为 `kodcloud` 应用。部署、网络和存储配置都由仓库中的 Sealos 模板维护。
+#### 随时随地，文档随心查看
+![文档预览](https://kodcloud.com/static/images/kodbox/opt-2.png)
 
-## 在 Sealos 上部署
+#### 影音娱乐，趣味盎然
+![在线影音](https://kodcloud.com/static/images/kodbox/opt-3.png)
 
-在 Sealos 应用商店打开此模板，检查配置项后点击 **部署**。Sealos 会渲染模板变量，创建所需的 Kubernetes 资源，并为应用管理公网访问入口。
+#### 图片相册，轻松预览和管理
+![个人相册](https://kodcloud.com/static/images/kodbox/opt-4.png)
 
-## 访问方式
+#### 强大的在线解压、压缩和预览
+![在线解压缩](https://kodcloud.com/static/images/kodbox/opt-5.png)
 
-部署完成后，打开 `https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}`。实际域名由 `defaults.app_host` 和当前 Sealos Cloud 域名生成。
+#### 组织架构集成，多元化的权限策略
+![组织架构管理](https://kodcloud.com/static/images/kodbox/opt-6.png)
 
-## 配置说明
+#### 强大、简单易用的上传下载
+![上传下载](https://kodcloud.com/static/images/kodbox/opt-7.png)
 
-部署时可以配置以下用户可见输入项：
+#### 主题随心定义，更多的生产力
+![主题自定义](https://kodcloud.com/static/images/kodbox/opt-8.png)
 
-| 名称 | 说明 | 必填 | 默认值 |
-|------|------|------|--------|
-| `file_storage` | 用于申请本地文件存储大小空间,单位GB,默认10GB | `是` | `10` |
+#### 多语言支持
+![多语言支持](https://kodcloud.com/static/images/kodbox/opt-9.png)
 
-请将敏感信息保存在 Sealos 管理的输入项或生成默认值中，不要把私有凭据提交到模板仓库。
-
-## 官方链接
-
-- 官方网站: https://kodcloud.com
+### 安装说明
+* 安装完成后等待20秒再打开首页，此时后台在进行数据库初始化

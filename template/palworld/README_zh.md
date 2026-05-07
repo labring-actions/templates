@@ -1,32 +1,14 @@
-# 幻兽帕鲁私服
+## 幻兽帕鲁私服部署
 
-## 应用概览
+> **《幻兽帕鲁》**(日语：パルワールド，英语：**Palworld**) 是由日本开发商 Pocket Pair 推出的一款动作冒险生存游戏。游戏设定在一个由类似动物的生物 “帕鲁” 居住的开放世界中。玩家可以战斗并捕捉帕鲁，然后用它们来进行战斗、建造、做农活，工业生产等。《幻兽帕鲁》可单人游玩，也支持最多 32 名玩家在一个服务器上进行网络游戏。该游戏于2021年首次公布，于2024年1月11日通过抢先体验在 Windows、Xbox One 和 Xbox Series X/S 上发布。
 
-幻兽帕鲁私服 是一个可在 Sealos 上一键部署的应用，模板会创建所需资源并提供应用访问入口。
+## 私服交流群
 
-此 Sealos 模板会将 **幻兽帕鲁私服** 部署为 `palworld` 应用。部署、网络和存储配置都由仓库中的 Sealos 模板维护。
+最后，我们建了一个幻兽帕鲁私服交流qun，大家在部署私服的过程中如果遇到了什么问题，可以在qun里互相**深入**指导一下，QQ 群号：**343680491**
 
-## 在 Sealos 上部署
-
-在 Sealos 应用商店打开此模板，检查配置项后点击 **部署**。Sealos 会渲染模板变量，创建所需的 Kubernetes 资源，并为应用管理公网访问入口。
-
-## 访问方式
-
-部署完成后，打开 `https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}`。实际域名由 `defaults.app_host` 和当前 Sealos Cloud 域名生成。
-
-## 配置说明
-
-部署时可以配置以下用户可见输入项：
-
-| 名称 | 说明 | 必填 | 默认值 |
-|------|------|------|--------|
-| `ADMIN_PASSWORD` | `ADMIN_PASSWORD` 部署参数。 | `是` | `<已隐藏>` |
-| `SERVER_NAME` | `SERVER_NAME` 部署参数。 | `否` | `` |
-| `SERVER_PASSWORD` | `SERVER_PASSWORD` 部署参数。 | `否` | `<已隐藏>` |
-
-请将敏感信息保存在 Sealos 管理的输入项或生成默认值中，不要把私有凭据提交到模板仓库。
-
-## 官方链接
-
-- 官方网站: https://github.com/thijsvanloef/palworld-server-docker
-- 源码仓库: https://github.com/thijsvanloef/palworld-server-docker
++ [「幻兽帕鲁」一键部署教程](https://forum.laf.run/d/1174)
++ [修改「幻兽帕鲁」私服配置](https://forum.laf.run/d/1180)
++ [任意存档一键导入「幻兽帕鲁」私服](https://forum.laf.run/d/1182)
++ [「幻兽帕鲁」定时开服关服](https://forum.laf.run/d/1246)
++ [「幻兽帕鲁」高级玩法](https://forum.laf.run/d/1248)
++ [「幻兽帕鲁」答疑](https://forum.laf.run/d/1247)

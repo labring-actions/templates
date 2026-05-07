@@ -1,28 +1,5 @@
-# Headscale PostgreSQL
+Headscale 由欧洲航天局的 Juan Font 使用 Go 语言开发，在 BSD 许可下发布，实现了 Tailscale 控制服务器的所有主要功能，可以部署在企业内部，没有任何设备数量的限制，且所有的网络流量都由自己控制。
 
-## 应用概览
+**该版本使用 PostgreSQL 作为数据库，支持高可用和数据持久化。**
 
-一个自托管的开源 Tailscale 控制服务器实现，使用 PostgreSQL 作为数据库。
-
-此 Sealos 模板会将 **Headscale PostgreSQL** 部署为 `headscale-pg` 应用。部署、网络和存储配置都由仓库中的 Sealos 模板维护。
-
-## 在 Sealos 上部署
-
-在 Sealos 应用商店打开此模板，检查配置项后点击 **部署**。Sealos 会渲染模板变量，创建所需的 Kubernetes 资源，并为应用管理公网访问入口。
-
-## 访问方式
-
-部署完成后，打开 `https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}`。实际域名由 `defaults.app_host` 和当前 Sealos Cloud 域名生成。
-
-## 配置说明
-
-部署时可以配置以下用户可见输入项：
-
-此模板没有额外的用户输入项；保留默认配置即可完成部署。
-
-请将敏感信息保存在 Sealos 管理的输入项或生成默认值中，不要把私有凭据提交到模板仓库。
-
-## 官方链接
-
-- 官方网站: https://github.com/juanfont/headscale
-- 源码仓库: https://github.com/juanfont/headscale
+详细安装步骤可参考这篇文章：[Tailscale 基础教程：Headscale 的部署方法和使用教程](https://icloudnative.io/posts/how-to-set-up-or-migrate-headscale/)
