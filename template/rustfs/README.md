@@ -1,0 +1,32 @@
+# RustFS
+
+## Overview
+
+RustFS is a high-performance, S3-compatible object storage system built with Rust, offering distributed storage capabilities with multiple volume support.
+
+This Sealos template deploys **RustFS** as the `rustfs` application. It uses the repository-maintained Sealos manifest and keeps deployment, networking, and storage configuration inside the template.
+
+## Deploy on Sealos
+
+Open this template in the Sealos App Store, review the configuration values, and click **Deploy**. Sealos renders the template variables, creates the required Kubernetes resources, and manages the public endpoint for the application.
+
+## Access
+
+After deployment, open `https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}`. The concrete hostname is generated from `defaults.app_host` and your Sealos Cloud domain.
+
+## Configuration
+
+The following user-facing inputs are available during deployment:
+
+| Name | Description | Required | Default |
+|------|-------------|----------|---------|
+| `access_key` | S3 Access Key for authentication | `true` | `<redacted>` |
+| `console_enable` | Enable web console interface | `false` | `true` |
+| `secret_key` | S3 Secret Key for authentication | `true` | `<redacted>` |
+
+Keep sensitive values in Sealos-managed inputs or generated defaults. Do not commit private credentials to the template repository.
+
+## Official Links
+
+- Official website: https://github.com/rustfs/rustfs
+- Source repository: https://github.com/rustfs/rustfs

@@ -1,0 +1,92 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: ubuntu-sshd
+spec:
+  title: 'docker-ubuntu-sshd'
+  url: 'https://github.com/takeyamajp/docker-ubuntu-sshd'
+  gitRepo: 'https://github.com/takeyamajp/docker-ubuntu-sshd'
+  author: 'Sealos'
+  description: 'Ubuntu image with SSH & SFTP'
+  readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/ubuntu-sshd/README.md'
+  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/ubuntu-sshd/logo.png'
+  templateType: inline
+  draft: true
+  categories:
+    - tool
+  defaults:
+    app_name:
+      type: string
+      value: ubuntu-sshd-${{ random(8) }}
+  inputs:
+    ROOT_PASSWORD:
+      description: 'root password'
+      type: string
+      default: 'root@qmywad'
+      required: true
+  i18n:
+    zh:
+      readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/ubuntu-sshd/README_zh.md'
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: takeyamajp/ubuntu-sshd:ubuntu22.04
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ubuntu-sshd
+          image: takeyamajp/ubuntu-sshd:ubuntu22.04
+          resources:
+            requests:
+              cpu: 100m
+              memory: 102Mi
+            limits:
+              cpu: 2000m
+              memory: 2048Mi
+          command: []
+          args: []
+          env:
+            - name: ROOT_PASSWORD
+              value: ${{ inputs.ROOT_PASSWORD }}
+          ports:
+            - containerPort: 22
+          imagePullPolicy: IfNotPresent
+          volumeMounts: []
+      volumes: []
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-nodeport
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: NodePort
+  ports:
+    - port: 22
+      targetPort: 22
+  selector:
+    app: ${{ defaults.app_name }}
