@@ -1,30 +1,37 @@
-# 帕鲁存档导出器
+本模板可通过图形界面导出旧模板部署的帕鲁私服存档。
 
-## 应用概览
+使用方法：
 
-帕鲁存档导出器 是一个可在 Sealos 上一键部署的应用，模板会创建所需资源并提供应用访问入口。
+### 1. 退出游戏
 
-此 Sealos 模板会将 **帕鲁存档导出器** 部署为 `palworld-export` 应用。部署、网络和存储配置都由仓库中的 Sealos 模板维护。
+部署之前先退出游戏，确保游戏已经存档。但是：**你的私服必须得开着，不能关！不能关！不能关！**
 
-## 在 Sealos 上部署
+### 2. 部署应用
 
-在 Sealos 应用商店打开此模板，检查配置项后点击 **部署**。Sealos 会渲染模板变量，创建所需的 Kubernetes 资源，并为应用管理公网访问入口。
+只需要填一个参数 `APP_NAME`。
 
-## 访问方式
+这是你的帕鲁私服应用名称，你需要在 Sealos 桌面打开「应用管理」，在应用列表中找到你的帕鲁私服应用名字，就是我红框圈出来的部分，复制这个名字作为 APP_NAME 的值。
 
-部署完成后，打开 `https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}`。实际域名由 `defaults.app_host` 和当前 Sealos Cloud 域名生成。
+![](https://cdn.jsdelivr.net/gh/yangchuansheng/imghosting6@main/uPic/2024-01-29-16-25-r1LlVk.jpg)
 
-## 配置说明
+填写好参数以后，点击右上角的「部署应用」开始部署，部署完成后，直接点击应用的「详情」进入该应用的详情页面。
 
-部署时可以配置以下用户可见输入项：
+![](https://cdn.jsdelivr.net/gh/yangchuansheng/imghosting6@main/uPic/2024-01-31-14-39-ojbWBa.jpg)
 
-| 名称 | 说明 | 必填 | 默认值 |
-|------|------|------|--------|
-| `APP_NAME` | 帕鲁私服应用名称 | `是` | `` |
+然后点击外网地址即可打开「帕鲁存档导出器」的管理界面：
 
-请将敏感信息保存在 Sealos 管理的输入项或生成默认值中，不要把私有凭据提交到模板仓库。
+![](https://cdn.jsdelivr.net/gh/yangchuansheng/imghosting6@main/uPic/2024-01-31-14-44-MiVWVT.jpg)
 
-## 官方链接
+### 3. 导出存档
 
-- 官方网站: https://github.com/yangchuansheng/templates-palworld
-- 源码仓库: https://github.com/yangchuansheng/templates-palworld
+打开文件管理器后，输入用户名密码登录，默认的用户名是 `admin`，默认密码也是 `admin`。登录之后，双击我用红框框出来的 Pal 文件夹进入 Pal 文件夹：
+
+![](https://cdn.jsdelivr.net/gh/yangchuansheng/imghosting6@main/uPic/2024-01-27-16-26-Ih0nOf.jpg)
+
+然后单击我用红框框出来的 `Saved` 文件，再点击上方的下载图标：
+
+![](https://cdn.jsdelivr.net/gh/yangchuansheng/imghosting6@main/uPic/2024-01-27-16-24-RHzR99.jpg)
+
+点击我用红框框出来的 zip 即可将游戏存档压缩并下载到本地：
+
+![](https://cdn.jsdelivr.net/gh/yangchuansheng/imghosting6@main/uPic/2024-01-27-16-25-Uuw8xg.jpg)

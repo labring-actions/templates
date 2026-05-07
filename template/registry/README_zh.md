@@ -1,28 +1,54 @@
-# registry
+# OCI Distribution Specification Registry and GUI-Registry
 
-## 应用概览
+## Overview
 
-registry 是一个可在 Sealos 上一键部署的应用，模板会创建所需资源并提供应用访问入口。
+The registry is an implementation of the [OCI Distribution Specification](https://github.com/opencontainers/distribution-spec), providing a standards-based solution for storing and distributing container images.
 
-此 Sealos 模板会将 **registry** 部署为 `registry` 应用。部署、网络和存储配置都由仓库中的 Sealos 模板维护。
+The `gui-registry` is a web UI for managing the registry, offering a user-friendly interface for common tasks such as pushing, pulling, and managing images.
 
-## 在 Sealos 上部署
+### Default Credentials
 
-在 Sealos 应用商店打开此模板，检查配置项后点击 **部署**。Sealos 会渲染模板变量，创建所需的 Kubernetes 资源，并为应用管理公网访问入口。
+- **Username:** `root`
+- **Password:** `root`
 
-## 访问方式
+## Example Configuration
 
-部署完成后，打开 `https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}`。实际域名由 `defaults.app_host` 和当前 Sealos Cloud 域名生成。
+### External Network Addresses
 
-## 配置说明
+- **Registry:** [https://registry.cloud.sealos.io](https://registry.cloud.sealos.io)
+- **GUI-Registry:** [https://gui-registry.cloud.sealos.io](https://gui-registry.cloud.sealos.io)
 
-部署时可以配置以下用户可见输入项：
+### Pushing an Image to the Registry
 
-此模板没有额外的用户输入项；保留默认配置即可完成部署。
+1. **Login to the Registry:**
+    ```sh
+    docker login registry.cloud.sealos.io
+    ```
+    - **Username:** `root`
+    - **Password:** `root`
 
-请将敏感信息保存在 Sealos 管理的输入项或生成默认值中，不要把私有凭据提交到模板仓库。
+2. **Tag the Image:**
+    ```sh
+    docker tag nginx:latest registry.cloud.sealos.io/nginx:latest
+    ```
 
-## 官方链接
+3. **Push the Image:**
+    ```sh
+    docker push registry.cloud.sealos.io/nginx:latest
+    ```
 
-- 官方网站: https://distribution.github.io/distribution
-- 源码仓库: https://github.com/distribution/distribution
+4. **Change the root password:**
+    Edit the `registry_htpasswd` file in applaunchpad's registry app to change the `root` password using [Bcrypt](https://en.wikipedia.org/wiki/Bcrypt).
+
+    Note: you can ues https://httpd.apache.org/docs/2.4/programs/htpasswd.html to generate the htpasswd file.
+
+5. **Config the registry**
+    See: https://distribution.github.io/distribution/about/configuration for more configuration
+
+### Web Management
+
+- **Access Address:** [https://gui-registry.cloud.sealos.io](https://gui-registry.cloud.sealos.io)
+- **Username:** `root`
+- **Password:** `root`
+
+This setup allows you to manage your container images easily through both command-line operations and a graphical web interface. Make sure to replace the default credentials with more secure options in a production environment.

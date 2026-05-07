@@ -1,29 +1,39 @@
-# kodcloud
+## 可道云
+> 可道云-私有云存储&协同办公平台_企业网盘_企业云盘_网盘_云盘
 
-## Overview
+### 云端存储&协同办公新体验
+* 如Windows体验的私有云盘/企业网盘
+* 完全支持私有化部署，存储安全可控
+* 数百种文件格式在线预览、编辑和播放
+* 轻松分享，高效协作，细粒度权限管控
+* 全平台客户端覆盖，随时随地访问，轻松同步挂载
 
-可道云是一款支持多平台的私有云存储和协同办公平台，提供文件存储、协作共享、实时同步、本地编辑等功能
+#### 颜值担当，WebOS级别操作体验
+![img.png](https://kodcloud.com/static/images/kodbox/opt-1.png)
 
-This Sealos template deploys **kodcloud** as the `kodcloud` application. It uses the repository-maintained Sealos manifest and keeps deployment, networking, and storage configuration inside the template.
+#### 随时随地，文档随心查看
+![文档预览](https://kodcloud.com/static/images/kodbox/opt-2.png)
 
-## Deploy on Sealos
+#### 影音娱乐，趣味盎然
+![在线影音](https://kodcloud.com/static/images/kodbox/opt-3.png)
 
-Open this template in the Sealos App Store, review the configuration values, and click **Deploy**. Sealos renders the template variables, creates the required Kubernetes resources, and manages the public endpoint for the application.
+#### 图片相册，轻松预览和管理
+![个人相册](https://kodcloud.com/static/images/kodbox/opt-4.png)
 
-## Access
+#### 强大的在线解压、压缩和预览
+![在线解压缩](https://kodcloud.com/static/images/kodbox/opt-5.png)
 
-After deployment, open `https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}`. The concrete hostname is generated from `defaults.app_host` and your Sealos Cloud domain.
+#### 组织架构集成，多元化的权限策略
+![组织架构管理](https://kodcloud.com/static/images/kodbox/opt-6.png)
 
-## Configuration
+#### 强大、简单易用的上传下载
+![上传下载](https://kodcloud.com/static/images/kodbox/opt-7.png)
 
-The following user-facing inputs are available during deployment:
+#### 主题随心定义，更多的生产力
+![主题自定义](https://kodcloud.com/static/images/kodbox/opt-8.png)
 
-| Name | Description | Required | Default |
-|------|-------------|----------|---------|
-| `file_storage` | 用于申请本地文件存储大小空间,单位GB,默认10GB | `true` | `10` |
+#### 多语言支持
+![多语言支持](https://kodcloud.com/static/images/kodbox/opt-9.png)
 
-Keep sensitive values in Sealos-managed inputs or generated defaults. Do not commit private credentials to the template repository.
-
-## Official Links
-
-- Official website: https://kodcloud.com
+### 安装说明
+* 安装完成后等待20秒再打开首页，此时后台在进行数据库初始化

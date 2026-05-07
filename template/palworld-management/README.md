@@ -1,31 +1,27 @@
-# 帕鲁管理器
+通过可视化界面管理幻兽帕鲁 / PalWorld 专用服务器，基于 SAV 存档文件解析及 RCON 实现。
 
-## Overview
+![](https://cdn.jsdelivr.net/gh/yangchuansheng/imghosting6@main/uPic/2024-02-04-12-53-Z5ir5z.jpg)
 
-通过图形化界面管理幻兽帕鲁 / PalWorld 专用服务器
+需要填写两个参数：
 
-This Sealos template deploys **帕鲁管理器** as the `palworld-management` application. It uses the repository-maintained Sealos manifest and keeps deployment, networking, and storage configuration inside the template.
+### 1. APP_NAME
 
-## Deploy on Sealos
+这是你的帕鲁私服应用名称，你需要在 Sealos 桌面打开「应用管理」，在应用列表中找到你的帕鲁私服应用名字，就是我红框圈出来的部分，复制这个名字作为 APP_NAME 的值。
 
-Open this template in the Sealos App Store, review the configuration values, and click **Deploy**. Sealos renders the template variables, creates the required Kubernetes resources, and manages the public endpoint for the application.
+![](https://cdn.jsdelivr.net/gh/yangchuansheng/imghosting6@main/uPic/2024-01-29-16-25-r1LlVk.jpg)
 
-## Access
+### 2. ADMIN_PASSWORD
 
-After deployment, open `https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}`. The concrete hostname is generated from `defaults.app_host` and your Sealos Cloud domain.
+这是你的帕鲁私服管理员密码，你需要在 Sealos 桌面打开「应用管理」，然后进入你的帕鲁私服应用详情页面，左边环境变量区域 `ADMIN_PASSWORD` 的值就是私服管理员密码，也就是我红框框出来的部分，复制这个值作为 `ADMIN_PASSWORD` 的值。
 
-## Configuration
+![](https://cdn.jsdelivr.net/gh/yangchuansheng/imghosting6@main/uPic/2024-01-29-16-25-IEV2x1.jpg)
 
-The following user-facing inputs are available during deployment:
+---
 
-| Name | Description | Required | Default |
-|------|-------------|----------|---------|
-| `ADMIN_PASSWORD` | 帕鲁私服管理员密码 | `true` | `<redacted>` |
-| `APP_NAME` | 帕鲁私服应用名称 | `true` | `` |
+填写好参数以后，点击右上角的「部署应用」开始部署，部署完成后，直接点击应用的「详情」进入该应用的详情页面。
 
-Keep sensitive values in Sealos-managed inputs or generated defaults. Do not commit private credentials to the template repository.
+![](https://cdn.jsdelivr.net/gh/yangchuansheng/imghosting6@main/uPic/2024-01-29-16-33-mfQYKn.jpg)
 
-## Official Links
+然后点击外网地址即可打开帕鲁私服的管理界面：
 
-- Official website: https://github.com/zaigie/palworld-server-tool
-- Source repository: https://github.com/zaigie/palworld-server-tool
+![](https://cdn.jsdelivr.net/gh/yangchuansheng/imghosting6@main/uPic/2024-01-29-16-33-RZidDy.jpg)
