@@ -32,8 +32,8 @@ DB_SECRET_SUFFIXES = (
     "-broker-account-admin",
 )
 MAX_PVC_STORAGE_BYTES = 1024 ** 3  # 1Gi
-DB_COMPONENT_RESOURCE_LIMITS = {"cpu": "500m", "memory": "512Mi"}
-DB_COMPONENT_RESOURCE_REQUESTS = {"cpu": "50m", "memory": "51Mi"}
+DB_COMPONENT_RESOURCE_LIMITS = {"cpu": "200m", "memory": "256Mi"}
+DB_COMPONENT_RESOURCE_REQUESTS = {"cpu": "20m", "memory": "25Mi"}
 STORAGE_UNIT_TO_BYTES = {
     "": 1,
     "k": 1000,

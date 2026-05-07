@@ -520,6 +520,20 @@ env:
 
 ## 资源限制映射
 
+源文档未明确声明资源需求时，默认使用：
+
+```yaml
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 20m
+    memory: 25Mi
+```
+
+源文档明确声明资源需求时，按实际需求转换为 Kubernetes resource quantity。
+
 ### Docker Compose
 ```yaml
 services:
@@ -527,11 +541,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1'
-          memory: 1G
+          cpus: '0.2'
+          memory: 256M
         reservations:
-          cpus: '0.5'
-          memory: 512M
+          cpus: '0.02'
+          memory: 25M
 ```
 
 ### Sealos Template
@@ -543,11 +557,11 @@ spec:
         - name: ${{ defaults.app_name }}
           resources:
             limits:
-              cpu: 1000m
-              memory: 1024Mi
+              cpu: 200m
+              memory: 256Mi
             requests:
-              cpu: 500m
-              memory: 512Mi
+              cpu: 20m
+              memory: 25Mi
 ```
 
 ## 健康检查映射

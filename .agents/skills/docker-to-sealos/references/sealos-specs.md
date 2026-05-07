@@ -858,100 +858,24 @@ spec:
 
 **⚠️ 重要：所有容器的 resources 字段必须包含 requests 和 limits！**
 
-所有应用的 Deployment 或 StatefulSet 中的容器必须配置资源配额：
+除非源文档明确要求更高资源，所有应用容器、辅助容器、initContainer、Job 容器和数据库组件默认使用统一资源配额：
 
 ```yaml
-containers:
-  - name: ${{ defaults.app_name }}
-    image: example/app:1.0.0
-    imagePullPolicy: IfNotPresent
-    resources:
-      requests:
-        cpu: 100m      # 最小 CPU 请求（必须）
-        memory: 128Mi  # 最小内存请求（必须）
-      limits:
-        cpu: 500m      # CPU 上限（必须）
-        memory: 512Mi  # 内存上限（必须）
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 20m
+    memory: 25Mi
 ```
 
 **配额设置原则**：
 
-1. **轻量级前端应用**（静态文件服务、简单 Web 应用）：
-   ```yaml
-   resources:
-     requests:
-       cpu: 20m
-       memory: 25Mi
-     limits:
-       cpu: 200m
-       memory: 256Mi
-   ```
-
-2. **标准后端应用**（API 服务、中等负载应用）：
-   ```yaml
-   resources:
-     requests:
-       cpu: 100m
-       memory: 256Mi
-     limits:
-       cpu: 1000m
-       memory: 1Gi
-   ```
-
-3. **重负载应用**（AI 处理、视频处理、大数据处理）：
-   ```yaml
-   resources:
-     requests:
-       cpu: 500m
-       memory: 512Mi
-     limits:
-       cpu: 2000m
-       memory: 2Gi
-   ```
-
-4. **AI/机器学习应用**（需要 GPU 或大量计算资源）：
-   ```yaml
-   resources:
-     requests:
-       cpu: 1000m
-       memory: 1Gi
-     limits:
-       cpu: 4000m
-       memory: 4Gi
-   ```
-
-**配额设置说明**：
-
-- **requests（请求值）**：容器保证能获得的最小资源
-  - CPU 使用 `m` 单位（1000m = 1 CPU 核心）
-  - 内存使用 `Mi` 或 `Gi` 单位
-  - 建议：requests 设置为实际使用量的 70-80%
-
-- **limits（限制值）**：容器能使用的最大资源
-  - CPU 可突发使用到 limit 值
-  - 内存超过 limit 会被 OOM Kill
-  - 建议：limits 设置为 requests 的 2-4 倍
-
-**配额设置的黄金法则**：
-
-1. **总是同时设置 requests 和 limits**
-   - ❌ 只设置 requests：可能导致资源饥饿
-   - ❌ 只设置 limits：可能导致调度失败
-   - ✅ 两者都设置：保证性能和稳定性
-
-2. **合理的 requests/limits 比例**
-   - CPU: limits 可以是 requests 的 2-10 倍（CPU 可压缩）
-   - 内存: limits 建议是 requests 的 1.5-2 倍（内存不可压缩）
-
-3. **根据应用类型调整**
-   - 计算密集型：提高 CPU 配额
-   - 内存密集型：提高内存配额
-   - I/O 密集型：平衡 CPU 和内存
-
-4. **监控和调整**
-   - 初次部署使用保守配额
-   - 监控实际资源使用情况
-   - 根据监控数据动态调整
+1. **默认保持统一**：不要因为应用类型主观放大资源；只有源文档明确给出最低需求时才提高。
+2. **总是同时设置 requests 和 limits**：缺任一项都不符合模板规范。
+3. **资源字段顺序**：推荐先写 `limits`，再写 `requests`，便于人工审查。
+4. **数据库组件同样遵循默认值**：除源文档明确要求，否则 KubeBlocks 组件资源也使用上述默认配置。
 
 **示例对比**：
 
@@ -967,8 +891,8 @@ containers:
     image: app:1.0.0
     resources:
       requests:
-        cpu: 100m
-        memory: 128Mi
+        cpu: 20m
+        memory: 25Mi
 
 # ❌ 错误：只有 limits
 containers:
@@ -976,20 +900,20 @@ containers:
     image: app:1.0.0
     resources:
       limits:
-        cpu: 500m
-        memory: 512Mi
+        cpu: 200m
+        memory: 256Mi
 
-# ✅ 正确：requests 和 limits 都有
+# ✅ 正确：requests 和 limits 都有，使用统一默认值
 containers:
   - name: app
     image: app:1.0.0
     resources:
-      requests:
-        cpu: 100m
-        memory: 128Mi
       limits:
-        cpu: 500m
-        memory: 512Mi
+        cpu: 200m
+        memory: 256Mi
+      requests:
+        cpu: 20m
+        memory: 25Mi
 ```
 
 ## 镜像配置规范

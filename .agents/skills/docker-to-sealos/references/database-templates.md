@@ -28,11 +28,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 500m
-          memory: 512Mi
+          cpu: 200m
+          memory: 256Mi
         requests:
-          cpu: 50m
-          memory: 51Mi
+          cpu: 20m
+          memory: 25Mi
       serviceAccountName: ${{ defaults.app_name }}-pg
       switchPolicy:
         type: Noop
@@ -167,11 +167,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 500m
-          memory: 512Mi
+          cpu: 200m
+          memory: 256Mi
         requests:
-          cpu: 50m
-          memory: 51Mi
+          cpu: 20m
+          memory: 25Mi
       serviceAccountName: ${{ defaults.app_name }}-mysql
       switchPolicy:
         type: Noop
@@ -254,11 +254,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 500m
-          memory: 512Mi
+          cpu: 200m
+          memory: 256Mi
         requests:
-          cpu: 50m
-          memory: 51Mi
+          cpu: 20m
+          memory: 25Mi
       serviceAccountName: ${{ defaults.app_name }}-mongo
       serviceVersion: 8.0.4
       volumeClaimTemplates:
@@ -347,11 +347,11 @@ spec:
         - name: CUSTOM_SENTINEL_MASTER_NAME
       resources:
         limits:
-          cpu: 500m
-          memory: 512Mi
+          cpu: 200m
+          memory: 256Mi
         requests:
-          cpu: 50m
-          memory: 51Mi
+          cpu: 20m
+          memory: 25Mi
       serviceAccountName: ${{ defaults.app_name }}-redis
       serviceVersion: 7.2.7
       switchPolicy:
@@ -370,11 +370,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 500m
-          memory: 512Mi
+          cpu: 200m
+          memory: 256Mi
         requests:
-          cpu: 50m
-          memory: 51Mi
+          cpu: 20m
+          memory: 25Mi
       serviceAccountName: ${{ defaults.app_name }}-redis
       serviceVersion: 7.2.7
       volumeClaimTemplates:
@@ -468,11 +468,11 @@ spec:
           effect: NoSchedule
       resources:
         limits:
-          cpu: 500m
-          memory: 512Mi
+          cpu: 200m
+          memory: 256Mi
         requests:
-          cpu: 50m
-          memory: 51Mi
+          cpu: 20m
+          memory: 25Mi
       volumeClaimTemplates:
         - name: data
           spec:
@@ -496,11 +496,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 500m
-          memory: 512Mi
+          cpu: 200m
+          memory: 256Mi
         requests:
-          cpu: 50m
-          memory: 51Mi
+          cpu: 20m
+          memory: 25Mi
       volumeClaimTemplates:
         - name: metadata
           spec:
@@ -515,11 +515,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 500m
-          memory: 512Mi
+          cpu: 200m
+          memory: 256Mi
         requests:
-          cpu: 50m
-          memory: 51Mi
+          cpu: 20m
+          memory: 25Mi
 
 ---
 apiVersion: v1
