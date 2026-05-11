@@ -858,7 +858,7 @@ spec:
 
 **⚠️ 重要：所有容器的 resources 字段必须包含 requests 和 limits！**
 
-除非源文档明确要求更高资源，所有应用容器、辅助容器、initContainer、Job 容器和数据库组件默认使用统一资源配额：
+除非源文档明确要求更高资源，应用容器、辅助容器、initContainer 和 Job 容器默认使用统一资源配额：
 
 ```yaml
 resources:
@@ -870,12 +870,24 @@ resources:
     memory: 25Mi
 ```
 
+KubeBlocks 数据库组件统一使用更高的资源基线（0.5c 在 Kubernetes YAML 中写作 500m）：
+
+```yaml
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 50m
+    memory: 51Mi
+```
+
 **配额设置原则**：
 
-1. **默认保持统一**：不要因为应用类型主观放大资源；只有源文档明确给出最低需求时才提高。
-2. **总是同时设置 requests 和 limits**：缺任一项都不符合模板规范。
-3. **资源字段顺序**：推荐先写 `limits`，再写 `requests`，便于人工审查。
-4. **数据库组件同样遵循默认值**：除源文档明确要求，否则 KubeBlocks 组件资源也使用上述默认配置。
+1. **应用基线保持统一**：不要因为应用类型主观放大应用容器资源；只有源文档明确给出最低需求时才提高。
+2. **数据库基线单独统一**：除源文档明确要求更高资源，否则所有 KubeBlocks 数据库组件都使用 `limits(cpu=500m,memory=512Mi)` 与 `requests(cpu=50m,memory=51Mi)`。
+3. **总是同时设置 requests 和 limits**：缺任一项都不符合模板规范。
+4. **资源字段顺序**：推荐先写 `limits`，再写 `requests`，便于人工审查。
 
 **示例对比**：
 

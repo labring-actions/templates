@@ -660,11 +660,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 200m
-          memory: 256Mi
+          cpu: 500m
+          memory: 512Mi
         requests:
-          cpu: 20m
-          memory: 25Mi
+          cpu: 50m
+          memory: 51Mi
       serviceAccountName: ${{ defaults.app_name }}-mongo
       serviceVersion: 8.0.4
       volumeClaimTemplates:
@@ -759,11 +759,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 200m
-          memory: 256Mi
+          cpu: 500m
+          memory: 512Mi
         requests:
-          cpu: 20m
-          memory: 25Mi
+          cpu: 50m
+          memory: 51Mi
       serviceAccountName: ${{ defaults.app_name }}-pg
       switchPolicy:
         type: Noop
@@ -856,11 +856,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 200m
-          memory: 256Mi
+          cpu: 500m
+          memory: 512Mi
         requests:
-          cpu: 20m
-          memory: 25Mi
+          cpu: 50m
+          memory: 51Mi
       serviceAccountName: ${{ defaults.app_name }}-mysql
       switchPolicy:
         type: Noop
@@ -958,11 +958,11 @@ spec:
         - name: CUSTOM_SENTINEL_MASTER_NAME
       resources:
         limits:
-          cpu: 200m
-          memory: 256Mi
+          cpu: 500m
+          memory: 512Mi
         requests:
-          cpu: 20m
-          memory: 25Mi
+          cpu: 50m
+          memory: 51Mi
       serviceAccountName: ${{ defaults.app_name }}-redis
       serviceVersion: 7.2.7
       switchPolicy:
@@ -981,11 +981,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 20m
-          memory: 100Mi
+          cpu: 50m
+          memory: 512Mi
         requests:
-          cpu: 10m
-          memory: 10Mi
+          cpu: 50m
+          memory: 51Mi
       serviceAccountName: ${{ defaults.app_name }}-redis
       serviceVersion: 7.2.7
       volumeClaimTemplates:
@@ -1083,11 +1083,11 @@ spec:
           effect: NoSchedule
       resources:
         limits:
-          cpu: 200m
-          memory: 256Mi
+          cpu: 500m
+          memory: 512Mi
         requests:
-          cpu: 20m
-          memory: 25Mi
+          cpu: 50m
+          memory: 51Mi
       volumeClaimTemplates:
         - name: data
           spec:
@@ -1111,11 +1111,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 200m
-          memory: 256Mi
+          cpu: 500m
+          memory: 512Mi
         requests:
-          cpu: 20m
-          memory: 25Mi
+          cpu: 50m
+          memory: 51Mi
       volumeClaimTemplates:
         - name: metadata
           spec:
@@ -1130,11 +1130,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 200m
-          memory: 256Mi
+          cpu: 500m
+          memory: 512Mi
         requests:
-          cpu: 20m
-          memory: 25Mi
+          cpu: 50m
+          memory: 51Mi
 ```
 
 </details>
@@ -1165,11 +1165,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 200m
-          memory: 256Mi
+          cpu: 500m
+          memory: 512Mi
         requests:
-          cpu: 20m
-          memory: 25Mi
+          cpu: 50m
+          memory: 51Mi
       volumeClaimTemplates:
         - name: data
           spec:
@@ -1185,11 +1185,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 200m
-          memory: 256Mi
+          cpu: 500m
+          memory: 512Mi
         requests:
-          cpu: 20m
-          memory: 25Mi
+          cpu: 50m
+          memory: 51Mi
       volumeClaimTemplates:
         - name: data
           spec:
@@ -1205,11 +1205,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 200m
-          memory: 256Mi
+          cpu: 500m
+          memory: 512Mi
         requests:
-          cpu: 20m
-          memory: 25Mi
+          cpu: 50m
+          memory: 51Mi
       volumeClaimTemplates:
         - name: data
           spec:
@@ -1254,11 +1254,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 200m
-          memory: 256Mi
+          cpu: 500m
+          memory: 512Mi
         requests:
-          cpu: 20m
-          memory: 25Mi
+          cpu: 50m
+          memory: 51Mi
       serviceAccountName: ${{ defaults.app_name }}-clickhouse
       volumeClaimTemplates:
         - name: data
@@ -1274,11 +1274,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 200m
-          memory: 256Mi
+          cpu: 500m
+          memory: 512Mi
         requests:
-          cpu: 20m
-          memory: 25Mi
+          cpu: 50m
+          memory: 51Mi
       serviceAccountName: ${{ defaults.app_name }}-clickhouse
       volumeClaimTemplates:
         - name: data
@@ -1294,11 +1294,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 200m
-          memory: 256Mi
+          cpu: 500m
+          memory: 512Mi
         requests:
-          cpu: 20m
-          memory: 25Mi
+          cpu: 50m
+          memory: 51Mi
       serviceAccountName: ${{ defaults.app_name }}-clickhouse
       volumeClaimTemplates:
         - name: data
@@ -1341,11 +1341,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 200m
-          memory: 256Mi
+          cpu: 500m
+          memory: 512Mi
         requests:
-          cpu: 20m
-          memory: 25Mi
+          cpu: 50m
+          memory: 51Mi
       rsmTransformPolicy: ToSts
       serviceAccountName: ${{ defaults.app_name }}-weaviate
       volumeClaimTemplates:

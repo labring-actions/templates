@@ -6,7 +6,7 @@ spec:
   title: 'Cap'
   url: 'https://github.com/CapSoftware/Cap'
   gitRepo: 'https://github.com/CapSoftware/Cap'
-  author: 'sealos'
+  author: 'Sealos'
   description: 'Open source alternative to Loom. Record, edit and share videos in seconds.'
   readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/cap/README.md'
   icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/cap/logo.svg'
@@ -14,7 +14,6 @@ spec:
   locale: en
   i18n:
     zh:
-      title: 'Cap'
       description: 'Loom 的开源替代品。快速录制、编辑和分享视频。'
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/cap/README_zh.md'
   categories:
@@ -25,20 +24,34 @@ spec:
       value: cap-${{ random(8) }}
     app_host:
       type: string
-      value: ${{ random(8) }}
+      value: cap-${{ random(8) }}
     database_encryption_key:
       type: string
       value: ${{ random(64) }}
     nextauth_secret:
       type: string
       value: ${{ random(64) }}
+    media_server_webhook_secret:
+      type: string
+      value: ${{ random(64) }}
+  inputs:
+    RESEND_API_KEY:
+      description: 'Optional Resend API key for sending login emails'
+      type: string
+      default: ''
+      required: false
+    RESEND_FROM_DOMAIN:
+      description: 'Optional verified Resend sender domain'
+      type: string
+      default: ''
+      required: false
 ---
 apiVersion: objectstorage.sealos.io/v1
 kind: ObjectStorageBucket
 metadata:
   name: ${{ defaults.app_name }}
 spec:
-  policy: private
+  policy: publicRead
 
 ---
 apiVersion: v1
@@ -91,8 +104,9 @@ metadata:
   finalizers:
     - cluster.kubeblocks.io/finalizer
   labels:
+    kb.io/database: ac-mysql-8.0.30-1
     clusterdefinition.kubeblocks.io/name: apecloud-mysql
-    clusterversion.kubeblocks.io/name: ac-mysql-8.0.30
+    clusterversion.kubeblocks.io/name: ac-mysql-8.0.30-1
     sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
   annotations: {}
   name: ${{ defaults.app_name }}-mysql
@@ -101,13 +115,15 @@ spec:
     nodeLabels: {}
     podAntiAffinity: Preferred
     tenancy: SharedNode
-    topologyKeys: []
+    topologyKeys:
+      - kubernetes.io/hostname
   clusterDefinitionRef: apecloud-mysql
-  clusterVersionRef: ac-mysql-8.0.30
+  clusterVersionRef: ac-mysql-8.0.30-1
   componentSpecs:
     - componentDefRef: mysql
       monitor: true
       name: mysql
+      noCreatePDB: false
       replicas: 1
       resources:
         limits:
@@ -117,6 +133,8 @@ spec:
           cpu: 50m
           memory: 51Mi
       serviceAccountName: ${{ defaults.app_name }}-mysql
+      switchPolicy:
+        type: Noop
       volumeClaimTemplates:
         - name: data
           spec:
@@ -138,9 +156,11 @@ spec:
   completions: 1
   template:
     spec:
+      automountServiceAccountToken: false
       containers:
         - name: mysql-init
-          image: mysql:8.0-debian
+          image: mysql:8.0.46-debian
+          imagePullPolicy: IfNotPresent
           env:
             - name: MYSQL_PASSWORD
               valueFrom:
@@ -166,7 +186,11 @@ spec:
             - /bin/bash
             - -c
             - |
-              until mysql -h ${MYSQL_HOST} -P ${MYSQL_PORT} -u ${MYSQL_USER} -p${MYSQL_PASSWORD} -e "CREATE DATABASE IF NOT EXISTS planetscale; ALTER USER '${MYSQL_USER}'@'%' IDENTIFIED WITH mysql_native_password BY '${MYSQL_PASSWORD}';"; do sleep 1; done
+              until mysqladmin ping -h "${MYSQL_HOST}" -P "${MYSQL_PORT}" -u "${MYSQL_USER}" -p"${MYSQL_PASSWORD}" --silent; do sleep 2; done
+              mysql -h "${MYSQL_HOST}" -P "${MYSQL_PORT}" -u "${MYSQL_USER}" -p"${MYSQL_PASSWORD}" <<SQL
+              CREATE DATABASE IF NOT EXISTS cap CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+              ALTER USER '${MYSQL_USER}'@'%' IDENTIFIED WITH mysql_native_password BY '${MYSQL_PASSWORD}';
+              SQL
       restartPolicy: Never
   backoffLimit: 0
   ttlSecondsAfterFinished: 300
@@ -177,7 +201,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: ghcr.io/capsoftware/cap-web@sha256:0e16ba2afad559c4bc460167b88ef14dbc980371ad172e9fa6bd0e109e9feae2
+    originImageName: ghcr.io/capsoftware/cap-web@sha256:8d2e21251b404e2b15772ded7bbf129cf980e6446102ea9b1326567647891e57
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -197,7 +221,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: ghcr.io/capsoftware/cap-web@sha256:0e16ba2afad559c4bc460167b88ef14dbc980371ad172e9fa6bd0e109e9feae2
+          image: ghcr.io/capsoftware/cap-web@sha256:8d2e21251b404e2b15772ded7bbf129cf980e6446102ea9b1326567647891e57
           imagePullPolicy: IfNotPresent
           env:
             - name: MYSQL_PASSWORD
@@ -220,8 +244,28 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-mysql-conn-credential
                   key: username
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
             - name: DATABASE_URL
-              value: mysql://$(MYSQL_USER):$(MYSQL_PASSWORD)@$(MYSQL_HOST):$(MYSQL_PORT)/planetscale?ssl={"rejectUnauthorized":false}
+              value: 'mysql://$(MYSQL_USER):$(MYSQL_PASSWORD)@$(MYSQL_HOST):$(MYSQL_PORT)/cap?ssl={"rejectUnauthorized":false}'
             - name: WEB_URL
               value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: NEXTAUTH_URL
@@ -230,46 +274,126 @@ spec:
               value: ${{ defaults.database_encryption_key }}
             - name: NEXTAUTH_SECRET
               value: ${{ defaults.nextauth_secret }}
+            - name: MEDIA_SERVER_WEBHOOK_SECRET
+              value: ${{ defaults.media_server_webhook_secret }}
             - name: CAP_AWS_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key
-                  key: accessKey
+              value: $(S3_ACCESS_KEY_ID)
             - name: CAP_AWS_SECRET_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key
-                  key: secretKey
+              value: $(S3_SECRET_ACCESS_KEY)
             - name: CAP_AWS_BUCKET
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
-                  key: bucket
+              value: $(S3_BUCKET)
             - name: CAP_AWS_REGION
               value: us-east-1
-            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key
-                  key: external
-            - name: BACKEND_STORAGE_MINIO_INTERNAL_ENDPOINT
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key
-                  key: internal
             - name: S3_PUBLIC_ENDPOINT
               value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
             - name: S3_INTERNAL_ENDPOINT
-              value: https://$(BACKEND_STORAGE_MINIO_INTERNAL_ENDPOINT)
+              value: http://object-storage.objectstorage-system.svc.cluster.local
+            - name: S3_PATH_STYLE
+              value: 'true'
+            - name: RESEND_API_KEY
+              value: ${{ inputs.RESEND_API_KEY }}
+            - name: RESEND_FROM_DOMAIN
+              value: ${{ inputs.RESEND_FROM_DOMAIN }}
+            - name: MEDIA_SERVER_URL
+              value: http://${{ defaults.app_name }}-media-server.${{ SEALOS_NAMESPACE }}.svc.cluster.local:3456
+            - name: MEDIA_SERVER_WEBHOOK_URL
+              value: http://${{ defaults.app_name }}.${{ SEALOS_NAMESPACE }}.svc.cluster.local:3000
           ports:
             - containerPort: 3000
+              name: http
+          startupProbe:
+            httpGet:
+              path: /
+              port: 3000
+            periodSeconds: 5
+            timeoutSeconds: 10
+            failureThreshold: 24
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           resources:
             requests:
               cpu: 100m
-              memory: 128Mi
+              memory: 256Mi
             limits:
               cpu: 1000m
               memory: 1024Mi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-media-server
+  annotations:
+    originImageName: ghcr.io/capsoftware/cap-media-server@sha256:243b69c5d8b132a425641b6e6ada79c119467cc88a6b9446dd4f8dea6b579fad
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-media-server
+    app: ${{ defaults.app_name }}-media-server
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-media-server
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-media-server
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-media-server
+          image: ghcr.io/capsoftware/cap-media-server@sha256:243b69c5d8b132a425641b6e6ada79c119467cc88a6b9446dd4f8dea6b579fad
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PORT
+              value: '3456'
+            - name: MEDIA_SERVER_WEBHOOK_SECRET
+              value: ${{ defaults.media_server_webhook_secret }}
+          ports:
+            - containerPort: 3456
+              name: http
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 3456
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3456
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3456
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 20m
+              memory: 25Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
 
 ---
 apiVersion: v1
@@ -278,11 +402,30 @@ metadata:
   name: ${{ defaults.app_name }}
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 3000
+    - name: http
+      port: 3000
+      targetPort: 3000
   selector:
     app: ${{ defaults.app_name }}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-media-server
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-media-server
+    app: ${{ defaults.app_name }}-media-server
+spec:
+  ports:
+    - name: http
+      port: 3456
+      targetPort: 3456
+  selector:
+    app: ${{ defaults.app_name }}-media-server
 
 ---
 apiVersion: networking.k8s.io/v1
