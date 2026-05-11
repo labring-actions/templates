@@ -534,6 +534,8 @@ resources:
 
 源文档明确声明资源需求时，按实际需求转换为 Kubernetes resource quantity。
 
+此节适用于应用容器、辅助容器、initContainer 和 Job 容器；KubeBlocks 数据库组件资源基线以 `references/database-templates.md` 为准。
+
 ### Docker Compose
 ```yaml
 services:

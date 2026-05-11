@@ -615,10 +615,10 @@ class ComposeToTemplateTests(unittest.TestCase):
             self.assertNotIn("nodeLabels", affinity)
             self.assertNotIn("topologyKeys", affinity)
             pg_comp = cluster["spec"]["componentSpecs"][0]
-            self.assertEqual("200m", pg_comp["resources"]["limits"]["cpu"])
-            self.assertEqual("256Mi", pg_comp["resources"]["limits"]["memory"])
-            self.assertEqual("20m", pg_comp["resources"]["requests"]["cpu"])
-            self.assertEqual("25Mi", pg_comp["resources"]["requests"]["memory"])
+            self.assertEqual("500m", pg_comp["resources"]["limits"]["cpu"])
+            self.assertEqual("512Mi", pg_comp["resources"]["limits"]["memory"])
+            self.assertEqual("50m", pg_comp["resources"]["requests"]["cpu"])
+            self.assertEqual("51Mi", pg_comp["resources"]["requests"]["memory"])
 
             deployment = next(doc for doc in docs if doc.get("kind") == "Deployment")
             env = deployment["spec"]["template"]["spec"]["containers"][0]["env"]
@@ -766,15 +766,15 @@ class ComposeToTemplateTests(unittest.TestCase):
             redis_comp = next(item for item in cluster["spec"]["componentSpecs"] if item["name"] == "redis")
             redis_data = redis_comp["volumeClaimTemplates"][0]["spec"]["resources"]["requests"]["storage"]
             self.assertEqual("1Gi", redis_data)
-            self.assertEqual("200m", redis_comp["resources"]["limits"]["cpu"])
-            self.assertEqual("256Mi", redis_comp["resources"]["limits"]["memory"])
-            self.assertEqual("20m", redis_comp["resources"]["requests"]["cpu"])
-            self.assertEqual("25Mi", redis_comp["resources"]["requests"]["memory"])
+            self.assertEqual("500m", redis_comp["resources"]["limits"]["cpu"])
+            self.assertEqual("512Mi", redis_comp["resources"]["limits"]["memory"])
+            self.assertEqual("50m", redis_comp["resources"]["requests"]["cpu"])
+            self.assertEqual("51Mi", redis_comp["resources"]["requests"]["memory"])
             sentinel_comp = next(item for item in cluster["spec"]["componentSpecs"] if item["name"] == "redis-sentinel")
-            self.assertEqual("200m", sentinel_comp["resources"]["limits"]["cpu"])
-            self.assertEqual("256Mi", sentinel_comp["resources"]["limits"]["memory"])
-            self.assertEqual("20m", sentinel_comp["resources"]["requests"]["cpu"])
-            self.assertEqual("25Mi", sentinel_comp["resources"]["requests"]["memory"])
+            self.assertEqual("500m", sentinel_comp["resources"]["limits"]["cpu"])
+            self.assertEqual("512Mi", sentinel_comp["resources"]["limits"]["memory"])
+            self.assertEqual("50m", sentinel_comp["resources"]["requests"]["cpu"])
+            self.assertEqual("51Mi", sentinel_comp["resources"]["requests"]["memory"])
 
             deployment = next(doc for doc in docs if doc.get("kind") == "Deployment")
             env = deployment["spec"]["template"]["spec"]["containers"][0]["env"]
@@ -813,10 +813,10 @@ class ComposeToTemplateTests(unittest.TestCase):
             self.assertNotIn("annotations", cluster["metadata"])
             self.assertEqual(["kubernetes.io/hostname"], cluster["spec"]["affinity"]["topologyKeys"])
             mysql_comp = cluster["spec"]["componentSpecs"][0]
-            self.assertEqual("200m", mysql_comp["resources"]["limits"]["cpu"])
-            self.assertEqual("256Mi", mysql_comp["resources"]["limits"]["memory"])
-            self.assertEqual("20m", mysql_comp["resources"]["requests"]["cpu"])
-            self.assertEqual("25Mi", mysql_comp["resources"]["requests"]["memory"])
+            self.assertEqual("500m", mysql_comp["resources"]["limits"]["cpu"])
+            self.assertEqual("512Mi", mysql_comp["resources"]["limits"]["memory"])
+            self.assertEqual("50m", mysql_comp["resources"]["requests"]["cpu"])
+            self.assertEqual("51Mi", mysql_comp["resources"]["requests"]["memory"])
 
             deployment = next(doc for doc in docs if doc.get("kind") == "Deployment")
             env = deployment["spec"]["template"]["spec"]["containers"][0]["env"]
@@ -859,10 +859,10 @@ class ComposeToTemplateTests(unittest.TestCase):
             mongo_comp = cluster["spec"]["componentSpecs"][0]
             self.assertEqual("mongodb", mongo_comp["componentDef"])
             self.assertEqual("8.0.4", mongo_comp["serviceVersion"])
-            self.assertEqual("200m", mongo_comp["resources"]["limits"]["cpu"])
-            self.assertEqual("256Mi", mongo_comp["resources"]["limits"]["memory"])
-            self.assertEqual("20m", mongo_comp["resources"]["requests"]["cpu"])
-            self.assertEqual("25Mi", mongo_comp["resources"]["requests"]["memory"])
+            self.assertEqual("500m", mongo_comp["resources"]["limits"]["cpu"])
+            self.assertEqual("512Mi", mongo_comp["resources"]["limits"]["memory"])
+            self.assertEqual("50m", mongo_comp["resources"]["requests"]["cpu"])
+            self.assertEqual("51Mi", mongo_comp["resources"]["requests"]["memory"])
 
             deployment = next(doc for doc in docs if doc.get("kind") == "Deployment")
             env = deployment["spec"]["template"]["spec"]["containers"][0]["env"]
@@ -899,10 +899,10 @@ class ComposeToTemplateTests(unittest.TestCase):
             controller_comp = next(item for item in cluster["spec"]["componentSpecs"] if item["name"] == "controller")
             metrics_comp = next(item for item in cluster["spec"]["componentSpecs"] if item["name"] == "metrics-exp")
             for comp in (broker_comp, controller_comp, metrics_comp):
-                self.assertEqual("200m", comp["resources"]["limits"]["cpu"])
-                self.assertEqual("256Mi", comp["resources"]["limits"]["memory"])
-                self.assertEqual("20m", comp["resources"]["requests"]["cpu"])
-                self.assertEqual("25Mi", comp["resources"]["requests"]["memory"])
+                self.assertEqual("500m", comp["resources"]["limits"]["cpu"])
+                self.assertEqual("512Mi", comp["resources"]["limits"]["memory"])
+                self.assertEqual("50m", comp["resources"]["requests"]["cpu"])
+                self.assertEqual("51Mi", comp["resources"]["requests"]["memory"])
 
             deployment = next(doc for doc in docs if doc.get("kind") == "Deployment")
             env = deployment["spec"]["template"]["spec"]["containers"][0]["env"]

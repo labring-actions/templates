@@ -91,8 +91,8 @@ COMPOSE_BRACED_VAR_RE = re.compile(r"\$\{([^}]+)\}")
 COMPOSE_SIMPLE_VAR_RE = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
 DEFAULT_RESOURCE_LIMITS = {"cpu": "200m", "memory": "256Mi"}
 DEFAULT_RESOURCE_REQUESTS = {"cpu": "20m", "memory": "25Mi"}
-DB_COMPONENT_RESOURCE_LIMITS = DEFAULT_RESOURCE_LIMITS
-DB_COMPONENT_RESOURCE_REQUESTS = DEFAULT_RESOURCE_REQUESTS
+DB_COMPONENT_RESOURCE_LIMITS = {"cpu": "500m", "memory": "512Mi"}
+DB_COMPONENT_RESOURCE_REQUESTS = {"cpu": "50m", "memory": "51Mi"}
 ZH_CHAR_RE = re.compile(r"[\u3400-\u4DBF\u4E00-\u9FFF]")
 EN_DESCRIPTION_REWRITE_PATTERNS: Tuple[Tuple[re.Pattern[str], str], ...] = (
     (
