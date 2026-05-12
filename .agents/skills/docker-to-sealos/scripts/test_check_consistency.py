@@ -2424,6 +2424,101 @@ class CheckConsistencyTests(unittest.TestCase):
         )
         self.assertTrue(any(item.rule_id == "R010" for item in violations))
 
+    def test_detects_non_baseline_managed_workload_container_resources(self):
+        violations = self.run_checker(
+            """
+            ```yaml
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo
+              labels:
+                cloud.sealos.io/app-deploy-manager: demo
+            spec:
+              revisionHistoryLimit: 1
+              template:
+                spec:
+                  automountServiceAccountToken: false
+                  containers:
+                    - name: demo
+                      image: nginx:1.27.2
+                      imagePullPolicy: IfNotPresent
+                      resources:
+                        limits:
+                          cpu: 2000m
+                          memory: 2Gi
+                        requests:
+                          cpu: 500m
+                          memory: 512Mi
+            ```
+            """
+        )
+        self.assertTrue(any(item.rule_id == "R035" for item in violations))
+
+    def test_allows_baseline_managed_workload_container_resources(self):
+        violations = self.run_checker(
+            """
+            ```yaml
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo
+              labels:
+                cloud.sealos.io/app-deploy-manager: demo
+            spec:
+              revisionHistoryLimit: 1
+              template:
+                spec:
+                  automountServiceAccountToken: false
+                  containers:
+                    - name: demo
+                      image: nginx:1.27.2
+                      imagePullPolicy: IfNotPresent
+                      resources:
+                        limits:
+                          cpu: 200m
+                          memory: 256Mi
+                        requests:
+                          cpu: 20m
+                          memory: 25Mi
+            ```
+            """
+        )
+        self.assertFalse(any(item.rule_id == "R035" for item in violations))
+
+    def test_allows_source_documented_managed_workload_resource_override(self):
+        violations = self.run_checker(
+            """
+            ```yaml
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo
+              labels:
+                cloud.sealos.io/app-deploy-manager: demo
+              annotations:
+                docker-to-sealos.resource-override-source: "https://example.com/docs#resources requires 2 CPU and 2Gi"
+            spec:
+              revisionHistoryLimit: 1
+              template:
+                spec:
+                  automountServiceAccountToken: false
+                  containers:
+                    - name: demo
+                      image: nginx:1.27.2
+                      imagePullPolicy: IfNotPresent
+                      resources:
+                        limits:
+                          cpu: 2000m
+                          memory: 2Gi
+                        requests:
+                          cpu: 500m
+                          memory: 512Mi
+            ```
+            """
+        )
+        self.assertFalse(any(item.rule_id == "R035" for item in violations))
+
     def test_detects_pvc_storage_over_limit(self):
         violations = self.run_checker(
             """

@@ -421,6 +421,13 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
           volumeMounts:
             - name: vn-etcvn-nginxvn-confvn-dvn-defaultvn-conf
               mountPath: /etc/nginx/conf.d/default.conf
@@ -817,6 +824,13 @@ spec:
       automountServiceAccountToken: false  # 必须设置为 false
       containers:
         - name: ${{ defaults.app_name }}
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
           # 其他容器配置...
 ```
 
@@ -850,6 +864,13 @@ spec:
         - name: ${{ defaults.app_name }}
           image: example/app:1.0.0
           imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
 ```
 
 ## 资源配额规范

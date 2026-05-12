@@ -183,6 +183,8 @@ Unless source docs explicitly require otherwise, use:
 - `revisionHistoryLimit: 1`
 - `automountServiceAccountToken: false`
 
+Do not upscale container resources from architecture guesses, language/runtime assumptions, or expected traffic. When source documentation explicitly requires different resources, keep the values concrete and add `metadata.annotations.docker-to-sealos.resource-override-source` with the source URL or quoted requirement so the exception is reviewable.
+
 ### Defaults vs inputs
 
 - `defaults` for generated values (`app_name`, `app_host`, random passwords/keys).

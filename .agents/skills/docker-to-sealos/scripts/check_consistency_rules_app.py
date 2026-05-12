@@ -7,7 +7,15 @@ import re
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
-from check_consistency_models import LATEST_IMAGE_PATTERN, TEMPLATE_NAME_PATTERN, Rule, ScanContext, Violation
+from check_consistency_models import (
+    BASELINE_CONTAINER_RESOURCE_LIMITS,
+    BASELINE_CONTAINER_RESOURCE_REQUESTS,
+    LATEST_IMAGE_PATTERN,
+    TEMPLATE_NAME_PATTERN,
+    Rule,
+    ScanContext,
+    Violation,
+)
 from check_consistency_helpers_violations import (
     add_doc_violation,
     check_managed_workload_setting,
@@ -16,10 +24,12 @@ from check_consistency_helpers_workload import (
     get_template_spec,
     has_managed_workload_marker,
     is_app_workload_document,
+    is_managed_app_workload_document,
     iter_containers,
     iter_documents_by_kind,
     iter_workload_secret_refs,
 )
+from check_consistency_parser import find_line
 
 
 TEMPLATE_ARTIFACT_SUFFIXES = {".yaml", ".yml"}
@@ -74,6 +84,7 @@ HTTP_INGRESS_REQUIRED_ANNOTATIONS: Dict[str, str] = {
     ),
 }
 CRONJOB_LABEL_KEY = "cloud.sealos.io/cronjob"
+RESOURCE_OVERRIDE_SOURCE_ANNOTATION = "docker-to-sealos.resource-override-source"
 CRONJOB_REQUIRED_LABELS: Dict[str, str] = {
     "cronjob-launchpad-name": "",
     "cronjob-type": "image",
@@ -1462,6 +1473,106 @@ def check_automount_service_account_token(context: ScanContext) -> List[Violatio
     )
 
 
+def _has_resource_override_source(data: dict) -> bool:
+    metadata = data.get("metadata")
+    annotations = metadata.get("annotations") if isinstance(metadata, dict) else None
+    source = annotations.get(RESOURCE_OVERRIDE_SOURCE_ANNOTATION) if isinstance(annotations, dict) else None
+    return isinstance(source, str) and bool(source.strip())
+
+
+def _container_label(container: dict) -> str:
+    name = container.get("name")
+    return name.strip() if isinstance(name, str) and name.strip() else "<unnamed>"
+
+
+def _container_line(doc, container_name: str) -> int:
+    if container_name != "<unnamed>":
+        return find_line(
+            doc,
+            rf"^\s*-\s*name\s*:\s*{re.escape(container_name)}\s*$",
+            default=find_line(doc, r"^\s*containers\s*:"),
+        )
+    return find_line(doc, r"^\s*containers\s*:")
+
+
+def _resource_value_line(doc, container_name: str, key: str, actual: object) -> int:
+    if actual is not None:
+        return find_line(
+            doc,
+            rf"^\s*{re.escape(key)}\s*:\s*['\"]?{re.escape(str(actual))}['\"]?\s*$",
+            default=_container_line(doc, container_name),
+        )
+    return _container_line(doc, container_name)
+
+
+def check_managed_workload_container_resources(context: ScanContext) -> List[Violation]:
+    violations: List[Violation] = []
+    expected_sections = (
+        ("limits", BASELINE_CONTAINER_RESOURCE_LIMITS),
+        ("requests", BASELINE_CONTAINER_RESOURCE_REQUESTS),
+    )
+
+    for doc in context.yaml_documents:
+        if doc.skip_checks or not is_managed_app_workload_document(doc):
+            continue
+        if not isinstance(doc.data, dict):
+            continue
+
+        has_override_source = _has_resource_override_source(doc.data)
+        for container in iter_containers(doc.data):
+            container_name = _container_label(container)
+            resources = container.get("resources")
+            if not isinstance(resources, dict):
+                violations.append(
+                    Violation(
+                        rule_id="R035",
+                        path=doc.path,
+                        line=_container_line(doc, container_name),
+                        message=(
+                            f"managed app workload container {container_name} must define "
+                            "resources.limits and resources.requests"
+                        ),
+                    )
+                )
+                continue
+
+            for section_name, expected_values in expected_sections:
+                section = resources.get(section_name)
+                if not isinstance(section, dict):
+                    violations.append(
+                        Violation(
+                            rule_id="R035",
+                            path=doc.path,
+                            line=_container_line(doc, container_name),
+                            message=(
+                                f"managed app workload container {container_name} "
+                                f"must define resources.{section_name}"
+                            ),
+                        )
+                    )
+                    continue
+
+                for key, expected in expected_values.items():
+                    actual = section.get(key)
+                    if actual == expected or (actual is not None and has_override_source):
+                        continue
+                    violations.append(
+                        Violation(
+                            rule_id="R035",
+                            path=doc.path,
+                            line=_resource_value_line(doc, container_name, key, actual),
+                            message=(
+                                f"managed app workload container {container_name} "
+                                f"resources.{section_name}.{key} must be {expected} "
+                                f"unless metadata.annotations.{RESOURCE_OVERRIDE_SOURCE_ANNOTATION} "
+                                "cites explicit source documentation"
+                            ),
+                        )
+                    )
+
+    return violations
+
+
 APP_RULES: Dict[str, Rule] = {
     "R001": Rule("R001", check_no_latest_tags),
     "R016": Rule("R016", check_no_floating_image_tags),
@@ -1491,4 +1602,5 @@ APP_RULES: Dict[str, Rule] = {
     "R028": Rule("R028", check_container_names_match_workload_name),
     "R009": Rule("R009", check_revision_history_limit),
     "R010": Rule("R010", check_automount_service_account_token),
+    "R035": Rule("R035", check_managed_workload_container_resources),
 }
