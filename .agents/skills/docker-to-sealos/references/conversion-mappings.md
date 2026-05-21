@@ -119,6 +119,13 @@ spec:
         - name: ${{ defaults.app_name }}
           image: nginx:1.27.2
           imagePullPolicy: IfNotPresent  # 必须设置
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
 ```
 
 ## 端口映射
@@ -372,6 +379,13 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
           volumeMounts:
             - name: vn-appvn-data
               mountPath: /app/data
