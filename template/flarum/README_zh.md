@@ -4,7 +4,7 @@
 
 Flarum 是一个可在 Sealos 上一键部署的应用，模板会创建所需资源并提供应用访问入口。
 
-此 Sealos 模板会将 **Flarum** 部署为 `flarum` 应用。部署、网络和存储配置都由仓库中的 Sealos 模板维护。
+此 Sealos 模板会将 **Flarum** 部署为单应用，并使用 ApeCloud MySQL 8.0 作为数据库。部署、网络、存储和首次启动所需的数据库初始化都由模板维护。
 
 ## 在 Sealos 上部署
 
@@ -18,11 +18,12 @@ Flarum 是一个可在 Sealos 上一键部署的应用，模板会创建所需�
 
 部署时可以配置以下用户可见输入项：
 
-此模板没有额外的用户输入项；保留默认配置即可完成部署。
+可以通过 `FLARUM_FORUM_TITLE` 设置初始论坛标题，默认值为 `Flarum`。
 
 请将敏感信息保存在 Sealos 管理的输入项或生成默认值中，不要把私有凭据提交到模板仓库。
 
 ## 官方链接
 
 - 官方网站: https://flarum.org/
-- 源码仓库: https://github.com/crazy-max/docker-flarum
+- 源码仓库: https://github.com/flarum/framework
+- 容器镜像: https://github.com/crazy-max/docker-flarum
