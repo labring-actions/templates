@@ -1,0 +1,275 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: chrome
+spec:
+  title: Chrome
+  url: https://www.google.com/chrome/
+  gitRepo: https://github.com/linuxserver/docker-chrome
+  author: Sealos
+  description: Google Chrome browser running in a LinuxServer.io Selkies container with a web-based desktop UI.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/chrome/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/chrome/logo.png
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: 在 LinuxServer.io Selkies 容器中运行的 Google Chrome 浏览器，可通过网页桌面界面访问。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/chrome/README_zh.md
+  categories:
+    - tool
+  defaults:
+    app_host:
+      type: string
+      value: chrome-${{ random(8) }}
+    app_name:
+      type: string
+      value: chrome-${{ random(8) }}
+    password:
+      type: string
+      value: ${{ random(16) }}
+  inputs:
+    chrome_cli:
+      description: Chrome startup URL or CLI flags passed to the browser process.
+      type: string
+      default: https://www.linuxserver.io/
+      required: false
+    custom_user:
+      description: HTTP basic auth username for the web desktop.
+      type: string
+      default: abc
+      required: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-chrome-launcher
+  labels:
+    app: ${{ defaults.app_name }}-chrome-launcher
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-chrome-launcher
+data:
+  autostart: |
+    #!/bin/bash
+    export HOME=/config
+    PROFILE=/config/.config/google-chrome
+    rm -f "$PROFILE"/Singleton* 2>/dev/null || true
+    /usr/bin/google-chrome \
+      --no-first-run \
+      --no-sandbox \
+      --password-store=basic \
+      --simulate-outdated-no-au="Tue, 31 Dec 2099 23:59:59 GMT" \
+      --start-maximized \
+      --test-type \
+      --disable-gpu \
+      --disable-software-rasterizer \
+      --disable-gpu-compositing \
+      --disable-dev-shm-usage \
+      --user-data-dir="$PROFILE" \
+      ${CHROME_CLI}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: lscr.io/linuxserver/chrome:148.0.7778.178-1-ls95
+    docker-to-sealos.resource-override-source: https://docs.linuxserver.io/images/docker-chrome/#parameters documents shm_size=1gb and browser workload needs more than baseline resources
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      terminationGracePeriodSeconds: 10
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      imagePullSecrets:
+        - name: ${{ defaults.app_name }}
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: lscr.io/linuxserver/chrome:148.0.7778.178-1-ls95
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/bash
+            - -c
+          args:
+            - |
+              export PATH="/lsiopy/bin:${PATH}"
+              install -D -m 755 /chrome-launcher/autostart /config/.config/openbox/autostart
+              install -D -m 755 /chrome-launcher/autostart /config/.config/labwc/autostart
+              chown abc:abc /config/.config/openbox/autostart /config/.config/labwc/autostart
+              exec /init
+          resources:
+            requests:
+              cpu: 20m
+              memory: 51Mi
+            limits:
+              cpu: 200m
+              memory: 512Mi
+          ports:
+            - containerPort: 3000
+          env:
+            - name: PUID
+              value: '1000'
+            - name: PGID
+              value: '1000'
+            - name: TZ
+              value: Etc/UTC
+            - name: CHROME_CLI
+              value: ${{ inputs.chrome_cli }}
+            - name: CUSTOM_PORT
+              value: '3000'
+            - name: CUSTOM_USER
+              value: ${{ inputs.custom_user }}
+            - name: PASSWORD
+              value: ${{ defaults.password }}
+            - name: RESTART_APP
+              value: 'true'
+            - name: PIXELFLUX_WAYLAND
+              value: 'false'
+            - name: MAX_RES
+              value: 4096x2160
+            - name: SELKIES_ENCODER
+              value: jpeg,x264enc
+            - name: SELKIES_FILE_TRANSFERS
+              value: ''
+            - name: SELKIES_ENABLE_SHARING
+              value: 'false'
+            - name: SELKIES_ENABLE_COLLAB
+              value: 'false'
+            - name: SELKIES_ENABLE_SHARED
+              value: 'false'
+            - name: SELKIES_ENABLE_PLAYER2
+              value: 'false'
+            - name: SELKIES_ENABLE_PLAYER3
+              value: 'false'
+            - name: SELKIES_ENABLE_PLAYER4
+              value: 'false'
+          livenessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          startupProbe:
+            tcpSocket:
+              port: 3000
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          volumeMounts:
+            - name: vn-config
+              mountPath: /config
+            - name: chrome-launcher
+              mountPath: /chrome-launcher
+              readOnly: true
+      volumes:
+        - name: chrome-launcher
+          configMap:
+            name: ${{ defaults.app_name }}-chrome-launcher
+            defaultMode: 493
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-config
+        annotations:
+          path: /config
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - name: tcp-3000
+      port: 3000
+      targetPort: 3000
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 3000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/chrome/logo.png
+  name: Chrome
+  type: link
