@@ -53,7 +53,7 @@ This template deploys the following resources:
 
 The template sets `CHROME_CLI` from the deployment form, so you can provide a startup URL or Chrome CLI flags. It enables HTTP basic authentication through `CUSTOM_USER` and a generated password, stores the browser profile under `/config`, and disables public sharing/collaboration toggles in Selkies by default.
 
-For stable cloud execution, the template uses `PIXELFLUX_WAYLAND=false`, `MAX_RES=4096x2160`, `SELKIES_ENCODER=jpeg,x264enc`, and Chrome launch flags such as `--disable-dev-shm-usage`. The container uses `200m` CPU and `512Mi` memory limits, with requests derived from the Sealos resource ladder.
+For stable cloud execution, the template uses `PIXELFLUX_WAYLAND=false`, `MAX_RES=4096x2160`, `SELKIES_ENCODER=jpeg,x264enc`, and Chrome launch flags such as `--disable-dev-shm-usage`. The container uses `200m` CPU and `1024Mi` memory limits, with requests derived from the Sealos resource ladder.
 
 **License Information:**
 

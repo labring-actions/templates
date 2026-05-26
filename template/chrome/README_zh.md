@@ -53,7 +53,7 @@ Sealos 模板包含托管 Chrome 所需的运行组件：
 
 模板会从部署表单读取 `CHROME_CLI`，你可以填写启动 URL 或 Chrome CLI 参数。HTTP Basic Auth 由 `CUSTOM_USER` 和自动生成的密码启用；浏览器配置保存在 `/config`；Selkies 的公开分享和协作开关默认关闭。
 
-为了在云端稳定运行，模板设置了 `PIXELFLUX_WAYLAND=false`、`MAX_RES=4096x2160`、`SELKIES_ENCODER=jpeg,x264enc`，并加入 `--disable-dev-shm-usage` 等 Chrome 启动参数。容器限制为 `200m` CPU 和 `512Mi` 内存，requests 按 Sealos 资源阶梯规则从 limits 推导。
+为了在云端稳定运行，模板设置了 `PIXELFLUX_WAYLAND=false`、`MAX_RES=4096x2160`、`SELKIES_ENCODER=jpeg,x264enc`，并加入 `--disable-dev-shm-usage` 等 Chrome 启动参数。容器限制为 `200m` CPU 和 `1024Mi` 内存，requests 按 Sealos 资源阶梯规则从 limits 推导。
 
 **许可证信息：**
 
