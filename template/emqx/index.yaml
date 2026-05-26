@@ -7,17 +7,25 @@ spec:
   url: 'https://www.emqx.com'
   gitRepo: 'https://github.com/emqx/emqx'
   author: 'sealos'
-  description: 'The most scalable open-source MQTT broker for IoT, IIoT, and connected vehicles'
+  description: 'A scalable, open-source MQTT broker for IoT, industrial IoT, and connected vehicle messaging.'
   readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/emqx/README.md'
   icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/emqx/logo.png'
   screenshots:
     - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/emqx/website-screenshot.webp'
   templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: '可扩展的开源 MQTT 消息服务器，适用于物联网、工业物联网和车联网消息场景。'
+      readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/emqx/README_zh.md'
+  categories:
+    - backend
+    - dev-ops
   defaults:
-    app_host:
-      type: string
-      value: ${{ random(8) }}
     app_name:
+      type: string
+      value: emqx-${{ random(8) }}
+    app_host:
       type: string
       value: emqx-${{ random(8) }}
     cookie:
@@ -25,19 +33,20 @@ spec:
       value: ${{ random(32) }}
   inputs:
     REPLICA_COUNT:
-      description: 'replicas count'
+      description: 'Number of EMQX broker replicas.'
       type: number
-      default: "3"
+      default: '3'
+      required: true
+    ADMIN_PASSWORD:
+      description: 'Initial EMQX Dashboard admin password. Change it after first login.'
+      type: string
+      default: '${{ random(16) }}'
       required: true
     TCP_ENABLE:
-      description: 'enable external tcp'
+      description: 'Expose MQTT TCP and SSL listener ports through a NodePort service.'
       type: boolean
       default: 'false'
       required: false
-
-  i18n:
-    zh:
-      readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/emqx/README_zh.md'
 
 ---
 apiVersion: apps/v1
@@ -45,12 +54,12 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: emqx:5.8.5
-    deploy.cloud.sealos.io/minReplicas: "${{ inputs.REPLICA_COUNT }}"
-    deploy.cloud.sealos.io/maxReplicas: "${{ inputs.REPLICA_COUNT }}"
+    originImageName: emqx/emqx:5.8.9
+    deploy.cloud.sealos.io/minReplicas: '${{ inputs.REPLICA_COUNT }}'
+    deploy.cloud.sealos.io/maxReplicas: '${{ inputs.REPLICA_COUNT }}'
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   replicas: ${{ inputs.REPLICA_COUNT }}
   revisionHistoryLimit: 1
@@ -63,13 +72,24 @@ spec:
     metadata:
       labels:
         app: ${{ defaults.app_name }}
+        app.kubernetes.io/name: ${{ defaults.app_name }}
+        app.kubernetes.io/cluster-discovery: ${{ defaults.app_name }}-headless
+        app.kubernetes.io/external-mqtt: ${{ defaults.app_name }}-nodeport
     spec:
-      terminationGracePeriodSeconds: 10
       automountServiceAccountToken: false
       enableServiceLinks: false
+      imagePullSecrets:
+        - name: ${{ defaults.app_name }}
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: Always
       containers:
         - name: ${{ defaults.app_name }}
-          image: emqx:5.8.5
+          image: emqx/emqx:5.8.9
+          imagePullPolicy: IfNotPresent
           env:
             - name: POD_NAME
               valueFrom:
@@ -78,54 +98,76 @@ spec:
             - name: EMQX_NODE__COOKIE
               value: ${{ defaults.cookie }}
             - name: EMQX_CLUSTER__DISCOVERY_STRATEGY
-              value: "dns"
+              value: dns
             - name: EMQX_CLUSTER__DNS__RECORD_TYPE
               value: srv
             - name: EMQX_CLUSTER__DNS__NAME
               value: ${{ defaults.app_name }}-headless.${{ SEALOS_NAMESPACE }}.svc.cluster.local
             - name: EMQX_HOST
               value: $(POD_NAME).$(EMQX_CLUSTER__DNS__NAME)
-          resources:
-            requests:
-              cpu: 100m
-              memory: 100Mi
-            limits:
-              cpu: 1
-              memory: 1Gi
+            - name: EMQX_DASHBOARD__DEFAULT_PASSWORD
+              value: ${{ inputs.ADMIN_PASSWORD }}
           ports:
             - containerPort: 1883
               protocol: TCP
-              name: 'tcp'
+              name: mqtt
             - containerPort: 8883
               protocol: TCP
-              name: 'ssl'
+              name: mqtt-ssl
             - containerPort: 8083
               protocol: TCP
-              name: 'ws'
+              name: mqtt-ws
             - containerPort: 8084
               protocol: TCP
-              name: 'wss'
+              name: mqtt-wss
             - containerPort: 18083
               protocol: TCP
-              name: 'api'
+              name: dashboard
             - containerPort: 4370
               protocol: TCP
-              name: 'cluster-erlang'
+              name: erlang
             - containerPort: 5369
               protocol: TCP
-              name: 'cluster-rpc'
-          imagePullPolicy: IfNotPresent
+              name: rpc
+          resources:
+            requests:
+              cpu: 50m
+              memory: 51Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          startupProbe:
+            exec:
+              command:
+                - /opt/emqx/bin/emqx
+                - ctl
+                - status
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            exec:
+              command:
+                - /opt/emqx/bin/emqx
+                - ctl
+                - status
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          readinessProbe:
+            tcpSocket:
+              port: 18083
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
           volumeMounts:
             - name: vn-optvn-emqxvn-data
               mountPath: /opt/emqx/data
             - name: vn-optvn-emqxvn-log
               mountPath: /opt/emqx/log
-      volumes: []
-      securityContext:
-        runAsUser: 1000
-        runAsGroup: 1000
-        fsGroup: 1000
-        fsGroupChangePolicy: Always
   volumeClaimTemplates:
     - metadata:
         annotations:
@@ -151,47 +193,59 @@ spec:
             storage: 1Gi
 
 ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-headless
+  labels:
+    app: ${{ defaults.app_name }}-headless
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-headless
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - port: 4370
+      targetPort: 4370
+      protocol: TCP
+      name: erlang
+    - port: 5369
+      targetPort: 5369
+      protocol: TCP
+      name: rpc
+  selector:
+    app.kubernetes.io/cluster-discovery: ${{ defaults.app_name }}-headless
+
+---
 ${{ if(inputs.TCP_ENABLE === 'true') }}
 apiVersion: v1
 kind: Service
 metadata:
   name: ${{ defaults.app_name }}-nodeport
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}-nodeport
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-nodeport
 spec:
   type: NodePort
   ports:
     - protocol: TCP
       port: 1883
       targetPort: 1883
-      name: 'tcp'
+      name: mqtt
     - protocol: TCP
       port: 8883
       targetPort: 8883
-      name: 'ssl'
+      name: mqtt-ssl
+    - protocol: TCP
+      port: 8083
+      targetPort: 8083
+      name: mqtt-ws
+    - protocol: TCP
+      port: 8084
+      targetPort: 8084
+      name: mqtt-wss
   selector:
-    app: ${{ defaults.app_name }}
+    app.kubernetes.io/external-mqtt: ${{ defaults.app_name }}-nodeport
 ${{ endif() }}
-
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: ${{ defaults.app_name }}-headless
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-spec:
-  clusterIP: None
-  publishNotReadyAddresses: true
-  ports:
-    - port: 4370
-      protocol: TCP
-      name: 'cluster-erlang'
-    - port: 5369
-      protocol: TCP
-      name: 'cluster-rpc'
-  selector:
-    app: ${{ defaults.app_name }}
 
 ---
 apiVersion: v1
@@ -199,14 +253,19 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   type: ClusterIP
   ports:
     - name: dashboard
       port: 18083
+      targetPort: 18083
+      protocol: TCP
     - name: mqtt-ws
       port: 8083
+      targetPort: 8083
+      protocol: TCP
   selector:
     app: ${{ defaults.app_name }}
 
@@ -216,10 +275,26 @@ kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
     kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
 spec:
   rules:
     - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
