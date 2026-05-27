@@ -4,21 +4,20 @@ metadata:
   name: headscale
 spec:
   title: "Headscale"
-  url: 'https://headscale.net/stable/'
+  url: "https://headscale.net/stable/"
   gitRepo: "https://github.com/juanfont/headscale"
   author: "Sealos"
   description: "An open source, self-hosted implementation of the Tailscale control server."
-  readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/headscale/README.md'
-  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/headscale/logo.png'
+  readme: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/headscale/README.md"
+  icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/headscale/logo.png"
   screenshots:
-    - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/headscale/website-screenshot.webp'
+    - "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/headscale/website-screenshot.webp"
   templateType: inline
   locale: en
   i18n:
     zh:
-      title: "Headscale"
       description: "一个自托管的开源 Tailscale 控制服务器实现。"
-      readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/headscale/README_zh.md'
+      readme: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/headscale/README_zh.md"
   categories:
     - tool
   defaults:
@@ -31,6 +30,156 @@ spec:
     cookie_secret:
       type: string
       value: ${{ random(32) }}
+  inputs:
+    use_postgresql:
+      description: "Use PostgreSQL instead of the default embedded SQLite database. Headscale primarily optimizes for SQLite; enable PostgreSQL only when you need an external database."
+      type: boolean
+      default: "false"
+      required: false
+
+---
+${{ if(inputs.use_postgresql === 'true') }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: headscale-${{ defaults.app_suffix }}-pg
+    app.kubernetes.io/instance: headscale-${{ defaults.app_suffix }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: headscale-${{ defaults.app_suffix }}-pg
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: headscale-${{ defaults.app_suffix }}-pg
+    app.kubernetes.io/instance: headscale-${{ defaults.app_suffix }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: headscale-${{ defaults.app_suffix }}-pg
+rules:
+  - apiGroups:
+      - "*"
+    resources:
+      - "*"
+    verbs:
+      - "*"
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: headscale-${{ defaults.app_suffix }}-pg
+    app.kubernetes.io/instance: headscale-${{ defaults.app_suffix }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: headscale-${{ defaults.app_suffix }}-pg
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: headscale-${{ defaults.app_suffix }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: headscale-${{ defaults.app_suffix }}-pg
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  labels:
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+    sealos-db-provider-cr: headscale-${{ defaults.app_suffix }}-pg
+  name: headscale-${{ defaults.app_suffix }}-pg
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  componentSpecs:
+    - componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
+      name: postgresql
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: headscale-${{ defaults.app_suffix }}-pg
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: headscale-${{ defaults.app_suffix }}-pg-init
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      containers:
+        - name: pgsql-init
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: headscale-${{ defaults.app_suffix }}-pg-conn-credential
+                  key: password
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: headscale-${{ defaults.app_suffix }}-pg-conn-credential
+                  key: username
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: headscale-${{ defaults.app_suffix }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: headscale-${{ defaults.app_suffix }}-pg-conn-credential
+                  key: port
+            - name: PG_DATABASE
+              value: headscale
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              for i in $(seq 1 60); do
+                if pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d postgres >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 2
+              done
+              pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d postgres >/dev/null 2>&1
+              if ! PGPASSWORD="$PG_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$PG_DATABASE'" | grep -q 1; then
+                PGPASSWORD="$PG_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"$PG_DATABASE\";"
+              fi
+      restartPolicy: OnFailure
+  ttlSecondsAfterFinished: 300
+${{ endif() }}
 
 ---
 apiVersion: v1
@@ -69,207 +218,13 @@ subjects:
     name: headscale-${{ defaults.app_suffix }}
 
 ---
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: headscale-${{ defaults.app_suffix }}
-  annotations:
-    originImageName: headscale/headscale:0.27.1-debug
-    deploy.cloud.sealos.io/minReplicas: "1"
-    deploy.cloud.sealos.io/maxReplicas: "1"
-  labels:
-    cloud.sealos.io/app-deploy-manager: headscale-${{ defaults.app_suffix }}
-    app: headscale-${{ defaults.app_suffix }}
-spec:
-  replicas: 1
-  revisionHistoryLimit: 1
-  minReadySeconds: 10
-  serviceName: headscale-${{ defaults.app_suffix }}
-  selector:
-    matchLabels:
-      app: headscale-${{ defaults.app_suffix }}
-  template:
-    metadata:
-      labels:
-        app: headscale-${{ defaults.app_suffix }}
-    spec:
-      terminationGracePeriodSeconds: 10
-      automountServiceAccountToken: true
-      shareProcessNamespace: true
-      serviceAccountName: headscale-${{ defaults.app_suffix }}
-      initContainers:
-        - name: copy-config
-          image: alpine
-          command:
-            [
-              "/bin/sh",
-              "-c",
-              "if [ ! -f /etc/headscale/config.yaml ]; then cp /tmp/config.yaml /etc/headscale/config.yaml; fi",
-            ]
-          imagePullPolicy: IfNotPresent
-          volumeMounts:
-            - name: vn-etcvn-headscale
-              mountPath: /etc/headscale
-            - name: vn-tmpvn-configvn-yaml
-              mountPath: /tmp/config.yaml
-              subPath: vn-tmpvn-configvn-yaml
-      containers:
-        - name: headscale-${{ defaults.app_suffix }}
-          image: headscale/headscale:0.27.1-debug
-          command: ["headscale", "serve"]
-          resources:
-            requests:
-              cpu: 50m
-              memory: 64Mi
-            limits:
-              cpu: 500m
-              memory: 512Mi
-          ports:
-            - name: http
-              protocol: TCP
-              containerPort: 8080
-            - name: headplane
-              protocol: TCP
-              containerPort: 3000
-            - name: grpc
-              protocol: TCP
-              containerPort: 50443
-            - name: metrics
-              protocol: TCP
-              containerPort: 9090
-          imagePullPolicy: IfNotPresent
-          volumeMounts:
-            - name: vn-varvn-libvn-headscale
-              mountPath: /var/lib/headscale
-            - name: vn-etcvn-headscale
-              mountPath: /etc/headscale
-            - name: vn-etcvn-headscalevn-derpvn-yaml
-              mountPath: /etc/headscale/derp.yaml
-              subPath: vn-etcvn-headscalevn-derpvn-yaml
-            - name: vn-tmpvn-configvn-yaml
-              mountPath: /tmp/config.yaml
-              subPath: vn-tmpvn-configvn-yaml
-            - name: vn-etcvn-headscalevn-headplanevn-yaml
-              mountPath: /etc/headscale/headplane.yaml
-              subPath: vn-etcvn-headscalevn-headplanevn-yaml
-          livenessProbe:
-            tcpSocket:
-              port: http
-            initialDelaySeconds: 30
-            timeoutSeconds: 5
-            periodSeconds: 15
-        - name: headscale-headplane-${{ defaults.app_suffix }}
-          image: ghcr.io/tale/headplane:0.6.1
-          env:
-            - name: HEADPLANE_CONFIG_PATH
-              value: /etc/headscale/headplane.yaml
-            - name: HEADPLANE_LOAD_ENV_OVERRIDES
-              value: "true"
-            - name: HEADPLANE_INTEGRATION__KUBERNETES__POD_NAME
-              valueFrom:
-                fieldRef:
-                  apiVersion: v1
-                  fieldPath: metadata.name
-            - name: HEADPLANE_INTEGRATION__KUBERNETES__ENABLED
-              value: "true"
-            - name: HEADPLANE_HEADSCALE__URL
-              value: "http://127.0.0.1:8080"
-            - name: HEADPLANE_HEADSCALE__PUBLIC_URL
-              value: "https://headscale-${{ defaults.app_suffix }}.${{ SEALOS_CLOUD_DOMAIN }}"
-            - name: HEADPLANE_SERVER__COOKIE_SECRET
-              value: "${{ defaults.cookie_secret }}"
-          resources:
-            requests:
-              cpu: 10m
-              memory: 25Mi
-            limits:
-              cpu: 100m
-              memory: 256Mi
-          ports:
-            - name: headplane
-              protocol: TCP
-              containerPort: 3000
-          imagePullPolicy: IfNotPresent
-          volumeMounts:
-            - name: vn-varvn-libvn-headscale
-              mountPath: /var/lib/headscale
-            - name: vn-etcvn-headscale
-              mountPath: /etc/headscale
-            - name: vn-etcvn-headscalevn-derpvn-yaml
-              mountPath: /etc/headscale/derp.yaml
-              subPath: vn-etcvn-headscalevn-headplanevn-yaml
-            - name: vn-etcvn-headscalevn-headplanevn-yaml
-              mountPath: /etc/headscale/headplane.yaml
-              subPath: vn-etcvn-headscalevn-headplanevn-yaml
-          livenessProbe:
-            tcpSocket:
-              port: 3000
-            initialDelaySeconds: 30
-            timeoutSeconds: 5
-            periodSeconds: 15
-      volumes:
-        - name: vn-tmpvn-configvn-yaml
-          configMap:
-            name: headscale-${{ defaults.app_suffix }}
-        - name: vn-etcvn-headscalevn-derpvn-yaml
-          configMap:
-            name: headscale-${{ defaults.app_suffix }}
-        - name: vn-etcvn-headscalevn-headplanevn-yaml
-          configMap:
-            name: headscale-${{ defaults.app_suffix }}
-  volumeClaimTemplates:
-    - metadata:
-        annotations:
-          path: /var/lib/headscale
-          value: "0.5"
-        name: vn-varvn-libvn-headscale
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 512Mi
-    - metadata:
-        annotations:
-          path: /etc/headscale
-          value: "0.5"
-        name: vn-etcvn-headscale
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 512Mi
-
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: headscale-${{ defaults.app_suffix }}
-  labels:
-    cloud.sealos.io/app-deploy-manager: headscale-${{ defaults.app_suffix }}
-spec:
-  ports:
-    - name: http
-      targetPort: 8080
-      port: 8080
-    - name: grpc
-      targetPort: 50443
-      port: 50443
-    - name: metrics
-      targetPort: 9090
-      port: 9090
-    - name: headplane
-      targetPort: 3000
-      port: 3000
-  selector:
-    app: headscale-${{ defaults.app_suffix }}
-
----
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: headscale-${{ defaults.app_suffix }}
+  labels:
+    app: headscale-${{ defaults.app_suffix }}
+    cloud.sealos.io/app-deploy-manager: headscale-${{ defaults.app_suffix }}
 data:
   vn-tmpvn-configvn-yaml: |-
     # headscale will look for a configuration file named `config.yaml` (or `config.json`) in the following     order:
@@ -408,35 +363,91 @@ data:
     # Disables the automatic check for headscale updates on startup
     disable_check_updates: false
 
-    # Time before an inactive ephemeral node is deleted?
-    ephemeral_node_inactivity_timeout: 30m
+    # Node lifecycle configuration.
+    node:
+      # Default key expiry for non-tagged nodes, regardless of registration method
+      # (auth key, CLI, web auth). Tagged nodes are exempt and never expire.
+      #
+      # This is the base default. OIDC can override this via oidc.expiry.
+      # If a client explicitly requests a specific expiry, the client value is used.
+      #
+      # Setting the value to "0" means no default expiry (nodes never expire unless
+      # explicitly expired via `headscale nodes expire`).
+      #
+      # Tailscale SaaS uses 180d; set to a positive duration to match that behaviour.
+      #
+      # Default: 0 (no default expiry)
+      expiry: 0
+
+      ephemeral:
+        # Time before an inactive ephemeral node is deleted.
+        inactivity_timeout: 30m
+
+      # HA subnet router health probing.
+      #
+      # When HA routes exist (2+ nodes advertising the same prefix), headscale
+      # pings each HA node every probe_interval via the Noise channel. If a node
+      # fails to respond within probe_timeout it is marked unhealthy and the
+      # primary role moves to the next healthy node. A node that later responds
+      # is marked healthy again but does NOT reclaim primary (avoids flapping).
+      #
+      # Worst-case detection time is probe_interval + probe_timeout (15s default).
+      # No-op when no HA routes exist. Set probe_interval to 0 to disable.
+      routes:
+        ha:
+          # How often to ping HA subnet routers. Set to 0 to disable probing.
+          # Must be >= 2s when enabled.
+          probe_interval: 10s
+
+          # How long to wait for a ping response before marking a node unhealthy.
+          # Must be >= 1s and less than probe_interval.
+          probe_timeout: 5s
 
     database:
+      # Database type. Available options: sqlite, postgres
+      ${{ if(inputs.use_postgresql === 'true') }}
+      type: postgres
+      ${{ else() }}
       type: sqlite
+      ${{ endif() }}
 
-      # SQLite config
+      # Enable debug mode. This setting requires the log.level to be set to "debug" or "trace".
+      debug: false
+
+      # GORM configuration settings.
+      gorm:
+        # Enable prepared statements.
+        prepare_stmt: true
+
+        # Enable parameterized queries.
+        parameterized_queries: true
+
+        # Skip logging "record not found" errors.
+        skip_err_record_not_found: true
+
+        # Threshold for slow queries in milliseconds.
+        slow_threshold: 1000
+
+      ${{ if(inputs.use_postgresql === 'true') }}
+      postgres:
+        # If using a Unix socket to connect to Postgres, set the socket path in the 'host' field and leave 'port' blank.
+        host: __POSTGRES_HOST__
+        port: __POSTGRES_PORT__
+        name: headscale
+        user: __POSTGRES_USER__
+        pass: __POSTGRES_PASSWORD__
+        max_open_conns: 10
+        max_idle_conns: 10
+        conn_max_idle_time_secs: 3600
+        ssl: false
+      ${{ else() }}
       sqlite:
         path: /var/lib/headscale/db.sqlite
 
         # Enable WAL mode for SQLite. This is recommended for production environments.
         # https://www.sqlite.org/wal.html
         write_ahead_log: true
-
-      # # Postgres config
-      # postgres:
-      #   # If using a Unix socket to connect to Postgres, set the socket path in the 'host' field and leave 'port' blank.
-      #   host: localhost
-      #   port: 5432
-      #   name: headscale
-      #   user: foo
-      #   pass: bar
-      #   max_open_conns: 10
-      #   max_idle_conns: 10
-      #   conn_max_idle_time_secs: 3600
-
-      #   # If other 'sslmode' is required instead of 'require(true)' and 'disabled(false)', set the 'sslmode' you need
-      #   # in the 'ssl' field. Refers to https://www.postgresql.org/docs/current/libpq-ssl.html Table 34.1.
-      #   ssl: false
+      ${{ endif() }}
 
     ### TLS configuration
     #
@@ -627,128 +638,519 @@ data:
       # disabled by default. Enabling this will make your clients send logs to Tailscale Inc.
       enabled: false
 
-    # Enabling this option makes devices prefer a random port for WireGuard traffic over the
-    # default static port 41641. This option is intended as a workaround for some buggy
-    # firewall devices. See https://tailscale.com/kb/1181/firewalls/ for more information.
-    randomize_client_port: false
+    # Taildrop configuration
+    # Taildrop is the file sharing feature of Tailscale, allowing nodes to
+    # send files to each other.
+    # https://tailscale.com/docs/features/taildrop
+    taildrop:
+      # Enable or disable Taildrop tailnet-wide. When disabled, headscale
+      # withholds `https://tailscale.com/cap/file-sharing` from every
+      # node's CapMap.
+      enabled: true
+
+    # Default node auto-update behaviour. When enabled, every node's
+    # CapMap carries `default-auto-update: [true]` so clients that have
+    # not made a local opt-in / opt-out choice run auto-updates by
+    # default. Setting it back to false flips the default for future
+    # clients; clients that already stored the value locally keep their
+    # choice.
+    auto_update:
+      enabled: false
+      # Advanced performance tuning parameters.
+      # The defaults are carefully chosen and should rarely need adjustment.
+      # Only modify these if you have identified a specific performance issue.
+      #
+      # tuning:
+      #   # Maximum number of pending registration entries in the auth cache.
+      #   # Oldest entries are evicted when the cap is reached.
+      #   #
+      #   # register_cache_max_entries: 1024
+      #
+      #   # NodeStore write batching configuration.
+      #   # The NodeStore batches write operations before rebuilding peer relationships,
+      #   # which is computationally expensive. Batching reduces rebuild frequency.
+      #   #
+      #   # node_store_batch_size: 100
+      #   # node_store_batch_timeout: 500ms
   vn-etcvn-headscalevn-derpvn-yaml: |-
-    regions:
+      regions:
   vn-etcvn-headscalevn-headplanevn-yaml: |-
-    # Configuration for the Headplane server and web application
-    server:
-      host: "0.0.0.0"
+      # Configuration for the Headplane server and web application
+      server:
+        host: "0.0.0.0"
+        port: 3000
+
+        # The secret used to encode and decode web sessions
+        # Ensure that this is exactly 32 characters long
+        cookie_secret: "zOn4cMlwBCvRtRjYmypgJlxIcf8A5pjD"
+
+        # Should the cookies only work over HTTPS?
+        # Set to false if running via HTTP without a proxy
+        # (I recommend this is true in production)
+        cookie_secure: true
+
+      # Headscale specific settings to allow Headplane to talk
+      # to Headscale and access deep integration features
+      headscale:
+        # The URL to your Headscale instance
+        # (All API requests are routed through this URL)
+        # (THIS IS NOT the gRPC endpoint, but the HTTP endpoint)
+        #
+        # IMPORTANT: If you are using TLS this MUST be set to `https://`
+        url: "http://headscale:5000"
+
+        # If you use the TLS configuration in Headscale, and you are not using
+        # Let's Encrypt for your certificate, pass in the path to the certificate.
+        # (This has no effect `url` does not start with `https://`)
+        # tls_cert_path: "/var/lib/headplane/tls.crt"
+
+        # Optional, public URL if they differ
+        # This affects certain parts of the web UI
+        # public_url: "https://headscale.example.com"
+
+        # Path to the Headscale configuration file
+        # This is optional, but HIGHLY recommended for the best experience
+        # If this is read only, Headplane will show your configuration settings
+        # in the Web UI, but they cannot be changed.
+        config_path: "/etc/headscale/config.yaml"
+
+        # Headplane internally validates the Headscale configuration
+        # to ensure that it changes the configuration in a safe way.
+        # If you want to disable this validation, set this to false.
+        config_strict: true
+
+      # Integration configurations for Headplane to interact with Headscale
+      # Only one of these should be enabled at a time or you will get errors
+      integration:
+        # The Headplane agent periodically syncs node information (version, OS, etc.)
+        # from your Tailnet. It auto-generates ephemeral pre-auth keys using the
+        # OIDC headscale_api_key, so no manual key configuration is needed.
+        # agent:
+          # enabled: false
+
+          # The name of the Headscale user to create pre-auth keys under.
+          # A user with this name must exist in Headscale.
+          # host_name: "headplane-agent"
+
+          # How often to sync node information (in milliseconds).
+          # Default: 180000 (3 minutes)
+          # cache_ttl: 180000
+
+          # The work_dir represents where the agent will store its data to be able
+          # to automatically reauthenticate with your Tailnet. It needs to be
+          # writable by the user running the Headplane process.
+          #
+          # If using Docker, it is best to leave this as the default.
+          # work_dir: "/var/lib/headplane/agent"
+
+        # Only one of these should be enabled at a time or you will get errors
+        # This does not include the agent integration (above), which can be enabled
+        # at the same time as any of these and is recommended for the best experience.
+        docker:
+          enabled: false
+          # Preferred method: use container_label to dynamically discover the Headscale container.
+          container_label: "headscale"
+          # Optional fallback: directly specify the container name (or ID)
+          # of the container running Headscale
+          container_name: "headscale"
+
+          # The path to the Docker socket (do not change this if you are unsure)
+          # Docker socket paths must start with unix:// or tcp:// and at the moment
+          # https connections are not supported.
+          socket: "unix:///var/run/docker.sock"
+        # Please refer to docs/integration/Kubernetes.md for more information
+        # on how to configure the Kubernetes integration. There are requirements in
+        # order to allow Headscale to be controlled by Headplane in a cluster.
+        kubernetes:
+          enabled: false
+          # Validates the manifest for the Pod to ensure all of the criteria
+          # are set correctly. Turn this off if you are having issues with
+          # shareProcessNamespace not being validated correctly.
+          validate_manifest: true
+          # This should be the name of the Pod running Headscale and Headplane.
+          # If this isn't static you should be using the Kubernetes Downward API
+          # to set this value (refer to docs/Integrated-Mode.md for more info).
+          pod_name: "headscale"
+
+        # Proc is the "Native" integration that only works when Headscale and
+        # Headplane are running outside of a container. There is no configuration,
+        # but you need to ensure that the Headplane process can terminate the
+        # Headscale process.
+        #
+        # (If they are both running under systemd as sudo, this will work).
+        proc:
+          enabled: false
+
+      # OIDC Configuration for simpler authentication
+      # (This is optional, but recommended for the best experience)
+      # oidc:
+      #   # Set to false to define OIDC config without enabling it.
+      #   # Useful for Helm charts or generating docs from config files.
+      #   enabled: true
+      #
+      #   # The OIDC issuer URL
+      #   issuer: "https://accounts.google.com"
+      #
+      #   # DEPRECATED: Use headscale.api_key instead.
+      #   # If set, this will be used as a fallback for headscale.api_key.
+      #   headscale_api_key: "<your-headscale-api-key>"
+      #
+      #   # If your OIDC provider does not support discovery (does not have the URL at
+      #   # `/.well-known/openid-configuration`), you need to manually set endpoints.
+      #   # This also works to override endpoints if you so desire or if your OIDC
+      #   # discovery is missing certain endpoints (ie GitHub).
+      #   # For some typical providers, see https://headplane.net/features/sso.
+      #   authorization_endpoint: ""
+      #   token_endpoint: ""
+      #   userinfo_endpoint: ""
+      #
+      #   # RP-initiated logout (https://openid.net/specs/openid-connect-rpinitiated-1_0.html).
+      #   # When true, /logout redirects the user to the IdP's end_session_endpoint
+      #   # (auto-discovered or set manually below) so the upstream session is ended too.
+      #   #
+      #   # Disabled by default: the `post_logout_redirect_uri` MUST be pre-registered
+      #   # in your OIDC client configuration on the IdP. If it isn't, users will land
+      #   # on the provider's error page after logout.
+      #   use_end_session: false
+      #
+      #   # Optional. Override the auto-discovered end_session_endpoint, or supply one
+      #   # if your provider does not advertise it via discovery.
+      #   end_session_endpoint: ""
+      #
+      #   # Where the identity provider should redirect after RP-initiated logout.
+      #   # Most providers (Keycloak, Auth0, etc.) require this URL to be pre-registered
+      #   # in the OIDC client configuration. If unset, Headplane defaults to its own
+      #   # `<server.base_url>/admin/login?s=logout` page.
+      #   post_logout_redirect_uri: ""
+      #
+      #   # The authentication method to use when communicating with the token endpoint.
+      #   # This is fully optional and Headplane will attempt to auto-detect the best
+      #   # method and fall back to `client_secret_basic` if unsure.
+      #   token_endpoint_auth_method: "client_secret_post"
+      #
+      #   # The client ID for the OIDC client
+      #   # For the best experience please ensure this is *identical* to the client_id
+      #   # you are using for Headscale.
+      #   client_id: "your-client-id"
+      #
+      #   # The client secret for the OIDC client
+      #   # You may also provide `client_secret_path` instead to read a value from disk.
+      #   # See https://headplane.net/configuration/#sensitive-values
+      #   client_secret: "<your-client-secret>"
+      #
+      #   # Whether to use PKCE when authenticating users. This is recommended as it
+      #   # adds an extra layer of security to the authentication process. Enabling
+      #   # this means your OIDC provider must support PKCE and it must be enabled on
+      #   # the client.
+      #   use_pkce: true
+      #
+      #   # If you want to disable traditional login via Headscale API keys
+      #   disable_api_key_login: false
+      #
+      #   # By default profile pictures are pulled from the OIDC provider when
+      #   # we go to fetch the userinfo endpoint. Optionally, this can be set to
+      #   # "oidc" or "gravatar" as of 0.6.1.
+      #   profile_picture_source: "gravatar"
+      #
+      #   # The scopes to request when authenticating users. The default is below.
+      #   scope: "openid email profile"
+      #
+      #   # Optional fallback claims to use when your provider does not return a standard
+      #   # OIDC `sub` claim. Headplane always checks `sub` first, then each claim here
+      #   # in order. For Feishu/Lark, `["open_id", "email"]` is a reasonable fallback.
+      #   subject_claims:
+      #     - "open_id"
+      #     - "email"
+      #
+      #   # Allow ID token verification with legacy RSA keys smaller than 2048 bits.
+      #   # This is disabled by default because it lowers token verification security and
+      #   # should only be used as a temporary compatibility workaround.
+      #   allow_weak_rsa_keys: false
+      #
+      #   # Extra query parameters can be passed to the authorization endpoint
+      #   # by setting them here. This is useful for providers that require any kind
+      #   # of custom hinting.
+      #   extra_params:
+      #     prompt: "select_account" # Example: force account selection on Google
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: headscale-${{ defaults.app_suffix }}
+  annotations:
+    originImageName: headscale/headscale:0.29.0-beta.1-debug
+    deploy.cloud.sealos.io/minReplicas: "1"
+    deploy.cloud.sealos.io/maxReplicas: "1"
+  labels:
+    cloud.sealos.io/app-deploy-manager: headscale-${{ defaults.app_suffix }}
+    app: headscale-${{ defaults.app_suffix }}
+    app.kubernetes.io/part-of: headscale
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: headscale-${{ defaults.app_suffix }}
+  selector:
+    matchLabels:
+      app: headscale-${{ defaults.app_suffix }}
+  template:
+    metadata:
+      labels:
+        app: headscale-${{ defaults.app_suffix }}
+    spec:
+      terminationGracePeriodSeconds: 10
+      automountServiceAccountToken: true
+      shareProcessNamespace: true
+      serviceAccountName: headscale-${{ defaults.app_suffix }}
+      initContainers:
+        ${{ if(inputs.use_postgresql === 'true') }}
+        - name: wait-postgres
+          image: postgres:16-alpine
+          env:
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: headscale-${{ defaults.app_suffix }}-pg-conn-credential
+                  key: password
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: headscale-${{ defaults.app_suffix }}-pg-conn-credential
+                  key: username
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: headscale-${{ defaults.app_suffix }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: headscale-${{ defaults.app_suffix }}-pg-conn-credential
+                  key: port
+            - name: PG_DATABASE
+              value: headscale
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              for i in $(seq 1 120); do
+                if PGPASSWORD="$PG_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d "$PG_DATABASE" -tAc "SELECT 1" >/dev/null 2>&1; then
+                  exit 0
+                fi
+                sleep 2
+              done
+              PGPASSWORD="$PG_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d "$PG_DATABASE" -tAc "SELECT 1" >/dev/null
+          imagePullPolicy: IfNotPresent
+        ${{ endif() }}
+        - name: copy-config
+          image: alpine
+          env:
+            - name: USE_POSTGRESQL
+              value: "${{ inputs.use_postgresql }}"
+            ${{ if(inputs.use_postgresql === 'true') }}
+            - name: DATABASE_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: headscale-${{ defaults.app_suffix }}-pg-conn-credential
+                  key: host
+            - name: DATABASE_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: headscale-${{ defaults.app_suffix }}-pg-conn-credential
+                  key: port
+            - name: DATABASE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: headscale-${{ defaults.app_suffix }}-pg-conn-credential
+                  key: username
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: headscale-${{ defaults.app_suffix }}-pg-conn-credential
+                  key: password
+            ${{ endif() }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              if [ -f /etc/headscale/config.yaml ]; then
+                exit 0
+              fi
+              cp /tmp/config.yaml /etc/headscale/config.yaml
+              if [ "$USE_POSTGRESQL" = "true" ]; then
+                escape_sed() { printf '%s' "$1" | sed 's/[\/&]/\\&/g'; }
+                sed -i \
+                  -e "s|__POSTGRES_HOST__|$(escape_sed "$DATABASE_HOST")|g" \
+                  -e "s|__POSTGRES_PORT__|$(escape_sed "$DATABASE_PORT")|g" \
+                  -e "s|__POSTGRES_USER__|$(escape_sed "$DATABASE_USER")|g" \
+                  -e "s|__POSTGRES_PASSWORD__|$(escape_sed "$DATABASE_PASSWORD")|g" \
+                  /etc/headscale/config.yaml
+              fi
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: vn-etcvn-headscale
+              mountPath: /etc/headscale
+            - name: vn-tmpvn-configvn-yaml
+              mountPath: /tmp/config.yaml
+              subPath: vn-tmpvn-configvn-yaml
+      containers:
+        - name: headscale-${{ defaults.app_suffix }}
+          image: headscale/headscale:0.29.0-beta.1-debug
+          command: ["headscale", "serve"]
+          resources:
+            requests:
+              cpu: 20m
+              memory: 25Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          ports:
+            - name: http
+              protocol: TCP
+              containerPort: 8080
+            - name: headplane
+              protocol: TCP
+              containerPort: 3000
+            - name: grpc
+              protocol: TCP
+              containerPort: 50443
+            - name: metrics
+              protocol: TCP
+              containerPort: 9090
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: vn-varvn-libvn-headscale
+              mountPath: /var/lib/headscale
+            - name: vn-etcvn-headscale
+              mountPath: /etc/headscale
+            - name: vn-tmpvn-configvn-yaml
+              mountPath: /tmp/config.yaml
+              subPath: vn-tmpvn-configvn-yaml
+            - name: vn-etcvn-headscalevn-derpvn-yaml
+              mountPath: /etc/headscale/derp.yaml
+              subPath: vn-etcvn-headscalevn-derpvn-yaml
+            - name: vn-etcvn-headscalevn-headplanevn-yaml
+              mountPath: /etc/headscale/headplane.yaml
+              subPath: vn-etcvn-headscalevn-headplanevn-yaml
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 30
+            timeoutSeconds: 5
+            periodSeconds: 15
+        - name: headscale-headplane-${{ defaults.app_suffix }}
+          image: ghcr.io/tale/headplane:0.6.3
+          env:
+            - name: HEADPLANE_CONFIG_PATH
+              value: /etc/headscale/headplane.yaml
+            - name: HEADPLANE_LOAD_ENV_OVERRIDES
+              value: "true"
+            - name: HEADPLANE_INTEGRATION__KUBERNETES__POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: HEADPLANE_INTEGRATION__KUBERNETES__ENABLED
+              value: "true"
+            - name: HEADPLANE_HEADSCALE__URL
+              value: "http://127.0.0.1:8080"
+            - name: HEADPLANE_HEADSCALE__PUBLIC_URL
+              value: "https://headscale-${{ defaults.app_suffix }}.${{ SEALOS_CLOUD_DOMAIN }}"
+            - name: HEADPLANE_SERVER__COOKIE_SECRET
+              value: "${{ defaults.cookie_secret }}"
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          ports:
+            - name: headplane
+              protocol: TCP
+              containerPort: 3000
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: vn-varvn-libvn-headscale
+              mountPath: /var/lib/headscale
+            - name: vn-etcvn-headscale
+              mountPath: /etc/headscale
+            - name: vn-tmpvn-configvn-yaml
+              mountPath: /tmp/config.yaml
+              subPath: vn-tmpvn-configvn-yaml
+            - name: vn-etcvn-headscalevn-derpvn-yaml
+              mountPath: /etc/headscale/derp.yaml
+              subPath: vn-etcvn-headscalevn-derpvn-yaml
+            - name: vn-etcvn-headscalevn-headplanevn-yaml
+              mountPath: /etc/headscale/headplane.yaml
+              subPath: vn-etcvn-headscalevn-headplanevn-yaml
+          livenessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 90
+            timeoutSeconds: 5
+            periodSeconds: 15
+      volumes:
+        - name: vn-tmpvn-configvn-yaml
+          configMap:
+            name: headscale-${{ defaults.app_suffix }}
+        - name: vn-etcvn-headscalevn-derpvn-yaml
+          configMap:
+            name: headscale-${{ defaults.app_suffix }}
+        - name: vn-etcvn-headscalevn-headplanevn-yaml
+          configMap:
+            name: headscale-${{ defaults.app_suffix }}
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /var/lib/headscale
+          value: "0.5"
+        name: vn-varvn-libvn-headscale
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 512Mi
+    - metadata:
+        annotations:
+          path: /etc/headscale
+          value: "0.5"
+        name: vn-etcvn-headscale
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 512Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: headscale-${{ defaults.app_suffix }}
+  labels:
+    app: headscale-${{ defaults.app_suffix }}
+    cloud.sealos.io/app-deploy-manager: headscale-${{ defaults.app_suffix }}
+spec:
+  ports:
+    - name: http
+      targetPort: 8080
+      port: 8080
+    - name: grpc
+      targetPort: 50443
+      port: 50443
+    - name: metrics
+      targetPort: 9090
+      port: 9090
+    - name: headplane
+      targetPort: 3000
       port: 3000
-
-      # The secret used to encode and decode web sessions
-      # Ensure that this is exactly 32 characters long
-      cookie_secret: "zOn4cMlwBCvRtRjYmypgJlxIcf8A5pjD"
-
-      # Should the cookies only work over HTTPS?
-      # Set to false if running via HTTP without a proxy
-      # (I recommend this is true in production)
-      cookie_secure: true
-
-    # Headscale specific settings to allow Headplane to talk
-    # to Headscale and access deep integration features
-    headscale:
-      # The URL to your Headscale instance
-      # (All API requests are routed through this URL)
-      # (THIS IS NOT the gRPC endpoint, but the HTTP endpoint)
-      #
-      # IMPORTANT: If you are using TLS this MUST be set to `https://`
-      url: "http://headscale:5000"
-
-      # If you use the TLS configuration in Headscale, and you are not using
-      # Let's Encrypt for your certificate, pass in the path to the certificate.
-      # (This has no effect `url` does not start with `https://`)
-      # tls_cert_path: "/var/lib/headplane/tls.crt"
-
-      # Optional, public URL if they differ
-      # This affects certain parts of the web UI
-      # public_url: "https://headscale.example.com"
-
-      # Path to the Headscale configuration file
-      # This is optional, but HIGHLY recommended for the best experience
-      # If this is read only, Headplane will show your configuration settings
-      # in the Web UI, but they cannot be changed.
-      config_path: "/etc/headscale/config.yaml"
-
-      # Headplane internally validates the Headscale configuration
-      # to ensure that it changes the configuration in a safe way.
-      # If you want to disable this validation, set this to false.
-      config_strict: true
-
-    # Integration configurations for Headplane to interact with Headscale
-    # Only one of these should be enabled at a time or you will get errors
-    integration:
-      docker:
-        enabled: false
-        # Preferred method: use container_label to dynamically discover the Headscale container.
-        container_label: "headscale"
-        # Optional fallback: directly specify the container name (or ID)
-        # of the container running Headscale
-        container_name: "headscale"
-
-        # The path to the Docker socket (do not change this if you are unsure)
-        # Docker socket paths must start with unix:// or tcp:// and at the moment
-        # https connections are not supported.
-        socket: "unix:///var/run/docker.sock"
-      # Please refer to docs/integration/Kubernetes.md for more information
-      # on how to configure the Kubernetes integration. There are requirements in
-      # order to allow Headscale to be controlled by Headplane in a cluster.
-      kubernetes:
-        enabled: false
-        # Validates the manifest for the Pod to ensure all of the criteria
-        # are set correctly. Turn this off if you are having issues with
-        # shareProcessNamespace not being validated correctly.
-        validate_manifest: true
-        # This should be the name of the Pod running Headscale and Headplane.
-        # If this isn't static you should be using the Kubernetes Downward API
-        # to set this value (refer to docs/Integrated-Mode.md for more info).
-        pod_name: "headscale"
-
-      # Proc is the "Native" integration that only works when Headscale and
-      # Headplane are running outside of a container. There is no configuration,
-      # but you need to ensure that the Headplane process can terminate the
-      # Headscale process.
-      #
-      # (If they are both running under systemd as sudo, this will work).
-      proc:
-        enabled: false
-
-    # OIDC Configuration for simpler authentication
-    # (This is optional, but recommended for the best experience)
-    oidc:
-      issuer: "https://accounts.google.com"
-      client_id: "your-client-id"
-
-      # The client secret for the OIDC client
-      # Either this or `client_secret_path` must be set for OIDC to work
-      client_secret: "<your-client-secret>"
-      # You can alternatively set `client_secret_path` to read the secret from disk.
-      # The path specified can resolve environment variables, making integration
-      # with systemd's `LoadCredential` straightforward:
-      # client_secret_path: "${CREDENTIALS_DIRECTORY}/oidc_client_secret"
-
-      disable_api_key_login: false
-      token_endpoint_auth_method: "client_secret_post"
-
-      # If you are using OIDC, you need to generate an API key
-      # that can be used to authenticate other sessions when signing in.
-      #
-      # This can be done with `headscale apikeys create --expiration 999d`
-      headscale_api_key: "<your-headscale-api-key>"
-
-      # Optional, but highly recommended otherwise Headplane
-      # will attempt to automatically guess this from the issuer
-      #
-      # This should point to your publicly accessibly URL
-      # for your Headplane instance with /admin/oidc/callback
-      redirect_uri: "http://localhost:3000/admin/oidc/callback"
-
-      # Stores the users and their permissions for Headplane
-      # This is a path to a JSON file, default is specified below.
-      user_storage_file: "/var/lib/headplane/users.json"
+  selector:
+    app: headscale-${{ defaults.app_suffix }}
 
 ---
 apiVersion: networking.k8s.io/v1
