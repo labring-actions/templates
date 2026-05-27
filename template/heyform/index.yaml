@@ -3,53 +3,285 @@ kind: Template
 metadata:
   name: heyform
 spec:
-  title: 'HeyForm'
-  url: 'https://heyform.net/'
-  gitRepo: 'https://github.com/heyform/heyform'
-  author: 'Sealos'
-  description: 'HeyForm is an open-source form builder that allows anyone to create engaging conversational forms for surveys, questionnaires, quizzes, and polls. No coding skills required.'
-  readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/heyform/README.md'
-  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/heyform/logo.svg'
+  title: HeyForm
+  url: https://heyform.net/
+  gitRepo: https://github.com/heyform/heyform
+  author: Sealos
+  description: Open-source conversational form builder for surveys, questionnaires, quizzes, and polls.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/heyform/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/heyform/logo.svg
   screenshots:
-    - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/heyform/website-screenshot.webp'
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/heyform/website-screenshot.webp
   templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: 开源对话式表单构建器，可用于创建调查问卷、测验、投票和信息收集表单。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/heyform/README_zh.md
   categories:
     - tool
+    - low-code
   defaults:
     app_host:
-      # number or string..
       type: string
       value: heyform-${{ random(8) }}
     app_name:
       type: string
       value: heyform-${{ random(8) }}
-
-  i18n:
-    zh:
-      readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/heyform/README_zh.md'
+    session_key:
+      type: string
+      value: ${{ random(32) }}
+    form_encryption_key:
+      type: string
+      value: ${{ random(32) }}
+  inputs:
+    smtp_from:
+      description: Sender email address for verification and notification emails. Leave empty to disable outbound email.
+      type: string
+      default: ""
+      required: false
+    smtp_host:
+      description: SMTP server host. Leave empty to disable outbound email.
+      type: string
+      default: ""
+      required: false
+    smtp_port:
+      description: SMTP server port.
+      type: string
+      default: "587"
+      required: false
+    smtp_user:
+      description: SMTP username.
+      type: string
+      default: ""
+      required: false
+    smtp_password:
+      description: SMTP password.
+      type: string
+      default: ""
+      required: false
+    smtp_secure:
+      description: Use TLS for SMTP connections.
+      type: boolean
+      default: "false"
+      required: false
+    smtp_servername:
+      description: Optional SMTP TLS server name.
+      type: string
+      default: ""
+      required: false
+    smtp_ignore_cert:
+      description: Ignore SMTP certificate validation errors.
+      type: boolean
+      default: "false"
+      required: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-mongo
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-mongo
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-mongo
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-mongo
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-mongo
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-mongo
+  labels:
+    kb.io/database: mongodb-8.0.4
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys:
+      - kubernetes.io/hostname
+  componentSpecs:
+    - componentDef: mongodb
+      name: mongodb
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-mongo
+      serviceVersion: 8.0.4
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-redis
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-redis
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    kb.io/database: redis-7.2.7
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/version: 7.2.7
+    clusterversion.kubeblocks.io/name: redis-7.2.7
+    clusterdefinition.kubeblocks.io/name: redis
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys:
+      - kubernetes.io/hostname
+  clusterDefinitionRef: redis
+  componentSpecs:
+    - componentDef: redis-7
+      enabledLogs:
+        - running
+      env:
+        - name: CUSTOM_SENTINEL_MASTER_NAME
+      name: redis
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      serviceVersion: 7.2.7
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+    - componentDef: redis-sentinel-7
+      name: redis-sentinel
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      serviceVersion: 7.2.7
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+  terminationPolicy: Delete
+  topology: replication
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: heyform/community-edition:v0.0.10
+    originImageName: heyform/community-edition:v3.0.0-rc.7
+    docker-to-sealos.resource-override-source: 'Runtime validation on Sealos: v3.0.0-rc.7 stayed Ready with 80m CPU / 192Mi memory limits and 20m CPU / 25Mi memory requests; 160Mi memory limit caused OOMKilled during bootstrap.'
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   replicas: 1
   revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
   selector:
     matchLabels:
       app: ${{ defaults.app_name }}
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 1
-      maxSurge: 0
   template:
     metadata:
       labels:
@@ -58,16 +290,32 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: heyform/community-edition:v0.0.10
+          image: heyform/community-edition:v3.0.0-rc.7
+          imagePullPolicy: IfNotPresent
           env:
+            - name: APP_LISTEN_PORT
+              value: '9157'
             - name: APP_HOMEPAGE_URL
               value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: SESSION_KEY
-              value: key1
+              value: ${{ defaults.session_key }}
             - name: FORM_ENCRYPTION_KEY
-              value: key2
+              value: ${{ defaults.form_encryption_key }}
+            - name: MONGO_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mongo-mongodb-account-root
+                  key: username
+            - name: MONGO_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mongo-mongodb-account-root
+                  key: password
+            - name: MONGO_URI
+              value: >-
+                mongodb://${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017/heyform?authSource=admin
             - name: REDIS_HOST
-              value: ${{ defaults.app_name }}-redis-redis-redis
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
             - name: REDIS_PORT
               value: '6379'
             - name: REDIS_PASSWORD
@@ -75,43 +323,93 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
-            - name: MONGO_URI
-              value: >-
-                mongodb://${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017/heyform?authSource=admin
-            - name: MONGO_USER
-              value: root
-            - name: MONGO_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-mongodb-mongodb-account-root
-                  key: password
-          resources:
-            requests:
-              cpu: 50m
-              memory: 51Mi
-            limits:
-              cpu: 500m
-              memory: 512Mi
+            - name: SMTP_FROM
+              value: ${{ inputs.smtp_from }}
+            - name: SMTP_HOST
+              value: ${{ inputs.smtp_host }}
+            - name: SMTP_PORT
+              value: ${{ inputs.smtp_port }}
+            - name: SMTP_USER
+              value: ${{ inputs.smtp_user }}
+            - name: SMTP_PASSWORD
+              value: ${{ inputs.smtp_password }}
+            - name: SMTP_SECURE
+              value: ${{ inputs.smtp_secure }}
+            - name: SMTP_SERVERNAME
+              value: ${{ inputs.smtp_servername }}
+            - name: SMTP_IGNORE_CERT
+              value: ${{ inputs.smtp_ignore_cert }}
           ports:
-            - containerPort: 8000
-          imagePullPolicy: IfNotPresent
-          volumeMounts: []
-      volumes: []
-
+            - name: http
+              containerPort: 9157
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            limits:
+              cpu: 80m
+              memory: 192Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 9157
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 9157
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 6
+          startupProbe:
+            httpGet:
+              path: /health/ready
+              port: 9157
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          volumeMounts:
+            - name: vn-appvn-packagesvn-servervn-uploads
+              mountPath: /app/packages/server/static/upload
+            - name: vn-appvn-packagesvn-servervn-uploads
+              mountPath: /app/packages/server/uploads
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /app/packages/server/uploads
+          value: '1'
+        name: vn-appvn-packagesvn-servervn-uploads
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 8000
+    - name: http
+      port: 9157
+      targetPort: 9157
   selector:
     app: ${{ defaults.app_name }}
-
-
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -132,15 +430,11 @@ metadata:
       large_client_header_buffers 4 128k;
     nginx.ingress.kubernetes.io/ssl-redirect: 'true'
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
-    nginx.ingress.kubernetes.io/rewrite-target: /$2
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
     nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
     nginx.ingress.kubernetes.io/configuration-snippet: |
-      more_clear_headers "X-Frame-Options:";
-      more_set_headers "Content-Security-Policy: default-src * blob: data: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; img-src * data: blob: resource: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; connect-src * wss: blob: resource:; style-src 'self' 'unsafe-inline' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource: *.baidu.com *.bdstatic.com; frame-src 'self' *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} mailto: tel: weixin: mtt: *.baidu.com; frame-ancestors 'self' https://${{ SEALOS_CLOUD_DOMAIN }} https://*.${{ SEALOS_CLOUD_DOMAIN }}";
-      more_set_headers "X-Xss-Protection: 1; mode=block";
       if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
         expires 30d;
         add_header Cache-Control "public";
@@ -151,234 +445,28 @@ spec:
       http:
         paths:
           - pathType: Prefix
-            path: /()(.*)
+            path: /
             backend:
               service:
                 name: ${{ defaults.app_name }}
                 port:
-                  number: 8000
+                  number: 9157
   tls:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
-
 ---
 apiVersion: app.sealos.io/v1
 kind: App
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   data:
     url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
   displayType: normal
-  icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/heyform/logo.svg"
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/heyform/logo.svg
   name: HeyForm
   type: iframe
-
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
-    app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-mongo
-
----
-apiVersion: apps.kubeblocks.io/v1alpha1
-kind: Cluster
-metadata:
-  labels:
-    kb.io/database: mongodb-8.0.4
-    app.kubernetes.io/instance: test-db
-    helm.sh/chart: mongodb-cluster-0.9.1
-    sealos-db-provider-cr: ${{ defaults.app_name }}-mongodb
-  name: ${{ defaults.app_name }}-mongodb
-spec:
-  affinity:
-    podAntiAffinity: Preferred
-    tenancy: SharedNode
-    topologyKeys:
-      - kubernetes.io/hostname
-  backup:
-    enabled: true
-    cronExpression: 0 18 * * *
-    method: dump
-    pitrEnabled: false
-    retentionPeriod: 7d
-  componentSpecs:
-    - componentDef: mongodb
-      name: mongodb
-      replicas: 1
-      resources:
-        limits:
-          cpu: 500m
-          memory: 512Mi
-        requests:
-          cpu: 50m
-          memory: 51Mi
-      serviceVersion: 8.0.4
-      serviceAccountName: ${{ defaults.app_name }}-mongodb
-      volumeClaimTemplates:
-        - name: data
-          spec:
-            accessModes:
-              - ReadWriteOnce
-            resources:
-              requests:
-                storage: 1Gi
-  terminationPolicy: Delete
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
-    app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-mongo
-rules:
-  - apiGroups:
-      - '*'
-    resources:
-      - '*'
-    verbs:
-      - '*'
-
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
-    app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-mongo
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: ${{ defaults.app_name }}-mongo
-subjects:
-  - kind: ServiceAccount
-    name: ${{ defaults.app_name }}-mongo
-    namespace: ${{ SEALOS_NAMESPACE }}
-
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
-    app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-redis
-
----
-apiVersion: apps.kubeblocks.io/v1alpha1
-kind: Cluster
-metadata:
-  finalizers:
-    - cluster.kubeblocks.io/finalizer
-  name: ${{ defaults.app_name }}-redis
-  labels:
-    clusterdefinition.kubeblocks.io/name: redis
-    kb.io/database: redis-7.2.7
-    app.kubernetes.io/instance: ${{ defaults.app_name }}
-    app.kubernetes.io/version: 7.2.7
-    helm.sh/chart: redis-cluster-0.9.0
-    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
-spec:
-  clusterDefinitionRef: redis
-  affinity:
-    podAntiAffinity: Preferred
-    topologyKeys:
-      - kubernetes.io/hostname
-  tolerations:
-    - key: kb-data
-      operator: Equal
-      value: "true"
-      effect: NoSchedule
-  componentSpecs:
-    - name: redis
-      componentDef: redis-7
-      enabledLogs:
-        - running
-      env:
-        - name: CUSTOM_SENTINEL_MASTER_NAME
-      serviceVersion: 7.2.7
-      serviceAccountName: ${{ defaults.app_name }}-redis
-      replicas: 1
-      resources:
-        limits:
-          cpu: 500m
-          memory: 512Mi
-        requests:
-          cpu: 50m
-          memory: 51Mi
-      volumeClaimTemplates:
-        - name: data
-          spec:
-            accessModes:
-              - ReadWriteOnce
-            resources:
-              requests:
-                storage: 1Gi
-    - componentDef: redis-sentinel-7
-      name: redis-sentinel
-      replicas: 1
-      resources:
-        limits:
-          cpu: 100m
-          memory: 100Mi
-        requests:
-          cpu: 10m
-          memory: 10Mi
-      serviceVersion: 7.2.7
-      volumeClaimTemplates:
-        - name: data
-          spec:
-            accessModes:
-              - ReadWriteOnce
-            resources:
-              requests:
-                storage: 1Gi
-  terminationPolicy: Delete
-  topology: replication
-
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
-    app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-redis
-rules:
-  - apiGroups:
-      - '*'
-    resources:
-      - '*'
-    verbs:
-      - '*'
-
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
-    app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-redis
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: ${{ defaults.app_name }}-redis
-subjects:
-  - kind: ServiceAccount
-    name: ${{ defaults.app_name }}-redis
-    namespace: ${{ SEALOS_NAMESPACE }}
