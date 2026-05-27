@@ -169,6 +169,7 @@ metadata:
     kb.io/database: postgresql-16.4.0
     clusterdefinition.kubeblocks.io/name: postgresql
     clusterversion.kubeblocks.io/name: postgresql-16.4.0
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
 spec:
   affinity:
     podAntiAffinity: Preferred
@@ -279,11 +280,11 @@ spec:
               set -eu
 
               kubectl wait --for=condition=Ready pod \
-                -l "app.kubernetes.io/instance=${{ defaults.app_name }}-pg,app.kubernetes.io/component=postgresql" \
+                -l "app.kubernetes.io/instance=${{ defaults.app_name }}-pg,apps.kubeblocks.io/component-name=postgresql" \
                 --timeout=600s
 
               PG_POD="$(kubectl get pod \
-                -l "app.kubernetes.io/instance=${{ defaults.app_name }}-pg,app.kubernetes.io/component=postgresql" \
+                -l "app.kubernetes.io/instance=${{ defaults.app_name }}-pg,apps.kubeblocks.io/component-name=postgresql" \
                 -o jsonpath='{.items[0].metadata.name}')"
 
               kubectl exec -i "${PG_POD}" -c postgresql -- bash -s <<'EOS'
@@ -295,6 +296,9 @@ spec:
               ls /usr/share/postgresql/16/extension/http.control /usr/lib/postgresql/16/lib/http.so >/dev/null
 
               psql -v ON_ERROR_STOP=1 -d postgres <<'SQL'
+              DROP EXTENSION IF EXISTS pg_auth_mon CASCADE;
+              DROP EXTENSION IF EXISTS pg_stat_kcache CASCADE;
+              DROP EXTENSION IF EXISTS pg_stat_statements CASCADE;
               CREATE EXTENSION IF NOT EXISTS pg_cron;
               CREATE EXTENSION IF NOT EXISTS http;
               CREATE EXTENSION IF NOT EXISTS pgcrypto;
@@ -358,11 +362,11 @@ spec:
                   set -eu
 
                   kubectl wait --for=condition=Ready pod \
-                    -l "app.kubernetes.io/instance=${{ defaults.app_name }}-pg,app.kubernetes.io/component=postgresql" \
+                    -l "app.kubernetes.io/instance=${{ defaults.app_name }}-pg,apps.kubeblocks.io/component-name=postgresql" \
                     --timeout=300s
 
                   PG_POD="$(kubectl get pod \
-                    -l "app.kubernetes.io/instance=${{ defaults.app_name }}-pg,app.kubernetes.io/component=postgresql" \
+                    -l "app.kubernetes.io/instance=${{ defaults.app_name }}-pg,apps.kubeblocks.io/component-name=postgresql" \
                     -o jsonpath='{.items[0].metadata.name}')"
 
                   kubectl exec -i "${PG_POD}" -c postgresql -- bash -s <<'EOS'
@@ -374,6 +378,9 @@ spec:
                   fi
 
                   psql -v ON_ERROR_STOP=1 -d postgres <<'SQL'
+                  DROP EXTENSION IF EXISTS pg_auth_mon CASCADE;
+                  DROP EXTENSION IF EXISTS pg_stat_kcache CASCADE;
+                  DROP EXTENSION IF EXISTS pg_stat_statements CASCADE;
                   CREATE EXTENSION IF NOT EXISTS pg_cron;
                   CREATE EXTENSION IF NOT EXISTS http;
                   CREATE EXTENSION IF NOT EXISTS pgcrypto;
@@ -398,12 +405,13 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: ghcr.io/insforge/insforge-oss:v1.5.0
+    originImageName: ghcr.io/insforge/insforge-oss:v2.1.8
     deploy.cloud.sealos.io/minReplicas: "1"
     deploy.cloud.sealos.io/maxReplicas: "1"
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
 spec:
   replicas: 1
   revisionHistoryLimit: 1
@@ -420,6 +428,13 @@ spec:
         - name: wait-db-prerequisites
           image: postgres:16-alpine
           imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
           env:
             - name: SEALOS_DATABASE_POSTGRES_HOST
               valueFrom:
@@ -470,7 +485,7 @@ spec:
               done
       containers:
         - name: ${{ defaults.app_name }}
-          image: ghcr.io/insforge/insforge-oss:v1.5.0
+          image: ghcr.io/insforge/insforge-oss:v2.1.8
           imagePullPolicy: IfNotPresent
           resources:
             limits:
