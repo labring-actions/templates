@@ -26,7 +26,7 @@ spec:
       value: immich-${{ random(8) }}
     app_host:
       type: string
-      value: ${{ random(8) }}
+      value: immich-${{ random(8) }}
   inputs:
     enable_machine_learning:
       description: 'Enable machine learning features (face recognition, object detection)'
@@ -130,13 +130,14 @@ spec:
     - componentDef: redis-sentinel-7
       name: redis-sentinel
       replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-redis
       resources:
         limits:
-          cpu: 100m
-          memory: 100Mi
+          cpu: 500m
+          memory: 512Mi
         requests:
-          cpu: 10m
-          memory: 10Mi
+          cpu: 50m
+          memory: 51Mi
       serviceVersion: 7.2.7
       volumeClaimTemplates:
         - name: data
@@ -200,30 +201,30 @@ metadata:
     - cluster.kubeblocks.io/finalizer
   labels:
     clusterdefinition.kubeblocks.io/name: postgresql
-    clusterversion.kubeblocks.io/name: postgresql-14.8.0
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+    kb.io/database: postgresql-16.4.0
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
-  annotations: {}
   name: ${{ defaults.app_name }}-pg
 spec:
   affinity:
-    nodeLabels: {}
     podAntiAffinity: Preferred
     tenancy: SharedNode
-    topologyKeys: []
   clusterDefinitionRef: postgresql
-  clusterVersionRef: postgresql-14.8.0
+  clusterVersionRef: postgresql-16.4.0
   componentSpecs:
     - componentDefRef: postgresql
-      monitor: true
+      disableExporter: true
+      enabledLogs:
+        - running
       name: postgresql
       replicas: 1
       resources:
         limits:
-          cpu: 500m
-          memory: 512Mi
+          cpu: '1'
+          memory: 1024Mi
         requests:
-          cpu: 50m
-          memory: 51Mi
+          cpu: 100m
+          memory: 102Mi
       serviceAccountName: ${{ defaults.app_name }}-pg
       switchPolicy:
         type: Noop
@@ -234,10 +235,9 @@ spec:
               - ReadWriteOnce
             resources:
               requests:
-                storage: 1Gi
+                storage: 2Gi
 
   terminationPolicy: Delete
-  tolerations: []
 
 ---
 apiVersion: batch/v1
@@ -252,22 +252,62 @@ spec:
     spec:
       containers:
         - name: pgsql-init
-          image: postgres:14-alpine
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
           env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
             - name: PG_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
-            - name: DATABASE_URL
-              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
+            - name: PG_DATABASE
+              value: immich
           command:
             - /bin/sh
             - -c
             - |
-              until psql ${DATABASE_URL} -c 'CREATE DATABASE immich;' &>/dev/null; do sleep 1; done
-      restartPolicy: Never
-  backoffLimit: 0
+              set -eu
+              export PGPASSWORD="${PG_PASSWORD}"
+              for i in $(seq 1 60); do
+                if pg_isready -h "${PG_HOST}" -p "${PG_PORT}" -U "${PG_USERNAME}" -d postgres >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 2
+              done
+              pg_isready -h "${PG_HOST}" -p "${PG_PORT}" -U "${PG_USERNAME}" -d postgres >/dev/null 2>&1
+              if ! psql "postgresql://${PG_USERNAME}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='${PG_DATABASE}'" | grep -q 1; then
+                psql "postgresql://${PG_USERNAME}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/postgres" -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"${PG_DATABASE}\";"
+              fi
+              psql "postgresql://${PG_USERNAME}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/${PG_DATABASE}" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";'
+              psql "postgresql://${PG_USERNAME}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/${PG_DATABASE}" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS "unaccent";'
+              psql "postgresql://${PG_USERNAME}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/${PG_DATABASE}" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS "cube";'
+              psql "postgresql://${PG_USERNAME}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/${PG_DATABASE}" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS "earthdistance";'
+              psql "postgresql://${PG_USERNAME}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/${PG_DATABASE}" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS "pg_trgm";'
+              psql "postgresql://${PG_USERNAME}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/${PG_DATABASE}" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS "vector" CASCADE;'
+          resources:
+            requests:
+              cpu: 10m
+              memory: 12Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+      restartPolicy: OnFailure
+  backoffLimit: 3
   ttlSecondsAfterFinished: 300
 
 ---
@@ -276,7 +316,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: ghcr.io/immich-app/immich-server:v1.136.0
+    originImageName: ghcr.io/immich-app/immich-server:v2.7.5
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '3'
   labels:
@@ -295,14 +335,62 @@ spec:
         app: ${{ defaults.app_name }}
     spec:
       automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ${{ defaults.app_name }}
+      initContainers:
+        - name: wait-for-postgresql
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PGHOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PGPORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PGDATABASE
+              value: immich
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              for i in $(seq 1 120); do
+                if psql -h "${PGHOST}" -p "${PGPORT}" -U "${PGUSER}" -d "${PGDATABASE}" -tAc 'SELECT 1' >/dev/null 2>&1; then
+                  exit 0
+                fi
+                sleep 2
+              done
+              psql -h "${PGHOST}" -p "${PGPORT}" -U "${PGUSER}" -d "${PGDATABASE}" -tAc 'SELECT 1' >/dev/null
+          resources:
+            requests:
+              cpu: 10m
+              memory: 12Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
       containers:
         - name: ${{ defaults.app_name }}
-          image: ghcr.io/immich-app/immich-server:v1.136.0
+          image: ghcr.io/immich-app/immich-server:v2.7.5
           imagePullPolicy: IfNotPresent
           env:
             # Redis Configuration
             - name: REDIS_HOSTNAME
-              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
             - name: REDIS_PORT
               value: '6379'
             - name: REDIS_PASSWORD
@@ -333,10 +421,14 @@ spec:
                   key: password
             - name: DB_DATABASE_NAME
               value: immich
+            - name: DB_VECTOR_EXTENSION
+              value: pgvector
+            - name: IMMICH_MEDIA_LOCATION
+              value: /usr/src/app/upload
             # Machine Learning Configuration
             ${{ if(inputs.enable_machine_learning === 'true') }}
-            - name: MACHINE_LEARNING_URL
-              value: http://${{ defaults.app_name }}-ml:3003
+            - name: IMMICH_MACHINE_LEARNING_URL
+              value: http://${{ defaults.app_name }}-ml.${{ SEALOS_NAMESPACE }}.svc.cluster.local:3003
             ${{ endif() }}
           ports:
             - containerPort: 2283
@@ -394,6 +486,7 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
@@ -410,7 +503,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}-ml
   annotations:
-    originImageName: ghcr.io/immich-app/immich-machine-learning:v1.136.0
+    originImageName: ghcr.io/immich-app/immich-machine-learning:v2.7.5
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '2'
   labels:
@@ -429,17 +522,25 @@ spec:
         app: ${{ defaults.app_name }}-ml
     spec:
       automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ${{ defaults.app_name }}
       containers:
         - name: ${{ defaults.app_name }}-ml
-          image: ghcr.io/immich-app/immich-machine-learning:v1.136.0
+          image: ghcr.io/immich-app/immich-machine-learning:v2.7.5
           imagePullPolicy: IfNotPresent
           env:
             - name: NODE_ENV
               value: production
-            - name: SERVER_PORT
+            - name: IMMICH_PORT
               value: '3003'
             - name: MACHINE_LEARNING_CACHE_FOLDER
               value: /cache
+            - name: TRANSFORMERS_CACHE
+              value: /cache
+            - name: HF_XET_CACHE
+              value: /cache/huggingface-xet
+            - name: MPLCONFIGDIR
+              value: /cache/matplotlib-config
           ports:
             - containerPort: 3003
               name: http
@@ -453,6 +554,30 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
+          livenessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /ping
+              port: http
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 1
+          readinessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /ping
+              port: http
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 1
+          startupProbe:
+            failureThreshold: 60
+            httpGet:
+              path: /ping
+              port: http
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 1
   volumeClaimTemplates:
     - metadata:
         annotations:
@@ -472,6 +597,7 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-ml
   labels:
+    app: ${{ defaults.app_name }}-ml
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-ml
 spec:
   ports:
@@ -488,17 +614,18 @@ kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
     kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/proxy-body-size: 500m
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
     nginx.ingress.kubernetes.io/server-snippet: |
       client_header_buffer_size 64k;
       large_client_header_buffers 4 128k;
     nginx.ingress.kubernetes.io/ssl-redirect: 'true'
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
-    nginx.ingress.kubernetes.io/client-body-buffer-size: 500m
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
     nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
