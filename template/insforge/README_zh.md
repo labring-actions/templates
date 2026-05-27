@@ -36,7 +36,7 @@ InsForge 是一个面向 AI 代理（Agent）的后端平台，提供数据库�
 
 - **InsForge Core（StatefulSet）**：主服务，开放 `7130`（API/Dashboard）、`7131` 与 `7132`，镜像为 `ghcr.io/insforge/insforge-oss:v2.1.8`。
 - **PostgreSQL Cluster（KubeBlocks）**：PostgreSQL `16.4.0`，使用 `1Gi` 持久化数据卷。
-- **PostgreSQL 扩展初始化 Job**：安装 HTTP 扩展包，启用 `pg_cron`、`http`、`pgcrypto`，创建所需角色，并在迁移前移除不兼容的 `pg_auth_mon`、`pg_stat_kcache`、`pg_stat_statements` 扩展。
+- **PostgreSQL 扩展初始化 Job**：安装 HTTP 扩展包，为默认 `postgres_log` foreign table 准备兼容日志文件，启用 `pg_cron`、`http`、`pgcrypto`，创建所需角色，并在迁移前移除不兼容的 `pg_auth_mon`、`pg_stat_kcache`、`pg_stat_statements` 扩展。
 - **PostgreSQL 扩展巡检 CronJob**：每 5 分钟复查扩展可用性，提升运行稳定性。
 - **PostgREST（Deployment）**：`3000` 端口 REST 网关，集成 JWT 配置。
 - **Deno Runtime（StatefulSet）**：`7133` 端口函数运行时，镜像为 `ghcr.io/insforge/deno-runtime:2.0.6`。
@@ -98,6 +98,7 @@ Sealos 是构建于 Kubernetes 之上的 AI 辅助云操作系统，覆盖开发
 - **管理员 API 登录接口**：`POST /api/auth/admin/sessions`，JSON 请求体为 `{ "email": "<admin_email>", "password": "<admin_password>" }`。
 - **终端用户注册**：当注册未被禁用时，公开认证 API 支持 `POST /api/auth/users`，提交邮箱和密码即可注册。默认认证配置中 `disableSignup: false`；你也可以在 Dashboard 的 Authentication 页面调整注册策略。
 - **终端用户登录**：使用 `POST /api/auth/sessions` 提交已注册用户的邮箱和密码，或在 Dashboard/部署参数中配置 OAuth Provider 后使用第三方登录。
+- **Compute services**：如果未配置 Fly.io 等计算服务提供商，Dashboard 可能显示 compute-service 未配置提示。该提示不影响数据库、认证、存储与 Dashboard 访问。
 
 生产环境建议先替换默认管理员邮箱，设置强密码，并在邀请用户前配置 OAuth 或 SMTP。
 
@@ -140,6 +141,10 @@ Sealos 是构建于 Kubernetes 之上的 AI 辅助云操作系统，覆盖开发
 **问题：OAuth 登录失败**
 - 原因：OAuth client ID/secret 缺失或填写错误。
 - 解决方案：重新配置 Provider 凭据，必要时重启相关 Pod。
+
+**问题：Compute services 显示未配置**
+- 原因：自托管 compute 需要配置外部提供商凭据，例如 `FLY_API_TOKEN` 和 `FLY_ORG`。
+- 解决方案：使用 compute-service 部署能力前先配置支持的计算服务提供商；未配置时，其它核心功能仍可正常使用。
 
 **问题：函数运行失败**
 - 原因：Deno Runtime 服务未就绪，或内部连通性异常。

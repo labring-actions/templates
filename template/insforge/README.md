@@ -36,7 +36,7 @@ This template deploys the following services:
 
 - **InsForge Core (StatefulSet)**: Main service on ports `7130` (API/dashboard), `7131`, and `7132`, using `ghcr.io/insforge/insforge-oss:v2.1.8`.
 - **PostgreSQL Cluster (KubeBlocks)**: PostgreSQL `16.4.0` with a `1Gi` persistent data volume.
-- **PostgreSQL Extension Init Job**: Installs the HTTP extension package, enables `pg_cron`, `http`, and `pgcrypto`, creates required roles, and removes incompatible `pg_auth_mon`, `pg_stat_kcache`, and `pg_stat_statements` extensions before migrations.
+- **PostgreSQL Extension Init Job**: Installs the HTTP extension package, prepares compatibility log files for the default `postgres_log` foreign tables, enables `pg_cron`, `http`, and `pgcrypto`, creates required roles, and removes incompatible `pg_auth_mon`, `pg_stat_kcache`, and `pg_stat_statements` extensions before migrations.
 - **PostgreSQL Extension Ensure CronJob**: Re-checks extension availability every 5 minutes for operational resilience.
 - **PostgREST (Deployment)**: REST gateway on port `3000` with JWT integration.
 - **Deno Runtime (StatefulSet)**: Function runtime on port `7133`, using `ghcr.io/insforge/deno-runtime:2.0.6`.
@@ -98,6 +98,7 @@ After deployment, open the generated public URL and go to `/dashboard/login`.
 - **API admin login endpoint**: `POST /api/auth/admin/sessions` with JSON body `{ "email": "<admin_email>", "password": "<admin_password>" }`.
 - **End-user registration**: The public auth API accepts `POST /api/auth/users` with an email and password when signup is enabled. The default auth config has `disableSignup: false`; you can adjust auth settings in the dashboard under Authentication.
 - **End-user login**: Use `POST /api/auth/sessions` with the registered email and password, or configure OAuth providers in the dashboard/deployment inputs.
+- **Compute services**: The dashboard may show compute-service setup warnings unless you configure a supported compute provider such as Fly.io with `FLY_API_TOKEN` and `FLY_ORG`. This does not affect database, auth, storage, or dashboard access.
 
 For production, replace the default admin email, choose a strong admin password, and configure OAuth or SMTP settings before inviting users.
 
@@ -140,6 +141,10 @@ For higher throughput scenarios, prioritize vertical scaling of PostgreSQL and I
 **Issue: OAuth login not working**
 - Cause: Missing or invalid OAuth client ID/secret configuration.
 - Solution: Reconfigure provider credentials and restart affected pods if required.
+
+**Issue: Compute services show “not configured”**
+- Cause: Self-hosted compute requires external provider credentials such as `FLY_API_TOKEN` and `FLY_ORG`.
+- Solution: Configure a supported compute provider before using compute-service deployment features. Other core features can continue running without compute.
 
 **Issue: Runtime function failures**
 - Cause: Deno Runtime service is not ready or internal connectivity is unavailable.
