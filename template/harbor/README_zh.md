@@ -1,6 +1,6 @@
 # 在 Sealos 上部署和托管 Harbor
 
-Harbor 是一个开源 OCI 制品仓库，通过访问控制、镜像签名和漏洞扫描帮助你强化软件供应链安全。该模板会在 Sealos Cloud 上部署 Harbor v2.14.0，并集成托管 PostgreSQL、托管 Redis 与对象存储。
+Harbor 是一个开源 OCI 制品仓库，通过访问控制、镜像签名和漏洞扫描帮助你强化软件供应链安全。该模板会在 Sealos Cloud 上部署 Harbor v2.14.4，并集成托管 PostgreSQL、托管 Redis 与对象存储。
 
 ![Harbor Logo](logo.png)
 
@@ -43,12 +43,12 @@ Harbor 提供私有容器镜像与 OCI 制品的存储和分发能力，支持�
 
 该模板会部署以下资源：
 
-- **Harbor Core**（`goharbor/harbor-core:v2.14.0`）：API、认证、令牌服务与控制面逻辑
-- **Harbor Portal**（`goharbor/harbor-portal:v2.14.0`）：Web UI 前端
-- **Harbor Jobservice**（`goharbor/harbor-jobservice:v2.14.0`）：后台任务服务（复制、扫描、GC 相关流程）
-- **Harbor Registry**（`goharbor/registry-photon:v2.14.0`）：OCI Registry 服务，使用 S3 兼容后端
-- **Harbor Registry Controller**（`goharbor/harbor-registryctl:v2.14.0`）：Registry 控制平面辅助服务
-- **Harbor Trivy Adapter**（`goharbor/trivy-adapter-photon:v2.14.0`）：漏洞扫描服务
+- **Harbor Core**（`goharbor/harbor-core:v2.14.4`）：API、认证、令牌服务与控制面逻辑
+- **Harbor Portal**（`goharbor/harbor-portal:v2.14.4`）：Web UI 前端
+- **Harbor Jobservice**（`goharbor/harbor-jobservice:v2.14.4`）：后台任务服务（复制、扫描、GC 相关流程）
+- **Harbor Registry**（`goharbor/registry-photon:v2.14.4`）：OCI Registry 服务，使用 S3 兼容后端
+- **Harbor Registry Controller**（`goharbor/harbor-registryctl:v2.14.4`）：Registry 控制平面辅助服务
+- **Harbor Trivy Adapter**（`goharbor/trivy-adapter-photon:v2.14.4`）：漏洞扫描服务
 - **PostgreSQL 集群**：存储 Harbor 元数据与业务数据
 - **Redis 集群 + Sentinel**：提供任务队列、缓存与协调能力
 - **对象存储 Bucket**：持久化镜像层与制品数据
@@ -94,6 +94,7 @@ Sealos 是构建在 Kubernetes 之上的 AI 驱动云操作系统，可简化从
 5. 使用以下凭据登录：
    - 用户名：`admin`
    - 密码：部署时填写的 `harbor_admin_password`
+6. Harbor 默认不开放公开自助注册。使用 `admin` 登录后，可在 Harbor 管理后台创建用户、项目与机器人账号。
 
 ## 配置
 
