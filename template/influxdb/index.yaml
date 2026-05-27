@@ -3,266 +3,182 @@ kind: Template
 metadata:
   name: influxdb
 spec:
-  title: 'influxdb'
-  url: 'https://www.influxdata.com/products/influxdb/'
-  author: 'Sealos'
-  description: 'Real-time insights from any time series data with a single, purpose-built database. Run at any scale in any environment in the cloud, on-premises, or at the edge.'
-  readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/influxdb/README.md'
-  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/influxdb/logo.svg'
+  title: InfluxDB
+  url: https://www.influxdata.com/products/influxdb/
+  gitRepo: https://github.com/influxdata/influxdb
+  author: Sealos
+  description: InfluxDB is an open source time series database built for real-time analytics, metrics, events, and IoT data.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/influxdb/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/influxdb/logo.svg
   screenshots:
-    - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/influxdb/website-screenshot.webp'
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/influxdb/website-screenshot.webp
   templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: InfluxDB 是一款开源时序数据库，适用于实时分析、指标监控、事件数据和物联网数据存储。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/influxdb/README_zh.md
   categories:
     - database
   defaults:
     app_host:
       type: string
-      value: ${{ random(8) }}
+      value: influxdb-${{ random(8) }}
     app_name:
       type: string
       value: influxdb-${{ random(8) }}
   inputs:
-  i18n:
-    zh:
-      readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/influxdb/README_zh.md'
-#    adminUserPassword:
-#      description: 'admin user password'
-#      type: string
-#      default: 'adminUserPassw0rd'
-#      required: true
-#    adminUserToken:
-#      description: 'admin user token'
-#      type: string
-#      default: 'adminUserT0ken'
-#      required: true
-
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: ${{ defaults.app_name }}
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-    app.kubernetes.io/instance: ${{ defaults.app_name }}
-    app.kubernetes.io/name: ${{ defaults.app_name }}
-    app.kubernetes.io/version: 2.7.5
-type: Opaque
-data:
-  admin-user-password: cGFzc3cwcmQ=
-  admin-user-token: dDBrZW4=
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: ${{ defaults.app_name }}
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-spec:
-  ports:
-    - port: 8086
-      targetPort: 8086
-      name: http
-    - port: 8088
-      targetPort: 8088
-      name: rpc
-  selector:
-    app: ${{ defaults.app_name }}
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: ${{ defaults.app_name }}
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-    app.kubernetes.io/instance: ${{ defaults.app_name }}
-    app.kubernetes.io/name: ${{ defaults.app_name }}
-    app.kubernetes.io/version: 2.7.5
-    app.kubernetes.io/component: ${{ defaults.app_name }}
-automountServiceAccountToken: false
+    admin_password:
+      description: Initial InfluxDB admin password. Set and save this value for the web UI login.
+      type: string
+      default: ''
+      required: true
+    admin_token:
+      description: Initial InfluxDB API token. Set and save this value for CLI, API, and client access.
+      type: string
+      default: ''
+      required: true
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: nginx
+    originImageName: docker.io/library/influxdb:2.9.1
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
-    deploy.cloud.sealos.io/resize: 5Gi
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   replicas: 1
   revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: ${{ defaults.app_name }}
   selector:
     matchLabels:
       app: ${{ defaults.app_name }}
-  updateStrategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 50%
-  minReadySeconds: 10
-  serviceName: ${{ defaults.app_name }}
   template:
     metadata:
       labels:
         app: ${{ defaults.app_name }}
     spec:
-      affinity:
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - podAffinityTerm:
-                labelSelector:
-                  matchLabels:
-                    app.kubernetes.io/instance: ${{ defaults.app_name }}
-                    app.kubernetes.io/name: ${{ defaults.app_name }}
-                    app.kubernetes.io/component: ${{ defaults.app_name }}
-                topologyKey: kubernetes.io/hostname
-              weight: 1
-      securityContext:
-        fsGroup: 1001
-        fsGroupChangePolicy: Always
-        supplementalGroups: []
-        sysctls: []
-      serviceAccountName: ${{ defaults.app_name }}
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ${{ defaults.app_name }}
       containers:
-        - name: influxdb
-          image: docker.io/bitnamilegacy/influxdb:2.7.5-debian-12-r13
-          imagePullPolicy: "IfNotPresent"
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - ALL
-            privileged: false
-            readOnlyRootFilesystem: true
-            runAsGroup: 1001
-            runAsNonRoot: true
-            runAsUser: 1001
-            seLinuxOptions: {}
-            seccompProfile:
-              type: RuntimeDefault
+        - name: ${{ defaults.app_name }}
+          image: docker.io/library/influxdb:2.9.1
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              export DOCKER_INFLUXDB_INIT_USERNAME=admin
+              export DOCKER_INFLUXDB_INIT_PASSWORD="${INFLUXDB_INIT_CREDENTIAL}"
+              exec /entrypoint.sh influxd
           env:
-            - name: BITNAMI_DEBUG
-              value: "false"
-            - name: POD_IP
-              valueFrom:
-                fieldRef:
-                  fieldPath: status.podIP
-            - name: INFLUXDB_HTTP_AUTH_ENABLED
-              value: "true"
-            - name: INFLUXDB_CREATE_USER_TOKEN
-              value: "no"
-            - name: INFLUXDB_ADMIN_USER
-              value: "admin"
-            - name: INFLUXDB_ADMIN_USER_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}
-                  key: admin-user-password
-            - name: INFLUXDB_ADMIN_USER_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}
-                  key: admin-user-token
-            - name: INFLUXDB_ADMIN_BUCKET
-              value: "primary"
-            - name: INFLUXDB_ADMIN_ORG
-              value: "primary"
-          envFrom:
+            - name: DOCKER_INFLUXDB_INIT_MODE
+              value: setup
+            - name: INFLUXDB_INIT_CREDENTIAL
+              value: ${{ inputs.admin_password }}
+            - name: DOCKER_INFLUXDB_INIT_ORG
+              value: sealos
+            - name: DOCKER_INFLUXDB_INIT_BUCKET
+              value: primary
+            - name: DOCKER_INFLUXDB_INIT_ADMIN_TOKEN
+              value: ${{ inputs.admin_token }}
+            - name: INFLUXD_REPORTING_DISABLED
+              value: 'true'
           ports:
             - name: http
               containerPort: 8086
               protocol: TCP
-            - name: rpc
-              containerPort: 8088
-              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            failureThreshold: 60
+            periodSeconds: 5
+            timeoutSeconds: 3
           livenessProbe:
+            httpGet:
+              path: /health
+              port: http
             failureThreshold: 6
-            initialDelaySeconds: 180
-            periodSeconds: 45
-            successThreshold: 1
-            timeoutSeconds: 30
-            exec:
-              command:
-                - bash
-                - -c
-                - |
-                  . /opt/bitnami/scripts/libinfluxdb.sh
-                  influxdb_env
-                  export INFLUX_USERNAME="$INFLUXDB_ADMIN_USER"
-                  export INFLUX_PASSWORD="$INFLUXDB_ADMIN_USER_PASSWORD"
-                  timeout 29s influx ping --host http://$POD_IP:8086
+            periodSeconds: 30
+            timeoutSeconds: 5
           readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
             failureThreshold: 6
-            initialDelaySeconds: 60
-            periodSeconds: 45
-            successThreshold: 1
-            timeoutSeconds: 30
-            exec:
-              command:
-                - bash
-                - -c
-                - |
-                  . /opt/bitnami/scripts/libinfluxdb.sh
-                  influxdb_env
-                  export INFLUX_USERNAME="$INFLUXDB_ADMIN_USER"
-                  export INFLUX_PASSWORD="$INFLUXDB_ADMIN_USER_PASSWORD"
-                  timeout 29s influx ping --host http://$POD_IP:8086
+            periodSeconds: 10
+            timeoutSeconds: 5
           resources:
             limits:
-              cpu: 1000m
-              ephemeral-storage: 1024Mi
-              memory: 1024Mi
-            requests:
-              cpu: 100m
-              ephemeral-storage: 50Mi
+              cpu: 200m
               memory: 128Mi
+            requests:
+              cpu: 20m
+              memory: 12Mi
           volumeMounts:
-            - name: empty-dir
-              mountPath: /tmp
-              subPath: tmp-dir
-            - name: empty-dir
-              mountPath: /opt/bitnami/influxdb/etc
-              subPath: app-conf-dir
-            - name: vn-bitnamivn-influxdb
-              mountPath: /bitnami/influxdb
-      volumes:
-        - name: empty-dir
-          emptyDir: {}
+            - name: vn-varvn-libvn-influxdb2
+              mountPath: /var/lib/influxdb2
   volumeClaimTemplates:
     - metadata:
         annotations:
-          path: /bitnami/influxdb
-          value: '5'
-        name: vn-bitnamivn-influxdb
+          path: /var/lib/influxdb2
+          value: '1'
+        name: vn-varvn-libvn-influxdb2
       spec:
         accessModes:
           - ReadWriteOnce
         resources:
           requests:
-            storage: 5Gi
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - name: http
+      port: 8086
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: network-eadkuyljeayo
+  name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/proxy-body-size: 32m
-    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
     nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
-    nginx.ingress.kubernetes.io/server-snippet: |
-      client_header_buffer_size 64k;
-      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
 spec:
   rules:
     - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
@@ -279,3 +195,17 @@ spec:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/influxdb/logo.svg
+  name: InfluxDB
+  type: link
