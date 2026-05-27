@@ -1,6 +1,6 @@
 # Deploy and Host Harbor on Sealos
 
-Harbor is an open-source OCI artifact registry that helps secure software supply chains with access control, image signing, and vulnerability scanning. This template deploys Harbor v2.14.0 with managed PostgreSQL, managed Redis, and object storage integration on Sealos Cloud.
+Harbor is an open-source OCI artifact registry that helps secure software supply chains with access control, image signing, and vulnerability scanning. This template deploys Harbor v2.14.4 with managed PostgreSQL, managed Redis, and object storage integration on Sealos Cloud.
 
 ![Harbor Logo](logo.png)
 
@@ -43,12 +43,12 @@ The Sealos template includes all required dependencies for a production-ready Ha
 
 This template deploys the following resources:
 
-- **Harbor Core** (`goharbor/harbor-core:v2.14.0`): API, auth, token service, and control-plane logic
-- **Harbor Portal** (`goharbor/harbor-portal:v2.14.0`): Web UI frontend
-- **Harbor Jobservice** (`goharbor/harbor-jobservice:v2.14.0`): Background jobs (replication, scans, GC-related workflows)
-- **Harbor Registry** (`goharbor/registry-photon:v2.14.0`): OCI registry service with S3-compatible backend
-- **Harbor Registry Controller** (`goharbor/harbor-registryctl:v2.14.0`): Registry control-plane helper
-- **Harbor Trivy Adapter** (`goharbor/trivy-adapter-photon:v2.14.0`): Vulnerability scanning service
+- **Harbor Core** (`goharbor/harbor-core:v2.14.4`): API, auth, token service, and control-plane logic
+- **Harbor Portal** (`goharbor/harbor-portal:v2.14.4`): Web UI frontend
+- **Harbor Jobservice** (`goharbor/harbor-jobservice:v2.14.4`): Background jobs (replication, scans, GC-related workflows)
+- **Harbor Registry** (`goharbor/registry-photon:v2.14.4`): OCI registry service with S3-compatible backend
+- **Harbor Registry Controller** (`goharbor/harbor-registryctl:v2.14.4`): Registry control-plane helper
+- **Harbor Trivy Adapter** (`goharbor/trivy-adapter-photon:v2.14.4`): Vulnerability scanning service
 - **PostgreSQL Cluster**: Metadata and Harbor application data storage
 - **Redis Cluster + Sentinel**: Job queue/cache and coordination
 - **Object Storage Bucket**: Durable blob storage for image layers/artifacts
@@ -94,6 +94,7 @@ Deploy Harbor on Sealos and focus on artifact governance instead of infrastructu
 5. Sign in with:
    - Username: `admin`
    - Password: value provided in `harbor_admin_password`
+6. Harbor does not enable public self-registration by default. After signing in as `admin`, create users, projects, and robot accounts from the Harbor administration UI.
 
 ## Configuration
 

@@ -153,8 +153,8 @@ kind: Job
 metadata:
   name: ${{ defaults.app_name }}-pg-init
 spec:
-  backoffLimit: 3
-  ttlSecondsAfterFinished: 300
+  backoffLimit: 20
+  ttlSecondsAfterFinished: 1800
   template:
     spec:
       restartPolicy: OnFailure
@@ -162,6 +162,13 @@ spec:
         - name: ${{ defaults.app_name }}-pg-init
           image: postgres:16.4
           imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
           env:
             - name: PG_PASSWORD
               valueFrom:
@@ -180,15 +187,18 @@ spec:
             - -c
             - |
               set -eu
-              for i in $(seq 1 60); do
-                if pg_isready -h "${PG_ENDPOINT%:*}" -p "${PG_ENDPOINT##*:}" -U postgres -d postgres >/dev/null 2>&1; then
+              PG_HOST="${PG_ENDPOINT%:*}"
+              PG_PORT="${PG_ENDPOINT##*:}"
+              export PGPASSWORD="${PG_PASSWORD}"
+              for i in $(seq 1 300); do
+                if psql -h "${PG_HOST}" -p "${PG_PORT}" -U postgres -d postgres -tAc "SELECT 1" >/dev/null 2>&1; then
                   break
                 fi
                 sleep 2
               done
-              pg_isready -h "${PG_ENDPOINT%:*}" -p "${PG_ENDPOINT##*:}" -U postgres -d postgres >/dev/null 2>&1
-              if ! psql "postgresql://postgres:$(PG_PASSWORD)@$(PG_ENDPOINT)/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='$(PG_DATABASE)'" | grep -q 1; then
-                psql "postgresql://postgres:$(PG_PASSWORD)@$(PG_ENDPOINT)/postgres" -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"$(PG_DATABASE)\";"
+              psql -h "${PG_HOST}" -p "${PG_PORT}" -U postgres -d postgres -tAc "SELECT 1" >/dev/null
+              if ! psql -h "${PG_HOST}" -p "${PG_PORT}" -U postgres -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='${PG_DATABASE}'" | grep -q 1; then
+                psql -h "${PG_HOST}" -p "${PG_PORT}" -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"${PG_DATABASE}\";"
               fi
 
 ---
@@ -327,26 +337,26 @@ data:
   POSTGRESQL_MAX_IDLE_CONNS: '100'
   POSTGRESQL_MAX_OPEN_CONNS: '900'
   EXT_ENDPOINT: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
-  CORE_URL: http://${{ defaults.app_name }}-core
-  JOBSERVICE_URL: http://${{ defaults.app_name }}-jobservice
-  REGISTRY_URL: http://${{ defaults.app_name }}-registry:5000
-  TOKEN_SERVICE_URL: http://${{ defaults.app_name }}-core/service/token
+  CORE_URL: http://${{ defaults.app_name }}-core.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+  JOBSERVICE_URL: http://${{ defaults.app_name }}-jobservice.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+  REGISTRY_URL: http://${{ defaults.app_name }}-registry.${{ SEALOS_NAMESPACE }}.svc.cluster.local:5000
+  TOKEN_SERVICE_URL: http://${{ defaults.app_name }}-core.${{ SEALOS_NAMESPACE }}.svc.cluster.local/service/token
   CORE_LOCAL_URL: http://127.0.0.1:8080
   WITH_TRIVY: 'true'
-  TRIVY_ADAPTER_URL: http://${{ defaults.app_name }}-trivy:8080
+  TRIVY_ADAPTER_URL: http://${{ defaults.app_name }}-trivy.${{ SEALOS_NAMESPACE }}.svc.cluster.local:8080
   REGISTRY_STORAGE_PROVIDER_NAME: s3
   LOG_LEVEL: info
   CONFIG_PATH: /etc/core/app.conf
   CHART_CACHE_DRIVER: redis
-  PORTAL_URL: http://${{ defaults.app_name }}-portal
-  REGISTRY_CONTROLLER_URL: http://${{ defaults.app_name }}-registryctl:8080
+  PORTAL_URL: http://${{ defaults.app_name }}-portal.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+  REGISTRY_CONTROLLER_URL: http://${{ defaults.app_name }}-registryctl.${{ SEALOS_NAMESPACE }}.svc.cluster.local:8080
   REGISTRY_CREDENTIAL_USERNAME: harbor_registry_user
   REGISTRY_CREDENTIAL_PASSWORD: harbor_registry_password
   HARBOR_ADMIN_PASSWORD: ${{ inputs.harbor_admin_password }}
   CSRF_KEY: ${{ defaults.csrf_key }}
   HTTP_PROXY: ''
   HTTPS_PROXY: ''
-  NO_PROXY: ${{ defaults.app_name }}-core,${{ defaults.app_name }}-jobservice,${{ defaults.app_name }}-registry,${{ defaults.app_name }}-portal,${{ defaults.app_name }}-trivy,127.0.0.1,localhost,.local,.internal
+  NO_PROXY: ${{ defaults.app_name }}-core,${{ defaults.app_name }}-core.${{ SEALOS_NAMESPACE }}.svc.cluster.local,${{ defaults.app_name }}-jobservice,${{ defaults.app_name }}-jobservice.${{ SEALOS_NAMESPACE }}.svc.cluster.local,${{ defaults.app_name }}-registry,${{ defaults.app_name }}-registry.${{ SEALOS_NAMESPACE }}.svc.cluster.local,${{ defaults.app_name }}-portal,${{ defaults.app_name }}-portal.${{ SEALOS_NAMESPACE }}.svc.cluster.local,${{ defaults.app_name }}-trivy,${{ defaults.app_name }}-trivy.${{ SEALOS_NAMESPACE }}.svc.cluster.local,127.0.0.1,localhost,.local,.internal
   PERMITTED_REGISTRY_TYPES_FOR_PROXY_CACHE: docker-hub,harbor,azure-acr,ali-acr,aws-ecr,google-gcr,docker-registry,github-ghcr,jfrog-artifactory
   REPLICATION_ADAPTER_WHITELIST: ali-acr,aws-ecr,azure-acr,docker-hub,docker-registry,github-ghcr,google-gcr,harbor,huawei-SWR,jfrog-artifactory,tencent-tcr,volcengine-cr
   CACHE_ENABLED: 'true'
@@ -402,17 +412,17 @@ metadata:
     app: ${{ defaults.app_name }}-jobservice-env
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-jobservice-env
 data:
-  CORE_URL: http://${{ defaults.app_name }}-core
-  TOKEN_SERVICE_URL: http://${{ defaults.app_name }}-core/service/token
-  REGISTRY_URL: http://${{ defaults.app_name }}-registry:5000
-  REGISTRY_CONTROLLER_URL: http://${{ defaults.app_name }}-registryctl:8080
+  CORE_URL: http://${{ defaults.app_name }}-core.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+  TOKEN_SERVICE_URL: http://${{ defaults.app_name }}-core.${{ SEALOS_NAMESPACE }}.svc.cluster.local/service/token
+  REGISTRY_URL: http://${{ defaults.app_name }}-registry.${{ SEALOS_NAMESPACE }}.svc.cluster.local:5000
+  REGISTRY_CONTROLLER_URL: http://${{ defaults.app_name }}-registryctl.${{ SEALOS_NAMESPACE }}.svc.cluster.local:8080
   REGISTRY_CREDENTIAL_USERNAME: harbor_registry_user
   JOBSERVICE_WEBHOOK_JOB_MAX_RETRY: '3'
   JOBSERVICE_WEBHOOK_JOB_HTTP_CLIENT_TIMEOUT: '3'
   LOG_LEVEL: info
   HTTP_PROXY: ''
   HTTPS_PROXY: ''
-  NO_PROXY: ${{ defaults.app_name }}-core,${{ defaults.app_name }}-jobservice,${{ defaults.app_name }}-registry,${{ defaults.app_name }}-portal,${{ defaults.app_name }}-trivy,127.0.0.1,localhost,.local,.internal
+  NO_PROXY: ${{ defaults.app_name }}-core,${{ defaults.app_name }}-core.${{ SEALOS_NAMESPACE }}.svc.cluster.local,${{ defaults.app_name }}-jobservice,${{ defaults.app_name }}-jobservice.${{ SEALOS_NAMESPACE }}.svc.cluster.local,${{ defaults.app_name }}-registry,${{ defaults.app_name }}-registry.${{ SEALOS_NAMESPACE }}.svc.cluster.local,${{ defaults.app_name }}-portal,${{ defaults.app_name }}-portal.${{ SEALOS_NAMESPACE }}.svc.cluster.local,${{ defaults.app_name }}-trivy,${{ defaults.app_name }}-trivy.${{ SEALOS_NAMESPACE }}.svc.cluster.local,127.0.0.1,localhost,.local,.internal
   CACHE_ENABLED: 'true'
   CACHE_EXPIRE_HOURS: '24'
 
@@ -593,7 +603,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-core
   annotations:
-    originImageName: goharbor/harbor-core:v2.14.0
+    originImageName: goharbor/harbor-core:v2.14.4
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -611,9 +621,11 @@ spec:
         app: ${{ defaults.app_name }}-core
     spec:
       automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ${{ defaults.app_name }}
       containers:
         - name: ${{ defaults.app_name }}-core
-          image: goharbor/harbor-core:v2.14.0
+          image: goharbor/harbor-core:v2.14.4
           imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
@@ -724,7 +736,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}-jobservice
   annotations:
-    originImageName: goharbor/harbor-jobservice:v2.14.0
+    originImageName: goharbor/harbor-jobservice:v2.14.4
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -743,9 +755,11 @@ spec:
         app: ${{ defaults.app_name }}-jobservice
     spec:
       automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ${{ defaults.app_name }}
       containers:
         - name: ${{ defaults.app_name }}-jobservice
-          image: goharbor/harbor-jobservice:v2.14.0
+          image: goharbor/harbor-jobservice:v2.14.4
           imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
@@ -823,7 +837,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-portal
   annotations:
-    originImageName: goharbor/harbor-portal:v2.14.0
+    originImageName: goharbor/harbor-portal:v2.14.4
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -841,9 +855,11 @@ spec:
         app: ${{ defaults.app_name }}-portal
     spec:
       automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ${{ defaults.app_name }}
       containers:
         - name: ${{ defaults.app_name }}-portal
-          image: goharbor/harbor-portal:v2.14.0
+          image: goharbor/harbor-portal:v2.14.4
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -884,7 +900,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}-registry
   annotations:
-    originImageName: goharbor/registry-photon:v2.14.0
+    originImageName: goharbor/registry-photon:v2.14.4
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -903,9 +919,11 @@ spec:
         app: ${{ defaults.app_name }}-registry
     spec:
       automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ${{ defaults.app_name }}
       containers:
         - name: ${{ defaults.app_name }}-registry
-          image: goharbor/registry-photon:v2.14.0
+          image: goharbor/registry-photon:v2.14.4
           imagePullPolicy: IfNotPresent
           env:
             - name: REDIS_HOST
@@ -1020,7 +1038,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-registryctl
   annotations:
-    originImageName: goharbor/harbor-registryctl:v2.14.0
+    originImageName: goharbor/harbor-registryctl:v2.14.4
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -1038,9 +1056,11 @@ spec:
         app: ${{ defaults.app_name }}-registryctl
     spec:
       automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ${{ defaults.app_name }}
       containers:
         - name: ${{ defaults.app_name }}-registryctl
-          image: goharbor/harbor-registryctl:v2.14.0
+          image: goharbor/harbor-registryctl:v2.14.4
           imagePullPolicy: IfNotPresent
           env:
             - name: CORE_SECRET
@@ -1098,7 +1118,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}-trivy
   annotations:
-    originImageName: goharbor/trivy-adapter-photon:v2.14.0
+    originImageName: goharbor/trivy-adapter-photon:v2.14.4
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -1119,9 +1139,11 @@ spec:
       securityContext:
         fsGroup: 10000
       automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ${{ defaults.app_name }}
       containers:
         - name: ${{ defaults.app_name }}-trivy
-          image: goharbor/trivy-adapter-photon:v2.14.0
+          image: goharbor/trivy-adapter-photon:v2.14.4
           imagePullPolicy: IfNotPresent
           env:
             - name: REDIS_HOST
@@ -1202,11 +1224,11 @@ spec:
             failureThreshold: 3
           resources:
             limits:
-              cpu: '1'
-              memory: 1Gi
-            requests:
-              cpu: 200m
+              cpu: 500m
               memory: 512Mi
+            requests:
+              cpu: 50m
+              memory: 51Mi
           volumeMounts:
             - name: data
               mountPath: /home/scanner/.cache
@@ -1325,6 +1347,37 @@ spec:
     - name: http-trivy
       port: 8080
       targetPort: 8080
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ${{ defaults.app_name }}-allow-harbor-internal
+  labels:
+    app: ${{ defaults.app_name }}-allow-harbor-internal
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-allow-harbor-internal
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values:
+          - ${{ defaults.app_name }}-core
+          - ${{ defaults.app_name }}-jobservice
+          - ${{ defaults.app_name }}-portal
+          - ${{ defaults.app_name }}-registry
+          - ${{ defaults.app_name }}-registryctl
+          - ${{ defaults.app_name }}-trivy
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 5000
+        - protocol: TCP
+          port: 5001
 
 ---
 apiVersion: networking.k8s.io/v1
