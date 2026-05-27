@@ -1,32 +1,141 @@
-# Formbricks
+# Deploy and Host Formbricks on Sealos
 
-## Overview
+Formbricks is an open-source experience management platform for in-app, website, link, and email surveys. This template deploys Formbricks with PostgreSQL, Redis, persistent uploads, public HTTPS access, and Sealos-managed application resources.
 
-Formbricks provides a free and open source surveying platform. Gather feedback at every point in the user journey with beautiful in-app, website, link and email surveys.
+![Formbricks Screenshot](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/formbricks/website-screenshot.webp)
 
-This Sealos template deploys **Formbricks** as the `formbricks` application. It uses the repository-maintained Sealos manifest and keeps deployment, networking, and storage configuration inside the template.
+## About Hosting Formbricks
 
-## Deploy on Sealos
+Formbricks helps product teams collect feedback across the user journey, from targeted in-product surveys to public link surveys and email campaigns. The application stores survey definitions, responses, users, and workspace data in PostgreSQL, while Redis supports server-side caching and rate-limiting workflows.
 
-Open this template in the Sealos App Store, review the configuration values, and click **Deploy**. Sealos renders the template variables, creates the required Kubernetes resources, and manages the public endpoint for the application.
+This Sealos template provisions the complete runtime: a Formbricks StatefulSet, PostgreSQL 16, Redis 7, database bootstrap and migration init containers, persistent upload storage, and an HTTPS Ingress. Formbricks runs with signup enabled by default so the first workspace can be created after deployment. There is no default username or password; create the first account from the web UI and then use that email and password to log in.
 
-## Access
+The template also creates the additional SAML database expected by the Formbricks container startup flow. Email verification and password reset are disabled by default because SMTP is not configured in this template.
 
-After deployment, open `https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}`. The concrete hostname is generated from `defaults.app_host` and your Sealos Cloud domain.
+## Common Use Cases
+
+- **In-app product feedback**: Trigger targeted surveys inside your product to learn why users convert, churn, or get blocked.
+- **Website and landing page surveys**: Embed surveys on public pages to collect visitor feedback and lead qualification data.
+- **Link-based research**: Share standalone survey links with customers, beta users, or internal teams.
+- **Customer experience tracking**: Run recurring NPS, CSAT, or product-market-fit surveys from one self-hosted platform.
+- **Privacy-conscious feedback operations**: Keep feedback data in your own Sealos-hosted environment instead of relying only on SaaS hosting.
+
+## Dependencies for Formbricks Hosting
+
+The Sealos template includes all required dependencies: the Formbricks web application container, PostgreSQL 16 for application data, Redis 7 for caching and rate-limit support, persistent volumes for uploaded files and SAML connection data, and an HTTPS Ingress for public access.
+
+### Deployment Dependencies
+
+- [Formbricks Documentation](https://formbricks.com/docs) - Official Formbricks documentation
+- [Formbricks Self-Hosting Guide](https://formbricks.com/docs/self-hosting) - Self-hosting and configuration guidance
+- [Formbricks GitHub Repository](https://github.com/formbricks/formbricks) - Source code and issue tracker
+- [Sealos App Store](https://sealos.io/products/app-store) - Sealos application templates
+
+### Implementation Details
+
+**Architecture Components:**
+
+This template deploys the following services:
+
+- **Formbricks StatefulSet**: Runs `ghcr.io/formbricks/formbricks:4.9.7`, serves the web UI and API on port `3000`, and mounts persistent storage for uploads and SAML connection files.
+- **PostgreSQL Cluster**: Stores Formbricks application data in the `formbricks` database and creates a separate `formbricks-saml` database for SAML support.
+- **PostgreSQL Init Job**: Waits for PostgreSQL readiness and creates both databases idempotently.
+- **Formbricks Migration Init Container**: Runs the official database migration command before the web container handles steady-state traffic, allowing the application container to skip startup migrations.
+- **Redis Cluster**: Provides Redis 7 with Sentinel topology for server-side caching and rate-limit related runtime features.
+- **Service and Ingress**: Exposes the Formbricks HTTP service through a Sealos-managed HTTPS domain.
+- **App Resource**: Registers the deployment in the Sealos desktop for one-click access after installation.
+
+**Configuration:**
+
+The application composes `DATABASE_URL`, `MIGRATE_DATABASE_URL`, `SAML_DATABASE_URL`, and `REDIS_URL` from Sealos-managed database secrets and service DNS names. Generated defaults provide `NEXTAUTH_SECRET`, `ENCRYPTION_KEY`, and `CRON_SECRET`, while legal-page URLs are exposed as optional deployment inputs.
+
+Default runtime settings disable Docker cron jobs, email verification, password reset, and telemetry. Signup and invitations remain enabled so the instance can be initialized from the web UI after deployment. No administrator credentials are generated by the template.
+
+**License Information:**
+
+Formbricks is licensed under the AGPL-3.0 license. This Sealos template is provided as part of the Sealos templates repository.
+
+## Why Deploy Formbricks on Sealos?
+
+Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies application deployment, public access, storage, and operations. By deploying Formbricks on Sealos, you get:
+
+- **One-Click Deployment**: Start Formbricks from the App Store without manually writing Kubernetes YAML.
+- **Managed Dependencies**: PostgreSQL, Redis, persistent volumes, Services, Ingress, and the App entry are created together from one template.
+- **Instant Public Access**: Each deployment receives a public HTTPS URL through Sealos-managed Ingress and certificates.
+- **Persistent Data**: Database data, uploads, and SAML connection files survive application restarts.
+- **Canvas + AI Operations**: After deployment, use the Canvas, AI dialog, and resource cards to adjust configuration or resources.
+- **Pay-As-You-Go Resources**: Tune CPU, memory, and storage to fit your workload without over-provisioning.
+- **Kubernetes Reliability**: Run Formbricks on Kubernetes primitives while Sealos handles the operational interface.
+
+Deploy Formbricks on Sealos and focus on feedback workflows instead of infrastructure setup.
+
+## Deployment Guide
+
+1. Open the [Formbricks template](https://sealos.io/products/app-store/formbricks) and click **Deploy Now**.
+2. Configure the optional legal-page parameters in the popup dialog:
+   - `PRIVACY_URL`: URL for your privacy policy page.
+   - `TERMS_URL`: URL for your terms of service page.
+   - `IMPRINT_URL`: URL for your imprint page.
+3. Wait for deployment to complete, typically 3-5 minutes. After deployment, you will be redirected to the Canvas. For later changes, describe your requirements in the AI dialog, or click the relevant resource cards to modify settings.
+4. Access your application via the provided URL:
+   - **Formbricks Web UI**: Open the App entry or the generated `https://<your-app-host>.<sealos-cloud-domain>` URL, then create the initial account and workspace.
+
+## Sign-up and Login
+
+This template does not create a default username or password. Registration is enabled by default, and email verification is disabled because SMTP is not configured.
+
+To initialize the instance, open the Formbricks URL after deployment, choose **Sign up** or **Create account**, enter your email and password, and create the first workspace. After that, use the same email and password on the login page.
 
 ## Configuration
 
-The following user-facing inputs are available during deployment:
+After deployment, you can configure Formbricks through:
 
-| Name | Description | Required | Default |
-|------|-------------|----------|---------|
-| `IMPRINT_URL` | URL for your imprint page | `false` | `https://www.formbricks.com/imprint` |
-| `PRIVACY_URL` | URL for your privacy policy page | `false` | `https://www.formbricks.com/privacy` |
-| `TERMS_URL` | URL for your terms of service page | `false` | `https://www.formbricks.com/terms` |
+- **Formbricks Web UI**: Create teams, products, environments, surveys, and integrations from the application interface.
+- **AI Dialog**: Describe environment variable or resource changes and let Sealos apply updates.
+- **Resource Cards**: Open the StatefulSet, database, Redis, Service, or Ingress cards in Canvas to inspect and update settings.
+- **Legal URLs**: Set `PRIVACY_URL`, `TERMS_URL`, and `IMPRINT_URL` during deployment to point users to your own legal pages.
 
-Keep sensitive values in Sealos-managed inputs or generated defaults. Do not commit private credentials to the template repository.
+SMTP is not configured by default. If you enable email verification or password reset later, add the required Formbricks SMTP environment variables first.
 
-## Official Links
+## Scaling
 
-- Official website: https://formbricks.com
-- Source repository: https://github.com/formbricks/formbricks
+This template runs one Formbricks replica by default, which matches the bundled persistent upload storage and migration init-container flow. To adjust resources:
+
+1. Open the Canvas for your deployment.
+2. Click the Formbricks StatefulSet resource card.
+3. Adjust CPU and memory resources based on your traffic and survey volume. The template uses the smallest passing test profile found for Formbricks 4.9.7: a 500m CPU / 512Mi memory migration init container and a 300m CPU / 256Mi memory web container.
+4. Apply the changes in the dialog and wait for the pod to become ready again.
+
+For larger installations, review Formbricks self-hosting guidance before increasing replicas, especially around shared uploads, background jobs, and database capacity.
+
+## Troubleshooting
+
+### Common Issues
+
+**The first startup takes longer than expected**
+- Cause: The PostgreSQL bootstrap job and Formbricks migration init container must finish before the web UI becomes fully ready.
+- Solution: Wait for the migration init container to complete and for the StatefulSet pod logs to show the server is listening. If startup repeatedly fails, inspect the PostgreSQL, migration init container, and Formbricks logs from the Canvas.
+
+**Email verification or password reset does not send messages**
+- Cause: SMTP settings are not included by default, and email verification/password reset are disabled.
+- Solution: Add Formbricks SMTP environment variables before enabling those features. Until then, initialize the instance through the built-in sign-up flow and keep track of the first account credentials.
+
+**Uploads or SAML connection files must persist**
+- Cause: These files are stored on mounted persistent volumes.
+- Solution: Keep the generated volume claims attached to the StatefulSet and avoid deleting them unless you intend to remove stored files.
+
+### Getting Help
+
+- [Formbricks Documentation](https://formbricks.com/docs)
+- [Formbricks GitHub Issues](https://github.com/formbricks/formbricks/issues)
+- [Sealos Discord](https://discord.gg/wdUn538zVP)
+
+## Additional Resources
+
+- [Formbricks Self-Hosting](https://formbricks.com/docs/self-hosting)
+- [Formbricks Developer Documentation](https://formbricks.com/docs/developer-docs)
+- [Sealos Documentation](https://sealos.io/docs)
+
+## License
+
+This Sealos template is provided under the repository license. Formbricks itself is licensed under the [AGPL-3.0 license](https://github.com/formbricks/formbricks/blob/main/LICENSE).
