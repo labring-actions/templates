@@ -16,7 +16,6 @@ spec:
   locale: en
   i18n:
     zh:
-      title: 'Nakama 游戏服务器'
       description: 'Nakama 是一个开源的游戏开发平台，能自动处理用户登录、实时聊天、排行榜、成就系统，还能智能匹配玩家。'
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/nakama/README_zh.md'
   categories:
@@ -88,6 +87,7 @@ metadata:
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
     app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
     app.kubernetes.io/managed-by: kbcli
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -98,6 +98,7 @@ metadata:
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
     app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
     app.kubernetes.io/managed-by: kbcli
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
 rules:
   - apiGroups:
       - '*'
@@ -115,6 +116,7 @@ metadata:
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
     app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
     app.kubernetes.io/managed-by: kbcli
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -131,6 +133,7 @@ metadata:
     kb.io/database: postgresql-16.4.0
     clusterdefinition.kubeblocks.io/name: postgresql
     clusterversion.kubeblocks.io/name: postgresql-16.4.0
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
   name: ${{ defaults.app_name }}-pg
   namespace: ns-admin
 spec:
@@ -181,7 +184,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: pgsql-init
-          image: postgres:14-alpine
+          image: postgres:16-alpine
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_HOST
@@ -216,8 +219,8 @@ spec:
               done
           resources:
             requests:
-              cpu: 20m
-              memory: 64Mi
+              cpu: 10m
+              memory: 12Mi
             limits:
               cpu: 100m
               memory: 128Mi
@@ -231,12 +234,13 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: heroiclabs/nakama:3.35.1
+    originImageName: heroiclabs/nakama:3.39.0
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
 spec:
   replicas: 1
   revisionHistoryLimit: 1
@@ -250,6 +254,8 @@ spec:
         app: ${{ defaults.app_name }}
     spec:
       automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ${{ defaults.app_name }}
       initContainers:
         - name: init-modules-dir
           image: busybox:1.36
@@ -264,12 +270,12 @@ spec:
           resources:
             requests:
               cpu: 10m
-              memory: 32Mi
+              memory: 12Mi
             limits:
-              cpu: 50m
-              memory: 64Mi
+              cpu: 100m
+              memory: 128Mi
         - name: wait-for-postgres
-          image: postgres:14-alpine
+          image: postgres:16-alpine
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_HOST
@@ -312,13 +318,13 @@ spec:
               echo "database ${DB_NAME} exists"
           resources:
             requests:
-              cpu: 20m
-              memory: 64Mi
+              cpu: 10m
+              memory: 12Mi
             limits:
               cpu: 100m
               memory: 128Mi
         - name: migrate
-          image: heroiclabs/nakama:3.35.1
+          image: heroiclabs/nakama:3.39.0
           imagePullPolicy: IfNotPresent
           volumeMounts:
             - name: vn-data
@@ -354,25 +360,25 @@ spec:
             - $(NAKAMA_DATABASE_ADDRESS)
           resources:
             requests:
-              cpu: 50m
-              memory: 128Mi
+              cpu: 20m
+              memory: 25Mi
             limits:
               cpu: 200m
               memory: 256Mi
       containers:
         - name: ${{ defaults.app_name }}
-          image: heroiclabs/nakama:3.35.1
+          image: heroiclabs/nakama:3.39.0
           imagePullPolicy: IfNotPresent
           volumeMounts:
             - name: vn-data
               mountPath: /data
           resources:
             requests:
-              cpu: 100m
-              memory: 256Mi
+              cpu: 10m
+              memory: 12Mi
             limits:
-              cpu: 1000m
-              memory: 1024Mi
+              cpu: 100m
+              memory: 128Mi
           env:
             - name: PG_HOST
               valueFrom:
@@ -420,7 +426,7 @@ spec:
               containerPort: 7349
             - name: http
               containerPort: 7350
-            - name: metrics
+            - name: console
               containerPort: 7351
           args:
             - --name
@@ -447,6 +453,30 @@ spec:
             - $(NAKAMA_SOCKET_SERVER_KEY)
             - --runtime.path
             - /data/modules
+          startupProbe:
+            exec:
+              command:
+                - /nakama/nakama
+                - healthcheck
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            exec:
+              command:
+                - /nakama/nakama
+                - healthcheck
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - /nakama/nakama
+                - healthcheck
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
   volumeClaimTemplates:
     - metadata:
         annotations:
@@ -466,7 +496,9 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
 spec:
   type: ClusterIP
   selector:
@@ -551,6 +583,7 @@ kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}-http
   labels:
+    app: ${{ defaults.app_name }}-http
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.http_host }}
   annotations:
@@ -576,7 +609,14 @@ spec:
       http:
         paths:
           - pathType: Prefix
-            path: /
+            path: /v2
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 7350
+          - pathType: Prefix
+            path: /ws
             backend:
               service:
                 name: ${{ defaults.app_name }}
@@ -593,6 +633,7 @@ kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
@@ -636,6 +677,7 @@ metadata:
   name: ${{ defaults.app_name }}
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
 spec:
   data:
     url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}

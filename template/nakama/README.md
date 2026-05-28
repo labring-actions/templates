@@ -1,171 +1,166 @@
 # Deploy and Host Nakama Server on Sealos
 
-Nakama is an open-source game server for real-time multiplayer, social features, and live ops. This template deploys a production-ready Nakama server with PostgreSQL database on Sealos Cloud.
+Nakama is an open-source game server for realtime multiplayer, player accounts, social systems, and live operations. This template deploys Nakama v3.39.0 with a managed PostgreSQL database on Sealos Cloud.
+
+![Nakama Console Screenshot](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/nakama/website-screenshot.webp)
 
 ## About Hosting Nakama
 
-Nakama is a distributed game server designed for modern multiplayer games and social applications. It provides real-time communication, user authentication, leaderboard management, achievement systems, and match-making capabilities out of the box. The Sealos template automatically provisions PostgreSQL for persistent data storage and configures Nakama with secure encryption keys for session management and runtime execution.
+Nakama runs as a single game-server node with built-in HTTP API, realtime socket support, gRPC endpoints, and an embedded admin console. It stores users, sessions, leaderboards, groups, storage objects, chat messages, and other game data in PostgreSQL.
 
-The deployment includes automatic SSL certificate provisioning, domain management, and integrated monitoring through the Sealos dashboard. All security credentials (session encryption keys, runtime keys, console signing keys) are automatically generated during deployment.
+The Sealos template provisions PostgreSQL 16.4.0, creates the `nakama` database, runs Nakama schema migrations, and starts the server after the database is ready. It also generates session, runtime, console, and socket keys for each deployment.
+
+Nakama Console is exposed as the primary web entry. The HTTP API is exposed on a separate URL for REST and WebSocket clients, while public gRPC ingress can be enabled when your client stack needs direct gRPC access.
 
 ## Common Use Cases
 
-- **Real-time Multiplayer Games**: Build synchronous multiplayer games with WebSocket-based real-time communication
-- **Social Features**: Implement chat, friend lists, groups, and social interactions
-- **Leaderboards and Rankings**: Create global or grouped leaderboards for competitive games
-- **User Authentication**: Handle player accounts, device authentication, and social login integration
-- **Live Game Operations**: Manage game configurations, tournaments, and events through the admin console
+- **Realtime Multiplayer Games**: Handle realtime sessions, matchmaking, authoritative matches, and game server logic.
+- **Player Identity and Accounts**: Use device, email, social, or custom authentication flows for players.
+- **Social Game Systems**: Add friends, groups, chat, parties, notifications, and user metadata.
+- **Leaderboards and Tournaments**: Build competitive rankings, seasonal challenges, and event-based scoring.
+- **Live Operations Dashboards**: Inspect players, storage, matches, runtime modules, and service metrics through Nakama Console.
 
 ## Dependencies for Nakama Hosting
 
-The Sealos template includes all required dependencies: Nakama server runtime and PostgreSQL database.
+The Sealos template includes all required runtime dependencies: Nakama Server and PostgreSQL. No separate console image is required because Nakama Console is embedded in the Nakama binary.
 
 ### Deployment Dependencies
 
-- [Official Nakama Documentation](https://heroiclabs.com/docs/nakama/) - Comprehensive documentation and guides
-- [Nakama GitHub Repository](https://github.com/heroiclabs/nakama) - Source code and community contributions
-- [Nakama Console Guide](https://heroiclabs.com/docs/nakama/getting-started/install/console/) - Admin console documentation
-- [Nakama Discord](https://discord.gg/8DkBAUCm4Y) - Community support and discussions
+- [Official Nakama Documentation](https://heroiclabs.com/docs/nakama/) - Product documentation and development guides
+- [Nakama GitHub Repository](https://github.com/heroiclabs/nakama) - Source code and release notes
+- [Nakama Docker Installation Guide](https://heroiclabs.com/docs/nakama/getting-started/install/docker/) - Official container deployment reference
+- [Nakama Client Libraries](https://heroiclabs.com/docs/nakama/client-libraries/) - SDKs for Unity, Unreal, Godot, JavaScript, and more
 
 ### Implementation Details
 
 **Architecture Components:**
 
-This template deploys two main services:
+This template deploys these services:
 
-- **Nakama Server**: The core game server handling real-time connections, authentication, and game logic
-- **PostgreSQL Database**: PostgreSQL 16.4.0 for persistent storage of user data, game state, and configurations
+- **Nakama Server**: StatefulSet running `heroiclabs/nakama:3.39.0` with persistent `/data` storage for runtime modules.
+- **PostgreSQL Database**: KubeBlocks PostgreSQL 16.4.0 cluster for persistent Nakama data.
+- **PostgreSQL Init Job**: Creates the `nakama` database idempotently before the server starts.
+- **Nakama Console Ingress**: Primary web entry that routes to Nakama Console on port `7351`.
+- **Nakama HTTP API Ingress**: Secondary endpoint for `/v2` REST API and `/ws` realtime WebSocket traffic on port `7350`.
+- **Optional gRPC Ingresses**: Public routes for Nakama gRPC (`7349`) and console gRPC (`7348`) when `enable_grpc` is enabled.
 
 **Configuration:**
 
-Nakama runs as a StatefulSet with three init containers that ensure proper initialization:
+Nakama starts only after PostgreSQL is reachable and the target database exists. A migration init container runs `nakama migrate up` before the main server starts, then health probes use `nakama healthcheck` for startup, readiness, and liveness checks.
 
-1. **init-modules-dir**: Creates the necessary directory structure for Lua/Go runtime modules
-2. **wait-for-postgres**: Waits for PostgreSQL to be ready and verifies the database exists
-3. **migrate**: Runs database migrations to set up the required schema
+The primary resource profile is tuned to the smallest validated Sealos tier for this template: `100m` CPU and `128Mi` memory for the Nakama container. PostgreSQL uses the standard database profile: `500m` CPU and `512Mi` memory.
 
-The server is configured with multiple ports:
-- **7350**: HTTP API for REST requests
-- **7349**: gRPC server for high-performance client connections
-- **7348**: Admin console gRPC interface
-- **7351**: Metrics endpoint for monitoring
+**Login and Access:**
 
-**Optional gRPC Exposure:**
+Nakama Console requires the console credentials configured during deployment:
 
-By default, gRPC ports (7348/7349) are only accessible within the cluster. You can enable public gRPC access by setting `enable_grpc` to `true` during deployment, which will create public Ingress routes for both gRPC and console gRPC endpoints.
+- **Username**: value of `console_username` (default `admin`)
+- **Password**: value of `console_password`
 
-**Security:**
-
-All sensitive credentials are automatically generated:
-- Session encryption keys for secure user sessions
-- Runtime HTTP key for server-side code execution
-- Console signing key and MFA encryption key for admin authentication
-- Server key for socket connections
-
-You can override the default admin console username and set your own password during deployment.
+Player accounts are not created from the console login screen. Game clients create or authenticate player accounts through Nakama APIs such as device authentication at `/v2/account/authenticate/device?create=true`, using the configured socket/server key as Basic Auth username.
 
 **License Information:**
 
-Nakama is licensed under Apache-2.0. See the [Nakama GitHub repository](https://github.com/heroiclabs/nakama) for details.
+Nakama is licensed under Apache-2.0. This Sealos template is also provided under Apache-2.0.
 
 ## Why Deploy Nakama on Sealos?
 
-Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies the entire application lifecycle, from development in cloud IDEs to production deployment and management. It is perfect for building and scaling modern multiplayer games and real-time applications. By deploying Nakama on Sealos, you get:
+Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies the application lifecycle from deployment to operations. By deploying Nakama on Sealos, you get:
 
-- **One-Click Deployment**: Deploy complex game server infrastructure with a single click. No YAML configuration, no database setup - just point, click, and deploy.
-- **Auto-Scaling Built-In**: Your game server automatically scales based on player demand. Handle traffic spikes from game launches or events without manual intervention.
-- **Easy Customization**: Configure environment variables, resource limits, and credentials with intuitive forms. Customize your Nakama setup without touching configuration files.
-- **Zero Kubernetes Expertise Required**: Get all the benefits of Kubernetes - high availability, service discovery, and container orchestration - without becoming a Kubernetes expert.
-- **Persistent Storage Included**: Built-in PostgreSQL with persistent storage ensures your player data, game state, and configurations are safe across deployments.
-- **Instant Public Access**: Each deployment gets automatic public URLs with SSL certificates for HTTP and optional gRPC endpoints. Connect your game clients immediately.
-- **Automated Backups**: Automatic database backups ensure your game data and player progress are always safe.
-
-Deploy Nakama on Sealos and focus on building great games instead of managing infrastructure.
+- **One-Click Deployment**: Deploy Nakama and PostgreSQL from the App Store without writing Kubernetes YAML.
+- **Managed Public URLs**: Get HTTPS URLs for the console and API automatically.
+- **Persistent Data**: Store player, leaderboard, group, and storage data in managed PostgreSQL.
+- **Easy Customization**: Adjust credentials, resource limits, and optional gRPC exposure from the deployment form or Canvas.
+- **Kubernetes Foundation**: Run on a Kubernetes-based platform without managing cluster primitives directly.
+- **Pay-As-You-Go Resources**: Start from a small validated footprint and scale resources as player traffic grows.
 
 ## Deployment Guide
 
-1. Visit [Nakama Template Page](https://sealos.io/products/app-store/nakama)
-2. Click the "Deploy Now" button
-3. Configure the parameters in the popup dialog:
-   - **Console Username**: Admin username for Nakama Console (default: admin)
-   - **Console Password**: Set a secure password for initial console login
-   - **Enable gRPC**: Check this to expose gRPC ports publicly (optional)
-4. Wait for deployment to complete (typically 2-3 minutes)
-5. Access your Nakama server via the provided URLs:
-   - **Nakama Console**: Use your configured username and password
-   - **HTTP API**: For REST client connections
-   - **gRPC**: If enabled, for high-performance client connections
+1. Open the [Nakama Server template](https://sealos.io/products/app-store/nakama) and click **Deploy Now**.
+2. Configure the parameters in the popup dialog:
+   - **Console Username**: Admin username for Nakama Console. The default is `admin`.
+   - **Console Password**: Password for the console user. Set a strong value and save it securely.
+   - **Enable gRPC**: Optional. Enable only if your clients need public gRPC endpoints.
+3. Wait for deployment to complete. It typically takes 2-3 minutes because PostgreSQL must initialize before Nakama starts.
+4. Open the primary application URL to access **Nakama Console**.
+5. Log in with the configured Console Username and Console Password.
+6. Use the API URL for game clients:
+   - **HTTP API**: `https://<api-url>/v2/...`
+   - **WebSocket**: `wss://<api-url>/ws`
+   - **gRPC**: Use the generated gRPC URLs only when `enable_grpc` is enabled.
 
 ## Configuration
 
-After deployment, you can manage Nakama through:
+After deployment, manage Nakama through:
 
-- **Nakama Console**: Access at the console URL provided in your deployment dashboard
-- **Environment Variables**: Modify server settings in the App Launchpad by editing the deployment
-- **Runtime Modules**: Upload custom Lua or Go modules to extend Nakama functionality
+- **Nakama Console**: Inspect users, groups, storage, matches, leaderboards, notifications, API Explorer, and runtime modules.
+- **Canvas AI Dialog**: Describe configuration changes and let Sealos apply updates.
+- **Resource Cards**: Adjust StatefulSet resources, Ingress routes, and PostgreSQL settings from the Canvas.
+- **Runtime Modules**: Mount or upload Lua, JavaScript, or Go runtime modules under `/data/modules` as needed.
 
-### Accessing the Console
+### Console Login
 
-1. Navigate to your deployed application in Sealos
-2. Click on the provided URL to access the Nakama Console
-3. Log in with your configured username and password
-4. Use the console to manage users, view leaderboards, and configure game settings
+The console does not provide public self-registration. Use the console credentials configured during deployment. If you lose the password, update `console_password` in the Nakama StatefulSet arguments or redeploy with a new password.
 
-### gRPC Configuration
+### Client Authentication
 
-If you enabled gRPC during deployment, you'll receive separate URLs for:
-- **Nakama gRPC**: For client connections (port 7349)
-- **Console gRPC**: For admin console communication (port 7348)
+Nakama supports player registration through API flows such as device authentication, email authentication, and social provider authentication. For a basic device-auth smoke test, game clients call:
 
-Use these URLs in your game client configuration to connect to Nakama via gRPC for optimal performance.
+```bash
+curl -X POST "https://<api-url>/v2/account/authenticate/device?create=true" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Basic $(printf '<server-key>:' | base64)" \
+  -d '{"id":"unique-device-id","vars":{}}'
+```
+
+Replace `<server-key>` with the generated server key for your deployment. The template generates this value automatically as `server_key`; view it from the rendered deployment arguments or the Nakama StatefulSet `NAKAMA_SOCKET_SERVER_KEY` environment variable if you need to run manual API tests.
 
 ## Scaling
 
-To scale your Nakama deployment:
+Start with the default validated resource profile for development and small tests. To scale your Nakama deployment:
 
-1. Open App Launchpad in Sealos
-2. Select your Nakama deployment
-3. Adjust CPU/Memory resources based on your player count
-4. For horizontal scaling, you can run multiple Nakama instances behind a load balancer (advanced configuration)
+1. Open the Canvas for your deployment.
+2. Click the Nakama StatefulSet resource card.
+3. Increase CPU and memory to the next Sealos resource tier if player traffic, runtime modules, or match logic require more capacity.
+4. Click the PostgreSQL resource card if database load becomes the bottleneck.
+5. Apply the changes and verify readiness in Nakama Console.
 
-**Resource Guidelines:**
-- **Small games** (< 100 concurrent players): 100m CPU, 256Mi memory
-- **Medium games** (100-1000 concurrent players): 500m CPU, 512Mi memory
-- **Large games** (> 1000 concurrent players): 1000m CPU, 1Gi memory or more
+For production multiplayer games, benchmark with representative concurrent users, match logic, runtime modules, and API traffic before choosing final resource limits.
 
 ## Troubleshooting
 
 ### Common Issues
 
-**Issue: Database connection failed**
-- Cause: PostgreSQL is still initializing
-- Solution: Wait 2-3 minutes for the database to fully start. The init container will automatically wait for the database to be ready.
+**Nakama Console login fails**
+- Cause: Incorrect console username or password.
+- Solution: Use the credentials configured during deployment. The default username is `admin`, but the password is whatever you entered in the deployment form.
 
-**Issue: Cannot access Nakama Console**
-- Cause: Console URL not correctly configured or password incorrect
-- Solution: Verify your console username and password in the deployment configuration. Use the credentials you set during deployment.
+**API returns `Server key invalid`**
+- Cause: The client is using the wrong Basic Auth username.
+- Solution: Use the deployment's server key as the Basic Auth username and an empty password.
 
-**Issue: gRPC connection fails**
-- Cause: gRPC ports not enabled or firewall blocking connections
-- Solution: Ensure you enabled "Expose gRPC ports" during deployment if you need public gRPC access. Check your game client configuration for the correct endpoint URL.
+**Database initialization takes longer than expected**
+- Cause: PostgreSQL is still starting or creating the `nakama` database.
+- Solution: Wait a few minutes. The init containers are designed to wait for database readiness and run migrations automatically.
 
-**Issue: High memory usage**
-- Cause: Large number of concurrent players or runtime modules consuming resources
-- Solution: Increase memory limits in the App Launchpad or optimize your runtime modules
+**gRPC client cannot connect**
+- Cause: Public gRPC ingress was not enabled or the client is using the HTTP API URL.
+- Solution: Redeploy or update the template with `enable_grpc` enabled, then use the generated gRPC endpoint.
 
 ### Getting Help
 
 - [Nakama Documentation](https://heroiclabs.com/docs/nakama/)
 - [Nakama GitHub Issues](https://github.com/heroiclabs/nakama/issues)
+- [Heroic Labs Forum](https://forum.heroiclabs.com/)
 - [Sealos Documentation](https://sealos.io/docs/)
 - [Sealos Discord](https://discord.gg/wdUn538zVP)
 
 ## Additional Resources
 
-- [Nakama Developer Guide](https://heroiclabs.com/docs/nakama/getting-started/) - Quick start and development guides
-- [Nakama Client SDKs](https://heroiclabs.com/docs/nakama/client-libraries/) - Official SDKs for Unity, Godot, JavaScript, and more
-- [Nakama Runtime Code](https://heroiclabs.com/docs/nakama/getting-started/runtime/) - Custom server-side logic with Lua and Go
-- [Nakama Tutorials](https://heroiclabs.com/docs/nakama/category-tutorials/) - Step-by-step tutorials for common features
+- [Nakama Getting Started](https://heroiclabs.com/docs/nakama/getting-started/)
+- [Nakama Runtime Code](https://heroiclabs.com/docs/nakama/server-framework/runtime-code/)
+- [Nakama API Reference](https://heroiclabs.com/docs/nakama/api/)
+- [Nakama Console Guide](https://heroiclabs.com/docs/nakama/getting-started/install/console/)
 
 ## License
 
