@@ -35,6 +35,7 @@ spec:
 
   i18n:
     zh:
+      description: "用于自托管 Tailscale DERP 中继与 STUN 服务的精简构建"
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/derper/README_zh.md'
 ---
 apiVersion: v1
@@ -85,6 +86,7 @@ metadata:
   name: ${{ defaults.app_name }}
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
 spec:
   type: NodePort
   ports:
@@ -105,7 +107,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: ghcr.io/yangchuansheng/derper:v1.90.6
+    originImageName: ghcr.io/yangchuansheng/derper:v1.99.0-pre
     deploy.cloud.sealos.io/minReplicas: "1"
     deploy.cloud.sealos.io/maxReplicas: "1"
   labels:
@@ -123,9 +125,11 @@ spec:
         app: ${{ defaults.app_name }}
     spec:
       automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ${{ defaults.app_name }}
       containers:
         - name: ${{ defaults.app_name }}
-          image: ghcr.io/yangchuansheng/derper:v1.90.6
+          image: ghcr.io/yangchuansheng/derper:v1.99.0-pre
           imagePullPolicy: IfNotPresent
           env:
             - name: DERP_DOMAIN
@@ -160,6 +164,21 @@ spec:
               memory: 128Mi
 
 ---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: tcp.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/derper/logo.svg'
+  name: Derper
+  type: link
+
+---
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -176,6 +195,13 @@ spec:
         - name: config-updater
           image: bitnamilegacy/kubectl:1.28.9
           imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 10m
+              memory: 12Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
           command:
             - /bin/sh
             - -c
