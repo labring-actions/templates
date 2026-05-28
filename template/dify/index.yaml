@@ -36,6 +36,9 @@ spec:
     plugin_daemon_key:
       type: string
       value: sk-${{ random(32) }}
+    weaviate_api_key:
+      type: string
+      value: ${{ random(32) }}
   inputs:
     init_password:
       description: 'admin init password'
@@ -204,19 +207,15 @@ spec:
             - name: VECTOR_STORE
               value: 'weaviate'
             - name: WEAVIATE_HOST
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-weaviate-conn-credential
-                  key: host
+              value: ${{ defaults.app_name }}-weaviate
             - name: WEAVIATE_PORT
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-weaviate-conn-credential
-                  key: port
+              value: '8080'
             - name: WEAVIATE_ENDPOINT
               value: http://$(WEAVIATE_HOST):$(WEAVIATE_PORT)
             - name: WEAVIATE_API_KEY
-              value: ""
+              value: ${{ defaults.weaviate_api_key }}
+            - name: WEAVIATE_GRPC_ENDPOINT
+              value: grpc://$(WEAVIATE_HOST):50051
             - name: CODE_EXECUTION_ENDPOINT
               value: http://${{ defaults.app_name }}-sandbox.${{ SEALOS_NAMESPACE }}.svc:8194
             - name: CODE_EXECUTION_API_KEY
@@ -336,19 +335,15 @@ spec:
             - name: VECTOR_STORE
               value: 'weaviate'
             - name: WEAVIATE_HOST
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-weaviate-conn-credential
-                  key: host
+              value: ${{ defaults.app_name }}-weaviate
             - name: WEAVIATE_PORT
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-weaviate-conn-credential
-                  key: port
+              value: '8080'
             - name: WEAVIATE_ENDPOINT
               value: http://$(WEAVIATE_HOST):$(WEAVIATE_PORT)
             - name: WEAVIATE_API_KEY
-              value: ""
+              value: ${{ defaults.weaviate_api_key }}
+            - name: WEAVIATE_GRPC_ENDPOINT
+              value: grpc://$(WEAVIATE_HOST):50051
             - name: CONSOLE_API_URL
               value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: CONSOLE_WEB_URL
@@ -799,15 +794,17 @@ spec:
             - name: DIFY_INNER_API_KEY
               value: ${{ defaults.inner_api_key }}
             - name: PLUGIN_REMOTE_INSTALLING_HOST
-              value: localhost
+              value: 0.0.0.0
             - name: PLUGIN_REMOTE_INSTALLING_PORT
               value: '5003'
             - name: PLUGIN_WORKING_PATH
               value: /app/storage/cwd
             - name: FORCE_VERIFYING_SIGNATURE
               value: 'true'
-            # - name: PIP_MIRROR_URL
-            #   value: https://pypi.tuna.tsinghua.edu.cn/simple
+            - name: PYTHON_ENV_INIT_TIMEOUT
+              value: '300'
+            - name: PIP_MIRROR_URL
+              value: https://pypi.tuna.tsinghua.edu.cn/simple
           resources:
             requests:
               cpu: 100m
@@ -1110,92 +1107,124 @@ spec:
   topology: replication
 
 ---
-apiVersion: v1
-kind: ServiceAccount
+apiVersion: apps/v1
+kind: StatefulSet
 metadata:
+  name: ${{ defaults.app_name }}-weaviate
+  annotations:
+    originImageName: semitechnologies/weaviate:1.27.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-weaviate
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-weaviate
-    app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-weaviate
-
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-weaviate
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-weaviate
-    app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-weaviate
-rules:
-  - apiGroups:
-      - '*'
-    resources:
-      - '*'
-    verbs:
-      - '*'
-
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-weaviate
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-weaviate
-    app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-weaviate
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: ${{ defaults.app_name }}-weaviate
-subjects:
-  - kind: ServiceAccount
-    name: ${{ defaults.app_name }}-weaviate
-
----
-apiVersion: apps.kubeblocks.io/v1alpha1
-kind: Cluster
-metadata:
-  finalizers:
-    - cluster.kubeblocks.io/finalizer
-  labels:
-    clusterdefinition.kubeblocks.io/name: weaviate
-    clusterversion.kubeblocks.io/name: weaviate-1.18.0
-  name: ${{ defaults.app_name }}-weaviate
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-weaviate
+    app: ${{ defaults.app_name }}-weaviate
 spec:
-  affinity:
-    podAntiAffinity: Preferred
-    tenancy: SharedNode
-  clusterDefinitionRef: weaviate
-  clusterVersionRef: weaviate-1.18.0
-  componentSpecs:
-    - componentDefRef: weaviate
-      monitor: false
-      name: weaviate
-      noCreatePDB: false
-      replicas: 1
-      resources:
-        limits:
-          cpu: 2
-          memory: 4Gi
-        requests:
-          cpu: 200m
-          memory: 400Mi
-      rsmTransformPolicy: ToSts
-      serviceAccountName: ${{ defaults.app_name }}-weaviate
-      volumeClaimTemplates:
-        - name: data
-          spec:
-            accessModes:
-              - ReadWriteOnce
-            resources:
-              requests:
-                storage: 1Gi
-  monitor: {}
-  resources:
-    cpu: '0'
-    memory: '0'
-  storage:
-    size: '0'
-  terminationPolicy: Delete
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}-weaviate
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-weaviate
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-weaviate
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-weaviate
+          image: semitechnologies/weaviate:1.27.0
+          env:
+            - name: PERSISTENCE_DATA_PATH
+              value: /var/lib/weaviate
+            - name: QUERY_DEFAULTS_LIMIT
+              value: '25'
+            - name: AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED
+              value: 'false'
+            - name: DEFAULT_VECTORIZER_MODULE
+              value: none
+            - name: CLUSTER_HOSTNAME
+              value: node1
+            - name: AUTHENTICATION_APIKEY_ENABLED
+              value: 'true'
+            - name: AUTHENTICATION_APIKEY_ALLOWED_KEYS
+              value: ${{ defaults.weaviate_api_key }}
+            - name: AUTHENTICATION_APIKEY_USERS
+              value: hello@dify.ai
+            - name: AUTHORIZATION_ADMINLIST_ENABLED
+              value: 'true'
+            - name: AUTHORIZATION_ADMINLIST_USERS
+              value: hello@dify.ai
+            - name: DISABLE_TELEMETRY
+              value: 'false'
+            - name: ENABLE_TOKENIZER_GSE
+              value: 'false'
+            - name: ENABLE_TOKENIZER_KAGOME_JA
+              value: 'false'
+            - name: ENABLE_TOKENIZER_KAGOME_KR
+              value: 'false'
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: grpc
+              containerPort: 50051
+          startupProbe:
+            httpGet:
+              path: /v1/.well-known/ready
+              port: 8080
+            failureThreshold: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /v1/.well-known/live
+              port: 8080
+            periodSeconds: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /v1/.well-known/ready
+              port: 8080
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 200m
+              memory: 400Mi
+            limits:
+              cpu: 1
+              memory: 2Gi
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: vn-varvn-libvn-weaviate
+              mountPath: /var/lib/weaviate
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /var/lib/weaviate
+          value: '1'
+        name: vn-varvn-libvn-weaviate
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-weaviate
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-weaviate
+    app: ${{ defaults.app_name }}-weaviate
+spec:
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+    - name: grpc
+      port: 50051
+      targetPort: 50051
+  selector:
+    app: ${{ defaults.app_name }}-weaviate
