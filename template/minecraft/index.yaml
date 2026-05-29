@@ -1,146 +1,164 @@
-apiVersion: 'app.sealos.io/v1'
+apiVersion: "app.sealos.io/v1"
 kind: Template
 metadata:
-  name: minecraft
+    name: minecraft
 spec:
-  title: 'Minecraft'
-  author: 'Sealos'
-  description: 'Minecraft 专有版服务器，支持 Forge 和 Fabric。'
-  url: 'https://docker-minecraft-server.readthedocs.io/'
-  gitRepo: 'https://github.com/itzg/docker-minecraft-server'
-  readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/minecraft/README.md'
-  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/minecraft/logo.png'
-  screenshots:
-    - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/minecraft/website-screenshot.webp'
-  templateType: inline
-  locale: zh
-  categories:
-    - game
-  defaults:
-    app_name:
-      type: string
-      value: minecraft-${{ random(8) }}
-  inputs:
-    TYPE:
-      description: 'server type'
-      type: choice
-      options:
-        - 'FORGE'
-        - 'FABRIC'
-        - 'PAPER'
-      default: 'PAPER'
-      required: true
-    VERSION:
-      description: 'minecraft version'
-      type: string
-      default: 'LATEST'
-      required: true
-  i18n:
-    zh:
-      readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/minecraft/README_zh.md'
+    title: "Minecraft"
+    author: "Sealos"
+    description: "A self-hosted Minecraft Java Edition server powered by itzg/docker-minecraft-server, with Paper, Fabric, or Forge runtime options."
+    url: "https://docker-minecraft-server.readthedocs.io/"
+    gitRepo: "https://github.com/itzg/docker-minecraft-server"
+    readme: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/minecraft/README.md"
+    icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/minecraft/logo.png"
+    screenshots:
+        - "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/minecraft/website-screenshot.webp"
+    templateType: inline
+    locale: en
+    categories:
+        - game
+    defaults:
+        app_name:
+            type: string
+            value: minecraft-${{ random(8) }}
+    inputs:
+        TYPE:
+            description: "server type"
+            type: choice
+            options:
+                - "FORGE"
+                - "FABRIC"
+                - "PAPER"
+            default: "PAPER"
+            required: true
+        VERSION:
+            description: "Minecraft server version. Use LATEST to let the selected server type resolve the newest compatible release."
+            type: string
+            default: "LATEST"
+            required: true
+    i18n:
+        zh:
+            description: "基于 itzg/docker-minecraft-server 的自托管 Minecraft Java 版服务器，支持 Paper、Fabric 或 Forge 运行时。"
+            readme: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/minecraft/README_zh.md"
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: ${{ defaults.app_name }}
-  annotations:
-    originImageName: itzg/minecraft-server
-    deploy.cloud.sealos.io/minReplicas: '1'
-    deploy.cloud.sealos.io/maxReplicas: '1'
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-    app: ${{ defaults.app_name }}
-spec:
-  replicas: 1
-  revisionHistoryLimit: 1
-  minReadySeconds: 10
-  serviceName: ${{ defaults.app_name }}
-  selector:
-    matchLabels:
-      app: ${{ defaults.app_name }}
-  template:
-    metadata:
-      labels:
+    name: ${{ defaults.app_name }}
+    annotations:
+        originImageName: itzg/minecraft-server:2026.5.3-java25
+        deploy.cloud.sealos.io/minReplicas: "1"
+        deploy.cloud.sealos.io/maxReplicas: "1"
+    labels:
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
         app: ${{ defaults.app_name }}
-    spec:
-      terminationGracePeriodSeconds: 10
-      automountServiceAccountToken: false
-      initContainers:
-        - name: take-data-dir-ownership
-          image: alpine
-          command:
-            ['/bin/sh', '-c', 'chown -R 1000:1000 /data; chmod -R 770 /data']
-          volumeMounts:
-            - name: vn-minecraft
-              mountPath: /data
-      containers:
-        - name: ${{ defaults.app_name }}
-          image: itzg/minecraft-server
-          imagePullPolicy: IfNotPresent
-          env:
-            - name: EULA
-              value: 'TRUE'
-            - name: TYPE
-              value: ${{ inputs.TYPE }}
-            - name: VERSION
-              value: ${{ inputs.VERSION }}
-            - name: REMOVE_OLD_MODS
-              value: 'false'
-            - name: PLUGINS
-              value: ''
-            - name: MODS
-              value: ''
-            - name: MODPACK
-              value: ''
-          volumeMounts:
-            - mountPath: /data
+spec:
+    replicas: 1
+    revisionHistoryLimit: 1
+    minReadySeconds: 10
+    serviceName: ${{ defaults.app_name }}
+    selector:
+        matchLabels:
+            app: ${{ defaults.app_name }}
+    template:
+        metadata:
+            labels:
+                app: ${{ defaults.app_name }}
+        spec:
+            terminationGracePeriodSeconds: 10
+            automountServiceAccountToken: false
+            initContainers:
+                - name: take-data-dir-ownership
+                  image: alpine:3.22.4
+                  imagePullPolicy: IfNotPresent
+                  resources:
+                      requests:
+                          cpu: 10m
+                          memory: 12Mi
+                      limits:
+                          cpu: 100m
+                          memory: 128Mi
+                  command:
+                      [
+                          "/bin/sh",
+                          "-c",
+                          "chown -R 1000:1000 /data; chmod -R 770 /data",
+                      ]
+                  volumeMounts:
+                      - name: vn-minecraft
+                        mountPath: /data
+            containers:
+                - name: ${{ defaults.app_name }}
+                  image: itzg/minecraft-server:2026.5.3-java25
+                  imagePullPolicy: IfNotPresent
+                  env:
+                      - name: EULA
+                        value: "TRUE"
+                      - name: TYPE
+                        value: ${{ inputs.TYPE }}
+                      - name: VERSION
+                        value: ${{ inputs.VERSION }}
+                      - name: MEMORY
+                        value: "1024M"
+                      - name: USE_AIKAR_FLAGS
+                        value: "true"
+                      - name: REMOVE_OLD_MODS
+                        value: "false"
+                      - name: PLUGINS
+                        value: ""
+                      - name: MODS
+                        value: ""
+                      - name: MODPACK
+                        value: ""
+                  volumeMounts:
+                      - mountPath: /data
+                        name: vn-minecraft
+                  ports:
+                      - containerPort: 25565
+                        name: game
+                  readinessProbe:
+                      exec:
+                          command:
+                              - mc-monitor
+                              - status
+                      initialDelaySeconds: 30
+                      periodSeconds: 5
+                      failureThreshold: 20
+                  resources:
+                      requests:
+                          cpu: 100m
+                          memory: 200Mi
+                          ephemeral-storage: 400Mi
+                      limits:
+                          cpu: "1"
+                          memory: 2G
+                          ephemeral-storage: 400Mi
+    volumeClaimTemplates:
+        - metadata:
               name: vn-minecraft
-          ports:
-            - containerPort: 25565
-              name: game
-          readinessProbe:
-            exec:
-              command:
-                - mc-monitor
-                - status
-            initialDelaySeconds: 30
-            periodSeconds: 5
-            failureThreshold: 20
-          resources:
-            requests:
-              cpu: 1000m
-              memory: 2048Mi
-              ephemeral-storage: 400Mi
-            limits:
-              cpu: 4000m
-              memory: 8192Mi
-              ephemeral-storage: 400Mi
-  volumeClaimTemplates:
-    - metadata:
-        name: vn-minecraft
-        annotations:
-          path: /data
-          value: '2'
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 2Gi
+              annotations:
+                  path: /data
+                  value: "1"
+          spec:
+              accessModes:
+                  - ReadWriteOnce
+              resources:
+                  requests:
+                      storage: 1Gi
 
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: ${{ defaults.app_name }}-nodeport
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    name: ${{ defaults.app_name }}
+    labels:
+        app: ${{ defaults.app_name }}
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
-  type: NodePort
-  ports:
-    - protocol: TCP
-      port: 25565
-      targetPort: 25565
-      name: game
-  selector:
-    app: ${{ defaults.app_name }}
+    type: NodePort
+    ports:
+        - protocol: TCP
+          port: 25565
+          targetPort: 25565
+          name: game
+    selector:
+        app: ${{ defaults.app_name }}
