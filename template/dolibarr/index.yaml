@@ -1,0 +1,417 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: dolibarr
+spec:
+  title: Dolibarr
+  url: https://www.dolibarr.org/
+  gitRepo: https://github.com/Dolibarr/dolibarr-docker
+  author: Sealos
+  description: Open-source ERP and CRM suite for managing contacts, invoices, orders, inventory, projects, and business operations.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/dolibarr/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/dolibarr/logo.png
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: 开源 ERP 与 CRM 套件，用于管理联系人、发票、订单、库存、项目和企业运营流程。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/dolibarr/README_zh.md
+  categories:
+    - tool
+    - backend
+  defaults:
+    app_host:
+      type: string
+      value: dolibarr-${{ random(8) }}
+    app_name:
+      type: string
+      value: dolibarr-${{ random(8) }}
+    cron_key:
+      type: string
+      value: ${{ random(32) }}
+    instance_unique_id:
+      type: string
+      value: ${{ random(32) }}
+  inputs:
+    DOLI_ADMIN_LOGIN:
+      description: Dolibarr administrator username created during first boot.
+      type: string
+      default: admin
+      required: true
+    DOLI_ADMIN_PASSWORD:
+      description: Dolibarr administrator password created during first boot.
+      type: string
+      default: ''
+      required: true
+    DOLI_COMPANY_NAME:
+      description: Company name used for the initial Dolibarr setup.
+      type: string
+      default: My Company
+      required: false
+    DOLI_COMPANY_COUNTRYCODE:
+      description: Two-letter company country code used for setup completion and default modules.
+      type: string
+      default: US
+      required: false
+    DOLI_ENABLE_MODULES:
+      description: Comma-separated Dolibarr modules to enable during first boot.
+      type: string
+      default: Societe,Facture,Stock,Projet
+      required: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-mysql
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-mysql
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-mysql
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-mysql
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-mysql
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-mysql
+  labels:
+    kb.io/database: ac-mysql-8.0.30-1
+    clusterdefinition.kubeblocks.io/name: apecloud-mysql
+    clusterversion.kubeblocks.io/name: ac-mysql-8.0.30-1
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys:
+      - kubernetes.io/hostname
+  clusterDefinitionRef: apecloud-mysql
+  clusterVersionRef: ac-mysql-8.0.30-1
+  componentSpecs:
+    - componentDefRef: mysql
+      monitor: true
+      name: mysql
+      noCreatePDB: false
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-mysql
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+  tolerations: []
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-mysql-init
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      containers:
+        - name: mysql-init
+          image: mysql:8.0.30
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+          env:
+            - name: MYSQL_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: host
+            - name: MYSQL_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: port
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: username
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: password
+            - name: MYSQL_DATABASE
+              value: dolibarr
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              for i in $(seq 1 90); do
+                if mysqladmin ping -h"${MYSQL_HOST}" -P"${MYSQL_PORT}" -u"${MYSQL_USER}" -p"${MYSQL_PASSWORD}" --silent; then
+                  break
+                fi
+                sleep 2
+              done
+              mysqladmin ping -h"${MYSQL_HOST}" -P"${MYSQL_PORT}" -u"${MYSQL_USER}" -p"${MYSQL_PASSWORD}" --silent
+              mysql -h"${MYSQL_HOST}" -P"${MYSQL_PORT}" -u"${MYSQL_USER}" -p"${MYSQL_PASSWORD}" \
+                -e "CREATE DATABASE IF NOT EXISTS \`${MYSQL_DATABASE}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: dolibarr/dolibarr:23.0.3-php8.2@sha256:c3c17731287f1a6a30ec7e0a3e7a82adda7bc93abd79af94714709704c8a4865
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  serviceName: ${{ defaults.app_name }}
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ${{ defaults.app_name }}
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: dolibarr/dolibarr:23.0.3-php8.2@sha256:c3c17731287f1a6a30ec7e0a3e7a82adda7bc93abd79af94714709704c8a4865
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+          ports:
+            - containerPort: 80
+              name: http
+          env:
+            - name: DOLI_INSTALL_AUTO
+              value: '1'
+            - name: DOLI_PROD
+              value: '1'
+            - name: DOLI_DB_TYPE
+              value: mysqli
+            - name: DOLI_DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: host
+            - name: DOLI_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: username
+            - name: DOLI_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: password
+            - name: DOLI_DB_NAME
+              value: dolibarr
+            - name: DOLI_URL_ROOT
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: DOLI_ADMIN_LOGIN
+              value: ${{ inputs.DOLI_ADMIN_LOGIN }}
+            - name: DOLI_ADMIN_PASSWORD
+              value: ${{ inputs.DOLI_ADMIN_PASSWORD }}
+            - name: DOLI_COMPANY_NAME
+              value: ${{ inputs.DOLI_COMPANY_NAME }}
+            - name: DOLI_COMPANY_COUNTRYCODE
+              value: ${{ inputs.DOLI_COMPANY_COUNTRYCODE }}
+            - name: DOLI_ENABLE_MODULES
+              value: ${{ inputs.DOLI_ENABLE_MODULES }}
+            - name: DOLI_INSTANCE_UNIQUE_ID
+              value: ${{ defaults.instance_unique_id }}
+            - name: DOLI_CRON_KEY
+              value: ${{ defaults.cron_key }}
+            - name: DOLI_INIT_DEMO
+              value: '0'
+            - name: PHP_INI_DATE_TIMEZONE
+              value: UTC
+            - name: PHP_INI_MEMORY_LIMIT
+              value: 128M
+            - name: PHP_INI_UPLOAD_MAX_FILESIZE
+              value: 20M
+            - name: PHP_INI_POST_MAX_SIZE
+              value: 22M
+          startupProbe:
+            tcpSocket:
+              port: 80
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            tcpSocket:
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            tcpSocket:
+              port: 80
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          volumeMounts:
+            - name: vn-varvn-wwwvn-documents
+              mountPath: /var/www/documents
+            - name: vn-varvn-wwwvn-htmlvn-custom
+              mountPath: /var/www/html/custom
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-varvn-wwwvn-documents
+        annotations:
+          path: /var/www/documents
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+    - metadata:
+        name: vn-varvn-wwwvn-htmlvn-custom
+        annotations:
+          path: /var/www/html/custom
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - name: tcp-80
+      port: 80
+      targetPort: 80
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/dolibarr/logo.png
+  name: Dolibarr
+  type: link
