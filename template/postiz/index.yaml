@@ -582,6 +582,39 @@ spec:
         - name: ${{ defaults.app_name }}
           image: ghcr.io/gitroomhq/postiz-app:v2.21.8
           imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              cd /app
+
+              wait_for_port() {
+                name="$1"
+                port="$2"
+                i=1
+                while [ "$i" -le 180 ]; do
+                  if node -e 'const net = require("net"); const port = Number(process.argv[1]); const socket = net.createConnection({ host: "127.0.0.1", port }); socket.setTimeout(2000); socket.on("connect", () => { socket.destroy(); process.exit(0) }); socket.on("timeout", () => { socket.destroy(); process.exit(1) }); socket.on("error", () => process.exit(1));' "$port"
+                  then
+                    echo "$name is listening on 127.0.0.1:$port"
+                    return 0
+                  fi
+                  echo "waiting for $name on 127.0.0.1:$port"
+                  sleep 2
+                  i=$((i + 1))
+                done
+                echo "$name did not start on 127.0.0.1:$port" >&2
+                pm2 logs --nostream --lines 120 || true
+                exit 1
+              }
+
+              nginx
+              pm2 delete all || true
+              pnpm run prisma-db-push
+              pnpm run --parallel pm2
+              wait_for_port backend 3000
+              wait_for_port frontend 4200
+              pm2 logs
           env:
             - name: DB_HOSTNAME
               valueFrom:
@@ -683,10 +716,13 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
           livenessProbe:
-            tcpSocket:
+            httpGet:
+              path: /api/auth/can-register
               port: http
             initialDelaySeconds: 120
             periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
           resources:
             limits:
               cpu: 500m
