@@ -29,35 +29,73 @@ spec:
       value: fastgpt-${{ random(8) }}
     app_host:
       type: string
-      value: ${{ random(8) }}
-    session_secret:
+      value: fastgpt-${{ random(8) }}
+    mcp_host:
       type: string
-      value: ${{ random(8) }}
+      value: fastgpt-mcp-${{ random(8) }}
+    token_key:
+      type: string
+      value: ${{ random(32) }}
+    file_token_key:
+      type: string
+      value: ${{ random(32) }}
+    aes256_secret_key:
+      type: string
+      value: ${{ random(32) }}
     root_key:
       type: string
-      value: ${{ random(8) }}
-    aiproxy_key:
-      type: string
-      value: ${{ random(8) }}
+      value: ${{ random(32) }}
     plugin_token:
       type: string
-      value: ${{ random(8) }}
+      value: ${{ random(32) }}
+    aiproxy_token:
+      type: string
+      value: ${{ random(32) }}
+    code_sandbox_token:
+      type: string
+      value: ${{ random(32) }}
   inputs:
     root_password:
-      description: 'root user''s password，username is: root'
+      description: 'Root account password'
       type: string
       default: ''
       required: true
+    agent_sandbox_baseurl:
+      description: 'Hosted agent sandbox base URL'
+      type: string
+      default: ''
+      required: false
+    agent_sandbox_token:
+      description: 'Hosted agent sandbox access token'
+      type: string
+      default: ''
+      required: false
+
+---
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}-public
+spec:
+  policy: publicRead
+
+---
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}-private
+spec:
+  policy: private
 
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongodb
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongodb
     app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-mongo
+  name: ${{ defaults.app_name }}-mongodb
 
 ---
 apiVersion: v1
@@ -95,7 +133,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.12.4
+    originImageName: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.14.22
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -115,70 +153,144 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.12.4
+          image: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.14.22
           env:
+            - name: MONGO_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mongodb-mongodb-account-root
+                  key: username
             - name: MONGO_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-mongodb-mongodb-account-root
-                  key: password
-            - name: PG_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
             - name: FE_DOMAIN
               value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: ROOT_KEY
+              value: ${{ defaults.root_key }}
             - name: DEFAULT_ROOT_PSW
               value: ${{ inputs.root_password }}
-            - name: ROOT_KEY
-              value: ${{ defaults.root_key }}}
             - name: DB_MAX_LINK
-              value: '100'
+              value: '5'
+            - name: SYNC_INDEX
+              value: '1'
             - name: TOKEN_KEY
-              value: ${{ defaults.session_secret }}
+              value: ${{ defaults.token_key }}
             - name: FILE_TOKEN_KEY
-              value: filetoken
+              value: ${{ defaults.file_token_key }}
             - name: AES256_SECRET_KEY
-              value: fastgptsecret
-
-            - name: AIPROXY_API_ENDPOINT
-              value: http://${{ defaults.app_name }}-aiproxy.${{ SEALOS_NAMESPACE }}.svc:3000
-            - name: AIPROXY_API_TOKEN
-              value: ${{ defaults.aiproxy_key }}
-            - name: SANDBOX_URL
-              value: http://${{ defaults.app_name }}-sandbox.${{ SEALOS_NAMESPACE }}.svc.cluster.local:3000
+              value: ${{ defaults.aes256_secret_key }}
+            - name: MULTIPLE_DATA_TO_BASE64
+              value: 'true'
+            - name: MONGODB_URI
+              value: mongodb://$(MONGO_USERNAME):$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongodb-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017/fastgpt?authSource=admin
+            - name: MILVUS_ADDRESS
+              value: http://${{ defaults.app_name }}-milvus-milvus.${{ SEALOS_NAMESPACE }}.svc:19530
+            - name: MILVUS_TOKEN
+              value: none
+            - name: REDIS_URL
+              value: redis://default:$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)
+            - name: STORAGE_VENDOR
+              value: minio
+            - name: STORAGE_REGION
+              value: us-east-1
+            - name: STORAGE_ACCESS_KEY_ID
+              value: $(S3_ACCESS_KEY_ID)
+            - name: STORAGE_SECRET_ACCESS_KEY
+              value: $(S3_SECRET_ACCESS_KEY)
+            - name: STORAGE_PUBLIC_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-public
+                  key: bucket
+            - name: STORAGE_PRIVATE_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-private
+                  key: bucket
+            - name: STORAGE_EXTERNAL_ENDPOINT
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+            - name: STORAGE_S3_ENDPOINT
+              value: http://object-storage.objectstorage-system.svc.cluster.local
+            - name: STORAGE_S3_FORCE_PATH_STYLE
+              value: 'true'
+            - name: STORAGE_S3_MAX_RETRIES
+              value: '3'
             - name: PLUGIN_BASE_URL
               value: http://${{ defaults.app_name }}-plugin.${{ SEALOS_NAMESPACE }}.svc.cluster.local:3000
             - name: PLUGIN_TOKEN
               value: ${{ defaults.plugin_token }}
-            
-            - name: MONGODB_URI
-              value: >-
-                mongodb://root:$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017/fastgpt?authSource=admin
-            - name: PG_URL
-              value: >-
-                postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432/postgres
-            - name: REDIS_URL
-              value: >-
-                redis://default:$(REDIS_PASSWORD)@${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc:6379
-            
-            - name: LOG_LEVEL
+            - name: CODE_SANDBOX_URL
+              value: http://${{ defaults.app_name }}-code-sandbox.${{ SEALOS_NAMESPACE }}.svc.cluster.local:3000
+            - name: CODE_SANDBOX_TOKEN
+              value: ${{ defaults.code_sandbox_token }}
+            - name: AIPROXY_API_ENDPOINT
+              value: http://${{ defaults.app_name }}-aiproxy.${{ SEALOS_NAMESPACE }}.svc.cluster.local:3000
+            - name: AIPROXY_API_TOKEN
+              value: ${{ defaults.aiproxy_token }}
+            ${{ if(inputs.agent_sandbox_baseurl !== '' && inputs.agent_sandbox_token !== '') }}
+            - name: AGENT_SANDBOX_PROVIDER
+              value: sealosdevbox
+            - name: AGENT_SANDBOX_SEALOS_BASEURL
+              value: ${{ inputs.agent_sandbox_baseurl }}
+            - name: AGENT_SANDBOX_SEALOS_TOKEN
+              value: ${{ inputs.agent_sandbox_token }}
+            ${{ endif() }}
+            - name: LOG_ENABLE_CONSOLE
+              value: 'true'
+            - name: LOG_CONSOLE_LEVEL
+              value: debug
+            - name: LOG_ENABLE_OTEL
+              value: 'false'
+            - name: LOG_OTEL_LEVEL
               value: info
-            - name: STORE_LOG_LEVEL
-              value: warn
-            # 安全配置
-            - name: CHAT_FILE_EXPIRE_TIME
-              value: 15
+            - name: LOG_OTEL_SERVICE_NAME
+              value: fastgpt-client
+            - name: USE_IP_LIMIT
+              value: 'false'
             - name: WORKFLOW_MAX_RUN_TIMES
-              value: '500'
+              value: '1000'
             - name: WORKFLOW_MAX_LOOP_TIMES
-              value: '50'
+              value: '100'
+            - name: SERVICE_REQUEST_MAX_CONTENT_LENGTH
+              value: '10'
+            - name: CHECK_INTERNAL_IP
+              value: 'false'
+            - name: UPLOAD_FILE_MAX_SIZE
+              value: '1000'
+            - name: UPLOAD_FILE_MAX_AMOUNT
+              value: '1000'
+            - name: LLM_REQUEST_TRACKING_RETENTION_HOURS
+              value: '6'
+            - name: ALLOWED_ORIGINS
+              value: ''
+            - name: MAX_HTML_TRANSFORM_CHARS
+              value: '1000000'
           resources:
             requests:
               cpu: 50m
@@ -208,18 +320,32 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 data:
   vn-appvn-datavn-configvn-json: |
     {
       "feConfigs": {
-        "lafEnv": "https://laf.dev" ,
-        "mcpServerProxyEndpoint": "http://${{ defaults.app_host }}-mcp-server.${{ SEALOS_CLOUD_DOMAIN }}"
+        "lafEnv": "https://laf.dev",
+        "mcpServerProxyEndpoint": "https://${{ defaults.mcp_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
       },
       "systemEnv": {
-        "vectorMaxProcess": 15, 
-        "qaMaxProcess": 15, 
+        "datasetParseMaxProcess": 10,
+        "vectorMaxProcess": 10,
+        "qaMaxProcess": 10,
+        "vlmMaxProcess": 10,
         "tokenWorkers": 30,
-        "pgHNSWEfSearch": 100 
+        "hnswEfSearch": 100,
+        "hnswMaxScanTuples": 100000,
+        "customPdfParse": {
+          "url": "",
+          "key": "",
+          "doc2xKey": "",
+          "textinAppId": "",
+          "textinSecretCode": "",
+          "price": 0
+        }
       }
     }
 
@@ -229,12 +355,16 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
-  ports:
-    - port: 3000
   selector:
     app: ${{ defaults.app_name }}
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+      protocol: TCP
 
 ---
 apiVersion: networking.k8s.io/v1
@@ -247,22 +377,27 @@ metadata:
   annotations:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/proxy-body-size: 32m
-    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
     nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
-    nginx.ingress.kubernetes.io/server-snippet: |
-      client_header_buffer_size 64k;
-      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
 spec:
   rules:
     - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       http:
         paths:
-          - pathType: Prefix
-            path: /
+          - path: /
+            pathType: Prefix
             backend:
               service:
                 name: ${{ defaults.app_name }}
@@ -279,7 +414,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-plugin
   annotations:
-    originImageName: ghcr.io/labring/fastgpt-plugin:v0.1.1
+    originImageName: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-plugin:v0.6.2
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
     deploy.cloud.sealos.io/resize: 0Gi
@@ -305,41 +440,88 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}-plugin
-          image: ghcr.io/labring/fastgpt-plugin:v0.1.1
+          image: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-plugin:v0.6.2
           env:
-            - name: MINIO_CUSTOM_ENDPOINT
-            - name: BACKEND_STORAGE_MINIO_SECRET_KEY
+            - name: MONGO_USERNAME
               valueFrom:
                 secretKeyRef:
-                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-plugin
-                  key: external
-            - name: MINIO_ENDPOINT
+                  name: ${{ defaults.app_name }}-mongodb-mongodb-account-root
+                  key: username
+            - name: MONGO_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-plugin
-                  key: internal
-            - name: MINIO_PORT
-              value: '80'
-            - name: MINIO_ACCESS_KEY
+                  name: ${{ defaults.app_name }}-mongodb-mongodb-account-root
+                  key: password
+            - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-plugin
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
                   key: accessKey
-            - name: MINIO_SECRET_KEY
+            - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-plugin
+                  name: object-storage-key
                   key: secretKey
-            - name: MINIO_BUCKET
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
               valueFrom:
                 secretKeyRef:
-                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-plugin
+                  name: object-storage-key
+                  key: external
+            - name: MONGODB_URI
+              value: mongodb://$(MONGO_USERNAME):$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongodb-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017/fastgpt?authSource=admin
+            - name: REDIS_URL
+              value: redis://default:$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)
+            - name: STORAGE_VENDOR
+              value: minio
+            - name: STORAGE_REGION
+              value: us-east-1
+            - name: STORAGE_ACCESS_KEY_ID
+              value: $(S3_ACCESS_KEY_ID)
+            - name: STORAGE_SECRET_ACCESS_KEY
+              value: $(S3_SECRET_ACCESS_KEY)
+            - name: STORAGE_PUBLIC_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-public
                   key: bucket
-            - name: MINIO_USE_SSL
-              value: 'false'
+            - name: STORAGE_PRIVATE_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-private
+                  key: bucket
+            - name: STORAGE_EXTERNAL_ENDPOINT
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+            - name: STORAGE_S3_ENDPOINT
+              value: http://object-storage.objectstorage-system.svc.cluster.local
+            - name: STORAGE_S3_FORCE_PATH_STYLE
+              value: 'true'
+            - name: STORAGE_S3_MAX_RETRIES
+              value: '3'
             - name: AUTH_TOKEN
               value: ${{ defaults.plugin_token }}
-
+            - name: SERVICE_REQUEST_MAX_CONTENT_LENGTH
+              value: '10'
+            - name: MAX_API_SIZE
+              value: '10'
+            - name: LOG_ENABLE_CONSOLE
+              value: 'true'
+            - name: LOG_CONSOLE_LEVEL
+              value: debug
+            - name: LOG_ENABLE_OTEL
+              value: 'false'
+            - name: LOG_OTEL_LEVEL
+              value: info
+            - name: LOG_OTEL_SERVICE_NAME
+              value: fastgpt-plugin
           resources:
             requests:
               cpu: 20m
@@ -348,8 +530,10 @@ spec:
               cpu: 200m
               memory: 256Mi
           ports:
-            - containerPort: 3000
-          imagePullPolicy: Always
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          imagePullPolicy: IfNotPresent
           volumeMounts: []
       volumes: []
 
@@ -359,12 +543,16 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-plugin
   labels:
+    app: ${{ defaults.app_name }}-plugin
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-plugin
 spec:
-  ports:
-    - port: 3000
   selector:
     app: ${{ defaults.app_name }}-plugin
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+      protocol: TCP
 
 ---
 apiVersion: v1
@@ -372,12 +560,16 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-aiproxy
   labels:
+    app: ${{ defaults.app_name }}-aiproxy
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-aiproxy
 spec:
-  ports:
-    - port: 3000
   selector:
     app: ${{ defaults.app_name }}-aiproxy
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+      protocol: TCP
 
 ---
 apiVersion: apps/v1
@@ -385,13 +577,13 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-aiproxy
   annotations:
-    originImageName: ghcr.io/labring/aiproxy:v0.3.3
+    originImageName: registry.cn-hangzhou.aliyuncs.com/labring/aiproxy:v0.5.8
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
     deploy.cloud.sealos.io/resize: 0Gi
   labels:
     app: ${{ defaults.app_name }}-aiproxy
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-aiproxy
 spec:
   replicas: 1
   revisionHistoryLimit: 1
@@ -411,26 +603,41 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}-aiproxy
-          image: ghcr.io/labring/aiproxy:v0.3.3
+          image: registry.cn-hangzhou.aliyuncs.com/labring/aiproxy:v0.5.8
+          imagePullPolicy: IfNotPresent
           env:
-            - name: PG_PASSWORD
+            - name: AIPROXY_PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-aiproxy-pg-conn-credential
+                  key: host
+            - name: AIPROXY_PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-aiproxy-pg-conn-credential
+                  key: port
+            - name: AIPROXY_PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-aiproxy-pg-conn-credential
+                  key: username
+            - name: AIPROXY_PG_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-aiproxy-pg-conn-credential
                   key: password
             - name: ADMIN_KEY
-              value: ${{ defaults.aiproxy_key }}
+              value: ${{ defaults.aiproxy_token }}
             - name: LOG_DETAIL_STORAGE_HOURS
               value: '1'
-            - name: LOG_STORAGE_HOURS
-              value: '168'
+            - name: SQL_DSN
+              value: postgres://$(AIPROXY_PG_USERNAME):$(AIPROXY_PG_PASSWORD)@$(AIPROXY_PG_HOST):$(AIPROXY_PG_PORT)/aiproxy
+            - name: RETRY_TIMES
+              value: '3'
+            - name: BILLING_ENABLED
+              value: 'false'
             - name: DISABLE_MODEL_CONFIG
               value: 'true'
-            - name: SQL_DSN
-              value: >-
-                postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-aiproxy-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
-            - name: TZ
-              value: Asia/Shanghai
           resources:
             requests:
               cpu: 100m
@@ -439,9 +646,9 @@ spec:
               cpu: 1000m
               memory: 1024Mi
           ports:
-            - containerPort: 3000
-              name: ${{ random(12) }}
-          imagePullPolicy: Always
+            - name: http
+              containerPort: 3000
+              protocol: TCP
           volumeMounts: []
       volumes: []
 
@@ -449,34 +656,38 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: ${{ defaults.app_name }}-sandbox
+  name: ${{ defaults.app_name }}-code-sandbox
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-sandbox
+    app: ${{ defaults.app_name }}-code-sandbox
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-code-sandbox
 spec:
-  ports:
-    - port: 3000
   selector:
-    app: ${{ defaults.app_name }}-sandbox
+    app: ${{ defaults.app_name }}-code-sandbox
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+      protocol: TCP
 
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ${{ defaults.app_name }}-sandbox
+  name: ${{ defaults.app_name }}-code-sandbox
   annotations:
-    originImageName: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-sandbox:v4.12.4
+    originImageName: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-code-sandbox:v4.14.22
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
     deploy.cloud.sealos.io/resize: 0Gi
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-sandbox
-    app: ${{ defaults.app_name }}-sandbox
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-code-sandbox
+    app: ${{ defaults.app_name }}-code-sandbox
 spec:
   replicas: 1
   revisionHistoryLimit: 1
   selector:
     matchLabels:
-      app: ${{ defaults.app_name }}-sandbox
+      app: ${{ defaults.app_name }}-code-sandbox
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -485,13 +696,45 @@ spec:
   template:
     metadata:
       labels:
-        app: ${{ defaults.app_name }}-sandbox
+        app: ${{ defaults.app_name }}-code-sandbox
     spec:
       automountServiceAccountToken: false
       containers:
-        - name: ${{ defaults.app_name }}-sandbox
-          image: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-sandbox:v4.12.4
-          env: []
+        - name: ${{ defaults.app_name }}-code-sandbox
+          image: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-code-sandbox:v4.14.22
+          env:
+            - name: LOG_ENABLE_CONSOLE
+              value: 'true'
+            - name: LOG_CONSOLE_LEVEL
+              value: debug
+            - name: LOG_ENABLE_OTEL
+              value: 'false'
+            - name: LOG_OTEL_LEVEL
+              value: info
+            - name: LOG_OTEL_SERVICE_NAME
+              value: fastgpt-code-sandbox
+            - name: SANDBOX_TOKEN
+              value: ${{ defaults.code_sandbox_token }}
+            - name: SANDBOX_MAX_TIMEOUT
+              value: '60000'
+            - name: SANDBOX_MAX_MEMORY_MB
+              value: '256'
+            - name: SANDBOX_POOL_SIZE
+              value: '20'
+            - name: CHECK_INTERNAL_IP
+              value: 'false'
+            - name: SANDBOX_REQUEST_MAX_COUNT
+              value: '30'
+            - name: SANDBOX_REQUEST_TIMEOUT
+              value: '60000'
+            - name: SANDBOX_REQUEST_MAX_RESPONSE_MB
+              value: '10'
+            - name: SANDBOX_REQUEST_MAX_BODY_MB
+              value: '5'
+            - name: SANDBOX_JS_ALLOWED_MODULES
+              value: lodash,dayjs,moment,uuid,crypto-js,qs,url,querystring
+            - name: SANDBOX_PYTHON_ALLOWED_MODULES
+              value: math,cmath,decimal,fractions,random,statistics,collections,array,heapq,bisect,queue,copy,itertools,functools,operator,string,re,difflib,textwrap,unicodedata,codecs,datetime,time,calendar,_strptime,json,csv,base64,binascii,struct,hashlib,hmac,secrets,uuid,typing,abc,enum,dataclasses,contextlib,pprint,weakref,numpy,pandas,matplotlib
           resources:
             requests:
               cpu: 50m
@@ -511,12 +754,16 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-mcp-server
   labels:
+    app: ${{ defaults.app_name }}-mcp-server
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-mcp-server
 spec:
-  ports:
-    - port: 3000
   selector:
     app: ${{ defaults.app_name }}-mcp-server
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+      protocol: TCP
 
 ---
 apiVersion: apps/v1
@@ -524,7 +771,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-mcp-server
   annotations:
-    originImageName: ghcr.io/labring/fastgpt-mcp_server:v4.12.4
+    originImageName: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-mcp_server:v4.14.22
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
     deploy.cloud.sealos.io/resize: 0Gi
@@ -550,10 +797,20 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}-mcp-server
-          image: ghcr.io/labring/fastgpt-mcp_server:v4.12.4
-          env: 
-          - name: FASTGPT_ENDPOINT
-            value: http://${{ defaults.app_name }}.${{ SEALOS_NAMESPACE }}.svc.cluster.local:3000
+          image: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-mcp_server:v4.14.22
+          env:
+            - name: FASTGPT_ENDPOINT
+              value: http://${{ defaults.app_name }}.${{ SEALOS_NAMESPACE }}.svc.cluster.local:3000
+            - name: LOG_ENABLE_CONSOLE
+              value: 'true'
+            - name: LOG_CONSOLE_LEVEL
+              value: debug
+            - name: LOG_ENABLE_OTEL
+              value: 'false'
+            - name: LOG_OTEL_LEVEL
+              value: info
+            - name: LOG_OTEL_SERVICE_NAME
+              value: fastgpt-mcp-server
           resources:
             requests:
               cpu: 50m
@@ -562,7 +819,9 @@ spec:
               cpu: 500m
               memory: 1024Mi
           ports:
-            - containerPort: 3000
+            - name: http
+              containerPort: 3000
+              protocol: TCP
           imagePullPolicy: IfNotPresent
           volumeMounts: []
       volumes: []
@@ -574,26 +833,31 @@ metadata:
   name: ${{ defaults.app_name }}-mcp-server
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-mcp-server
-    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}-mcp-server
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.mcp_host }}
   annotations:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/proxy-body-size: 32m
-    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
     nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
-    nginx.ingress.kubernetes.io/server-snippet: |
-      client_header_buffer_size 64k;
-      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
 spec:
   rules:
-    - host: ${{ defaults.app_host }}-mcp-server.${{ SEALOS_CLOUD_DOMAIN }}
+    - host: ${{ defaults.mcp_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       http:
         paths:
-          - pathType: Prefix
-            path: /
+          - path: /
+            pathType: Prefix
             backend:
               service:
                 name: ${{ defaults.app_name }}-mcp-server
@@ -601,7 +865,7 @@ spec:
                   number: 3000
   tls:
     - hosts:
-        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+        - ${{ defaults.mcp_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
 
 ---
@@ -632,11 +896,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 500m
-          memory: 1Gi
+          cpu: 1000m
+          memory: 2Gi
         requests:
-          cpu: 50m
-          memory: 128Mi
+          cpu: 100m
+          memory: 256Mi
       serviceVersion: 8.0.4
       serviceAccountName: ${{ defaults.app_name }}-mongodb
       volumeClaimTemplates:
@@ -653,10 +917,10 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongodb
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongodb
     app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-mongo
+  name: ${{ defaults.app_name }}-mongodb
 rules:
   - apiGroups:
       - '*'
@@ -670,17 +934,17 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongodb
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongodb
     app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-mongo
+  name: ${{ defaults.app_name }}-mongodb
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: ${{ defaults.app_name }}-mongo
+  name: ${{ defaults.app_name }}-mongodb
 subjects:
   - kind: ServiceAccount
-    name: ${{ defaults.app_name }}-mongo
+    name: ${{ defaults.app_name }}-mongodb
 
 ---
 apiVersion: apps.kubeblocks.io/v1alpha1
@@ -812,8 +1076,9 @@ metadata:
   finalizers:
     - cluster.kubeblocks.io/finalizer
   labels:
+    kb.io/database: postgresql-16.4.0
     clusterdefinition.kubeblocks.io/name: postgresql
-    clusterversion.kubeblocks.io/name: postgresql-14.8.0
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
     sealos-db-provider-cr: ${{ defaults.app_name }}-aiproxy-pg
   annotations: {}
   name: ${{ defaults.app_name }}-aiproxy-pg
@@ -824,7 +1089,7 @@ spec:
     tenancy: SharedNode
     topologyKeys: []
   clusterDefinitionRef: postgresql
-  clusterVersionRef: postgresql-14.8.0
+  clusterVersionRef: postgresql-16.4.0
   backup:
     enabled: true
     cronExpression: 0 18 * * *
@@ -833,16 +1098,19 @@ spec:
     retentionPeriod: 7d
   componentSpecs:
     - componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
       monitor: true
       name: postgresql
       replicas: 1
       resources:
         limits:
-          cpu: 500m
-          memory: 1Gi
+          cpu: 2
+          memory: 2Gi
         requests:
-          cpu: 50m
-          memory: 128Mi
+          cpu: 200m
+          memory: 256Mi
       serviceAccountName: ${{ defaults.app_name }}-aiproxy-pg
       switchPolicy:
         type: Noop
@@ -893,6 +1161,58 @@ subjects:
     name: ${{ defaults.app_name }}-aiproxy-pg
 
 ---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-aiproxy-pg-init
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: pgsql-init
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-aiproxy-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-aiproxy-pg-conn-credential
+                  key: port
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-aiproxy-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-aiproxy-pg-conn-credential
+                  key: password
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              for i in $(seq 1 60); do
+                if pg_isready -h "${PG_HOST}" -p "${PG_PORT}" -U "${PG_USERNAME}" -d postgres >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 2
+              done
+              pg_isready -h "${PG_HOST}" -p "${PG_PORT}" -U "${PG_USERNAME}" -d postgres >/dev/null 2>&1
+              if ! psql "postgresql://${PG_USERNAME}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='aiproxy'" | grep -q 1; then
+                psql "postgresql://${PG_USERNAME}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/postgres" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE "aiproxy";'
+              fi
+
+---
 apiVersion: apps.kubeblocks.io/v1alpha1
 kind: Cluster
 metadata:
@@ -929,11 +1249,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 500m
-          memory: 512Mi
+          cpu: 1000m
+          memory: 2Gi
         requests:
-          cpu: 50m
-          memory: 51Mi
+          cpu: 100m
+          memory: 256Mi
       volumeClaimTemplates:
         - name: data
           spec:
@@ -996,12 +1316,3 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: ${{ defaults.app_name }}-redis
-
----
-apiVersion: objectstorage.sealos.io/v1
-kind: ObjectStorageBucket
-metadata:
-  name: ${{ defaults.app_name }}-plugin
-spec:
-  policy: publicRead
-
