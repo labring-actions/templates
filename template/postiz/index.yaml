@@ -7,140 +7,61 @@ spec:
   url: "https://postiz.com/"
   gitRepo: "https://github.com/gitroomhq/postiz-app"
   author: "Sealos"
-  description: "Postiz is an open source social media management platform."
-  readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/postiz/README.md'
-  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/postiz/logo.svg'
+  description: "Postiz is an open source social media scheduling and management platform."
+  readme: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/postiz/README.md"
+  icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/postiz/logo.svg"
   screenshots:
-    - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/postiz/website-screenshot.webp'
+    - "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/postiz/website-screenshot.webp"
   templateType: inline
   categories:
-    - backend
     - tool
+    - backend
   locale: en
   i18n:
     zh:
-      title: "Postiz"
-      description: "部署包含 PostgreSQL 与 Redis 的 Postiz 自托管版本。"
-      readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/postiz/README_zh.md'
+      description: "开源社交媒体排程与管理平台，支持本地账号注册、PostgreSQL、Redis 和 Temporal 工作流。"
+      readme: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/postiz/README_zh.md"
   defaults:
     app_name:
       type: string
       value: postiz-${{ random(8) }}
     app_host:
       type: string
-      value: ${{ random(8) }}
-    JWT_SECRET:
+      value: postiz-${{ random(8) }}
+    jwt_secret:
       type: string
-      value: ${{ random(8) }}
-  inputs:
-    GITHUB_CLIENT_ID:
-      description: "GitHub OAuth Client ID (optional)"
-      type: string
-      default: ""
-      required: false
-    GITHUB_CLIENT_SECRET:
-      description: "GitHub OAuth Client Secret (optional)"
-      type: string
-      default: ""
-      required: false
-    RESEND_API_KEY:
-      description: "Resend email service API key (optional)"
-      type: string
-      default: ""
-      required: false
-    X_API_KEY:
-      description: "X/Twitter API key (optional)"
-      type: string
-      default: ""
-      required: false
-    X_API_SECRET:
-      description: "X/Twitter API secret (optional)"
-      type: string
-      default: ""
-      required: false
+      value: ${{ random(64) }}
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
+  name: ${{ defaults.app_name }}-pg
   labels:
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
     app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
     app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-pg
-
----
-apiVersion: apps.kubeblocks.io/v1alpha1
-kind: Cluster
-metadata:
-  finalizers:
-    - cluster.kubeblocks.io/finalizer
-  labels:
-    clusterdefinition.kubeblocks.io/name: postgresql
-    clusterversion.kubeblocks.io/name: postgresql-14.8.0
-    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
-  annotations: {}
-  name: ${{ defaults.app_name }}-pg
-spec:
-  affinity:
-    nodeLabels: {}
-    podAntiAffinity: Preferred
-    tenancy: SharedNode
-    topologyKeys: []
-  clusterDefinitionRef: postgresql
-  clusterVersionRef: postgresql-14.8.0
-  componentSpecs:
-    - componentDefRef: postgresql
-      monitor: true
-      name: postgresql
-      replicas: 1
-      resources:
-        limits:
-          cpu: 500m
-          memory: 512Mi
-        requests:
-          cpu: 50m
-          memory: 51Mi
-      serviceAccountName: ${{ defaults.app_name }}-pg
-      switchPolicy:
-        type: Noop
-      volumeClaimTemplates:
-        - name: data
-          spec:
-            accessModes:
-              - ReadWriteOnce
-            resources:
-              requests:
-                storage: 1Gi
-
-  terminationPolicy: Delete
-  tolerations: []
-
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
+  name: ${{ defaults.app_name }}-pg
   labels:
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
     app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
     app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-pg
 rules:
-  - apiGroups:
-      - "*"
-    resources:
-      - "*"
-    verbs:
-      - "*"
-
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["*"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
+  name: ${{ defaults.app_name }}-pg
   labels:
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
     app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
     app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-pg
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -148,115 +69,33 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: ${{ defaults.app_name }}-pg
-
----
-# Init DB: create database "postiz"
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: ${{ defaults.app_name }}-pg-init
-spec:
-  ttlSecondsAfterFinished: 300
-  backoffLimit: 0
-  completions: 1
-  template:
-    spec:
-      restartPolicy: Never
-      containers:
-        - name: pgsql-init
-          image: postgres:14-alpine
-          env:
-            - name: PG_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: password
-            - name: DATABASE_URL
-              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
-          command: ["/bin/sh", "-c"]
-          args:
-            - |
-              until psql ${DATABASE_URL} -c 'CREATE DATABASE postiz;' &>/dev/null; do echo waiting for postgres; sleep 1; done
----
-# Redis (via KubeBlocks)
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: ${{ defaults.app_name }}-redis
-  labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
-    app.kubernetes.io/managed-by: kbcli
-
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
-    app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-redis
-rules:
-  - apiGroups:
-      - "*"
-    resources:
-      - "*"
-    verbs:
-      - "*"
-
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
-    app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-redis
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: ${{ defaults.app_name }}-redis
-subjects:
-  - kind: ServiceAccount
-    name: ${{ defaults.app_name }}-redis
-
 ---
 apiVersion: apps.kubeblocks.io/v1alpha1
 kind: Cluster
 metadata:
+  name: ${{ defaults.app_name }}-pg
   finalizers:
     - cluster.kubeblocks.io/finalizer
-  name: ${{ defaults.app_name }}-redis
   labels:
-    clusterdefinition.kubeblocks.io/name: redis
-    kb.io/database: redis-7.2.7
-    app.kubernetes.io/instance: ${{ defaults.app_name }}
-    app.kubernetes.io/version: 7.2.7
-    helm.sh/chart: redis-cluster-0.9.0
-    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
 spec:
-  clusterDefinitionRef: redis
   affinity:
     podAntiAffinity: Preferred
-    topologyKeys:
-      - kubernetes.io/hostname
-  tolerations:
-    - key: kb-data
-      operator: Equal
-      value: "true"
-      effect: NoSchedule
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
   componentSpecs:
-    - name: redis
-      componentDef: redis-7
+    - name: postgresql
+      componentDefRef: postgresql
+      disableExporter: true
       enabledLogs:
         - running
-      env:
-        - name: CUSTOM_SENTINEL_MASTER_NAME
-      serviceVersion: 7.2.7
-      serviceAccountName: ${{ defaults.app_name }}-redis
       replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
       resources:
         limits:
           cpu: 500m
@@ -272,17 +111,164 @@ spec:
             resources:
               requests:
                 storage: 1Gi
-    - componentDef: redis-sentinel-7
-      name: redis-sentinel
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: pgsql-init
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: endpoint
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              export PGPASSWORD="${PG_PASSWORD}"
+              PG_HOST="${PG_ENDPOINT%:*}"
+              PG_PORT="${PG_ENDPOINT##*:}"
+              until pg_isready -h "${PG_HOST}" -p "${PG_PORT}" -U postgres; do
+                echo "waiting for PostgreSQL readiness"
+                sleep 2
+              done
+              for i in $(seq 1 120); do
+                if psql -h "${PG_HOST}" -p "${PG_PORT}" -U postgres -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='postiz'" | grep -q 1; then
+                  exit 0
+                fi
+                if psql -h "${PG_HOST}" -p "${PG_PORT}" -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"postiz\";" >/dev/null 2>&1; then
+                  exit 0
+                fi
+                echo "waiting for PostgreSQL to create postiz"
+                sleep 2
+              done
+              echo "failed to create database postiz" >&2
+              exit 1
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-redis
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-redis
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  labels:
+    kb.io/database: redis-7.2.7
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/version: 7.2.7
+    clusterversion.kubeblocks.io/name: redis-7.2.7
+    clusterdefinition.kubeblocks.io/name: redis
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys:
+      - kubernetes.io/hostname
+  clusterDefinitionRef: redis
+  componentSpecs:
+    - name: redis
+      componentDef: redis-7
+      enabledLogs:
+        - running
+      env:
+        - name: CUSTOM_SENTINEL_MASTER_NAME
       replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      serviceVersion: 7.2.7
+      switchPolicy:
+        type: Noop
       resources:
         limits:
-          cpu: 100m
-          memory: 100Mi
+          cpu: 500m
+          memory: 512Mi
         requests:
-          cpu: 10m
-          memory: 10Mi
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+    - name: redis-sentinel
+      componentDef: redis-sentinel-7
+      replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-redis
       serviceVersion: 7.2.7
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
       volumeClaimTemplates:
         - name: data
           spec:
@@ -294,18 +280,239 @@ spec:
   terminationPolicy: Delete
   topology: replication
 ---
-# Application
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-temporal
+  labels:
+    app: ${{ defaults.app_name }}-temporal
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-temporal
+data:
+  vn-etcvn-temporalvn-configvn-dynamicconfigvn-developme-4da89dc5: |
+    limit.maxIDLength:
+      - value: 255
+        constraints: {}
+    system.forceSearchAttributesCacheRefreshOnRead:
+      - value: true
+        constraints: {}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-temporal-es
+  annotations:
+    docker-to-sealos.resource-override-source: 'Empirical Sealos deployment test for Postiz v2.21.8: Elasticsearch 7.17.27 with 256Mi heap requires a 1024Mi memory limit to stay Ready; 512Mi caused unsafe headroom for Temporal visibility storage.'
+    originImageName: elasticsearch:7.17.27
+    deploy.cloud.sealos.io/minReplicas: "1"
+    deploy.cloud.sealos.io/maxReplicas: "1"
+  labels:
+    app: ${{ defaults.app_name }}-temporal-es
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-temporal-es
+spec:
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}-temporal-es
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-temporal-es
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-temporal-es
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: take-data-dir-ownership
+          image: busybox:1.36.1
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c", "chown -R 1000:0 /usr/share/elasticsearch/data"]
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          volumeMounts:
+            - name: vn-usrvn-sharevn-elasticsearchvn-data
+              mountPath: /usr/share/elasticsearch/data
+      containers:
+        - name: ${{ defaults.app_name }}-temporal-es
+          image: elasticsearch:7.17.27
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: discovery.type
+              value: single-node
+            - name: ES_JAVA_OPTS
+              value: -Xms256m -Xmx256m
+            - name: xpack.security.enabled
+              value: "false"
+          ports:
+            - name: http
+              containerPort: 9200
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 20
+          resources:
+            limits:
+              cpu: 500m
+              memory: 1024Mi
+            requests:
+              cpu: 50m
+              memory: 102Mi
+          volumeMounts:
+            - name: vn-usrvn-sharevn-elasticsearchvn-data
+              mountPath: /usr/share/elasticsearch/data
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /usr/share/elasticsearch/data
+          value: "1"
+        name: vn-usrvn-sharevn-elasticsearchvn-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+        storageClassName: openebs-backup
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-temporal
+  annotations:
+    docker-to-sealos.resource-override-source: 'Empirical Sealos deployment test for Postiz v2.21.8: Temporal 1.28.1 stayed Ready with 500m CPU / 512Mi memory while serving Postiz workflows; SQL connection caps are required so Postiz can start against the 56-connection PostgreSQL baseline.'
+    originImageName: temporalio/auto-setup:1.28.1
+    deploy.cloud.sealos.io/minReplicas: "1"
+    deploy.cloud.sealos.io/maxReplicas: "1"
+  labels:
+    app: ${{ defaults.app_name }}-temporal
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-temporal
+spec:
+  revisionHistoryLimit: 1
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-temporal
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-temporal
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-temporal
+          image: temporalio/auto-setup:1.28.1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DB
+              value: postgres12
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: POSTGRES_SEEDS
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: POSTGRES_PWD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DBNAME
+              value: temporal
+            - name: VISIBILITY_DBNAME
+              value: temporal_visibility
+            - name: DYNAMIC_CONFIG_FILE_PATH
+              value: config/dynamicconfig/development-sql.yaml
+            - name: ENABLE_ES
+              value: "true"
+            - name: ES_SEEDS
+              value: ${{ defaults.app_name }}-temporal-es
+            - name: ES_VERSION
+              value: v7
+            - name: TEMPORAL_NAMESPACE
+              value: default
+            - name: NUM_HISTORY_SHARDS
+              value: "1"
+            - name: SQL_MAX_CONNS
+              value: "10"
+            - name: SQL_MAX_IDLE_CONNS
+              value: "5"
+            - name: SQL_VIS_MAX_CONNS
+              value: "5"
+          ports:
+            - name: grpc
+              containerPort: 7233
+          startupProbe:
+            tcpSocket:
+              port: grpc
+            periodSeconds: 10
+            failureThreshold: 60
+          readinessProbe:
+            tcpSocket:
+              port: grpc
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 60
+            periodSeconds: 20
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 50m
+              memory: 51Mi
+          volumeMounts:
+            - name: vn-etcvn-temporalvn-configvn-dynamicconfigvn-developme-4da89dc5
+              mountPath: /etc/temporal/config/dynamicconfig/development-sql.yaml
+              subPath: development-sql.yaml
+      volumes:
+        - name: vn-etcvn-temporalvn-configvn-dynamicconfigvn-developme-4da89dc5
+          configMap:
+            name: ${{ defaults.app_name }}-temporal
+            defaultMode: 420
+            items:
+              - key: vn-etcvn-temporalvn-configvn-dynamicconfigvn-developme-4da89dc5
+                path: development-sql.yaml
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: ghcr.io/gitroomhq/postiz-app:v2.5.3
+    docker-to-sealos.resource-override-source: 'Empirical Sealos deployment test for Postiz v2.21.8: combined nginx, frontend, backend and orchestrator workload used about 718Mi at idle; 4Gi memory is required for cold start stability after live Sealos redeploy testing; 2G OOMKilled during Postiz workflow bundle generation, and bare G quantities can be misreported by the Sealos Template API quota preview.'
+    originImageName: ghcr.io/gitroomhq/postiz-app:v2.21.8
     deploy.cloud.sealos.io/minReplicas: "1"
     deploy.cloud.sealos.io/maxReplicas: "1"
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   revisionHistoryLimit: 1
   replicas: 1
@@ -319,12 +526,11 @@ spec:
         app: ${{ defaults.app_name }}
     spec:
       automountServiceAccountToken: false
-      containers:
-        - name: ${{ defaults.app_name }}
-          image: ghcr.io/gitroomhq/postiz-app:v2.5.3
+      initContainers:
+        - name: wait-for-dependencies
+          image: busybox:1.36.1
           imagePullPolicy: IfNotPresent
           env:
-            # PostgreSQL (KubeBlocks secret: <app>-pg-conn-credential)
             - name: DB_HOSTNAME
               valueFrom:
                 secretKeyRef:
@@ -335,6 +541,60 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: port
+            - name: REDIS_HOSTNAME
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc
+            - name: REDIS_PORT
+              value: "6379"
+            - name: TEMPORAL_HOST
+              value: ${{ defaults.app_name }}-temporal.${{ SEALOS_NAMESPACE }}.svc
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              wait_for_tcp() {
+                name="$1"
+                host="$2"
+                port="$3"
+                for i in $(seq 1 240); do
+                  if nc -z "$host" "$port" >/dev/null 2>&1; then
+                    echo "$name is ready"
+                    return 0
+                  fi
+                  echo "waiting for $name at $host:$port"
+                  sleep 2
+                done
+                echo "$name did not become ready" >&2
+                return 1
+              }
+              wait_for_tcp PostgreSQL "$DB_HOSTNAME" "$DB_PORT"
+              wait_for_tcp Redis "$REDIS_HOSTNAME" "$REDIS_PORT"
+              wait_for_tcp Temporal "$TEMPORAL_HOST" 7233
+              sleep 20
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: ghcr.io/gitroomhq/postiz-app:v2.21.8
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DB_HOSTNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: POSTIZ_POOLER_SERVICE_PORT
+              value: "6432"
             - name: DB_USERNAME
               valueFrom:
                 secretKeyRef:
@@ -346,12 +606,13 @@ spec:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
             - name: DATABASE_URL
-              value: postgresql://$(DB_USERNAME):$(DB_PASSWORD)@$(DB_HOSTNAME):$(DB_PORT)/postiz
-            # Redis (KubeBlocks secret: <app>-redis-redis-account-default)
+              value: postgresql://$(DB_USERNAME):$(DB_PASSWORD)@$(DB_HOSTNAME):$(DB_PORT)/postiz?connection_limit=10&pool_timeout=30
+            - name: PORT
+              value: "3000"
             - name: REDIS_HOSTNAME
               value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc
             - name: REDIS_PORT
-              value: '6379'
+              value: "6379"
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -359,19 +620,12 @@ spec:
                   key: password
             - name: REDIS_URL
               value: redis://:$(REDIS_PASSWORD)@$(REDIS_HOSTNAME):$(REDIS_PORT)/0
-            # App settings
+            - name: TEMPORAL_ADDRESS
+              value: ${{ defaults.app_name }}-temporal.${{ SEALOS_NAMESPACE }}.svc:7233
+            - name: TEMPORAL_NAMESPACE
+              value: default
             - name: JWT_SECRET
-              value: ${{ defaults.JWT_SECRET }}
-            - name: GITHUB_CLIENT_ID
-              value: ${{ inputs.GITHUB_CLIENT_ID }}
-            - name: GITHUB_CLIENT_SECRET
-              value: ${{ inputs.GITHUB_CLIENT_SECRET }}
-            - name: RESEND_API_KEY
-              value: ${{ inputs.RESEND_API_KEY }}
-            - name: X_API_KEY
-              value: ${{ inputs.X_API_KEY }}
-            - name: X_API_SECRET
-              value: ${{ inputs.X_API_SECRET }}
+              value: ${{ defaults.jwt_secret }}
             - name: MAIN_URL
               value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: FRONTEND_URL
@@ -379,33 +633,72 @@ spec:
             - name: NEXT_PUBLIC_BACKEND_URL
               value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/api
             - name: BACKEND_INTERNAL_URL
-              value: "http://localhost:3000"
+              value: http://localhost:3000
             - name: IS_GENERAL
               value: "true"
             - name: DISABLE_REGISTRATION
               value: "false"
             - name: STORAGE_PROVIDER
-              value: "local"
+              value: local
             - name: UPLOAD_DIRECTORY
-              value: "/uploads"
+              value: /uploads
             - name: NEXT_PUBLIC_UPLOAD_DIRECTORY
-              value: "/uploads"
+              value: /uploads
+            - name: API_LIMIT
+              value: "30"
+            - name: FEE_AMOUNT
+              value: "0.05"
+            - name: NX_ADD_PLUGINS
+              value: "false"
+            - name: X_URL
+              value: ""
+            - name: X_API_KEY
+              value: ""
+            - name: X_API_SECRET
+              value: ""
+            - name: GITHUB_CLIENT_ID
+              value: ""
+            - name: GITHUB_CLIENT_SECRET
+              value: ""
+            - name: YOUTUBE_CLIENT_ID
+              value: ""
+            - name: YOUTUBE_CLIENT_SECRET
+              value: ""
+            - name: MASTODON_URL
+              value: https://mastodon.social
+          ports:
+            - name: http
+              containerPort: 5000
+          startupProbe:
+            httpGet:
+              path: /api/auth/can-register
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 120
+          readinessProbe:
+            httpGet:
+              path: /api/auth/can-register
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 120
+            periodSeconds: 20
           resources:
-            requests:
-              cpu: 50m
-              memory: 204Mi
             limits:
               cpu: 500m
-              memory: 2048Mi
-          ports:
-            - containerPort: 5000
+              memory: 4096Mi
+            requests:
+              cpu: 50m
+              memory: 409Mi
           volumeMounts:
             - name: vn-uploads
               mountPath: /uploads
             - name: vn-config
               mountPath: /config
-            - name: vn-rootvn-vn-cache
-              mountPath: /root/.cache
   volumeClaimTemplates:
     - metadata:
         annotations:
@@ -418,6 +711,7 @@ spec:
         resources:
           requests:
             storage: 1Gi
+        storageClassName: openebs-backup
     - metadata:
         annotations:
           path: /config
@@ -429,27 +723,50 @@ spec:
         resources:
           requests:
             storage: 1Gi
-    - metadata:
-        annotations:
-          path: /root/.cache
-          value: "1"
-        name: vn-rootvn-vn-cache
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 1Gi
+        storageClassName: openebs-backup
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-temporal-es
+  labels:
+    app: ${{ defaults.app_name }}-temporal-es
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-temporal-es
+spec:
+  ports:
+    - name: http
+      port: 9200
+      targetPort: http
+  selector:
+    app: ${{ defaults.app_name }}-temporal-es
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-temporal
+  labels:
+    app: ${{ defaults.app_name }}-temporal
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-temporal
+spec:
+  ports:
+    - name: grpc
+      port: 7233
+      targetPort: grpc
+  selector:
+    app: ${{ defaults.app_name }}-temporal
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 5000
+    - name: http
+      port: 5000
+      targetPort: http
   selector:
     app: ${{ defaults.app_name }}
 ---
@@ -458,6 +775,7 @@ kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
@@ -473,7 +791,7 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
     nginx.ingress.kubernetes.io/configuration-snippet: |
-      if ($request_uri ~* \\.(js|css|gif|jpe?g|png)) {
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
         expires 30d;
         add_header Cache-Control "public";
       }
@@ -493,7 +811,6 @@ spec:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
-
 ---
 apiVersion: app.sealos.io/v1
 kind: App
@@ -506,5 +823,5 @@ spec:
     url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
   displayType: normal
   icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/postiz/logo.svg"
-  name: ${{ defaults.app_name }}
+  name: Postiz
   type: link
