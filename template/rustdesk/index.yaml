@@ -1,137 +1,175 @@
 apiVersion: app.sealos.io/v1
 kind: Template
 metadata:
-  name: rustdesk
+    name: rustdesk
 spec:
-  title: RustDesk
-  url: 'https://rustdesk.com/'
-  gitRepo: 'https://github.com/rustdesk/rustdesk'
-  author: 'L.King'
-  description: 'An open-source remote desktop application designed for self-hosting, as an alternative to TeamViewer.'
-  readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/rustdesk/README.md'
-  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/rustdesk/logo.png'
-  screenshots:
-    - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/rustdesk/website-screenshot.webp'
-
-  templateType: inline
-  locale: zh
-  defaults:
-    app_host:
-      type: string
-      value: ${{ random(8) }}
-    app_name:
-      type: string
-      value: rustdesk-${{ random(8) }}
-  inputs:
-    ENCRYPTED_ONLY:
-      description: '1: Restricted to secure data transmission with public key only, 0: Allows for unsecure data transmission'
-      type: choice
-      options:
-        - 1
-        - 0
-      required: true
-
-  i18n:
-    zh:
-      readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/rustdesk/README_zh.md'
+    title: RustDesk
+    url: "https://rustdesk.com/"
+    gitRepo: "https://github.com/rustdesk/rustdesk-server"
+    author: "Sealos"
+    description: "An open-source remote desktop server for self-hosted RustDesk ID/rendezvous and relay services."
+    readme: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/rustdesk/README.md"
+    icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/rustdesk/logo.png"
+    screenshots:
+        - "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/rustdesk/website-screenshot.webp"
+    templateType: inline
+    locale: en
+    categories:
+        - tool
+    defaults:
+        app_host:
+            type: string
+            value: rustdesk-${{ random(8) }}
+        app_name:
+            type: string
+            value: rustdesk-${{ random(8) }}
+    inputs:
+        ENCRYPTED_ONLY:
+            description: "Use 1 to require encrypted connections with the server public key; use 0 to allow unencrypted connections."
+            type: choice
+            options:
+                - "1"
+                - "0"
+            default: "1"
+            required: true
+    i18n:
+        zh:
+            description: "用于自托管 RustDesk ID/会合服务和中继服务的开源远程桌面服务器。"
+            readme: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/rustdesk/README_zh.md"
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: ${{ defaults.app_name }}
-  annotations:
-    originImageName: rustdesk/rustdesk-server-s6:latest
-    deploy.cloud.sealos.io/minReplicas: '1'
-    deploy.cloud.sealos.io/maxReplicas: '1'
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-    app: ${{ defaults.app_name }}
-spec:
-  replicas: 1
-  revisionHistoryLimit: 1
-  minReadySeconds: 10
-  serviceName: ${{ defaults.app_name }}
-  selector:
-    matchLabels:
-      app: ${{ defaults.app_name }}
-  template:
-    metadata:
-      labels:
+    name: ${{ defaults.app_name }}
+    annotations:
+        originImageName: rustdesk/rustdesk-server-s6:1.1.15
+        deploy.cloud.sealos.io/minReplicas: "1"
+        deploy.cloud.sealos.io/maxReplicas: "1"
+        docker-to-sealos.resource-override-source: "Live Sealos resource tuning on 2026-05-29 verified RustDesk server at requests cpu=1m,memory=5Mi and limits cpu=20m,memory=24Mi."
+    labels:
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
         app: ${{ defaults.app_name }}
-    spec:
-      terminationGracePeriodSeconds: 10
-      automountServiceAccountToken: false
-      containers:
-        - name: ${{ defaults.app_name }}
-          image: rustdesk/rustdesk-server-s6:latest
-          env:
-            - name: RELAY
-              value: '${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}'
-            - name: ENCRYPTED_ONLY
-              value: '${{ inputs.ENCRYPTED_ONLY }}'
-          resources:
-            requests:
-              cpu: 20m
-              memory: 64Mi
-            limits:
-              cpu: 200m
-              memory: 128Mi
-          ports:
-            - containerPort: 21115
-              protocol: TCP
-              name: 'heartbeat'
-            - containerPort: 21116
-              protocol: TCP
-              name: 'rendezvous-tcp'
-            - containerPort: 21116
-              protocol: UDP
-              name: 'rendezvous-udp'
-            - containerPort: 21117
-              protocol: TCP
-              name: 'relay'
-          imagePullPolicy: IfNotPresent
-          volumeMounts:
-            - name: vn-data
-              mountPath: /data
-      volumes: []
-  volumeClaimTemplates:
-    - metadata:
-        annotations:
-          path: /data
-          value: '1'
-        name: vn-data
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 256Mi
-
+spec:
+    replicas: 1
+    revisionHistoryLimit: 1
+    minReadySeconds: 10
+    serviceName: ${{ defaults.app_name }}
+    selector:
+        matchLabels:
+            app: ${{ defaults.app_name }}
+    template:
+        metadata:
+            labels:
+                app: ${{ defaults.app_name }}
+        spec:
+            terminationGracePeriodSeconds: 10
+            automountServiceAccountToken: false
+            containers:
+                - name: ${{ defaults.app_name }}
+                  image: rustdesk/rustdesk-server-s6:1.1.15
+                  imagePullPolicy: IfNotPresent
+                  env:
+                      - name: RELAY
+                        value: "${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+                      - name: ENCRYPTED_ONLY
+                        value: "${{ inputs.ENCRYPTED_ONLY }}"
+                  resources:
+                      requests:
+                          cpu: 10m
+                          memory: 12Mi
+                      limits:
+                          cpu: 100m
+                          memory: 128Mi
+                  ports:
+                      - containerPort: 21115
+                        protocol: TCP
+                        name: heartbeat
+                      - containerPort: 21116
+                        protocol: TCP
+                        name: rendezvous-tcp
+                      - containerPort: 21116
+                        protocol: UDP
+                        name: rendezvous-udp
+                      - containerPort: 21117
+                        protocol: TCP
+                        name: relay
+                  startupProbe:
+                      exec:
+                          command:
+                              - /usr/bin/healthcheck.sh
+                      initialDelaySeconds: 5
+                      periodSeconds: 10
+                      failureThreshold: 30
+                      timeoutSeconds: 5
+                  readinessProbe:
+                      exec:
+                          command:
+                              - /usr/bin/healthcheck.sh
+                      periodSeconds: 10
+                      failureThreshold: 3
+                      timeoutSeconds: 5
+                  livenessProbe:
+                      exec:
+                          command:
+                              - /usr/bin/healthcheck.sh
+                      periodSeconds: 30
+                      failureThreshold: 3
+                      timeoutSeconds: 5
+                  volumeMounts:
+                      - name: vn-data
+                        mountPath: /data
+    volumeClaimTemplates:
+        - metadata:
+              annotations:
+                  path: /data
+                  value: "1"
+              name: vn-data
+          spec:
+              accessModes:
+                  - ReadWriteOnce
+              resources:
+                  requests:
+                      storage: 256Mi
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: ${{ defaults.app_name }}-nodeport
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    name: ${{ defaults.app_name }}
+    labels:
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+        app: ${{ defaults.app_name }}
 spec:
-  type: NodePort
-  ports:
-    - protocol: UDP
-      port: 21116
-      targetPort: 21116
-      name: 'rendezvous-udp'
-    - protocol: TCP
-      port: 21116
-      targetPort: 21116
-      name: 'rendezvous-tcp'
-    - protocol: TCP
-      port: 21117
-      targetPort: 21117
-      name: 'relay'
-    - protocol: TCP
-      port: 21115
-      targetPort: 21115
-      name: 'heartbeat'
-  selector:
-    app: ${{ defaults.app_name }}
+    type: NodePort
+    ports:
+        - protocol: UDP
+          port: 21116
+          targetPort: 21116
+          name: rendezvous-udp
+        - protocol: TCP
+          port: 21116
+          targetPort: 21116
+          name: rendezvous-tcp
+        - protocol: TCP
+          port: 21117
+          targetPort: 21117
+          name: relay
+        - protocol: TCP
+          port: 21115
+          targetPort: 21115
+          name: heartbeat
+    selector:
+        app: ${{ defaults.app_name }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+    name: ${{ defaults.app_name }}
+    labels:
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+    data:
+        url: tcp.${{ SEALOS_CLOUD_DOMAIN }}
+    displayType: normal
+    icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/rustdesk/logo.png"
+    name: RustDesk
+    type: link
