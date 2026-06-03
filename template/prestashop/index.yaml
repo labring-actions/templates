@@ -1,0 +1,418 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: prestashop
+spec:
+  title: PrestaShop
+  url: https://www.prestashop-project.org/
+  gitRepo: https://github.com/PrestaShop/PrestaShop
+  author: Sealos
+  description: Open-source e-commerce platform for building customizable online stores, catalogs, carts, checkout flows, and merchant back offices.
+  readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/prestashop/README.md'
+  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/prestashop/logo.png'
+  screenshots:
+    - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/prestashop/website-screenshot.webp'
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: 开源电商平台，用于构建可定制的在线商店、商品目录、购物车、结账流程和商家后台。
+      readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/prestashop/README_zh.md'
+  categories:
+    - frontend
+    - backend
+  defaults:
+    app_host:
+      type: string
+      value: prestashop-${{ random(8) }}
+    app_name:
+      type: string
+      value: prestashop-${{ random(8) }}
+  inputs:
+    ADMIN_MAIL:
+      description: PrestaShop administrator email used to sign in to the back office.
+      type: string
+      default: admin@example.com
+      required: true
+    ADMIN_PASSWD:
+      description: PrestaShop administrator password used to sign in to the back office.
+      type: string
+      default: PrestaShopDemo2026!
+      required: true
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-mysql
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-mysql
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-mysql
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-mysql
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-mysql
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-mysql
+  labels:
+    kb.io/database: ac-mysql-8.0.30-1
+    clusterdefinition.kubeblocks.io/name: apecloud-mysql
+    clusterversion.kubeblocks.io/name: ac-mysql-8.0.30-1
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys:
+      - kubernetes.io/hostname
+  clusterDefinitionRef: apecloud-mysql
+  clusterVersionRef: ac-mysql-8.0.30-1
+  componentSpecs:
+    - name: mysql
+      componentDefRef: mysql
+      monitor: true
+      noCreatePDB: false
+      replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-mysql
+      switchPolicy:
+        type: Noop
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+  tolerations: []
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-mysql-init
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mysql-init
+          image: mysql:8.0.30
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+          env:
+            - name: MYSQL_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: host
+            - name: MYSQL_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: port
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: username
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: password
+            - name: MYSQL_DATABASE
+              value: prestashop
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              for i in $(seq 1 90); do
+                if mysqladmin ping -h"${MYSQL_HOST}" -P"${MYSQL_PORT}" -u"${MYSQL_USER}" -p"${MYSQL_PASSWORD}" --silent; then
+                  break
+                fi
+                sleep 2
+              done
+              mysql -h"${MYSQL_HOST}" -P"${MYSQL_PORT}" -u"${MYSQL_USER}" -p"${MYSQL_PASSWORD}" \
+                -e "CREATE DATABASE IF NOT EXISTS \`${MYSQL_DATABASE}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-tmpvn-definesvn-customvn-incvn-php: |
+    <?php
+    if (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strpos($_SERVER['HTTP_X_FORWARDED_PROTO'], 'https') !== false) {
+        $_SERVER['HTTPS'] = 'on';
+        $_SERVER['SERVER_PORT'] = 443;
+    }
+    if (isset($_SERVER['HTTP_X_FORWARDED_HOST']) && $_SERVER['HTTP_X_FORWARDED_HOST']) {
+        $_SERVER['HTTP_HOST'] = $_SERVER['HTTP_X_FORWARDED_HOST'];
+    }
+    if ((bool) getenv('PS_DEV_MODE')) {
+        define('_PS_MODE_DEV_', (bool) getenv('PS_DEV_MODE'));
+    }
+    if ((bool) getenv('PS_HOST_MODE')) {
+        define('_PS_HOST_MODE_', (bool) getenv('PS_HOST_MODE'));
+    }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: prestashop/prestashop:9.1.3-apache
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  serviceName: ${{ defaults.app_name }}
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: prestashop/prestashop:9.1.3-apache
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 200m
+              memory: 512Mi
+            requests:
+              cpu: 20m
+              memory: 51Mi
+          ports:
+            - containerPort: 80
+          env:
+            - name: DB_SERVER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: host
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: port
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: username
+            - name: DB_PASSWD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: password
+            - name: DB_NAME
+              value: prestashop
+            - name: DB_PREFIX
+              value: ps_
+            - name: PS_INSTALL_AUTO
+              value: '1'
+            - name: PS_INSTALL_DB
+              value: '0'
+            - name: PS_ERASE_DB
+              value: '0'
+            - name: PS_DEV_MODE
+              value: '0'
+            - name: PS_DEMO_MODE
+              value: '0'
+            - name: PS_DOMAIN
+              value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: PS_LANGUAGE
+              value: en
+            - name: PS_COUNTRY
+              value: US
+            - name: PS_FOLDER_ADMIN
+              value: admin-dev
+            - name: PS_FOLDER_INSTALL
+              value: install
+            - name: PS_ENABLE_SSL
+              value: '1'
+            - name: PS_HANDLE_DYNAMIC_DOMAIN
+              value: '0'
+            - name: ADMIN_MAIL
+              value: ${{ inputs.ADMIN_MAIL }}
+            - name: ADMIN_PASSWD
+              value: ${{ inputs.ADMIN_PASSWD }}
+          livenessProbe:
+            tcpSocket:
+              port: 80
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            tcpSocket:
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          startupProbe:
+            tcpSocket:
+              port: 80
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
+          volumeMounts:
+            - name: vn-varvn-wwwvn-html
+              mountPath: /var/www/html
+              subPath: html
+            - name: vn-tmpvn-definesvn-customvn-incvn-php
+              mountPath: /tmp/defines_custom.inc.php
+              subPath: ./tmp/defines_custom.inc.php
+      volumes:
+        - name: vn-tmpvn-definesvn-customvn-incvn-php
+          configMap:
+            name: ${{ defaults.app_name }}
+            items:
+              - key: vn-tmpvn-definesvn-customvn-incvn-php
+                path: ./tmp/defines_custom.inc.php
+            defaultMode: 420
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-varvn-wwwvn-html
+        annotations:
+          path: /var/www/html
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - name: tcp-80
+      port: 80
+      targetPort: 80
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/prestashop/logo.png
+  name: PrestaShop
+  type: link
