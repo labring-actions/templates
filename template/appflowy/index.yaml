@@ -1,0 +1,1036 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: appflowy
+spec:
+  title: AppFlowy
+  url: https://www.appflowy.com
+  gitRepo: https://github.com/AppFlowy-IO/AppFlowy
+  author: Sealos
+  description: Open-source collaborative workspace with docs, databases, boards, real-time sync, and self-hosted AppFlowy Cloud services.
+  readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/appflowy/README.md'
+  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/appflowy/logo.svg'
+  screenshots:
+    - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/appflowy/website-screenshot.webp'
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: 开源协作工作空间，支持文档、数据库、看板、实时同步和自托管 AppFlowy Cloud 服务。
+      readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/appflowy/README_zh.md'
+  categories:
+    - tool
+    - low-code
+  defaults:
+    app_host:
+      type: string
+      value: appflowy-${{ random(8) }}
+    auth_host:
+      type: string
+      value: appflowy-auth-${{ random(8) }}
+    app_name:
+      type: string
+      value: appflowy-${{ random(8) }}
+    gotrue_jwt_secret:
+      type: string
+      value: ${{ random(64) }}
+  inputs:
+    appflowy_s3_provider:
+      description: File storage backend for uploads, imports, and collaboration snapshots.
+      type: choice
+      default: sealos-objectstorage
+      required: true
+      options:
+        - sealos-objectstorage
+        - external-s3
+    gotrue_admin_email:
+      description: Bootstrap admin email for GoTrue service administration. Use AppFlowy Web registration for workspace login.
+      type: string
+      default: admin@example.com
+      required: true
+    gotrue_admin_password:
+      description: Bootstrap admin password for GoTrue service administration. This is not the recommended AppFlowy Web login account.
+      type: string
+      default: ''
+      required: true
+    external_s3_endpoint:
+      description: External S3-compatible API endpoint, for example https://s3.amazonaws.com or https://s3.example.com.
+      type: string
+      default: ''
+      required: true
+      if: inputs.appflowy_s3_provider === 'external-s3'
+    external_s3_public_endpoint:
+      description: Public endpoint used in generated presigned URLs. Leave equal to external_s3_endpoint unless clients need a different URL.
+      type: string
+      default: ''
+      required: true
+      if: inputs.appflowy_s3_provider === 'external-s3'
+    external_s3_access_key:
+      description: Access key for the external S3-compatible bucket.
+      type: string
+      default: ''
+      required: true
+      if: inputs.appflowy_s3_provider === 'external-s3'
+    external_s3_secret_key:
+      description: Secret key for the external S3-compatible bucket.
+      type: string
+      default: ''
+      required: true
+      if: inputs.appflowy_s3_provider === 'external-s3'
+    external_s3_bucket:
+      description: Existing external S3-compatible bucket name.
+      type: string
+      default: ''
+      required: true
+      if: inputs.appflowy_s3_provider === 'external-s3'
+    external_s3_region:
+      description: Region for the external S3-compatible bucket.
+      type: string
+      default: us-east-1
+      required: true
+      if: inputs.appflowy_s3_provider === 'external-s3'
+---
+${{ if(inputs.appflowy_s3_provider === 'sealos-objectstorage') }}
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  policy: private
+---
+${{ endif() }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+  annotations:
+    kubeblocks.io/extra-env: '{"KB_EMBEDDED_PGVECTOR":"on"}'
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  terminationPolicy: Delete
+  componentSpecs:
+    - name: postgresql
+      componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
+      replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-pg-init
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: ${{ defaults.app_name }}-pg-init
+          image: postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+          env:
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: endpoint
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              for i in $(seq 1 90); do
+                if pg_isready -h "${PG_ENDPOINT%:*}" -p "${PG_ENDPOINT##*:}" -U postgres -d postgres >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 2
+              done
+              pg_isready -h "${PG_ENDPOINT%:*}" -p "${PG_ENDPOINT##*:}" -U postgres -d postgres >/dev/null 2>&1
+              psql "postgresql://postgres:$(PG_PASSWORD)@$(PG_ENDPOINT)/postgres" -v ON_ERROR_STOP=1 -c 'CREATE SCHEMA IF NOT EXISTS auth;'
+              psql "postgresql://postgres:$(PG_PASSWORD)@$(PG_ENDPOINT)/postgres" -c 'CREATE EXTENSION IF NOT EXISTS vector;' || true
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-redis
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-redis
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    clusterversion.kubeblocks.io/name: redis-7.2.7
+    clusterdefinition.kubeblocks.io/name: redis
+    kb.io/database: redis-7.2.7
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/version: 7.2.7
+    helm.sh/chart: redis-cluster-0.9.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys:
+      - kubernetes.io/hostname
+  clusterDefinitionRef: redis
+  componentSpecs:
+    - name: redis
+      componentDef: redis-7
+      enabledLogs:
+        - running
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      serviceVersion: 7.2.7
+      env:
+        - name: CUSTOM_SENTINEL_MASTER_NAME
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+    - name: redis-sentinel
+      componentDef: redis-sentinel-7
+      replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceVersion: 7.2.7
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+  terminationPolicy: Delete
+  topology: replication
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-gotrue
+  annotations:
+    originImageName: appflowyinc/gotrue:0.15.22
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-gotrue
+    app: ${{ defaults.app_name }}-gotrue
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-gotrue
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-gotrue
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-gotrue
+          image: appflowyinc/gotrue:0.15.22
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+          ports:
+            - containerPort: 9999
+              name: http
+          env:
+            - name: GOTRUE_ADMIN_EMAIL
+              value: ${{ inputs.gotrue_admin_email }}
+            - name: GOTRUE_ADMIN_PASSWORD
+              value: ${{ inputs.gotrue_admin_password }}
+            - name: GOTRUE_DISABLE_SIGNUP
+              value: 'false'
+            - name: GOTRUE_SITE_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/app
+            - name: GOTRUE_URI_ALLOW_LIST
+              value: '**'
+            - name: GOTRUE_JWT_SECRET
+              value: ${{ defaults.gotrue_jwt_secret }}
+            - name: GOTRUE_JWT_EXP
+              value: '604800'
+            - name: GOTRUE_JWT_ADMIN_GROUP_NAME
+              value: supabase_admin
+            - name: GOTRUE_DB_DRIVER
+              value: postgres
+            - name: API_EXTERNAL_URL
+              value: https://${{ defaults.auth_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: DATABASE_URL
+              value: postgres://postgres:$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/postgres?search_path=auth
+            - name: PORT
+              value: '9999'
+            - name: GOTRUE_MAILER_AUTOCONFIRM
+              value: 'true'
+            - name: GOTRUE_MAILER_URLPATHS_CONFIRMATION
+              value: /verify
+            - name: GOTRUE_MAILER_URLPATHS_INVITE
+              value: /verify
+            - name: GOTRUE_MAILER_URLPATHS_RECOVERY
+              value: /verify
+            - name: GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE
+              value: /verify
+            - name: GOTRUE_SMTP_HOST
+              value: localhost
+            - name: GOTRUE_SMTP_PORT
+              value: '25'
+            - name: GOTRUE_SMTP_USER
+              value: noreply@appflowy.local
+            - name: GOTRUE_SMTP_PASS
+              value: unused
+            - name: GOTRUE_SMTP_ADMIN_EMAIL
+              value: ${{ inputs.gotrue_admin_email }}
+            - name: GOTRUE_SMTP_MAX_FREQUENCY
+              value: 1ns
+            - name: GOTRUE_RATE_LIMIT_EMAIL_SENT
+              value: '100'
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 9999
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 9999
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 9999
+            failureThreshold: 30
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-gotrue
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-gotrue
+    app: ${{ defaults.app_name }}-gotrue
+spec:
+  selector:
+    app: ${{ defaults.app_name }}-gotrue
+  ports:
+    - name: http
+      port: 9999
+      targetPort: 9999
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-cloud
+  annotations:
+    originImageName: appflowyinc/appflowy_cloud:0.15.22
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-cloud
+    app: ${{ defaults.app_name }}-cloud
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-cloud
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-cloud
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-cloud
+          image: appflowyinc/appflowy_cloud:0.15.22
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            - name: RUST_LOG
+              value: info
+            - name: APPFLOWY_ENVIRONMENT
+              value: production
+            - name: APPFLOWY_APPLICATION_HOST
+              value: '0.0.0.0'
+            - name: APPFLOWY_APPLICATION_PORT
+              value: '8000'
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: APPFLOWY_DATABASE_URL
+              value: postgres://postgres:$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/postgres
+            - name: APPFLOWY_DATABASE_MAX_CONNECTIONS
+              value: '40'
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
+            - name: APPFLOWY_REDIS_URI
+              value: redis://:$(REDIS_PASSWORD)@${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc:6379
+            - name: APPFLOWY_GOTRUE_JWT_SECRET
+              value: ${{ defaults.gotrue_jwt_secret }}
+            - name: APPFLOWY_GOTRUE_BASE_URL
+              value: http://${{ defaults.app_name }}-gotrue.${{ SEALOS_NAMESPACE }}.svc:9999
+            - name: APPFLOWY_GOTRUE_SERVICE_ROLE
+              value: service_role
+            - name: APPFLOWY_BASE_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: APPFLOWY_WEB_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: AI_ENABLED
+              value: 'false'
+            - name: AI_SERVER_HOST
+              value: localhost
+            - name: AI_SERVER_PORT
+              value: '5001'
+            - name: AI_OPENAI_API_KEY
+              value: ''
+            - name: APPFLOWY_ACCESS_CONTROL
+              value: 'true'
+            - name: SIGNUP_WHITELIST_ENABLED
+              value: 'false'
+            - name: GUEST_INVITES_REQUIRE_ADMIN_APPROVAL
+              value: 'false'
+            - name: APPFLOWY_NOTIFICATION_ENABLE_EMAIL
+              value: 'false'
+            - name: APPFLOWY_MAILER_SMTP_HOST
+              value: localhost
+            - name: APPFLOWY_MAILER_SMTP_PORT
+              value: '25'
+            - name: APPFLOWY_MAILER_SMTP_USERNAME
+              value: noreply@appflowy.local
+            - name: APPFLOWY_MAILER_SMTP_EMAIL
+              value: noreply@appflowy.local
+            - name: APPFLOWY_MAILER_SMTP_PASSWORD
+              value: unused
+            - name: APPFLOWY_MAILER_SMTP_TLS_KIND
+              value: none
+${{ if(inputs.appflowy_s3_provider === 'sealos-objectstorage') }}
+            - name: APPFLOWY_S3_USE_MINIO
+              value: 'true'
+            - name: APPFLOWY_S3_CREATE_BUCKET
+              value: 'false'
+            - name: APPFLOWY_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: APPFLOWY_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: APPFLOWY_S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: APPFLOWY_S3_INTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: internal
+            - name: APPFLOWY_S3_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            - name: APPFLOWY_S3_MINIO_URL
+              value: http://$(APPFLOWY_S3_INTERNAL_ENDPOINT)
+            - name: APPFLOWY_S3_PRESIGNED_URL_ENDPOINT
+              value: https://$(APPFLOWY_S3_EXTERNAL_ENDPOINT)
+            - name: APPFLOWY_S3_REGION
+              value: us-east-1
+${{ endif() }}
+${{ if(inputs.appflowy_s3_provider === 'external-s3') }}
+            - name: APPFLOWY_S3_USE_MINIO
+              value: 'true'
+            - name: APPFLOWY_S3_CREATE_BUCKET
+              value: 'false'
+            - name: APPFLOWY_S3_ACCESS_KEY
+              value: ${{ inputs.external_s3_access_key }}
+            - name: APPFLOWY_S3_SECRET_KEY
+              value: ${{ inputs.external_s3_secret_key }}
+            - name: APPFLOWY_S3_BUCKET
+              value: ${{ inputs.external_s3_bucket }}
+            - name: APPFLOWY_S3_MINIO_URL
+              value: ${{ inputs.external_s3_endpoint }}
+            - name: APPFLOWY_S3_PRESIGNED_URL_ENDPOINT
+              value: ${{ inputs.external_s3_public_endpoint }}
+            - name: APPFLOWY_S3_REGION
+              value: ${{ inputs.external_s3_region }}
+${{ endif() }}
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: 8000
+            failureThreshold: 60
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-cloud
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-cloud
+    app: ${{ defaults.app_name }}-cloud
+spec:
+  selector:
+    app: ${{ defaults.app_name }}-cloud
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-worker
+  annotations:
+    originImageName: appflowyinc/appflowy_worker:0.15.22
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-worker
+    app: ${{ defaults.app_name }}-worker
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-worker
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-worker
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-worker
+          image: appflowyinc/appflowy_worker:0.15.22
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+          env:
+            - name: RUST_LOG
+              value: info
+            - name: APPFLOWY_ENVIRONMENT
+              value: production
+            - name: APPFLOWY_WORKER_ENVIRONMENT
+              value: production
+            - name: APPFLOWY_WORKER_DATABASE_NAME
+              value: postgres
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: APPFLOWY_WORKER_DATABASE_URL
+              value: postgres://postgres:$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/postgres
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
+            - name: APPFLOWY_WORKER_REDIS_URL
+              value: redis://:$(REDIS_PASSWORD)@${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc:6379
+            - name: APPFLOWY_WORKER_IMPORT_TICK_INTERVAL
+              value: '30'
+            - name: APPFLOWY_MAILER_SMTP_HOST
+              value: localhost
+            - name: APPFLOWY_MAILER_SMTP_PORT
+              value: '25'
+            - name: APPFLOWY_MAILER_SMTP_USERNAME
+              value: noreply@appflowy.local
+            - name: APPFLOWY_MAILER_SMTP_EMAIL
+              value: noreply@appflowy.local
+            - name: APPFLOWY_MAILER_SMTP_PASSWORD
+              value: unused
+            - name: APPFLOWY_MAILER_SMTP_TLS_KIND
+              value: none
+${{ if(inputs.appflowy_s3_provider === 'sealos-objectstorage') }}
+            - name: APPFLOWY_S3_USE_MINIO
+              value: 'true'
+            - name: APPFLOWY_S3_CREATE_BUCKET
+              value: 'false'
+            - name: APPFLOWY_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: APPFLOWY_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: APPFLOWY_S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: APPFLOWY_S3_INTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: internal
+            - name: APPFLOWY_S3_MINIO_URL
+              value: http://$(APPFLOWY_S3_INTERNAL_ENDPOINT)
+            - name: APPFLOWY_S3_REGION
+              value: us-east-1
+${{ endif() }}
+${{ if(inputs.appflowy_s3_provider === 'external-s3') }}
+            - name: APPFLOWY_S3_USE_MINIO
+              value: 'true'
+            - name: APPFLOWY_S3_CREATE_BUCKET
+              value: 'false'
+            - name: APPFLOWY_S3_ACCESS_KEY
+              value: ${{ inputs.external_s3_access_key }}
+            - name: APPFLOWY_S3_SECRET_KEY
+              value: ${{ inputs.external_s3_secret_key }}
+            - name: APPFLOWY_S3_BUCKET
+              value: ${{ inputs.external_s3_bucket }}
+            - name: APPFLOWY_S3_MINIO_URL
+              value: ${{ inputs.external_s3_endpoint }}
+            - name: APPFLOWY_S3_REGION
+              value: ${{ inputs.external_s3_region }}
+${{ endif() }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-web
+  annotations:
+    originImageName: appflowyinc/appflowy_web:0.14.9
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-web
+    app: ${{ defaults.app_name }}-web
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-web
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-web
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-web
+          image: appflowyinc/appflowy_web:0.14.9
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+          ports:
+            - containerPort: 80
+              name: http
+          env:
+            - name: APPFLOWY_BASE_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: APPFLOWY_GOTRUE_BASE_URL
+              value: https://${{ defaults.auth_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: APPFLOWY_WS_BASE_URL
+              value: wss://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/ws/v2
+          livenessProbe:
+            httpGet:
+              path: /app
+              port: 80
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /app
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-web
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-web
+    app: ${{ defaults.app_name }}-web
+spec:
+  selector:
+    app: ${{ defaults.app_name }}-web
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-web
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-web
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-web
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-cloud
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-cloud
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /api
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-cloud
+                port:
+                  number: 8000
+          - pathType: Prefix
+            path: /ws
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-cloud
+                port:
+                  number: 8000
+          - pathType: Prefix
+            path: /ai
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-cloud
+                port:
+                  number: 8000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-gotrue
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-gotrue
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.auth_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.auth_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-gotrue
+                port:
+                  number: 9999
+  tls:
+    - hosts:
+        - ${{ defaults.auth_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/appflowy/logo.svg
+  name: AppFlowy
+  type: link
