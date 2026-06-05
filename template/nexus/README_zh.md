@@ -21,7 +21,7 @@ Nexus Repository 可以把团队的制品管理集中起来，既能托管私有
 
 该 Sealos 模板已包含运行 Nexus Repository 所需的核心依赖：
 
-- Nexus 应用容器（`sonatype/nexus3`）
+- Nexus 应用容器（`sonatype/nexus3:3.92.3`）
 - `/nexus-data` 持久化存储
 - Kubernetes Service 与 HTTPS Ingress
 
@@ -47,7 +47,8 @@ Nexus Repository 可以把团队的制品管理集中起来，既能托管私有
 **配置说明：**
 
 - 模板默认单节点部署，适合中小规模场景与功能验证。
-- 已预置资源限制与健康探针，保障启动与运行稳定性。
+- 已预置资源限制与健康探针，保障冷启动与运行稳定性。
+- 模板为 Nexus 预留 `100m` CPU / `200Mi` 内存请求，设置 `2` CPU / `2G` 内存上限，并提供 `1Gi` 持久卷。
 - 通过持久卷保存数据，Pod 重启后仍可保留仓库内容与配置。
 
 **许可证信息：**
@@ -69,7 +70,7 @@ Sealos 是构建在 Kubernetes 之上的 AI 辅助云操作系统（Cloud Operat
 
 1. 打开 [Nexus template](https://sealos.io/products/app-store/nexus) 并点击 **Deploy Now**。
 2. 在弹窗中配置部署参数并提交。
-3. 等待部署完成（通常 2-3 分钟）。部署结束后会自动跳转到 Canvas。后续变更可通过 AI 对话描述需求，或点击资源卡片进行修改。
+3. 等待部署完成（通常 3-5 分钟）。部署结束后会自动跳转到 Canvas。后续变更可通过 AI 对话描述需求，或点击资源卡片进行修改。
 4. 在 Sealos 中使用生成的应用访问地址进入 Nexus。
 
 ## 初次登录与管理员密码
@@ -84,6 +85,7 @@ Sealos 是构建在 Kubernetes 之上的 AI 辅助云操作系统（Cloud Operat
 3. 在日志中确认出现 `Started Sonatype Nexus OSS`，表示启动完成。
 4. 打开 Nexus Pod 的 **File Manager**。
 5. 下载 `/nexus-data/admin.password`，文件内容即为登录密码。
+6. 首次登录后，按照 Nexus 初始化向导修改管理员密码，并选择是否继续启用匿名访问。
 
 ## 配置
 

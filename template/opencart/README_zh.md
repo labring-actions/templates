@@ -40,8 +40,8 @@ OpenCart 是一个开源电商平台，用于搭建和管理在线商店。该�
 
 - **OpenCart StatefulSet (`ghcr.io/yangchuansheng/opencart:4.1.0.3`)**: 在集群内提供店铺前台和管理后台服务。
 - **托管 MySQL 集群 (`ac-mysql-8.0.30-1`)**: 由 KubeBlocks 提供关系型数据存储。
-- **持久化卷 (`/var/www/html/image`, 0.1Gi)**: 保存商品图片和上传媒体文件。
-- **持久化卷 (`/var/www/storage`, 0.1Gi)**: 保存应用存储数据、缓存和运行时文件。
+- **持久化卷 (`/var/www/html/image`, 256Mi)**: 保存商品图片和上传媒体文件。
+- **持久化卷 (`/var/www/storage`, 256Mi)**: 保存应用存储数据、缓存和运行时文件。
 - **Service + Ingress**: 集群内暴露服务，并对外提供 HTTPS 访问入口。
 
 ### 配置项
@@ -49,14 +49,14 @@ OpenCart 是一个开源电商平台，用于搭建和管理在线商店。该�
 模板对外暴露以下部署参数:
 
 - `OPENCART_USERNAME`: OpenCart 初始管理员用户名（默认 `admin`）
-- `OPENCART_PASSWORD`: OpenCart 初始管理员密码（必填）
+- `OPENCART_PASSWORD`: OpenCart 初始管理员密码（必填，5-20 个字符）
 - `OPENCART_ADMIN_EMAIL`: OpenCart 初始管理员邮箱（默认 `admin@example.com`）
 
 运行时行为:
 
 - 启用自动安装（`OPENCART_AUTO_INSTALL=true`）。
 - 启用安装器清理（`OPENCART_REMOVE_INSTALLER=true`）。
-- 后台路径设置为 `admincp`（`/admincp`）。
+- 后台路径设置为 `admincp`（`/admincp/`）。
 - 数据库参数从 `${app_name}-mysql-conn-credential` Secret 键注入。
 - 默认数据库名和表前缀分别为 `opencart` 与 `oc_`。
 
@@ -83,12 +83,13 @@ Sealos 是一个构建在 Kubernetes 之上的 AI 辅助云操作系统，可简
 1. 打开 [OpenCart 模板页](https://sealos.io/products/app-store/opencart) 并点击 **Deploy Now**。
 2. 在弹窗中配置部署参数:
    - `OPENCART_USERNAME`
-   - `OPENCART_PASSWORD`
+   - `OPENCART_PASSWORD`（5-20 个字符）
    - `OPENCART_ADMIN_EMAIL`
 3. 等待部署完成（通常 2-3 分钟）。部署结束后会自动跳转到 Canvas。后续如需变更，可在对话框描述需求让 AI 自动调整，或点击对应资源卡片手动修改。
 4. 通过系统生成域名访问应用:
    - **店铺前台**: `https://<app-host>.<domain>/`
-   - **管理后台**: `https://<app-host>.<domain>/admincp`
+   - **管理后台**: `https://<app-host>.<domain>/admincp/`
+   - **买家注册**: `https://<app-host>.<domain>/index.php?route=account/register`
 
 ## 配置与运维
 
@@ -96,7 +97,8 @@ Sealos 是一个构建在 Kubernetes 之上的 AI 辅助云操作系统，可简
 
 - **AI 对话**: 请求资源调优、重启或环境变量更新等操作。
 - **资源卡片**: 在 Canvas 中直接调整 StatefulSet、Service、Ingress 与 MySQL 配置。
-- **OpenCart 管理后台**: 配置商品目录、税费、物流、支付模块和扩展。
+- **OpenCart 管理后台**: 使用部署时填写的用户名和密码访问 `/admincp/`，然后配置商品目录、税费、物流、支付模块和扩展。
+- **买家账号**: 默认可通过 `/index.php?route=account/register` 创建前台账号；如不需要注册，可在 OpenCart 设置中关闭。
 
 建议的上线后动作:
 
@@ -126,7 +128,7 @@ Sealos 是一个构建在 Kubernetes 之上的 AI 辅助云操作系统，可简
 
 **问题: 访问 `/admin` 无法进入后台**
 - 原因: 该模板后台路径配置为 `/admincp`。
-- 解决: 使用 `https://<app-host>.<domain>/admincp` 登录后台。
+- 解决: 使用 `https://<app-host>.<domain>/admincp/` 登录后台，账号密码为部署时填写的 `OPENCART_USERNAME` 和 `OPENCART_PASSWORD`。
 
 **问题: 首次访问显示安装未完成**
 - 原因: OpenCart 容器内自动安装流程仍在执行。

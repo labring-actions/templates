@@ -2,7 +2,7 @@
 
 Node-RED is a low-code, flow-based programming tool for wiring APIs, devices, and services. This template deploys Node-RED as a persistent, production-ready service on Sealos Cloud.
 
-![Node-RED Logo](logo.png)
+![Node-RED Screenshot](website-screenshot.webp)
 
 ## About Hosting Node-RED
 
@@ -41,7 +41,7 @@ The Sealos template includes all required runtime dependencies for Node-RED:
 
 This template deploys the following resources:
 
-- **Node-RED StatefulSet** (`nodered/node-red:4.1.6`): Main service with `1` replica
+- **Node-RED StatefulSet** (`nodered/node-red:4.1.10`): Main service with `1` replica
 - **Service**: Exposes container port `1880` inside the cluster
 - **Ingress**: Publishes `https://<app_host>.<SEALOS_CLOUD_DOMAIN>` with TLS enabled
 - **Persistent Storage**: `0.1Gi` PVC mounted at `/data`
@@ -50,9 +50,9 @@ This template deploys the following resources:
 
 - `app_host` controls the public hostname prefix.
 - `app_name` controls Kubernetes resource naming.
-- Default pod resources:
-  - **limits**: `cpu: 100m`, `memory: 128Mi`
-  - **requests**: `cpu: 10m`, `memory: 12Mi`
+- Default pod resources use the Sealos baseline for small web applications:
+  - **limits**: `cpu: 200m`, `memory: 256Mi`
+  - **requests**: `cpu: 20m`, `memory: 25Mi`
 - Node-RED data persists in `/data`, including flows and credential files.
 
 **License Information:**
@@ -74,12 +74,12 @@ Deploy Node-RED on Sealos and focus on building automations instead of managing 
 
 ## Deployment Guide
 
-1. Open the [Node-RED template](https://sealos.io/appstore/node-red) and click **Deploy Now**.
+1. Open the [Node-RED template](https://sealos.io/products/app-store/node-red) and click **Deploy Now**.
 2. Configure deployment parameters in the popup dialog:
    - `app_host`
    - `app_name`
 3. Wait for deployment to complete (typically 2-3 minutes). After deployment, you will be redirected to Canvas.
-4. Open the generated Node-RED URL from Canvas and start creating flows in the web editor.
+4. Open the generated Node-RED URL from Canvas and start creating flows in the web editor. The default template does not enable Node-RED admin authentication, so there is no first-run registration or login screen; add `adminAuth` in `settings.js` before exposing sensitive flows.
 
 ## Configuration
 

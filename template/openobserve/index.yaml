@@ -13,6 +13,9 @@ spec:
   screenshots:
     - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/openobserve/website-screenshot.webp'
   templateType: inline
+  locale: en
+  categories:
+    - monitor
   defaults:
     app_host:
       type: string
@@ -22,22 +25,23 @@ spec:
       value: openobserve-${{ random(8) }}
   inputs:
     mail:
-      description: 'user email'
+      description: 'Root user email for the OpenObserve administrator account.'
       type: string
       default: 'root@example.com'
       required: true
     password:
-      description: 'user password'
+      description: 'Root user password for the OpenObserve administrator account.'
       type: string
       default: 'Complexpass#123'
       required: true
     data_dir:
-      description: 'Data store directory'
+      description: 'Persistent data directory used by OpenObserve.'
       type: string
       default: '/data'
       required: true
   i18n:
     zh:
+      description: 开源云原生可观测性平台，支持日志、指标、链路追踪、分析和真实用户监控。
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/openobserve/README_zh.md'
 ---
 apiVersion: v1
@@ -46,6 +50,7 @@ metadata:
   name: ${{ defaults.app_name }}
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
 spec:
   clusterIP: None
   selector:
@@ -60,7 +65,8 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: public.ecr.aws/zinclabs/openobserve:v0.10.7
+    originImageName: public.ecr.aws/zinclabs/openobserve:v0.90.3
+    docker-to-sealos.resource-override-source: Live Sealos cold-start validation on v0.90.3 observed 197Mi after first cold start and 178Mi after a probe-enabled restart; 256Mi is below safe headroom, so 512Mi is the minimum stable Sealos memory ladder value.
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -69,6 +75,7 @@ metadata:
 spec:
   serviceName: ${{ defaults.app_name }}
   replicas: 1
+  revisionHistoryLimit: 1
   selector:
     matchLabels:
       name: ${{ defaults.app_name }}
@@ -86,8 +93,15 @@ spec:
         runAsGroup: 3000
         runAsNonRoot: true
       containers:
-        - name: openobserve
-          image: public.ecr.aws/zinclabs/openobserve:v0.10.7
+        - name: ${{ defaults.app_name }}
+          image: public.ecr.aws/zinclabs/openobserve:v0.90.3
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
           env:
             - name: ZO_ROOT_USER_EMAIL
               value: ${{ inputs.mail }}
@@ -98,14 +112,32 @@ spec:
           imagePullPolicy: IfNotPresent
           resources:
             limits:
-              cpu: 4096m
-              memory: 2048Mi
+              cpu: 500m
+              memory: 512Mi
             requests:
-              cpu: 256m
-              memory: 50Mi
+              cpu: 50m
+              memory: 51Mi
           ports:
             - containerPort: 5080
               name: http
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 5080
+            periodSeconds: 5
+            failureThreshold: 24
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 5080
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 5080
+            periodSeconds: 20
+            failureThreshold: 3
           volumeMounts:
             - name: data
               mountPath: /data
@@ -133,11 +165,18 @@ metadata:
     nginx.ingress.kubernetes.io/server-snippet: |
       client_header_buffer_size 64k;
       large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
     nginx.ingress.kubernetes.io/rewrite-target: /$2
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
 spec:
   rules:
     - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
@@ -154,3 +193,17 @@ spec:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/openobserve/logo.svg
+  name: OpenObserve
+  type: link

@@ -2,7 +2,7 @@
 
 Node-RED 是一个低代码、流程编排（flow-based）开发工具，可用于连接 API、设备和各类服务。该模板会在 Sealos Cloud 上部署一个具备持久化能力、可用于生产环境的 Node-RED 服务。
 
-![Node-RED Logo](logo.png)
+![Node-RED Screenshot](website-screenshot.webp)
 
 ## 关于在 Sealos 托管 Node-RED
 
@@ -41,7 +41,7 @@ Node-RED 提供浏览器可视化编辑器，你可以通过拖拽和连接节�
 
 该模板会部署以下资源：
 
-- **Node-RED StatefulSet**（`nodered/node-red:4.1.6`）：主服务，`1` 个副本
+- **Node-RED StatefulSet**（`nodered/node-red:4.1.10`）：主服务，`1` 个副本
 - **Service**：在集群内暴露容器端口 `1880`
 - **Ingress**：通过 `https://<app_host>.<SEALOS_CLOUD_DOMAIN>` 提供 TLS 访问
 - **Persistent Storage**：`0.1Gi` PVC，挂载路径为 `/data`
@@ -50,9 +50,9 @@ Node-RED 提供浏览器可视化编辑器，你可以通过拖拽和连接节�
 
 - `app_host` 控制公网域名前缀。
 - `app_name` 控制 Kubernetes 资源命名。
-- 默认 Pod 资源配置：
-  - **limits**：`cpu: 100m`，`memory: 128Mi`
-  - **requests**：`cpu: 10m`，`memory: 12Mi`
+- 默认 Pod 资源配置采用 Sealos 小型 Web 应用基线：
+  - **limits**：`cpu: 200m`，`memory: 256Mi`
+  - **requests**：`cpu: 20m`，`memory: 25Mi`
 - Node-RED 会将流程与凭据等数据持久化到 `/data`。
 
 **许可证信息：**
@@ -74,12 +74,12 @@ Sealos 是构建在 Kubernetes 之上的 AI 辅助云操作系统，覆盖部署
 
 ## 部署指南
 
-1. 打开 [Node-RED 模板](https://sealos.io/appstore/node-red)，点击 **Deploy Now**。
+1. 打开 [Node-RED 模板](https://sealos.io/products/app-store/node-red)，点击 **Deploy Now**。
 2. 在弹窗中配置部署参数：
    - `app_host`
    - `app_name`
 3. 等待部署完成（通常 2-3 分钟）。部署完成后会自动跳转到 Canvas。
-4. 在 Canvas 打开生成的 Node-RED 访问地址，即可进入 Web 编辑器开始创建流程。
+4. 在 Canvas 打开生成的 Node-RED 访问地址，即可进入 Web 编辑器开始创建流程。默认模板未启用 Node-RED 管理员认证，因此没有首次注册或登录页面；如需保护敏感流程，请先在 `settings.js` 中配置 `adminAuth`。
 
 ## 配置
 

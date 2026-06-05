@@ -36,7 +36,7 @@ spec:
       default: admin
       required: true
     OPENCART_PASSWORD:
-      description: OpenCart admin password for initial setup.
+      description: OpenCart admin password for initial setup. Use 5-20 characters.
       type: string
       default: ''
       required: true
@@ -108,7 +108,6 @@ spec:
   - name: mysql
     componentDefRef: mysql
     monitor: true
-    noCreatePDB: false
     replicas: 1
     serviceAccountName: ${{ defaults.app_name }}-mysql
     switchPolicy:
@@ -178,6 +177,8 @@ spec:
           value: ${{ inputs.OPENCART_ADMIN_EMAIL }}
         - name: OPENCART_HTTP_SERVER
           value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/
+        - name: OPENCART_HTTPS_SERVER
+          value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/
         - name: OPENCART_AUTO_INSTALL
           value: 'true'
         - name: OPENCART_REMOVE_INSTALLER
@@ -193,6 +194,11 @@ spec:
             secretKeyRef:
               name: ${{ defaults.app_name }}-mysql-conn-credential
               key: host
+        - name: DB_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-mysql-conn-credential
+              key: port
         - name: DB_USERNAME
           valueFrom:
             secretKeyRef:
@@ -205,13 +211,26 @@ spec:
               key: password
         - name: DB_DATABASE
           value: opencart
-        - name: DB_PORT
-          valueFrom:
-            secretKeyRef:
-              name: ${{ defaults.app_name }}-mysql-conn-credential
-              key: port
         - name: DB_PREFIX
           value: oc_
+        startupProbe:
+          tcpSocket:
+            port: 80
+          failureThreshold: 60
+          periodSeconds: 5
+          timeoutSeconds: 3
+        readinessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 3
+        livenessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 120
+          periodSeconds: 20
+          timeoutSeconds: 3
         volumeMounts:
         - name: vn-varvn-wwwvn-htmlvn-image
           mountPath: /var/www/html/image
@@ -221,25 +240,25 @@ spec:
   - metadata:
       annotations:
         path: /var/www/html/image
-        value: '0.1'
+        value: '0.25'
       name: vn-varvn-wwwvn-htmlvn-image
     spec:
       accessModes:
       - ReadWriteOnce
       resources:
         requests:
-          storage: 103Mi
+          storage: 256Mi
   - metadata:
       annotations:
         path: /var/www/storage
-        value: '0.1'
+        value: '0.25'
       name: vn-varvn-wwwvn-storage
     spec:
       accessModes:
       - ReadWriteOnce
       resources:
         requests:
-          storage: 103Mi
+          storage: 256Mi
 ---
 apiVersion: v1
 kind: Service
