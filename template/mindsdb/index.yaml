@@ -1,0 +1,506 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: mindsdb
+spec:
+  title: MindsDB
+  url: https://mindshub.ai/
+  gitRepo: https://github.com/mindsdb/minds-platform
+  author: Sealos
+  description: MindsDB is an open-source AI query engine and automation platform for building controllable AI systems over connected data.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/mindsdb/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/mindsdb/logo.png
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/mindsdb/website-screenshot.webp
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: MindsDB 是一个开源 AI 查询引擎和自动化平台，用于在已连接数据之上构建可控的 AI 系统。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/mindsdb/README_zh.md
+  categories:
+    - ai
+    - database
+    - tool
+  defaults:
+    app_name:
+      type: string
+      value: mindsdb-${{ random(8) }}
+    app_host:
+      type: string
+      value: mindsdb-${{ random(8) }}
+  inputs:
+    admin_username:
+      description: MindsDB administrator username for the web UI and REST API.
+      type: string
+      default: admin
+      required: true
+    admin_password:
+      description: MindsDB administrator password for the web UI and REST API.
+      type: string
+      default: ''
+      required: true
+    file_storage:
+      description: Permanent file storage backend for uploaded files, model artifacts, and tab content.
+      type: choice
+      default: local
+      required: true
+      options:
+        - local
+        - sealos-objectstorage
+---
+${{ if(inputs.file_storage === 'sealos-objectstorage') }}
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  policy: private
+---
+${{ endif() }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  componentSpecs:
+    - componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
+      name: postgresql
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+spec:
+  backoffLimit: 5
+  template:
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: pgsql-init
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PGPASSWORD
+              value: $(PG_PASSWORD)
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              for i in $(seq 1 90); do
+                if pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 2
+              done
+              pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1
+              for database in mindsdb kb; do
+                if ! psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='${database}'" | grep -q 1; then
+                  psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"${database}\";"
+                fi
+              done
+              psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d kb -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS "vector";'
+      restartPolicy: Never
+  ttlSecondsAfterFinished: 300
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: mindsdb/mindsdb:v26.1.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+    docker-to-sealos.resource-override-source: 'Live cold-start evidence on Sealos ns-let51wad: mindsdb/mindsdb:v26.1.0 was OOMKilled with 256Mi during PostgreSQL migrations and with 512Mi during HTTP API startup.'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: wait-for-postgresql
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PGPASSWORD
+              value: $(PG_PASSWORD)
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              for i in $(seq 1 120); do
+                if psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d mindsdb -tAc "SELECT 1" >/dev/null 2>&1 \
+                  && psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d kb -tAc "SELECT 1" >/dev/null 2>&1; then
+                  exit 0
+                fi
+                sleep 2
+              done
+              psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d mindsdb -tAc "SELECT 1"
+              psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d kb -tAc "SELECT 1"
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: mindsdb/mindsdb:v26.1.0
+          imagePullPolicy: IfNotPresent
+          ${{ if(inputs.file_storage === 'sealos-objectstorage') }}
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              python - <<'PY'
+              import json
+              import os
+
+              config = {
+                  "permanent_storage": {
+                      "location": "s3",
+                      "bucket": os.environ["MINDSDB_S3_BUCKET"],
+                      "s3_credentials": {
+                          "aws_access_key_id": os.environ["MINDSDB_S3_ACCESS_KEY_ID"],
+                          "aws_secret_access_key": os.environ["MINDSDB_S3_SECRET_ACCESS_KEY"],
+                          "endpoint_url": f"http://{os.environ['MINDSDB_S3_INTERNAL_ENDPOINT']}",
+                          "region_name": "us-east-1",
+                      },
+                  },
+                  "paths": {
+                      "root": "/mindsdb/var",
+                  },
+              }
+
+              with open("/tmp/mindsdb_config.json", "w", encoding="utf-8") as config_file:
+                  json.dump(config, config_file)
+              PY
+              exec python -Im mindsdb --config=/tmp/mindsdb_config.json --api=http,mysql
+          ${{ endif() }}
+          env:
+            - name: MINDSDB_DOCKER_ENV
+              value: '1'
+            - name: MINDSDB_APIS
+              value: http,mysql
+            - name: MINDSDB_STORAGE_DIR
+              value: /mindsdb/var
+            - name: MINDSDB_USERNAME
+              value: ${{ inputs.admin_username }}
+            - name: MINDSDB_PASSWORD
+              value: ${{ inputs.admin_password }}
+            - name: MINDSDB_HTTP_AUTH_TYPE
+              value: session_or_token
+            - name: MINDSDB_LOG_LEVEL
+              value: INFO
+            - name: SENTRY_IO_DSN
+              value: ''
+            - name: SENTRY_IO_ENVIRONMENT
+              value: self-hosted
+            - name: OTEL_SDK_DISABLED
+              value: 'true'
+            - name: OTEL_LOGGING_DISABLED
+              value: 'true'
+            - name: OTEL_TRACING_DISABLED
+              value: 'true'
+            - name: OTEL_METRICS_DISABLED
+              value: 'true'
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: MINDSDB_DB_CON
+              value: postgresql://$(PG_USERNAME):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/mindsdb
+            - name: KB_PGVECTOR_URL
+              value: postgresql://$(PG_USERNAME):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/kb
+            ${{ if(inputs.file_storage === 'sealos-objectstorage') }}
+            - name: MINDSDB_S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: MINDSDB_S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: MINDSDB_S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: MINDSDB_S3_INTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: internal
+            ${{ endif() }}
+          ports:
+            - name: http
+              containerPort: 47334
+              protocol: TCP
+            - name: mysql
+              containerPort: 47335
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /api/util/ping
+              port: http
+              scheme: HTTP
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /api/util/ping
+              port: http
+              scheme: HTTP
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /api/util/ping
+              port: http
+              scheme: HTTP
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            limits:
+              cpu: 200m
+              memory: 1Gi
+            requests:
+              cpu: 20m
+              memory: 256Mi
+          volumeMounts:
+            - name: vn-mindsdbvn-var
+              mountPath: /mindsdb/var
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-mindsdbvn-var
+        annotations:
+          path: /mindsdb/var
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+        storageClassName: openebs-backup
+      status: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 47334
+      targetPort: http
+      protocol: TCP
+    - name: mysql
+      port: 47335
+      targetPort: mysql
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 47334
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/mindsdb/logo.png
+  name: ${{ defaults.app_name }}
+  type: iframe
