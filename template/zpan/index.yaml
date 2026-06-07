@@ -1,0 +1,202 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: zpan
+spec:
+  title: 'ZPan'
+  url: 'https://github.com/saltbo/zpan'
+  gitRepo: 'https://github.com/saltbo/zpan'
+  author: 'saltbo'
+  description: 'Open-source file hosting for S3-compatible storage'
+  readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/zpan/README.md'
+  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/zpan/logo.png'
+  screenshots:
+    - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/zpan/website-screenshot.webp'
+  templateType: inline
+  categories:
+    - storage
+  defaults:
+    app_host:
+      type: string
+      value: zpan-${{ random(8) }}
+    app_name:
+      type: string
+      value: zpan-${{ random(8) }}
+  inputs:
+    volume_size:
+      description: "Persistent storage size (GiB)"
+      type: string
+      default: "1"
+      required: false
+    downloader_volume_size:
+      description: "Downloader storage size (GiB)"
+      type: string
+      default: "10"
+      required: false
+  i18n:
+    zh:
+      title: 'ZPan'
+      description: '面向 S3 兼容存储的开源文件托管平台'
+      readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/zpan/README_zh.md'
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/saltbo/zpan:2.7.1
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      terminationGracePeriodSeconds: 10
+      automountServiceAccountToken: false
+      containers:
+        - name: zpan
+          image: ghcr.io/saltbo/zpan:2.7.1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PORT
+              value: '8222'
+            - name: BETTER_AUTH_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: DATABASE_URL
+              value: /data/zpan.db
+          ports:
+            - containerPort: 8222
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 1000m
+              memory: 1024Mi
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 8222
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 8222
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          volumeMounts:
+            - name: zpan-data
+              mountPath: /data
+        - name: downloader
+          image: ghcr.io/saltbo/zpan:2.7.1-cli
+          imagePullPolicy: IfNotPresent
+          command: ["zpan"]
+          args: ["--config", "/data/config.yaml", "downloader", "up"]
+          env:
+            - name: ZPAN_SERVER_URL
+              value: http://127.0.0.1:8222
+            - name: ZPAN_DOWNLOADER_ENGINE
+              value: auto
+            - name: ZPAN_DOWNLOADER_DOWNLOAD_DIR
+              value: /data/downloads
+            - name: ZPAN_DOWNLOADER_STATE_DIR
+              value: /data/state
+            - name: ZPAN_DOWNLOADER_BT_LISTEN_PORT
+              value: '6881'
+            - name: ZPAN_DOWNLOADER_SEED_CACHE_LIMIT
+              value: 10GB
+          ports:
+            - containerPort: 6881
+              protocol: TCP
+            - containerPort: 6881
+              protocol: UDP
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 1000m
+              memory: 1024Mi
+          volumeMounts:
+            - name: downloader-data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /data
+          value: '1'
+        name: zpan-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: ${{ inputs.volume_size }}Gi
+    - metadata:
+        annotations:
+          path: /data
+          value: '1'
+        name: downloader-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: ${{ inputs.downloader_volume_size }}Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - name: http
+      port: 8222
+      targetPort: 8222
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 1024m
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /()(.*)
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 8222
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
