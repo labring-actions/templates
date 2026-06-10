@@ -1,0 +1,448 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: odoo
+spec:
+  title: Odoo
+  url: https://www.odoo.com/
+  gitRepo: https://github.com/odoo/odoo
+  author: Sealos
+  description: Open-source business application suite for CRM, sales, inventory, accounting, websites, and operations.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/odoo/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/odoo/logo.png
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/odoo/website-screenshot.webp
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: Odoo 是开源企业应用套件，覆盖 CRM、销售、库存、会计、网站和运营管理。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/odoo/README_zh.md
+  categories:
+    - low-code
+    - tool
+    - backend
+  defaults:
+    app_name:
+      type: string
+      value: odoo-${{ random(8) }}
+    app_host:
+      type: string
+      value: odoo-${{ random(8) }}
+    admin_passwd:
+      type: string
+      value: ${{ random(32) }}
+    odoo_db_password:
+      type: string
+      value: ${{ random(32) }}
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  terminationPolicy: Delete
+  componentSpecs:
+    - name: postgresql
+      componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
+      replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+spec:
+  backoffLimit: 5
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: OnFailure
+      containers:
+        - name: pg-init
+          image: postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: ROLE_SECRET
+              value: ${{ defaults.odoo_db_password }}
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export PGPASSWORD="$PG_PASSWORD"
+              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; do
+                sleep 2
+              done
+              psql "postgresql://$PG_USER:$PG_PASSWORD@$PG_HOST:$PG_PORT/postgres" -v ON_ERROR_STOP=1 <<SQL
+              DO \$\$
+              BEGIN
+                IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'odoo') THEN
+                  CREATE ROLE odoo LOGIN CREATEDB PASSWORD '${ROLE_SECRET}';
+                ELSE
+                  ALTER ROLE odoo WITH LOGIN CREATEDB PASSWORD '${ROLE_SECRET}';
+                END IF;
+              END
+              \$\$;
+              SQL
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  odoo.conf: |
+    [options]
+    addons_path = /mnt/extra-addons
+    data_dir = /var/lib/odoo
+    proxy_mode = True
+    list_db = True
+    admin_passwd = ${{ defaults.admin_passwd }}
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: odoo:18.0-20260609
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+    docker-to-sealos.resource-override-source: "live deployment validation: creating an Odoo 18 database with the 256Mi baseline caused probe timeouts and a container restart; 512Mi keeps first-run setup stable."
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 101
+        fsGroupChangePolicy: OnRootMismatch
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export PGPASSWORD="$PG_PASSWORD"
+              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; do
+                sleep 2
+              done
+              until psql "postgresql://$PG_USER:$PG_PASSWORD@$PG_HOST:$PG_PORT/postgres" -tAc "SELECT 1 FROM pg_roles WHERE rolname='odoo'" | grep -q 1; do
+                sleep 2
+              done
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: odoo:18.0-20260609
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              export USER="$ODOO_USER"
+              export PASSWORD="$ODOO_SECRET"
+              exec /entrypoint.sh odoo
+          ports:
+            - name: http
+              containerPort: 8069
+          env:
+            - name: PGHOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PGPORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: ODOO_USER
+              value: odoo
+            - name: ODOO_SECRET
+              value: ${{ defaults.odoo_db_password }}
+          resources:
+            limits:
+              cpu: 200m
+              memory: 512Mi
+            requests:
+              cpu: 20m
+              memory: 51Mi
+          startupProbe:
+            tcpSocket:
+              port: http
+            failureThreshold: 60
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /web/database/selector
+              port: http
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 15
+          volumeMounts:
+            - name: config
+              mountPath: /etc/odoo/odoo.conf
+              subPath: odoo.conf
+            - name: vn-odoo-data
+              mountPath: /var/lib/odoo
+            - name: vn-extra-addons
+              mountPath: /mnt/extra-addons
+      volumes:
+        - name: config
+          configMap:
+            name: ${{ defaults.app_name }}
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-odoo-data
+        annotations:
+          path: /var/lib/odoo
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+        storageClassName: openebs-backup
+    - metadata:
+        name: vn-extra-addons
+        annotations:
+          path: /mnt/extra-addons
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+        storageClassName: openebs-backup
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8069
+      targetPort: 8069
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 8069
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/odoo/logo.png
+  name: Odoo
+  type: link

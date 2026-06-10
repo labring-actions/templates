@@ -1,0 +1,448 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: litellm
+spec:
+  title: LiteLLM
+  url: https://www.litellm.ai/
+  gitRepo: https://github.com/BerriAI/litellm
+  author: Sealos
+  description: OpenAI-compatible LLM gateway for routing, virtual keys, budgets, spend tracking, and model management.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/litellm/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/litellm/logo.png
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/litellm/website-screenshot.webp
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: LiteLLM 是兼容 OpenAI API 的大模型网关，可用于路由、虚拟密钥、预算、费用追踪和模型管理。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/litellm/README_zh.md
+  categories:
+    - ai
+    - dev-ops
+    - tool
+  defaults:
+    app_name:
+      type: string
+      value: litellm-${{ random(8) }}
+    app_host:
+      type: string
+      value: litellm-${{ random(8) }}
+    master_key:
+      type: string
+      value: sk-${{ random(48) }}
+    salt_key:
+      type: string
+      value: sk-${{ random(48) }}
+  inputs:
+    ui_username:
+      description: Administrator username for the LiteLLM Admin UI
+      type: string
+      default: admin
+      required: true
+    ui_password:
+      description: Administrator password for the LiteLLM Admin UI
+      type: string
+      default: ''
+      required: true
+    database_mode:
+      description: Use the bundled PostgreSQL database or an external PostgreSQL URL
+      type: choice
+      default: bundled-postgresql
+      options:
+        - bundled-postgresql
+        - external-postgresql
+      required: false
+    external_database_url:
+      description: External PostgreSQL URL used when database_mode is external-postgresql
+      type: string
+      default: ''
+      required: false
+    config_storage:
+      description: Store LiteLLM config locally or in a Sealos S3-compatible bucket
+      type: choice
+      default: local
+      options:
+        - local
+        - sealos-s3
+      required: false
+
+---
+${{ if(inputs.config_storage === 'sealos-s3') }}
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  policy: private
+
+---
+${{ endif() }}
+
+${{ if(inputs.database_mode === 'bundled-postgresql') }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  terminationPolicy: Delete
+  componentSpecs:
+    - name: postgresql
+      componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
+      replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+spec:
+  completions: 1
+  template:
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: pg-init
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_DATABASE
+              value: litellm
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export PGPASSWORD="$PG_PASSWORD"
+              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; do
+                sleep 2
+              done
+              if ! psql "postgresql://$PG_USER:$PG_PASSWORD@$PG_HOST:$PG_PORT/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='$PG_DATABASE'" | grep -q 1; then
+                createdb -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" "$PG_DATABASE"
+              fi
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+      restartPolicy: OnFailure
+  backoffLimit: 5
+  ttlSecondsAfterFinished: 300
+
+---
+${{ endif() }}
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: litellm/litellm-database:v1.88.1
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+    docker-to-sealos.resource-override-source: "Live Sealos validation on 2026-06-11: litellm/litellm-database:v1.88.1 was OOMKilled with 768Mi during startup; 1536Mi booted successfully."
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: litellm/litellm-database:v1.88.1
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          args:
+            - --port
+            - '4000'
+          env:
+            ${{ if(inputs.database_mode === 'bundled-postgresql') }}
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgresql://$(PG_USER):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/litellm
+            ${{ else() }}
+            - name: DATABASE_URL
+              value: ${{ inputs.external_database_url }}
+            ${{ endif() }}
+            - name: STORE_MODEL_IN_DB
+              value: 'True'
+            - name: LITELLM_MASTER_KEY
+              value: ${{ defaults.master_key }}
+            - name: LITELLM_SALT_KEY
+              value: ${{ defaults.salt_key }}
+            - name: UI_USERNAME
+              value: ${{ inputs.ui_username }}
+            - name: UI_PASSWORD
+              value: ${{ inputs.ui_password }}
+            - name: LITELLM_LOG
+              value: INFO
+            ${{ if(inputs.config_storage === 'sealos-s3') }}
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: LITELLM_CONFIG_BUCKET_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: LITELLM_CONFIG_BUCKET_OBJECT_KEY
+              value: litellm_proxy_config.yaml
+            - name: LITELLM_CONFIG_BUCKET_TYPE
+              value: s3
+            - name: AWS_ENDPOINT_URL
+              value: http://object-storage.objectstorage-system.svc.cluster.local
+            ${{ endif() }}
+          ports:
+            - name: http
+              containerPort: 4000
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 500m
+              memory: 1536Mi
+            requests:
+              cpu: 50m
+              memory: 256Mi
+          startupProbe:
+            httpGet:
+              path: /health/liveliness
+              port: http
+            failureThreshold: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health/readiness
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health/liveliness
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - name: http
+      port: 4000
+      targetPort: 4000
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 4000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/litellm/logo.png
+  name: LiteLLM
+  type: link

@@ -1,0 +1,326 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: trendradar
+spec:
+  title: TrendRadar
+  url: https://sansan0.github.io/TrendRadar
+  gitRepo: https://github.com/sansan0/TrendRadar
+  author: Sealos
+  description: TrendRadar tracks trending topics, generates reports, and serves the latest HTML report through a built-in web server.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/trendradar/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/trendradar/logo.svg
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/trendradar/website-screenshot.webp
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: TrendRadar 用于追踪热点话题、生成趋势报告，并通过内置 Web 服务展示最新 HTML 报告。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/trendradar/README_zh.md
+  categories:
+    - tool
+    - monitor
+  defaults:
+    app_name:
+      type: string
+      value: trendradar-${{ random(8) }}
+    app_host:
+      type: string
+      value: trendradar-${{ random(8) }}
+  inputs:
+    storage_backend:
+      description: Storage backend for generated SQLite, text, and HTML report files.
+      type: choice
+      default: local
+      required: true
+      options:
+        - local
+        - remote
+    cron_schedule:
+      description: Cron expression for trend collection.
+      type: string
+      default: '0 * * * *'
+      required: true
+    s3_endpoint_url:
+      description: External S3-compatible endpoint URL.
+      type: string
+      default: ''
+      required: false
+    s3_bucket_name:
+      description: External S3 bucket name.
+      type: string
+      default: ''
+      required: false
+    s3_access_key_id:
+      description: External S3 access key ID.
+      type: string
+      default: ''
+      required: false
+    s3_secret_access_key:
+      description: External S3 secret access key.
+      type: string
+      default: ''
+      required: false
+    s3_region:
+      description: External S3 region.
+      type: string
+      default: auto
+      required: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-appvn-configvn-configvn-yaml: |-
+    app:
+      timezone: Asia/Shanghai
+    schedule:
+      enabled: true
+      preset: always_on
+    storage:
+      backend: local
+      formats:
+        sqlite: true
+        txt: false
+        html: true
+      local:
+        data_dir: output
+        retention_days: 0
+      remote:
+        retention_days: 0
+        endpoint_url: ''
+        bucket_name: ''
+        access_key_id: ''
+        secret_access_key: ''
+        region: ''
+    report:
+      mode: daily
+    notification:
+      channels: {}
+  vn-appvn-configvn-frequencyvn-wordsvn-txt: |-
+    [GLOBAL_FILTER]
+    shock
+
+    [WORD_GROUPS]
+    AI
+    OpenAI
+    Claude
+    NVIDIA
+    cloud
+    startup
+  vn-appvn-configvn-timelinevn-yaml: |-
+    presets:
+      always_on:
+        name: "Always on"
+        description: "Collect and publish incremental reports all day."
+        default:
+          collect: true
+          analyze: false
+          ai_mode: "current"
+          push: true
+          report_mode: "incremental"
+          once:
+            analyze: false
+            push: false
+        periods: {}
+        day_plans:
+          all_day:
+            periods: []
+        week_map:
+          1: "all_day"
+          2: "all_day"
+          3: "all_day"
+          4: "all_day"
+          5: "all_day"
+          6: "all_day"
+          7: "all_day"
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: wantcat/trendradar:6.9.1
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: wantcat/trendradar:6.9.1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: TZ
+              value: Asia/Shanghai
+            - name: WEBSERVER_PORT
+              value: '8080'
+            - name: RUN_MODE
+              value: cron
+            - name: IMMEDIATE_RUN
+              value: 'true'
+            - name: CRON_SCHEDULE
+              value: ${{ inputs.cron_schedule }}
+            - name: STORAGE_BACKEND
+              value: ${{ inputs.storage_backend }}
+            - name: S3_ENDPOINT_URL
+              value: ${{ inputs.s3_endpoint_url }}
+            - name: S3_BUCKET_NAME
+              value: ${{ inputs.s3_bucket_name }}
+            - name: S3_ACCESS_KEY_ID
+              value: ${{ inputs.s3_access_key_id }}
+            - name: S3_SECRET_ACCESS_KEY
+              value: ${{ inputs.s3_secret_access_key }}
+            - name: S3_REGION
+              value: ${{ inputs.s3_region }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            failureThreshold: 60
+            periodSeconds: 5
+            timeoutSeconds: 5
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          volumeMounts:
+            - name: config
+              mountPath: /app/config/config.yaml
+              subPath: vn-appvn-configvn-configvn-yaml
+            - name: config
+              mountPath: /app/config/frequency_words.txt
+              subPath: vn-appvn-configvn-frequencyvn-wordsvn-txt
+            - name: config
+              mountPath: /app/config/timeline.yaml
+              subPath: vn-appvn-configvn-timelinevn-yaml
+            - name: output
+              mountPath: /app/output
+      volumes:
+        - name: config
+          configMap:
+            name: ${{ defaults.app_name }}
+  volumeClaimTemplates:
+    - metadata:
+        name: output
+        annotations:
+          path: /app/output
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+        storageClassName: openebs-backup
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  selector:
+    app: ${{ defaults.app_name }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 8080
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/trendradar/logo.svg
+  name: TrendRadar
+  type: link

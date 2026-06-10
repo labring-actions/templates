@@ -1,0 +1,229 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: syncthing
+spec:
+  title: Syncthing
+  url: https://syncthing.net/
+  gitRepo: https://github.com/syncthing/syncthing
+  author: Sealos
+  description: Continuous peer-to-peer file synchronization with a browser-based administration interface.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/syncthing/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/syncthing/logo.png
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/syncthing/website-screenshot.webp
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: Syncthing 是持续运行的点对点文件同步工具，提供浏览器管理界面。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/syncthing/README_zh.md
+  categories:
+    - storage
+    - tool
+  defaults:
+    app_name:
+      type: string
+      value: syncthing-${{ random(8) }}
+    app_host:
+      type: string
+      value: syncthing-${{ random(8) }}
+  inputs:
+    device_name:
+      description: Device name shown in the Syncthing cluster
+      type: string
+      default: sealos-syncthing
+      required: false
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: syncthing/syncthing:2.1.1
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: syncthing/syncthing:2.1.1
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          args:
+            - serve
+            - --gui-address=0.0.0.0:8384
+            - --home=/var/syncthing/config
+            - --no-browser
+            - --no-restart
+          env:
+            - name: PUID
+              value: '1000'
+            - name: PGID
+              value: '1000'
+            - name: STGUIADDRESS
+              value: 0.0.0.0:8384
+            - name: STHOMEDIR
+              value: /var/syncthing/config
+            - name: STNODEFAULTFOLDER
+              value: 'true'
+            - name: STNORESTART
+              value: 'true'
+            - name: HOSTNAME
+              value: ${{ inputs.device_name }}
+          ports:
+            - name: gui
+              containerPort: 8384
+              protocol: TCP
+            - name: sync-tcp
+              containerPort: 22000
+              protocol: TCP
+            - name: sync-quic
+              containerPort: 22000
+              protocol: UDP
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          startupProbe:
+            httpGet:
+              path: /rest/noauth/health
+              port: gui
+            failureThreshold: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /rest/noauth/health
+              port: gui
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /rest/noauth/health
+              port: gui
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: vn-varvn-syncthing
+              mountPath: /var/syncthing
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /var/syncthing
+          value: '1'
+        name: vn-varvn-syncthing
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - name: gui
+      port: 8384
+      targetPort: 8384
+      protocol: TCP
+    - name: sync-tcp
+      port: 22000
+      targetPort: 22000
+      protocol: TCP
+    - name: sync-quic
+      port: 22000
+      targetPort: 22000
+      protocol: UDP
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 8384
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/syncthing/logo.png
+  name: Syncthing
+  type: link

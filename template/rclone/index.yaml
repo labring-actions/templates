@@ -1,0 +1,211 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: rclone
+spec:
+  title: Rclone
+  url: https://rclone.org/
+  gitRepo: https://github.com/rclone/rclone
+  author: Sealos
+  description: Rclone is a command-line program to manage, sync, and serve files across cloud storage providers.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/rclone/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/rclone/logo.svg
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/rclone/website-screenshot.webp
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: Rclone 是用于管理、同步和服务多种云存储文件的命令行工具。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/rclone/README_zh.md
+  categories:
+    - storage
+    - tool
+  defaults:
+    app_name:
+      type: string
+      value: rclone-${{ random(8) }}
+    app_host:
+      type: string
+      value: rclone-${{ random(8) }}
+  inputs:
+    rc_user:
+      description: Username for the Rclone Web GUI and RC API.
+      type: string
+      default: admin
+      required: true
+    rc_password:
+      description: Password for the Rclone Web GUI and RC API.
+      type: string
+      default: ''
+      required: true
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: rclone/rclone:1.74.3
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: rclone/rclone:1.74.3
+          imagePullPolicy: IfNotPresent
+          args:
+            - rcd
+            - --rc-addr=:5572
+            - --rc-web-gui
+            - --rc-web-gui-no-open-browser
+            - --rc-user=${{ inputs.rc_user }}
+            - --rc-pass=${{ inputs.rc_password }}
+            - --config=/config/rclone/rclone.conf
+            - --cache-dir=/data/cache
+            - --rc-enable-metrics
+          ports:
+            - name: http
+              containerPort: 5572
+              protocol: TCP
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          startupProbe:
+            tcpSocket:
+              port: http
+            failureThreshold: 30
+            periodSeconds: 5
+            timeoutSeconds: 5
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: config
+        annotations:
+          path: /config
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+        storageClassName: openebs-backup
+    - metadata:
+        name: data
+        annotations:
+          path: /data
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+        storageClassName: openebs-backup
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  selector:
+    app: ${{ defaults.app_name }}
+  ports:
+    - name: http
+      port: 5572
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 5572
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/rclone/logo.svg
+  name: Rclone
+  type: link

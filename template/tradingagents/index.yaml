@@ -1,0 +1,460 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: tradingagents
+spec:
+  title: TradingAgents
+  url: https://github.com/TauricResearch/TradingAgents
+  gitRepo: https://github.com/TauricResearch/TradingAgents
+  author: Sealos
+  description: Multi-agent LLM financial trading research framework with a browser launcher for ticker analysis.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/tradingagents/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/tradingagents/logo.png
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/tradingagents/website-screenshot.webp
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: TradingAgents 是多智能体大模型金融交易研究框架，此模板提供浏览器入口用于启动股票分析。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/tradingagents/README_zh.md
+  categories:
+    - ai
+    - tool
+  defaults:
+    app_name:
+      type: string
+      value: tradingagents-${{ random(8) }}
+    app_host:
+      type: string
+      value: tradingagents-${{ random(8) }}
+  inputs:
+    llm_provider:
+      description: LLM provider used by TradingAgents
+      type: choice
+      default: openai
+      options:
+        - openai
+        - google
+        - anthropic
+        - deepseek
+        - qwen
+        - qwen-cn
+        - glm
+        - glm-cn
+        - minimax
+        - minimax-cn
+        - openrouter
+      required: false
+    openai_api_key:
+      description: OpenAI API key
+      type: string
+      default: ''
+      required: false
+    google_api_key:
+      description: Google Gemini API key
+      type: string
+      default: ''
+      required: false
+    anthropic_api_key:
+      description: Anthropic API key
+      type: string
+      default: ''
+      required: false
+    deepseek_api_key:
+      description: DeepSeek API key
+      type: string
+      default: ''
+      required: false
+    dashscope_api_key:
+      description: Alibaba DashScope international API key for Qwen
+      type: string
+      default: ''
+      required: false
+    zhipu_api_key:
+      description: Z.AI GLM international API key
+      type: string
+      default: ''
+      required: false
+    minimax_api_key:
+      description: MiniMax global API key
+      type: string
+      default: ''
+      required: false
+    openrouter_api_key:
+      description: OpenRouter API key
+      type: string
+      default: ''
+      required: false
+    alpha_vantage_api_key:
+      description: Optional Alpha Vantage API key for market data
+      type: string
+      default: ''
+      required: false
+    finnhub_api_key:
+      description: Optional Finnhub API key for news and fundamentals
+      type: string
+      default: ''
+      required: false
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  app.py: |
+    import datetime as dt
+    import os
+    import subprocess
+    import textwrap
+
+    import gradio as gr
+
+    PROVIDER = os.environ.get("LLM_PROVIDER", "openai")
+
+    def masked(value):
+        return "configured" if value else "empty"
+
+    def status():
+        keys = {
+            "OPENAI_API_KEY": masked(os.environ.get("OPENAI_API_KEY", "")),
+            "GOOGLE_API_KEY": masked(os.environ.get("GOOGLE_API_KEY", "")),
+            "ANTHROPIC_API_KEY": masked(os.environ.get("ANTHROPIC_API_KEY", "")),
+            "DEEPSEEK_API_KEY": masked(os.environ.get("DEEPSEEK_API_KEY", "")),
+            "DASHSCOPE_API_KEY": masked(os.environ.get("DASHSCOPE_API_KEY", "")),
+            "ZHIPU_API_KEY": masked(os.environ.get("ZHIPU_API_KEY", "")),
+            "MINIMAX_API_KEY": masked(os.environ.get("MINIMAX_API_KEY", "")),
+            "OPENROUTER_API_KEY": masked(os.environ.get("OPENROUTER_API_KEY", "")),
+            "ALPHA_VANTAGE_API_KEY": masked(os.environ.get("ALPHA_VANTAGE_API_KEY", "")),
+            "FINNHUB_API_KEY": masked(os.environ.get("FINNHUB_API_KEY", "")),
+        }
+        rows = "\n".join(f"- {name}: {state}" for name, state in keys.items())
+        return f"LLM provider: {PROVIDER}\n\n{rows}"
+
+    def run_analysis(ticker, analysis_date, depth):
+        ticker = (ticker or "").strip().upper()
+        analysis_date = (analysis_date or "").strip() or dt.date.today().isoformat()
+        if not ticker:
+            return "Enter a ticker symbol before starting an analysis."
+
+        command = [
+            "python",
+            "-m",
+            "cli.main",
+            "analyze",
+            "--ticker",
+            ticker,
+            "--date",
+            analysis_date,
+            "--llm-provider",
+            PROVIDER,
+        ]
+        if depth:
+            command.extend(["--research-depth", str(depth)])
+
+        try:
+            result = subprocess.run(
+                command,
+                cwd="/home/appuser/app",
+                text=True,
+                capture_output=True,
+                timeout=1800,
+            )
+        except subprocess.TimeoutExpired:
+            return "Analysis timed out after 30 minutes. Increase resources or run a narrower analysis."
+
+        output = "\n".join(part for part in [result.stdout, result.stderr] if part)
+        if result.returncode != 0:
+            return f"Command failed with exit code {result.returncode}.\n\n{output[-8000:]}"
+        return output[-12000:] or "Analysis completed."
+
+    with gr.Blocks(title="TradingAgents") as demo:
+        gr.Markdown(
+            textwrap.dedent(
+                """
+                # TradingAgents
+
+                Browser launcher for the TradingAgents multi-agent financial research framework.
+                Configure API keys in the Sealos template dialog, then run ticker analysis from this page.
+                """
+            ).strip()
+        )
+        with gr.Row():
+            ticker = gr.Textbox(label="Ticker", value="AAPL")
+            analysis_date = gr.Textbox(label="Analysis date", value=dt.date.today().isoformat())
+            depth = gr.Slider(label="Research depth", minimum=1, maximum=5, step=1, value=1)
+        run_button = gr.Button("Run analysis", variant="primary")
+        output = gr.Textbox(label="Output", lines=24)
+        run_button.click(run_analysis, inputs=[ticker, analysis_date, depth], outputs=output)
+        gr.Markdown("## Runtime status")
+        status_button = gr.Button("Refresh status")
+        status_output = gr.Textbox(label="Environment", value=status(), lines=14)
+        status_button.click(status, outputs=status_output)
+
+    demo.queue(default_concurrency_limit=1).launch(server_name="0.0.0.0", server_port=7860)
+  start.sh: |
+    #!/bin/sh
+    set -eu
+    cd /home/appuser/app
+    exec /home/appuser/venv/bin/python /opt/tradingagents/app.py
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: python:3.12-slim
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+    docker-to-sealos.resource-override-source: "Live Sealos validation on 2026-06-11: TradingAgents first-run pip installation did not complete within the baseline 256Mi startup window; 1024Mi is required for dependency installation."
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: clone-source
+          image: alpine/git:2.49.1
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              mkdir -p /home/appuser/.tradingagents
+              if [ ! -d /home/appuser/app/.git ]; then
+                rm -rf /home/appuser/app
+                git clone --depth 1 --branch v0.2.5 https://github.com/TauricResearch/TradingAgents.git /home/appuser/app
+              fi
+              chmod -R 0777 /home/appuser
+          volumeMounts:
+            - name: vn-homevn-appuser
+              mountPath: /home/appuser
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+        - name: install-runtime
+          image: python:3.12-slim
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              cd /home/appuser/app
+              if [ ! -x /home/appuser/venv/bin/python ]; then
+                python -m venv /home/appuser/venv
+              fi
+              /home/appuser/venv/bin/python -m pip install --no-cache-dir --upgrade pip
+              /home/appuser/venv/bin/python -m pip install --no-cache-dir -e . gradio
+          volumeMounts:
+            - name: vn-homevn-appuser
+              mountPath: /home/appuser
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 1024Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: python:3.12-slim
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - /bin/sh
+            - /opt/tradingagents/start.sh
+          env:
+            - name: PYTHONUNBUFFERED
+              value: '1'
+            - name: LLM_PROVIDER
+              value: ${{ inputs.llm_provider }}
+            - name: OPENAI_API_KEY
+              value: ${{ inputs.openai_api_key }}
+            - name: GOOGLE_API_KEY
+              value: ${{ inputs.google_api_key }}
+            - name: ANTHROPIC_API_KEY
+              value: ${{ inputs.anthropic_api_key }}
+            - name: DEEPSEEK_API_KEY
+              value: ${{ inputs.deepseek_api_key }}
+            - name: DASHSCOPE_API_KEY
+              value: ${{ inputs.dashscope_api_key }}
+            - name: ZHIPU_API_KEY
+              value: ${{ inputs.zhipu_api_key }}
+            - name: MINIMAX_API_KEY
+              value: ${{ inputs.minimax_api_key }}
+            - name: OPENROUTER_API_KEY
+              value: ${{ inputs.openrouter_api_key }}
+            - name: ALPHA_VANTAGE_API_KEY
+              value: ${{ inputs.alpha_vantage_api_key }}
+            - name: FINNHUB_API_KEY
+              value: ${{ inputs.finnhub_api_key }}
+            - name: TRADINGAGENTS_CACHE_DIR
+              value: /home/appuser/.tradingagents/cache
+            - name: TRADINGAGENTS_MEMORY_LOG_PATH
+              value: /home/appuser/.tradingagents/memory/trading_memory.md
+            - name: GRADIO_ANALYTICS_ENABLED
+              value: 'False'
+          ports:
+            - name: http
+              containerPort: 7860
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 1024Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            failureThreshold: 60
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 120
+            periodSeconds: 20
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: vn-homevn-appuser
+              mountPath: /home/appuser
+            - name: ${{ defaults.app_name }}
+              mountPath: /opt/tradingagents
+      volumes:
+        - name: ${{ defaults.app_name }}
+          configMap:
+            name: ${{ defaults.app_name }}
+            defaultMode: 0755
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /home/appuser
+          value: '1'
+        name: vn-homevn-appuser
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - name: http
+      port: 7860
+      targetPort: 7860
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 7860
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/tradingagents/logo.png
+  name: TradingAgents
+  type: link
