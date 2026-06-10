@@ -220,6 +220,7 @@ metadata:
     kb.io/database: postgresql-16.4.0
     clusterdefinition.kubeblocks.io/name: postgresql
     clusterversion.kubeblocks.io/name: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
 spec:
   affinity:
     podAntiAffinity: Preferred
@@ -253,6 +254,157 @@ spec:
                 storage: 1Gi
             storageClassName: openebs-backup
   terminationPolicy: Delete
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-aiproxy-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-aiproxy-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-aiproxy-pg
+    app.kubernetes.io/managed-by: kbcli
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-aiproxy-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-aiproxy-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-aiproxy-pg
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-aiproxy-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-aiproxy-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-aiproxy-pg
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-aiproxy-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-aiproxy-pg
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  name: ${{ defaults.app_name }}-aiproxy-pg
+  labels:
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-aiproxy-pg
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  backup:
+    enabled: true
+    cronExpression: 0 18 * * *
+    method: pg-basebackup
+    pitrEnabled: false
+    retentionPeriod: 7d
+  componentSpecs:
+    - componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
+      monitor: true
+      name: postgresql
+      replicas: 1
+      resources:
+        limits:
+          cpu: 2
+          memory: 2Gi
+        requests:
+          cpu: 200m
+          memory: 256Mi
+      serviceAccountName: ${{ defaults.app_name }}-aiproxy-pg
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 5Gi
+  terminationPolicy: Delete
+  tolerations: []
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-aiproxy-pg-init
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: pgsql-init
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-aiproxy-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-aiproxy-pg-conn-credential
+                  key: port
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-aiproxy-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-aiproxy-pg-conn-credential
+                  key: password
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              for i in $(seq 1 60); do
+                if pg_isready -h "${PG_HOST}" -p "${PG_PORT}" -U "${PG_USERNAME}" -d postgres >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 2
+              done
+              pg_isready -h "${PG_HOST}" -p "${PG_PORT}" -U "${PG_USERNAME}" -d postgres >/dev/null 2>&1
+              if ! psql "postgresql://${PG_USERNAME}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='aiproxy'" | grep -q 1; then
+                psql "postgresql://${PG_USERNAME}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/postgres" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE "aiproxy";'
+              fi
 
 ---
 apiVersion: v1
@@ -367,58 +519,6 @@ spec:
             storageClassName: openebs-backup
   terminationPolicy: Delete
   topology: replication
-
----
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: ${{ defaults.app_name }}-pg-init
-spec:
-  backoffLimit: 3
-  ttlSecondsAfterFinished: 300
-  template:
-    spec:
-      restartPolicy: OnFailure
-      containers:
-        - name: pgsql-init
-          image: postgres:16-alpine
-          imagePullPolicy: IfNotPresent
-          env:
-            - name: PG_HOST
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: host
-            - name: PG_PORT
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: port
-            - name: PG_USERNAME
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: username
-            - name: PG_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: password
-          command:
-            - /bin/sh
-            - -c
-            - |
-              set -eu
-              for i in $(seq 1 60); do
-                if pg_isready -h "${PG_HOST}" -p "${PG_PORT}" -U "${PG_USERNAME}" -d postgres >/dev/null 2>&1; then
-                  break
-                fi
-                sleep 2
-              done
-              pg_isready -h "${PG_HOST}" -p "${PG_PORT}" -U "${PG_USERNAME}" -d postgres >/dev/null 2>&1
-              if ! psql "postgresql://${PG_USERNAME}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='aiproxy'" | grep -q 1; then
-                psql "postgresql://${PG_USERNAME}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/postgres" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE "aiproxy";'
-              fi
 
 ---
 apiVersion: v1
@@ -1309,22 +1409,22 @@ spec:
             - name: AIPROXY_PG_HOST
               valueFrom:
                 secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  name: ${{ defaults.app_name }}-aiproxy-pg-conn-credential
                   key: host
             - name: AIPROXY_PG_PORT
               valueFrom:
                 secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  name: ${{ defaults.app_name }}-aiproxy-pg-conn-credential
                   key: port
             - name: AIPROXY_PG_USERNAME
               valueFrom:
                 secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  name: ${{ defaults.app_name }}-aiproxy-pg-conn-credential
                   key: username
             - name: AIPROXY_PG_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  name: ${{ defaults.app_name }}-aiproxy-pg-conn-credential
                   key: password
             - name: ADMIN_KEY
               value: ${{ defaults.aiproxy_token }}
