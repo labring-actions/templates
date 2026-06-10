@@ -16,7 +16,6 @@ spec:
   locale: en
   i18n:
     zh:
-      title: 'NetBird'
       description: '基于 WireGuard 的零信任网络平台，支持自托管管理、信令与中继。'
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/netbird/README_zh.md'
   categories:
@@ -71,6 +70,7 @@ kind: ConfigMap
 metadata:
   name: ${{ defaults.app_name }}-management
   labels:
+    app: ${{ defaults.app_name }}-management
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-management
 data:
   vn-etcvn-netbirdvn-managementvn-json: |-
@@ -147,7 +147,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-dashboard
   annotations:
-    originImageName: netbirdio/dashboard:v2.31.0
+    originImageName: netbirdio/dashboard:v2.38.1
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -167,7 +167,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}-dashboard
-          image: netbirdio/dashboard:v2.31.0
+          image: netbirdio/dashboard:v2.38.1
           imagePullPolicy: IfNotPresent
           env:
             - name: NETBIRD_MGMT_API_ENDPOINT
@@ -214,7 +214,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}-management
   annotations:
-    originImageName: netbirdio/management:0.64.5
+    originImageName: netbirdio/management:0.71.4
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -235,7 +235,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}-management
-          image: netbirdio/management:0.64.5
+          image: netbirdio/management:0.71.4
           imagePullPolicy: IfNotPresent
           args:
             - --config
@@ -292,7 +292,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}-signal
   annotations:
-    originImageName: netbirdio/signal:0.64.5
+    originImageName: netbirdio/signal:0.71.4
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -313,7 +313,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}-signal
-          image: netbirdio/signal:0.64.5
+          image: netbirdio/signal:0.71.4
           imagePullPolicy: IfNotPresent
           args:
             - --log-file
@@ -353,7 +353,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-relay
   annotations:
-    originImageName: netbirdio/relay:0.64.5
+    originImageName: netbirdio/relay:0.71.4
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -373,7 +373,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}-relay
-          image: netbirdio/relay:0.64.5
+          image: netbirdio/relay:0.71.4
           imagePullPolicy: IfNotPresent
           env:
             - name: NB_LOG_LEVEL
@@ -404,6 +404,7 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-dashboard
   labels:
+    app: ${{ defaults.app_name }}-dashboard
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-dashboard
 spec:
   ports:
@@ -419,6 +420,7 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-management
   labels:
+    app: ${{ defaults.app_name }}-management
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-management
 spec:
   ports:
@@ -434,14 +436,15 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-management-grpc
   labels:
+    app: ${{ defaults.app_name }}-management-grpc
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-management-grpc
 spec:
+  type: ExternalName
+  externalName: ${{ defaults.app_name }}-management.${{ SEALOS_NAMESPACE }}.svc.cluster.local
   ports:
     - name: grpc
       port: 33073
       targetPort: 33073
-  selector:
-    app: ${{ defaults.app_name }}-management
 
 ---
 apiVersion: v1
@@ -449,6 +452,7 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-signal
   labels:
+    app: ${{ defaults.app_name }}-signal
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-signal
 spec:
   ports:
@@ -464,14 +468,15 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-signal-grpc
   labels:
+    app: ${{ defaults.app_name }}-signal-grpc
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-signal-grpc
 spec:
+  type: ExternalName
+  externalName: ${{ defaults.app_name }}-signal.${{ SEALOS_NAMESPACE }}.svc.cluster.local
   ports:
     - name: grpc
       port: 80
       targetPort: 80
-  selector:
-    app: ${{ defaults.app_name }}-signal
 
 ---
 apiVersion: v1
@@ -479,6 +484,7 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-relay
   labels:
+    app: ${{ defaults.app_name }}-relay
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-relay
 spec:
   ports:
@@ -500,8 +506,18 @@ metadata:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
     nginx.ingress.kubernetes.io/ssl-redirect: 'true'
-    nginx.ingress.kubernetes.io/proxy-read-timeout: '3600'
-    nginx.ingress.kubernetes.io/proxy-send-timeout: '3600'
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
     nginx.ingress.kubernetes.io/proxy-body-size: 32m
 spec:
   rules:
@@ -531,8 +547,18 @@ metadata:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
     nginx.ingress.kubernetes.io/ssl-redirect: 'true'
-    nginx.ingress.kubernetes.io/proxy-read-timeout: '3600'
-    nginx.ingress.kubernetes.io/proxy-send-timeout: '3600'
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
     nginx.ingress.kubernetes.io/proxy-body-size: 32m
 spec:
   rules:
@@ -576,8 +602,18 @@ metadata:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
     nginx.ingress.kubernetes.io/ssl-redirect: 'true'
-    nginx.ingress.kubernetes.io/proxy-read-timeout: '3600'
-    nginx.ingress.kubernetes.io/proxy-send-timeout: '3600'
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
     nginx.ingress.kubernetes.io/proxy-body-size: 32m
 spec:
   rules:
@@ -607,8 +643,18 @@ metadata:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
     nginx.ingress.kubernetes.io/ssl-redirect: 'true'
-    nginx.ingress.kubernetes.io/proxy-read-timeout: '3600'
-    nginx.ingress.kubernetes.io/proxy-send-timeout: '3600'
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
     nginx.ingress.kubernetes.io/proxy-body-size: 32m
 spec:
   rules:
@@ -638,8 +684,18 @@ metadata:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/backend-protocol: GRPC
     nginx.ingress.kubernetes.io/ssl-redirect: 'true'
-    nginx.ingress.kubernetes.io/proxy-read-timeout: '3600'
-    nginx.ingress.kubernetes.io/proxy-send-timeout: '3600'
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
 spec:
   rules:
     - host: ${{ defaults.grpc_host }}.${{ SEALOS_CLOUD_DOMAIN }}
@@ -668,8 +724,18 @@ metadata:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/backend-protocol: GRPC
     nginx.ingress.kubernetes.io/ssl-redirect: 'true'
-    nginx.ingress.kubernetes.io/proxy-read-timeout: '3600'
-    nginx.ingress.kubernetes.io/proxy-send-timeout: '3600'
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
 spec:
   rules:
     - host: ${{ defaults.grpc_host }}.${{ SEALOS_CLOUD_DOMAIN }}

@@ -40,8 +40,8 @@ This template deploys the following resources:
 
 - **OpenCart StatefulSet (`ghcr.io/yangchuansheng/opencart:4.1.0.3`)**: Serves the storefront and admin UI over HTTP inside the cluster.
 - **Managed MySQL Cluster (`ac-mysql-8.0.30-1`)**: Provisioned by KubeBlocks for relational data storage.
-- **Persistent Volume (`/var/www/html/image`, 0.1Gi)**: Stores catalog images and uploaded media.
-- **Persistent Volume (`/var/www/storage`, 0.1Gi)**: Stores application storage data, cache, and runtime files.
+- **Persistent Volume (`/var/www/html/image`, 256Mi)**: Stores catalog images and uploaded media.
+- **Persistent Volume (`/var/www/storage`, 256Mi)**: Stores application storage data, cache, and runtime files.
 - **Service + Ingress**: Exposes OpenCart internally and publishes an HTTPS endpoint externally.
 
 ### Configuration
@@ -49,14 +49,14 @@ This template deploys the following resources:
 The template exposes these deployment inputs:
 
 - `OPENCART_USERNAME`: Initial OpenCart admin username (default: `admin`)
-- `OPENCART_PASSWORD`: Initial OpenCart admin password (required)
+- `OPENCART_PASSWORD`: Initial OpenCart admin password (required, 5-20 characters)
 - `OPENCART_ADMIN_EMAIL`: Initial OpenCart admin email (default: `admin@example.com`)
 
 Runtime behaviors:
 
 - Auto-install is enabled (`OPENCART_AUTO_INSTALL=true`).
 - Installer cleanup is enabled (`OPENCART_REMOVE_INSTALLER=true`).
-- Admin path is set to `admincp` (`/admincp`).
+- Admin path is set to `admincp` (`/admincp/`).
 - Database values are injected from `${app_name}-mysql-conn-credential` secret keys.
 - Default database and prefix are `opencart` and `oc_`.
 
@@ -83,12 +83,13 @@ Deploy OpenCart on Sealos and focus on store operations instead of infrastructur
 1. Open the [OpenCart template](https://sealos.io/products/app-store/opencart) and click **Deploy Now**.
 2. Configure deployment parameters in the popup dialog:
    - `OPENCART_USERNAME`
-   - `OPENCART_PASSWORD`
+   - `OPENCART_PASSWORD` (5-20 characters)
    - `OPENCART_ADMIN_EMAIL`
 3. Wait for deployment to complete (typically 2-3 minutes). After deployment, you will be redirected to Canvas. For later changes, describe your requirements in the dialog to let AI apply updates, or click the relevant resource cards to modify settings.
 4. Access your application using the generated domain:
    - **Storefront**: `https://<app-host>.<domain>/`
-   - **Admin Panel**: `https://<app-host>.<domain>/admincp`
+   - **Admin Panel**: `https://<app-host>.<domain>/admincp/`
+   - **Customer Registration**: `https://<app-host>.<domain>/index.php?route=account/register`
 
 ## Configuration
 
@@ -96,7 +97,8 @@ After deployment, you can manage OpenCart through:
 
 - **AI Dialog**: Request changes such as resource tuning, restart actions, or env updates.
 - **Resource Cards**: Modify StatefulSet, Service, Ingress, and MySQL settings directly in Canvas.
-- **OpenCart Admin Panel**: Configure catalog, taxes, shipping, payment modules, and extensions.
+- **OpenCart Admin Panel**: Sign in at `/admincp/` with the deployment username and password, then configure catalog, taxes, shipping, payment modules, and extensions.
+- **Customer Accounts**: Buyers can create storefront accounts from `/index.php?route=account/register` unless you disable registration in OpenCart settings.
 
 Recommended post-deployment actions:
 
@@ -126,7 +128,7 @@ This template is optimized for a single OpenCart application instance by default
 
 **Issue: Cannot open the admin page at `/admin`**
 - Cause: Admin route is configured as `/admincp` in this template.
-- Solution: Sign in via `https://<app-host>.<domain>/admincp`.
+- Solution: Sign in via `https://<app-host>.<domain>/admincp/` using the `OPENCART_USERNAME` and `OPENCART_PASSWORD` values from deployment.
 
 **Issue: First load shows incomplete installation behavior**
 - Cause: Initial auto-install steps may still be running in the OpenCart container.

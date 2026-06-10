@@ -7,14 +7,20 @@ spec:
   url: 'https://nocodb.com/'
   gitRepo: 'https://github.com/nocodb/nocodb'
   author: 'Sealos'
-  description: 'Turns any MySQL, PostgreSQL, SQL Server, SQLite & MariaDB into a smart spreadsheet.'
+  description: 'Turns databases into collaborative smart spreadsheets and no-code applications.'
   readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/nocodb/README.md'
   icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/nocodb/logo.svg'
   screenshots:
     - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/nocodb/website-screenshot.webp'
   templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: 将数据库转换为协作式智能表格和无代码应用。
+      readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/nocodb/README_zh.md'
   categories:
     - database
+    - low-code
   defaults:
     app_host:
       # number or string..
@@ -23,16 +29,108 @@ spec:
     app_name:
       type: string
       value: nocodb-${{ random(8) }}
-  i18n:
-    zh:
-      readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/nocodb/README_zh.md'
+  inputs:
+    NC_ADMIN_EMAIL:
+      description: Initial admin email. Use this email to sign in after deployment.
+      type: string
+      default: admin@example.com
+      required: true
+    NC_ADMIN_PASSWORD:
+      description: Initial admin password. Use at least 8 characters with letters and numbers.
+      type: string
+      default: ${{ random(16) }}
+      required: true
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  terminationPolicy: Delete
+  componentSpecs:
+    - name: postgresql
+      componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
+      replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: nocodb/nocodb:0.265.1
+    originImageName: nocodb/nocodb:2026.05.2
+    docker-to-sealos.resource-override-source: 'Live Sealos cold-start validation for nocodb/nocodb:2026.05.2: 512Mi memory limit failed with JavaScript heap out of memory; 1024Mi memory limit with 102Mi request reached Ready and authenticated API checks passed.'
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -55,16 +153,43 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: nocodb/nocodb:0.265.1
+          image: nocodb/nocodb:2026.05.2
+          env:
+            - name: NC_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: NC_DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: NC_DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: NC_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: NC_DB
+              value: pg://$(NC_DB_HOST):$(NC_DB_PORT)?u=$(NC_DB_USER)&p=$(NC_DB_PASSWORD)&d=postgres
+            - name: NC_PUBLIC_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: NC_ADMIN_EMAIL
+              value: ${{ inputs.NC_ADMIN_EMAIL }}
+            - name: NC_ADMIN_PASSWORD
+              value: ${{ inputs.NC_ADMIN_PASSWORD }}
           resources:
             requests:
-              cpu: 200m
-              memory: 409Mi
-              ephemeral-storage: "400Mi"
+              cpu: 20m
+              memory: 102Mi
             limits:
-              cpu: 2000m
-              memory: 4096Mi
-              ephemeral-storage: "400Mi"
+              cpu: 200m
+              memory: 1024Mi
           ports:
             - name: http
               protocol: TCP
@@ -73,10 +198,27 @@ spec:
           volumeMounts:
             - name: vn-usrvn-appvn-data
               mountPath: /usr/app/data
-          livenessProbe:
-            tcpSocket:
+          startupProbe:
+            httpGet:
+              path: /
               port: 8080
-            initialDelaySeconds: 20
+            failureThreshold: 60
+            periodSeconds: 5
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 3
   volumeClaimTemplates:
     - metadata:
         annotations:
@@ -97,9 +239,12 @@ metadata:
   name: ${{ defaults.app_name }}
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 8080
+    - name: http
+      port: 8080
+      targetPort: 8080
   selector:
     app: ${{ defaults.app_name }}
 ---
@@ -118,7 +263,6 @@ metadata:
       large_client_header_buffers 4 128k;
     nginx.ingress.kubernetes.io/ssl-redirect: 'true'
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
-    nginx.ingress.kubernetes.io/rewrite-target: /$2
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
@@ -134,7 +278,7 @@ spec:
       http:
         paths:
           - pathType: Prefix
-            path: /()(.*)
+            path: /
             backend:
               service:
                 name: ${{ defaults.app_name }}
@@ -158,4 +302,4 @@ spec:
   displayType: normal
   icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/nocodb/logo.svg"
   name: ${{ defaults.app_name }}
-  type: iframe
+  type: link

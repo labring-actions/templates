@@ -21,7 +21,7 @@ This Sealos template deploys Nexus as a single StatefulSet backed by a persisten
 
 The Sealos template includes all required runtime dependencies for Nexus Repository:
 
-- Nexus application container (`sonatype/nexus3`)
+- Nexus application container (`sonatype/nexus3:3.92.3`)
 - Persistent storage for `/nexus-data`
 - Kubernetes Service and HTTPS Ingress
 
@@ -47,7 +47,8 @@ This template deploys the following components:
 **Configuration:**
 
 - The template uses a single-node deployment for simple operations and evaluation environments.
-- Resource limits and probes are preconfigured for stable startup and runtime health checks.
+- Resource limits and probes are preconfigured for stable cold startup and runtime health checks.
+- The template reserves `100m` CPU / `200Mi` memory requests and `2` CPU / `2G` memory limits for Nexus, with a `1Gi` persistent volume.
 - Data persists across pod restarts through the mounted persistent volume.
 
 **License Information:**
@@ -69,7 +70,7 @@ Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies
 
 1. Open the [Nexus template](https://sealos.io/products/app-store/nexus) and click **Deploy Now**.
 2. Configure deployment parameters in the popup dialog, then submit.
-3. Wait for deployment to complete (typically 2-3 minutes). After deployment, you will be redirected to Canvas. For later changes, describe your requirements in the AI dialog or click resource cards to edit settings.
+3. Wait for deployment to complete (typically 3-5 minutes). After deployment, you will be redirected to Canvas. For later changes, describe your requirements in the AI dialog or click resource cards to edit settings.
 4. Access Nexus from the generated application URL in Sealos.
 
 ## Initial Login and Admin Password
@@ -84,6 +85,7 @@ To retrieve the initial password in Sealos:
 3. Confirm startup by finding `Started Sonatype Nexus OSS` in logs.
 4. Open **File Manager** for the Nexus pod.
 5. Download `/nexus-data/admin.password` and use its content as the login password.
+6. After the first login, follow the Nexus setup wizard to change the admin password and decide whether anonymous access should stay enabled.
 
 ## Configuration
 

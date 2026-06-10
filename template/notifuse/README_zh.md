@@ -1,10 +1,10 @@
 # 在 Sealos 上部署并托管 Notifuse
 
-Notifuse 是一个开源邮件平台，支持新闻邮件、事务邮件、自动化流程，以及面向收件人的订阅管理。本模板会在 Sealos Cloud 上部署 Notifuse v28.4，并自动配置 PostgreSQL、持久化存储和 HTTPS Ingress。
+Notifuse 是一个开源邮件平台，支持新闻邮件、事务邮件、自动化流程，以及面向收件人的订阅管理。本模板会在 Sealos Cloud 上部署 Notifuse v32.1，并自动配置 PostgreSQL、持久化存储和 HTTPS Ingress。
 
 ## 关于在 Sealos 上托管 Notifuse
 
-Notifuse 把邮件营销、事务投递、受众管理、自动化工作流和通知中心整合在同一个应用里。首次打开时，Notifuse 会引导你完成内置的 Setup Wizard（初始化向导），在浏览器中补齐 root 管理员邮箱、公开 API 地址和 SMTP 配置。
+Notifuse 把邮件营销、事务投递、受众管理、自动化工作流和通知中心整合在同一个应用里。首次打开时，Notifuse 会引导你完成内置的 Setup Wizard（初始化向导），在浏览器中设置 root 管理员邮箱、确认公开 API 地址，并配置用于登录验证码和发信的 SMTP。
 
 这个 Sealos 模板会准备好自托管所需的核心组件，包括 PostgreSQL 集群、用于创建 `notifuse_system` 数据库的初始化 Job、挂载到 `/app/data` 的持久化存储，以及一个公开可访问的 HTTPS 控制台地址。应用还会在集群内部暴露 `587` 端口，方便你后续扩展 SMTP relay 等场景。
 
@@ -34,7 +34,7 @@ Notifuse 把邮件营销、事务投递、受众管理、自动化工作流和�
 本模板会部署以下服务和资源：
 
 - **Notifuse 应用**：提供 Web 控制台和 API，监听端口 `8080`
-  - 镜像：`notifuse/notifuse:v28.4`
+  - 镜像：`notifuse/notifuse:v32.1`
   - 持久化存储：`1Gi`，挂载到 `/app/data`
   - 健康检查：`/healthz` 启动、就绪和存活探针
 - **PostgreSQL 集群**：为系统数据和工作区数据提供底层数据库
@@ -59,7 +59,7 @@ Notifuse 把邮件营销、事务投递、受众管理、自动化工作流和�
 
 - 填写 root 管理员邮箱
 - 确认 Sealos 为你生成的公开 API 地址
-- 配置用于发信的 SMTP 服务商
+- 配置可用的 SMTP 服务商。Notifuse 使用邮件验证码完成管理员登录，因此 SMTP 可用后才能正常通过浏览器登录。
 
 Notifuse 会使用模板注入的数据库凭据来管理内部系统库和工作区数据。部署完成后请保持 `SECRET_KEY` 稳定，因为上游文档说明，一旦修改它，之前已经加密保存的集成凭据会失效。
 
@@ -88,15 +88,15 @@ Sealos 是构建在 Kubernetes 之上的 AI 驱动云操作系统，可以把应
 4. 打开生成的应用地址，完成 Notifuse 的 Setup Wizard：
    - 填写 root 管理员邮箱
    - 确认公开 API 地址
-   - 配置发信所需的 SMTP 服务商
-5. 完成初始化后，就可以在 Notifuse 控制台中开始创建工作区、列表、模板、群发活动和自动化流程。
+   - 配置可用的 SMTP 服务商，用于登录验证码和业务发信
+5. SMTP 配置完成后，使用 root 邮箱和收到的邮件验证码登录，再在 Notifuse 控制台中创建工作区、列表、模板、群发活动和自动化流程。
 
 ## 配置
 
 部署完成后，你可以从两个层面管理这套服务：
 
 - **Sealos 基础设施层**：通过 Canvas、AI 对话框或资源卡片调整 CPU、内存、存储、域名和 Ingress 相关设置。
-- **Notifuse 应用层**：通过 Web 控制台配置 SMTP 集成、创建工作区、设置品牌化 endpoint URL、管理发信身份、联系人列表和自动化流程。
+- **Notifuse 应用层**：通过 Web 控制台管理 SMTP 设置、创建工作区、设置品牌化 endpoint URL、管理发信身份、联系人列表和自动化流程。
 
 如果你希望邮件里的点击链接、退订页面等面向收件人的地址使用自定义域名，请在完成初始化后，进入各个工作区单独配置 custom endpoint URL。
 
@@ -126,8 +126,8 @@ Sealos 是构建在 Kubernetes 之上的 AI 驱动云操作系统，可以把应
 - 处理方法：先等待部署稳定。如果仍未恢复，再到 Canvas 中检查 PostgreSQL 集群、初始化 Job 和 StatefulSet 的状态。
 
 **问题：邮件发送失败**
-- 原因：还没有配置 SMTP，或者 SMTP 提供商凭据填写错误。
-- 处理方法：在 Notifuse 设置中补充或修正 SMTP 集成。首次配置时，最快的入口就是初始化向导。
+- 原因：还没有配置 SMTP、SMTP 提供商凭据填写错误，或 SMTP 服务无法连通。
+- 处理方法：在初始化向导或 Notifuse 设置中补充并修正 SMTP 配置。常规浏览器登录依赖邮件验证码，请先确认 SMTP 能正常投递。
 
 **问题：点击追踪或退订页面使用了错误的域名**
 - 原因：工作区级别的 endpoint branding 还没有配置。

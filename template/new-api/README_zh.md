@@ -43,10 +43,10 @@ Sealos 模板已包含运行 New API 所需的全部依赖：
 
 本模板部署以下服务：
 
-- **New API StatefulSet**（`calciumion/new-api:v0.11.4`）：在 `3000` 端口提供 Web 管理界面和 OpenAI 兼容 API
+- **New API StatefulSet**（`calciumion/new-api:v0.13.2`）：在 `3000` 端口提供 Web 管理界面和 OpenAI 兼容 API
 - **PostgreSQL 集群**：存储用户、渠道、额度及应用配置数据
 - **Redis 集群**：提供缓存和基于 Redis 的运行时状态存储
-- **PostgreSQL 初始化任务**：等待数据库就绪后幂等创建 `new-api` 数据库
+- **PostgreSQL 初始化任务**：等待数据库就绪后幂等创建 `new-api` 数据库，并与应用容器使用相同的小规格 Sealos 资源阶梯
 - **Service、Ingress 和 App 资源**：通过 Sealos 托管的 HTTPS 发布应用
 
 **配置方式：**
@@ -55,7 +55,7 @@ Sealos 模板已包含运行 New API 所需的全部依赖：
 - `REDIS_CONN_STRING` 由 `${{ defaults.app_name }}-redis-redis-account-default` 和 Redis 内部服务 DNS 自动构建
 - `SESSION_SECRET` 和 `CRYPTO_SECRET` 默认自动生成，确保部署即拥有稳定的运行时密钥
 - 健康检查指向 `/api/status`，持久卷分别挂载在 `/data` 和 `/app/logs`
-- 当前模板为每个应用 PVC 分配 `103Mi` 存储空间
+- 应用容器和初始化容器使用 `200m` CPU / `256Mi` 内存限制，以及 `20m` CPU / `25Mi` 内存请求。每个应用 PVC 分配 `103Mi` 存储空间，并已通过应用数据目录和日志目录的线上冷启动验证
 
 **许可证信息：**
 
@@ -83,7 +83,7 @@ Sealos 是一个基于 Kubernetes 构建的 AI 赋能云操作系统，让您无
    - `session_secret`
    - `crypto_secret`
 3. 等待部署完成（通常 2-3 分钟）。部署成功后会自动跳转到 Canvas。后续修改可在 AI 对话框描述需求，或点击对应资源卡调整配置。
-4. 通过 `https://<app_host>.<SEALOS_CLOUD_DOMAIN>` 访问 New API，在 Web 界面完成初始设置。
+4. 通过 `https://<app_host>.<SEALOS_CLOUD_DOMAIN>` 访问 New API。首次打开时，初始化向导会检查 PostgreSQL，要求创建 root 管理员账号，选择使用模式，然后完成系统初始化。初始化完成后，通过 `/login` 使用刚创建的管理员用户名和密码登录。
 
 ## 配置说明
 

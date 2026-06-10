@@ -90,12 +90,11 @@ metadata:
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
 spec:
   affinity:
-    nodeLabels: {}
     podAntiAffinity: Preferred
     tenancy: SharedNode
-    topologyKeys: []
   clusterDefinitionRef: postgresql
   clusterVersionRef: postgresql-16.4.0
+  terminationPolicy: Delete
   componentSpecs:
     - name: postgresql
       componentDefRef: postgresql
@@ -122,8 +121,6 @@ spec:
               requests:
                 storage: 1Gi
             storageClassName: openebs-backup
-  terminationPolicy: Delete
-  tolerations: []
 
 ---
 apiVersion: batch/v1
@@ -165,8 +162,8 @@ spec:
                 sleep 2
               done
               pg_isready -h "${PG_ENDPOINT%:*}" -p "${PG_ENDPOINT##*:}" -U postgres -d postgres >/dev/null 2>&1
-              if ! psql "postgresql://postgres:$(PG_PASSWORD)@$(PG_ENDPOINT)/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='$(PG_DATABASE)'" | grep -q 1; then
-                psql "postgresql://postgres:$(PG_PASSWORD)@$(PG_ENDPOINT)/postgres" -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"$(PG_DATABASE)\";"
+              if ! psql "postgresql://postgres:${PG_PASSWORD}@${PG_ENDPOINT}/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='${PG_DATABASE}'" | grep -q 1; then
+                psql "postgresql://postgres:${PG_PASSWORD}@${PG_ENDPOINT}/postgres" -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"${PG_DATABASE}\";"
               fi
 
 ---
@@ -175,7 +172,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: notifuse/notifuse:v28.4@sha256:c2f1866bcee2588460e822b2cc1fbb96035504bdc93337f730ba9c0bd7a9121c
+    originImageName: notifuse/notifuse:v32.1@sha256:fdee58fc36e50cf3f64c007dbf07549842280022828fd6c051f6454084a66cfb
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -226,13 +223,31 @@ spec:
             - -c
             - |
               set -eu
+              for i in $(seq 1 180); do
+                if psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d postgres -tAc 'SELECT 1' >/dev/null 2>&1; then
+                  break
+                fi
+                echo "postgres not ready, rechecking in 2s"
+                sleep 2
+              done
+              psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d postgres -tAc 'SELECT 1' >/dev/null 2>&1
+              if ! psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'" | grep -q 1; then
+                psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"${DB_NAME}\";"
+              fi
               until psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" -tAc 'SELECT 1' >/dev/null 2>&1; do
                 echo "notifuse database not ready, rechecking in 2s"
                 sleep 2
               done
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
       containers:
         - name: ${{ defaults.app_name }}
-          image: notifuse/notifuse:v28.4@sha256:c2f1866bcee2588460e822b2cc1fbb96035504bdc93337f730ba9c0bd7a9121c
+          image: notifuse/notifuse:v32.1@sha256:fdee58fc36e50cf3f64c007dbf07549842280022828fd6c051f6454084a66cfb
           imagePullPolicy: IfNotPresent
           env:
             - name: SERVER_PORT
