@@ -1,0 +1,467 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: waha
+spec:
+  title: WAHA
+  url: https://waha.devlike.pro/
+  gitRepo: https://github.com/devlikeapro/waha
+  author: Sealos
+  description: WhatsApp HTTP API with a web dashboard, Swagger UI, persistent sessions, webhooks, and multi-engine support.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/waha/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/waha/logo.png
+  screenshots:
+    - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/waha/website-screenshot.webp'
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: WAHA 是 WhatsApp HTTP API 服务，提供 Web 控制台、Swagger UI、持久会话、Webhook 和多引擎支持。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/waha/README_zh.md
+  categories:
+    - tool
+    - backend
+  defaults:
+    app_name:
+      type: string
+      value: waha-${{ random(8) }}
+    app_host:
+      type: string
+      value: waha-${{ random(8) }}
+    api_key:
+      type: string
+      value: ${{ random(32) }}
+    dashboard_password:
+      type: string
+      value: ${{ random(24) }}
+    swagger_password:
+      type: string
+      value: ${{ random(24) }}
+  inputs:
+    dashboard_username:
+      description: Dashboard username
+      type: string
+      default: admin
+      required: true
+    swagger_username:
+      description: Swagger UI username
+      type: string
+      default: admin
+      required: true
+    use_object_storage:
+      description: Use Sealos S3-compatible object storage for WhatsApp media files
+      type: boolean
+      default: 'false'
+      required: false
+
+---
+${{ if(inputs.use_object_storage === 'true') }}
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  policy: private
+
+---
+${{ endif() }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  terminationPolicy: Delete
+  componentSpecs:
+    - name: postgresql
+      componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
+      replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: devlikeapro/waha:chrome-2026.5.1
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+    docker-to-sealos.resource-override-source: https://waha.devlike.pro/docs/how-to/engines/#docker-images uses the Chrome/WEBJS image, which bundles a browser runtime.
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      initContainers:
+        - name: wait-for-dependencies
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: USE_OBJECT_STORAGE
+              value: '${{ inputs.use_object_storage }}'
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until [ -s /pg-secret/host ] && [ -s /pg-secret/port ] && [ -s /pg-secret/username ] && [ -s /pg-secret/password ]; do
+                sleep 2
+              done
+              PG_HOST="$(cat /pg-secret/host)"
+              PG_PORT="$(cat /pg-secret/port)"
+              PG_USER="$(cat /pg-secret/username)"
+              PG_PASSWORD="$(cat /pg-secret/password)"
+              export PGPASSWORD="$PG_PASSWORD"
+              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; do
+                sleep 2
+              done
+              if [ "$USE_OBJECT_STORAGE" = "true" ]; then
+                until [ -s /object-storage/accessKey ] && [ -s /object-storage/secretKey ] && [ -s /object-storage/external ] && [ -s /bucket/bucket ]; do
+                  sleep 2
+                done
+              fi
+          volumeMounts:
+            - name: pg-credentials
+              mountPath: /pg-secret
+              readOnly: true
+            - name: object-storage-credentials
+              mountPath: /object-storage
+              readOnly: true
+            - name: bucket-credentials
+              mountPath: /bucket
+              readOnly: true
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: devlikeapro/waha:chrome-2026.5.1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: WAHA_API_KEY
+              value: ${{ defaults.api_key }}
+            - name: WAHA_DASHBOARD_ENABLED
+              value: 'True'
+            - name: WAHA_DASHBOARD_USERNAME
+              value: ${{ inputs.dashboard_username }}
+            - name: WAHA_DASHBOARD_PASSWORD
+              value: ${{ defaults.dashboard_password }}
+            - name: WHATSAPP_SWAGGER_ENABLED
+              value: 'True'
+            - name: WHATSAPP_SWAGGER_USERNAME
+              value: ${{ inputs.swagger_username }}
+            - name: WHATSAPP_SWAGGER_PASSWORD
+              value: ${{ defaults.swagger_password }}
+            - name: WHATSAPP_DEFAULT_ENGINE
+              value: WEBJS
+            - name: WAHA_NAMESPACE
+              value: all
+            - name: WAHA_BASE_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: WAHA_PUBLIC_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: WAHA_LOG_FORMAT
+              value: JSON
+            - name: WAHA_LOG_LEVEL
+              value: info
+            - name: WAHA_PRINT_QR
+              value: 'False'
+            - name: WHATSAPP_FILES_LIFETIME
+              value: '0'
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: WHATSAPP_SESSIONS_POSTGRESQL_URL
+              value: postgres://$(PG_USER):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/postgres?sslmode=disable
+            ${{ if(inputs.use_object_storage === 'true') }}
+            - name: WAHA_MEDIA_STORAGE
+              value: S3
+            - name: WAHA_S3_REGION
+              value: us-east-1
+            - name: WAHA_S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: WAHA_S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: WAHA_S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: WAHA_S3_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            - name: WAHA_S3_ENDPOINT
+              value: https://$(WAHA_S3_EXTERNAL_ENDPOINT)
+            - name: WAHA_S3_FORCE_PATH_STYLE
+              value: 'True'
+            - name: WAHA_S3_PROXY_FILES
+              value: 'True'
+            ${{ else() }}
+            - name: WAHA_MEDIA_STORAGE
+              value: LOCAL
+            - name: WHATSAPP_FILES_FOLDER
+              value: /app/.media
+            ${{ endif() }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 50m
+              memory: 102Mi
+            limits:
+              cpu: 500m
+              memory: 1024Mi
+          startupProbe:
+            tcpSocket:
+              port: http
+            failureThreshold: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: vn-appvn-sessions
+              mountPath: /app/.sessions
+            - name: vn-appvn-media
+              mountPath: /app/.media
+      volumes:
+        - name: pg-credentials
+          secret:
+            secretName: ${{ defaults.app_name }}-pg-conn-credential
+            optional: true
+        - name: object-storage-credentials
+          secret:
+            secretName: object-storage-key
+            optional: true
+        - name: bucket-credentials
+          secret:
+            secretName: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+            optional: true
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-appvn-sessions
+        annotations:
+          path: /app/.sessions
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+    - metadata:
+        name: vn-appvn-media
+        annotations:
+          path: /app/.media
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 3000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/dashboard/
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/waha/logo.png
+  name: WAHA
+  type: link

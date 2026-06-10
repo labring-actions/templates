@@ -1,0 +1,714 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: evolution-api
+spec:
+  title: Evolution API
+  url: https://evolution-api.com/
+  gitRepo: https://github.com/evolution-foundation/evolution-api
+  author: Sealos
+  description: Open-source WhatsApp API platform with Baileys, WhatsApp Cloud API, webhook, chat, bot, and media integrations.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/evolution-api/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/evolution-api/logo.png
+  screenshots:
+    - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/evolution-api/website-screenshot.webp'
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: Evolution API 是开源 WhatsApp API 平台，支持 Baileys、WhatsApp Cloud API、Webhook、聊天机器人和媒体存储集成。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/evolution-api/README_zh.md
+  categories:
+    - backend
+    - tool
+  defaults:
+    app_name:
+      type: string
+      value: evolution-api-${{ random(8) }}
+    app_host:
+      type: string
+      value: evolution-api-${{ random(8) }}
+    api_key:
+      type: string
+      value: ${{ random(48) }}
+  inputs:
+    use_object_storage:
+      description: Use S3-compatible object storage for WhatsApp media files
+      type: boolean
+      default: 'false'
+      required: false
+
+---
+${{ if(inputs.use_object_storage === 'true') }}
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  policy: private
+
+---
+${{ endif() }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  terminationPolicy: Delete
+  componentSpecs:
+    - name: postgresql
+      componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
+      replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+spec:
+  completions: 1
+  template:
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: pg-init
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_DATABASE
+              value: evolution_db
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until [ -s /pg-secret/host ] && [ -s /pg-secret/port ] && [ -s /pg-secret/username ] && [ -s /pg-secret/password ]; do
+                sleep 2
+              done
+              PG_HOST="$(cat /pg-secret/host)"
+              PG_PORT="$(cat /pg-secret/port)"
+              PG_USER="$(cat /pg-secret/username)"
+              PG_PASSWORD="$(cat /pg-secret/password)"
+              export PGPASSWORD="$PG_PASSWORD"
+              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; do
+                sleep 2
+              done
+              if ! psql "postgresql://$PG_USER:$PG_PASSWORD@$PG_HOST:$PG_PORT/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='$PG_DATABASE'" | grep -q 1; then
+                createdb -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" "$PG_DATABASE"
+              fi
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          volumeMounts:
+            - name: pg-credentials
+              mountPath: /pg-secret
+              readOnly: true
+      volumes:
+        - name: pg-credentials
+          secret:
+            secretName: ${{ defaults.app_name }}-pg-conn-credential
+            optional: true
+      restartPolicy: OnFailure
+  backoffLimit: 5
+  ttlSecondsAfterFinished: 300
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-redis
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-redis
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    kb.io/database: redis-7.2.7
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/version: 7.2.7
+    clusterversion.kubeblocks.io/name: redis-7.2.7
+    clusterdefinition.kubeblocks.io/name: redis
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys:
+      - kubernetes.io/hostname
+  clusterDefinitionRef: redis
+  componentSpecs:
+    - name: redis
+      componentDef: redis-7
+      enabledLogs:
+        - running
+      env:
+        - name: CUSTOM_SENTINEL_MASTER_NAME
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      serviceVersion: 7.2.7
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+    - name: redis-sentinel
+      componentDef: redis-sentinel-7
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      serviceVersion: 7.2.7
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+  topology: replication
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: evoapicloud/evolution-api:v2.3.7
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      initContainers:
+        - name: fix-evolution-volume-permissions
+          image: public.ecr.aws/docker/library/busybox:1.36.1
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              mkdir -p /evolution/instances
+              chown -R 1000:1000 /evolution/instances
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: vn-evolutionvn-instances
+              mountPath: /evolution/instances
+        - name: wait-for-postgres
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_DATABASE
+              value: evolution_db
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until [ -s /pg-secret/host ] && [ -s /pg-secret/port ] && [ -s /pg-secret/username ] && [ -s /pg-secret/password ]; do
+                sleep 2
+              done
+              PG_HOST="$(cat /pg-secret/host)"
+              PG_PORT="$(cat /pg-secret/port)"
+              PG_USER="$(cat /pg-secret/username)"
+              PG_PASSWORD="$(cat /pg-secret/password)"
+              export PGPASSWORD="$PG_PASSWORD"
+              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DATABASE" >/dev/null 2>&1; do
+                sleep 2
+              done
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          volumeMounts:
+            - name: pg-credentials
+              mountPath: /pg-secret
+              readOnly: true
+        - name: wait-for-redis
+          image: public.ecr.aws/docker/library/redis:7.2.7-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until [ -s /redis-secret/password ]; do
+                sleep 2
+              done
+              REDIS_PASSWORD="$(cat /redis-secret/password)"
+              until redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" ping >/dev/null 2>&1; do
+                sleep 2
+              done
+          volumeMounts:
+            - name: redis-credentials
+              mountPath: /redis-secret
+              readOnly: true
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: evoapicloud/evolution-api:v2.3.7
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: SERVER_TYPE
+              value: http
+            - name: SERVER_PORT
+              value: '8080'
+            - name: SERVER_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: SERVER_DISABLE_DOCS
+              value: 'false'
+            - name: SERVER_DISABLE_MANAGER
+              value: 'false'
+            - name: CORS_ORIGIN
+              value: '*'
+            - name: CORS_METHODS
+              value: POST,GET,PUT,DELETE
+            - name: CORS_CREDENTIALS
+              value: 'true'
+            - name: DATABASE_PROVIDER
+              value: postgresql
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_CONNECTION_URI
+              value: postgresql://$(PG_USER):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/evolution_db?schema=evolution_api
+            - name: DATABASE_CONNECTION_CLIENT_NAME
+              value: evolution
+            - name: DATABASE_SAVE_DATA_INSTANCE
+              value: 'true'
+            - name: DATABASE_SAVE_DATA_NEW_MESSAGE
+              value: 'true'
+            - name: DATABASE_SAVE_MESSAGE_UPDATE
+              value: 'true'
+            - name: DATABASE_SAVE_DATA_CONTACTS
+              value: 'true'
+            - name: DATABASE_SAVE_DATA_CHATS
+              value: 'true'
+            - name: DATABASE_SAVE_DATA_HISTORIC
+              value: 'true'
+            - name: DATABASE_SAVE_DATA_LABELS
+              value: 'true'
+            - name: DATABASE_SAVE_IS_ON_WHATSAPP
+              value: 'true'
+            - name: DATABASE_SAVE_IS_ON_WHATSAPP_DAYS
+              value: '7'
+            - name: DATABASE_DELETE_MESSAGE
+              value: 'false'
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
+            - name: CACHE_REDIS_ENABLED
+              value: 'true'
+            - name: CACHE_REDIS_URI
+              value: redis://default:$(REDIS_PASSWORD)@${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local:6379
+            - name: CACHE_REDIS_PREFIX_KEY
+              value: evolution-cache
+            - name: CACHE_REDIS_TTL
+              value: '604800'
+            - name: CACHE_REDIS_SAVE_INSTANCES
+              value: 'true'
+            - name: CACHE_LOCAL_ENABLED
+              value: 'true'
+            - name: CACHE_LOCAL_TTL
+              value: '86400'
+            - name: AUTHENTICATION_API_KEY
+              value: ${{ defaults.api_key }}
+            - name: AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES
+              value: 'false'
+            - name: LOG_LEVEL
+              value: ERROR,WARN,INFO,LOG
+            - name: LOG_COLOR
+              value: 'true'
+            - name: LOG_BAILEYS
+              value: error
+            - name: DEL_INSTANCE
+              value: 'false'
+            - name: DEL_TEMP_INSTANCES
+              value: 'true'
+            - name: LANGUAGE
+              value: en
+            - name: WEBSOCKET_ENABLED
+              value: 'true'
+            - name: WEBSOCKET_GLOBAL_EVENTS
+              value: 'true'
+            - name: RABBITMQ_ENABLED
+              value: 'false'
+            - name: SQS_ENABLED
+              value: 'false'
+            - name: TYPEBOT_ENABLED
+              value: 'false'
+            - name: CHATWOOT_ENABLED
+              value: 'false'
+            - name: OPENAI_ENABLED
+              value: 'false'
+            - name: DIFY_ENABLED
+              value: 'false'
+            ${{ if(inputs.use_object_storage === 'true') }}
+            - name: S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            - name: S3_ENABLED
+              value: 'true'
+            - name: S3_ENDPOINT
+              value: $(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+            - name: S3_PORT
+              value: '443'
+            - name: S3_USE_SSL
+              value: 'true'
+            - name: S3_REGION
+              value: us-east-1
+            - name: S3_SKIP_POLICY
+              value: 'true'
+            - name: S3_SAVE_VIDEO
+              value: 'false'
+            ${{ else() }}
+            - name: S3_ENABLED
+              value: 'false'
+            ${{ endif() }}
+            - name: PROMETHEUS_METRICS
+              value: 'false'
+            - name: METRICS_AUTH_REQUIRED
+              value: 'false'
+            - name: TELEMETRY_ENABLED
+              value: 'false'
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            failureThreshold: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: vn-evolutionvn-instances
+              mountPath: /evolution/instances
+      volumes:
+        - name: pg-credentials
+          secret:
+            secretName: ${{ defaults.app_name }}-pg-conn-credential
+            optional: true
+        - name: redis-credentials
+          secret:
+            secretName: ${{ defaults.app_name }}-redis-redis-account-default
+            optional: true
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /evolution/instances
+          value: '1'
+        name: vn-evolutionvn-instances
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 8080
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/evolution-api/logo.png
+  name: Evolution API
+  type: link

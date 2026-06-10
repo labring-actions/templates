@@ -1,0 +1,523 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: ghost
+spec:
+  title: Ghost
+  url: https://ghost.org/
+  gitRepo: https://github.com/TryGhost/Ghost
+  author: Sealos
+  description: Open-source publishing, newsletter, membership, and subscription platform for independent creators and teams.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/ghost/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/ghost/logo.png
+  screenshots:
+    - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/ghost/website-screenshot.webp'
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: Ghost 是开源发布、邮件通讯、会员和订阅平台，适合独立创作者与团队运营内容业务。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/ghost/README_zh.md
+  categories:
+    - blog
+    - frontend
+    - tool
+  defaults:
+    app_name:
+      type: string
+      value: ghost-${{ random(8) }}
+    app_host:
+      type: string
+      value: ghost-${{ random(8) }}
+  inputs:
+    use_s3_storage:
+      description: Use S3-compatible object storage through the Ghost storage adapter configuration
+      type: boolean
+      default: 'false'
+      required: false
+
+---
+${{ if(inputs.use_s3_storage === 'true') }}
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  policy: private
+
+---
+${{ endif() }}
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-mysql
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-mysql
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-mysql
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-mysql
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-mysql
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  labels:
+    kb.io/database: ac-mysql-8.0.30-1
+    clusterdefinition.kubeblocks.io/name: apecloud-mysql
+    clusterversion.kubeblocks.io/name: ac-mysql-8.0.30-1
+  name: ${{ defaults.app_name }}-mysql
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys:
+      - kubernetes.io/hostname
+  clusterDefinitionRef: apecloud-mysql
+  clusterVersionRef: ac-mysql-8.0.30-1
+  componentSpecs:
+    - componentDefRef: mysql
+      monitor: true
+      name: mysql
+      noCreatePDB: false
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-mysql
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+  tolerations: []
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-mysql-init
+spec:
+  completions: 1
+  template:
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: mysql-init
+          image: public.ecr.aws/docker/library/mysql:8.0.30
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MYSQL_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: host
+            - name: MYSQL_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: port
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: username
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: password
+            - name: MYSQL_DATABASE
+              value: ghost
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until mysqladmin ping -h"$MYSQL_HOST" -P"$MYSQL_PORT" -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" --silent; do
+                sleep 2
+              done
+              mysql -h"$MYSQL_HOST" -P"$MYSQL_PORT" -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" -e "CREATE DATABASE IF NOT EXISTS \`$MYSQL_DATABASE\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+      restartPolicy: OnFailure
+  backoffLimit: 5
+  ttlSecondsAfterFinished: 300
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghost:6.44.1-alpine
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+    docker-to-sealos.resource-override-source: https://github.com/docker-library/docs/blob/master/ghost/README.md#production-mode
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      initContainers:
+        ${{ if(inputs.use_s3_storage === 'true') }}
+        - name: install-s3-storage-adapter
+          image: public.ecr.aws/docker/library/node:22-alpine
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              rm -rf /var/lib/ghost/content/adapters/storage/s3
+              mkdir -p /var/lib/ghost/content/adapters/storage/s3
+              npm install --omit=dev --no-audit --no-fund --prefix /var/lib/ghost/content/adapters/storage/s3 ghost-storage-adapter-s3@2.8.0
+              cp -R /var/lib/ghost/content/adapters/storage/s3/node_modules/ghost-storage-adapter-s3/. /var/lib/ghost/content/adapters/storage/s3/
+              chown -R 1000:1000 /var/lib/ghost/content/adapters
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 50m
+              memory: 128Mi
+          volumeMounts:
+            - name: vn-varvn-libvn-ghostvn-content
+              mountPath: /var/lib/ghost/content
+        ${{ endif() }}
+        - name: wait-for-mysql
+          image: public.ecr.aws/docker/library/mysql:8.0.30
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MYSQL_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: host
+            - name: MYSQL_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: port
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: username
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: password
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until mysqladmin ping -h"$MYSQL_HOST" -P"$MYSQL_PORT" -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" --silent; do
+                sleep 2
+              done
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: ghost:6.44.1-alpine
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              node <<'NODE'
+              const fs = require('fs');
+              const patches = [
+                {
+                  file: '/var/lib/ghost/current/core/server/data/migrations/versions/5.128/2025-06-26-09-36-41-add-social-web-setting.js',
+                  from: "key: 'social_web',\n    value: 'true'",
+                  to: "key: 'social_web',\n    value: 'false'"
+                },
+                {
+                  file: '/var/lib/ghost/current/core/server/data/migrations/versions/5.130/2025-07-11-14-14-54-add-explore-settings.js',
+                  from: "key: 'explore_ping',\n        value: 'true'",
+                  to: "key: 'explore_ping',\n        value: 'false'"
+                },
+                {
+                  file: '/var/lib/ghost/current/core/server/data/schema/default-settings/default-settings.json',
+                  from: /"social_web":\s*\{\s*"social_web":\s*\{\s*"defaultValue":\s*"true"/,
+                  to: '"social_web": {\n        "social_web": {\n            "defaultValue": "false"'
+                },
+                {
+                  file: '/var/lib/ghost/current/core/server/data/schema/default-settings/default-settings.json',
+                  from: /"explore":\s*\{\s*"explore_ping":\s*\{\s*"defaultValue":\s*"true"/,
+                  to: '"explore": {\n        "explore_ping": {\n            "defaultValue": "false"'
+                }
+              ];
+              for (const patch of patches) {
+                const source = fs.readFileSync(patch.file, 'utf8');
+                fs.writeFileSync(patch.file, source.replace(patch.from, patch.to));
+              }
+              NODE
+              exec docker-entrypoint.sh node current/index.js
+          ports:
+            - name: http
+              containerPort: 2368
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: url
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: database__client
+              value: mysql
+            - name: database__connection__host
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: host
+            - name: database__connection__port
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: port
+            - name: database__connection__user
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: username
+            - name: database__connection__password
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: password
+            - name: database__connection__database
+              value: ghost
+            - name: privacy__useUpdateCheck
+              value: 'false'
+            - name: security__staffDeviceVerification
+              value: 'false'
+            - name: mail__from
+              value: Ghost <noreply@${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}>
+            ${{ if(inputs.use_s3_storage === 'true') }}
+            - name: storage__active
+              value: s3
+            - name: storage__s3__accessKeyId
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: storage__s3__secretAccessKey
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: BACKEND_STORAGE_MINIO_INTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: internal
+            - name: storage__s3__region
+              value: us-east-1
+            - name: storage__s3__bucket
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: storage__s3__endpoint
+              value: http://$(BACKEND_STORAGE_MINIO_INTERNAL_ENDPOINT)
+            - name: storage__s3__forcePathStyle
+              value: 'true'
+            - name: storage__s3__acl
+              value: private
+            ${{ endif() }}
+          resources:
+            limits:
+              cpu: 200m
+              memory: 1024Mi
+            requests:
+              cpu: 20m
+              memory: 102Mi
+          startupProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -ec
+                - |
+                  node -e "require('http').get('http://127.0.0.1:2368/ghost/api/admin/site/', res => process.exit(res.statusCode >= 200 && res.statusCode < 400 ? 0 : 1)).on('error', () => process.exit(1))"
+            failureThreshold: 30
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -ec
+                - |
+                  node -e "require('http').get('http://127.0.0.1:2368/ghost/api/admin/site/', res => process.exit(res.statusCode >= 200 && res.statusCode < 400 ? 0 : 1)).on('error', () => process.exit(1))"
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -ec
+                - |
+                  node -e "require('http').get('http://127.0.0.1:2368/ghost/api/admin/site/', res => process.exit(res.statusCode >= 200 && res.statusCode < 400 ? 0 : 1)).on('error', () => process.exit(1))"
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: vn-varvn-libvn-ghostvn-content
+              mountPath: /var/lib/ghost/content
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /var/lib/ghost/content
+          value: '1'
+        name: vn-varvn-libvn-ghostvn-content
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - name: http
+      port: 2368
+      targetPort: http
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 2368
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/ghost/logo.png
+  name: Ghost
+  type: link
