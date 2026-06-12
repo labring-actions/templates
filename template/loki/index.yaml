@@ -16,7 +16,6 @@ spec:
   locale: en
   i18n:
     zh:
-      title: 'Loki'
       description: 'Loki 是一个水平可扩展、高可用、多租户的日志聚合系统，灵感来自 Prometheus。'
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/loki/README_zh.md'
   categories:
@@ -34,7 +33,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: grafana/loki:main-515ebea
+    originImageName: docker.io/grafana/loki:3.7.2
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -54,36 +53,64 @@ spec:
     spec:
       automountServiceAccountToken: false
       initContainers:
-        - name: init-chmod
-          image: busybox:latest
+        - name: init-loki-data
+          image: busybox:1.37.0
           imagePullPolicy: IfNotPresent
           command:
             - sh
-            - -c
+            - -ec
             - |
+              mkdir -p /loki/chunks /loki/rules
               chown -R 10001:10001 /loki
-              chmod -R 755 /loki
+          resources:
+            requests:
+              cpu: 20m
+              memory: 25Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
           volumeMounts:
             - name: vn-loki
               mountPath: /loki
       containers:
         - name: ${{ defaults.app_name }}
-          image: grafana/loki:main-515ebea
+          image: docker.io/grafana/loki:3.7.2
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3100
               name: http-metrics
               protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /ready
+              port: http-metrics
+            failureThreshold: 24
+            periodSeconds: 5
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http-metrics
+            failureThreshold: 6
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: http-metrics
+            failureThreshold: 6
+            periodSeconds: 30
+            timeoutSeconds: 5
           volumeMounts:
             - name: vn-loki
               mountPath: /loki
           resources:
             requests:
-              cpu: 10m
-              memory: 12Mi
+              cpu: 20m
+              memory: 25Mi
             limits:
-              cpu: 100m
-              memory: 128Mi
+              cpu: 200m
+              memory: 256Mi
   volumeClaimTemplates:
     - metadata:
         annotations:
@@ -104,6 +131,7 @@ metadata:
   name: ${{ defaults.app_name }}
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
 spec:
   type: ClusterIP
   ports:
@@ -163,6 +191,7 @@ metadata:
   name: ${{ defaults.app_name }}
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
 spec:
   data:
     url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}

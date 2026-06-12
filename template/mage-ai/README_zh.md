@@ -6,7 +6,7 @@ Mage AI 是一个开源的数据管道工具，用于构建和运行数据工作
 
 Mage AI 提供类似笔记本的交互环境，用于构建、调度和监控数据管道。该模板自动配置专用的 PostgreSQL 集群用于存储元数据，并为 `/home/src` 路径提供持久化卷来存放项目文件。
 
-部署完成后，系统会自动配置公网 HTTPS 入口、SSL 证书自动签发以及网络管理，无需触碰任何 YAML 配置。你可以直接在 App Launchpad 中管理资源和环境变量。
+部署完成后，系统会自动配置公网 HTTPS 入口、SSL 证书自动签发以及网络管理，无需触碰任何 YAML 配置。你可以直接在 Canvas 中管理资源和环境变量。
 
 ## 常见应用场景
 
@@ -25,7 +25,7 @@ Sealos 模板已包含所有必需的依赖：Mage AI 运行时、PostgreSQL 数
 - [Mage AI 官方文档](https://docs.mage.ai/)——权威文档和使用指南
 - [Mage AI GitHub 仓库](https://github.com/mage-ai/mage-ai)——源代码和版本发布
 - [Mage AI GitHub 议题](https://github.com/mage-ai/mage-ai/issues)——社区支持和问题跟踪
-- [Sealos 云平台](https://sealos.run)——部署平台和应用启动器
+- [Sealos 云平台](https://sealos.io)——部署平台和应用启动器
 
 ### 实现细节
 
@@ -43,11 +43,11 @@ Sealos 模板已包含所有必需的依赖：Mage AI 运行时、PostgreSQL 数
 
 - **管理员凭据**——部署时设置 `DEFAULT_OWNER_EMAIL` 和 `DEFAULT_OWNER_PASSWORD`
 - **数据库**——连接详情自动注入，数据库名称为 `mage`
-- **连接字符串**——`MAGE_DATABASE_CONNECTION_URL` 会根据 PostgreSQL 凭据自动组装
+- **连接字符串**——Mage 会根据 `DB_USER`、`DB_PASS`、`DB_HOST`、`DB_PORT` 和 `DB_NAME` 组装 PostgreSQL 连接字符串
 
 **许可证信息：**
 
-Mage AI 遵循其上游开源许可证。详情请查看 Mage AI GitHub 仓库。
+Mage AI 使用 Apache License 2.0 许可。详情请查看 Mage AI GitHub 仓库。
 
 ## 为何选择在 Sealos 上部署 Mage AI？
 
@@ -55,7 +55,7 @@ Sealos 是一个基于 Kubernetes 的云操作系统，通过 AI 辅助实现了
 
 - **一键部署**——几分钟内即可启动包含 PostgreSQL 和存储的 Mage AI
 - **自动弹性伸缩**——根据工作负载自动调整资源，无需人工编排
-- **灵活定制**——在 App Launchpad 中轻松配置环境变量和存储
+- **灵活定制**——在 Canvas 中轻松配置环境变量和存储
 - **零 Kubernetes 门槛**——享受托管 Kubernetes 的优势，无需深入理解其复杂性
 - **内置持久化存储**——数据和配置随持久化卷保存，重启不丢失
 - **即刻公网访问**——自动配置 HTTPS 端点和 SSL 证书
@@ -66,13 +66,13 @@ Sealos 是一个基于 Kubernetes 的云操作系统，通过 AI 辅助实现了
 ## 部署指南
 
 1. 访问 [Mage AI 模板页面](https://sealos.io/products/app-store/mage-ai)
-2. 点击"立即部署"按钮
+2. 点击 **Deploy Now**（立即部署）按钮
 3. 在弹出对话框中配置参数：
    - **默认所有者邮箱**——管理员登录邮箱
    - **默认所有者密码**——管理员登录密码
-4. 等待部署完成（通常 0-1 分钟）。部署完成后会自动跳转到 Canvas。后续如需修改，可在对话框中描述需求让 AI 自动应用更新，或点击相关资源卡片手动调整设置。
+4. 等待部署完成（通常 2-4 分钟）。部署完成后会自动跳转到 Canvas。后续如需修改，可在对话框中描述需求让 AI 自动应用更新，或点击相关资源卡片手动调整设置。
 5. 通过提供的 URL 访问你的 Mage AI 实例：
-   - **Mage AI Web 界面**——使用默认所有者凭据登录
+   - **Mage AI Web 界面**——打开提供的 URL 或 `/sign-in`，使用默认所有者凭据登录。Mage AI 会在首次启动时自动创建该所有者账号，无需单独注册。
 
 ## 配置
 
@@ -80,14 +80,14 @@ Sealos 是一个基于 Kubernetes 的云操作系统，通过 AI 辅助实现了
 
 - **AI 对话**——描述你想要的变更，让 AI 直接应用更新
 - **资源卡片**——点击相关资源卡片修改设置
-- **Web 界面**——通过提供的 URL 使用默认所有者凭据登录
+- **Web 界面**——通过提供的 URL 或 `/sign-in` 使用默认所有者凭据登录。初始所有者账号无需自助注册。
 - **存储**——项目存储在持久化卷的 `/home/src` 路径
 
 ## 扩缩容
 
 本模板默认运行单个 Mage AI 副本。如需调整资源：
 
-1. 在 Sealos 中打开 App Launchpad
+1. 在 Sealos 中打开 Canvas
 2. 选择你的 Mage AI 部署
 3. 调整 CPU/内存限制并点击"更新"
 
@@ -97,7 +97,7 @@ Sealos 是一个基于 Kubernetes 的云操作系统，通过 AI 辅助实现了
 
 **问题：无法登录 Mage AI**
 - 原因：默认所有者邮箱或密码错误
-- 解决方案：在部署配置中验证凭据，如需要可在 App Launchpad 中更新
+- 解决方案：在部署配置中验证凭据，如需要可在 Canvas 中更新
 
 **问题：数据库连接失败**
 - 原因：PostgreSQL 仍在初始化，或初始化任务尚未完成
@@ -119,4 +119,4 @@ Sealos 是一个基于 Kubernetes 的云操作系统，通过 AI 辅助实现了
 
 ## 许可证
 
-本 Sealos 模板遵循代码仓库的许可条款。Mage AI 本身受其上游许可证约束；详情请查看 Mage AI GitHub 仓库。
+本 Sealos 模板遵循代码仓库的许可条款。Mage AI 本身使用 Apache License 2.0 许可；详情请查看 Mage AI GitHub 仓库。

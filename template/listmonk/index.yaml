@@ -3,107 +3,61 @@ kind: Template
 metadata:
   name: listmonk
 spec:
-  title: 'listmonk'
-  url: 'https://listmonk.app/'
-  gitRepo: 'https://github.com/knadh/listmonk'
-  author: 'Sealos'
-  description: 'High performance, self-hosted, newsletter and mailing list manager with a modern dashboard. Single binary app.'
-  readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/listmonk/README.md'
-  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/listmonk/logo.png'
+  title: listmonk
+  url: https://listmonk.app/
+  gitRepo: https://github.com/knadh/listmonk
+  author: Sealos
+  description: High-performance self-hosted newsletter and mailing list manager with a modern admin dashboard.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/listmonk/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/listmonk/logo.png
   screenshots:
-    - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/listmonk/website-screenshot.webp'
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/listmonk/website-screenshot.webp
   templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: 高性能自托管邮件列表与 Newsletter 管理平台，提供现代化管理后台。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/listmonk/README_zh.md
   categories:
     - tool
   defaults:
     app_host:
-      # number or string..
       type: string
       value: listmonk-${{ random(8) }}
     app_name:
       type: string
       value: listmonk-${{ random(8) }}
   inputs:
-    ADMIN_USERNAME:
-      description: 'admin username for the admin dashboard.'
+    admin_username:
+      description: Optional initial Super Admin username. Leave empty to create the first administrator in the web setup page.
       type: string
       default: ''
       required: false
-    ADMIN_PASSWORD:
-      description: 'admin password for the admin dashboard.'
+    admin_password:
+      description: Optional initial Super Admin password. Must be at least 8 characters when provided.
       type: string
       default: ''
       required: false
 
-  i18n:
-    zh:
-      readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/listmonk/README_zh.md'
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
+  name: ${{ defaults.app_name }}-pg
   labels:
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
     app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
     app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-pg
-
----
-apiVersion: apps.kubeblocks.io/v1alpha1
-kind: Cluster
-metadata:
-  finalizers:
-    - cluster.kubeblocks.io/finalizer
-  labels:
-    clusterdefinition.kubeblocks.io/name: postgresql
-    clusterversion.kubeblocks.io/name: postgresql-14.8.0
-    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
-  annotations: {}
-  name: ${{ defaults.app_name }}-pg
-spec:
-  affinity:
-    nodeLabels: {}
-    podAntiAffinity: Preferred
-    tenancy: SharedNode
-    topologyKeys: []
-  clusterDefinitionRef: postgresql
-  clusterVersionRef: postgresql-14.8.0
-  componentSpecs:
-    - componentDefRef: postgresql
-      monitor: true
-      name: postgresql
-      replicas: 1
-      resources:
-        limits:
-          cpu: 500m
-          memory: 512Mi
-        requests:
-          cpu: 50m
-          memory: 51Mi
-      serviceAccountName: ${{ defaults.app_name }}-pg
-      switchPolicy:
-        type: Noop
-      volumeClaimTemplates:
-        - name: data
-          spec:
-            accessModes:
-              - ReadWriteOnce
-            resources:
-              requests:
-                storage: 1Gi
-
-  terminationPolicy: Delete
-  tolerations: []
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
+  name: ${{ defaults.app_name }}-pg
   labels:
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
     app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
     app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-pg
 rules:
   - apiGroups:
       - '*'
@@ -116,11 +70,11 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
+  name: ${{ defaults.app_name }}-pg
   labels:
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
     app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
     app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-pg
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -130,125 +84,238 @@ subjects:
     name: ${{ defaults.app_name }}-pg
 
 ---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  terminationPolicy: Delete
+  componentSpecs:
+    - name: postgresql
+      componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
+      replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+
+---
 apiVersion: batch/v1
 kind: Job
 metadata:
   name: ${{ defaults.app_name }}-pg-init
 spec:
-  completions: 1
+  backoffLimit: 10
+  ttlSecondsAfterFinished: 300
   template:
     spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      restartPolicy: OnFailure
       containers:
-        - name: pgsql-init
-          image: senzing/postgresql-client:2.2.4
+        - name: pg-init
+          image: postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
           env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
             - name: PG_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
-            - name: DATABASE_URL
-              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
-          command:
-            - /bin/sh
-            - -c
-            - |
-              until psql ${DATABASE_URL} -c 'CREATE DATABASE listmonk;' &>/dev/null; do sleep 1; done
-      restartPolicy: Never
-  backoffLimit: 0
-  ttlSecondsAfterFinished: 300
-
----
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: ${{ defaults.app_name }}-install
-spec:
-  completions: 1
-  template:
-    spec:
-      containers:
-        - name: listmonk-install
-          image: listmonk/listmonk:v3.0.0
-          imagePullPolicy: IfNotPresent
-          env:
-            - name: LISTMONK_app__address
-              value: "0.0.0.0:9000"
-            - name: LISTMONK_app__admin_username
-              value: ${{ inputs.ADMIN_USERNAME }}
-            - name: LISTMONK_app__admin_password
-              value: ${{ inputs.ADMIN_PASSWORD }}
-            - name: LISTMONK_db__host
-              value: ${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc
-            - name: LISTMONK_db__port
-              value: 5432
-            - name: LISTMONK_db__user
-              value: postgres
-            - name: LISTMONK_db__password
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: password
-            - name: LISTMONK_db__database
+            - name: PG_DATABASE
               value: listmonk
-            - name: LISTMONK_db__ssl_mode
-              value: disable
+            - name: PUBLIC_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
           command:
             - /bin/sh
-            - -c
+            - -ec
             - |
-              until yes | ./listmonk --install --config config-demo.toml; do sleep 1; done
-      restartPolicy: Never
-  backoffLimit: 0
-  ttlSecondsAfterFinished: 300
+              export PGPASSWORD="$PG_PASSWORD"
+              for i in $(seq 1 90); do
+                if pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; then
+                  break
+                fi
+                if [ "$i" -eq 90 ]; then
+                  echo "PostgreSQL is not ready" >&2
+                  exit 1
+                fi
+                sleep 2
+              done
+              if ! psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='listmonk'" | grep -q 1; then
+                psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE "listmonk";'
+              fi
+              for i in $(seq 1 90); do
+                if psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DATABASE" -tAc "SELECT to_regclass('public.settings')" | grep -q settings; then
+                  psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DATABASE" -v ON_ERROR_STOP=1 -c "UPDATE settings SET value = to_jsonb('$PUBLIC_URL'::text) WHERE key = 'app.root_url';"
+                  exit 0
+                fi
+                sleep 2
+              done
+              echo "listmonk settings table was not created in time" >&2
+              exit 1
 
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: listmonk/listmonk:v3.0.0
+    originImageName: listmonk/listmonk:v6.1.0
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   replicas: 1
   revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
   selector:
     matchLabels:
       app: ${{ defaults.app_name }}
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 0
-      maxSurge: 1
   template:
     metadata:
       labels:
         app: ${{ defaults.app_name }}
     spec:
       automountServiceAccountToken: false
-      containers:
-        - name: ${{ defaults.app_name }}
-          image: listmonk/listmonk:v3.0.0
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: init-uploads
+          image: busybox:1.37.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - /bin/sh
+            - -c
+            - mkdir -p /listmonk/uploads
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          volumeMounts:
+            - name: vn-listmonkvn-uploads
+              mountPath: /listmonk/uploads
+        - name: listmonk-setup
+          image: listmonk/listmonk:v6.1.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              for i in $(seq 1 90); do
+                if ./listmonk --install --idempotent --yes --config ''; then
+                  break
+                fi
+                if [ "$i" -eq 90 ]; then
+                  ./listmonk --install --idempotent --yes --config ''
+                fi
+                sleep 2
+              done
+              ./listmonk --upgrade --yes --config ''
           env:
             - name: TZ
-              value: Asia/Shanghai
+              value: Etc/UTC
             - name: LISTMONK_app__address
-              value: "0.0.0.0:9000"
-            - name: LISTMONK_app__admin_username
-              value: ${{ inputs.ADMIN_USERNAME }}
-            - name: LISTMONK_app__admin_password
-              value: ${{ inputs.ADMIN_PASSWORD }}
+              value: 0.0.0.0:9000
+            - name: LISTMONK_ADMIN_USER
+              value: ${{ inputs.admin_username }}
+            - name: LISTMONK_ADMIN_PASSWORD
+              value: ${{ inputs.admin_password }}
             - name: LISTMONK_db__host
-              value: ${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
             - name: LISTMONK_db__port
-              value: 5432
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
             - name: LISTMONK_db__user
-              value: postgres
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
             - name: LISTMONK_db__password
               valueFrom:
                 secretKeyRef:
@@ -258,17 +325,120 @@ spec:
               value: listmonk
             - name: LISTMONK_db__ssl_mode
               value: disable
+            - name: LISTMONK_db__max_open
+              value: '25'
+            - name: LISTMONK_db__max_idle
+              value: '25'
+            - name: LISTMONK_db__max_lifetime
+              value: 300s
           resources:
-            requests:
-              cpu: 20m
-              memory: 12Mi
             limits:
               cpu: 200m
-              memory: 128Mi
-          ports:
-            - containerPort: 9000
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: listmonk/listmonk:v6.1.0
           imagePullPolicy: IfNotPresent
-
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - /bin/sh
+            - -ec
+            - ./listmonk --config ''
+          env:
+            - name: TZ
+              value: Etc/UTC
+            - name: LISTMONK_app__address
+              value: 0.0.0.0:9000
+            - name: LISTMONK_ADMIN_USER
+              value: ${{ inputs.admin_username }}
+            - name: LISTMONK_ADMIN_PASSWORD
+              value: ${{ inputs.admin_password }}
+            - name: LISTMONK_db__host
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: LISTMONK_db__port
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: LISTMONK_db__user
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: LISTMONK_db__password
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: LISTMONK_db__database
+              value: listmonk
+            - name: LISTMONK_db__ssl_mode
+              value: disable
+            - name: LISTMONK_db__max_open
+              value: '25'
+            - name: LISTMONK_db__max_idle
+              value: '25'
+            - name: LISTMONK_db__max_lifetime
+              value: 300s
+          ports:
+            - name: http
+              containerPort: 9000
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          volumeMounts:
+            - name: vn-listmonkvn-uploads
+              mountPath: /listmonk/uploads
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-listmonkvn-uploads
+        annotations:
+          path: /listmonk/uploads
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
 
 ---
 apiVersion: v1
@@ -276,13 +446,16 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 9000
+    - name: http
+      port: 9000
+      targetPort: 9000
+      protocol: TCP
   selector:
     app: ${{ defaults.app_name }}
-
 
 ---
 apiVersion: networking.k8s.io/v1
@@ -290,6 +463,7 @@ kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
@@ -300,7 +474,6 @@ metadata:
       large_client_header_buffers 4 128k;
     nginx.ingress.kubernetes.io/ssl-redirect: 'true'
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
-    nginx.ingress.kubernetes.io/rewrite-target: /$2
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
@@ -316,7 +489,7 @@ spec:
       http:
         paths:
           - pathType: Prefix
-            path: /()(.*)
+            path: /
             backend:
               service:
                 name: ${{ defaults.app_name }}
@@ -338,6 +511,6 @@ spec:
   data:
     url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
   displayType: normal
-  icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/listmonk/logo.png"
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/listmonk/logo.png
   name: listmonk
   type: link

@@ -16,7 +16,6 @@ spec:
   locale: en
   i18n:
     zh:
-      title: 'Matomo'
       description: 'Matomo 是领先的开源网站分析平台，为您提供关于网站访客的宝贵洞察'
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/matomo/README_zh.md'
   categories:
@@ -82,7 +81,7 @@ metadata:
     - cluster.kubeblocks.io/finalizer
   labels:
     clusterdefinition.kubeblocks.io/name: apecloud-mysql
-    clusterversion.kubeblocks.io/name: ac-mysql-8.0.30
+    clusterversion.kubeblocks.io/name: ac-mysql-8.0.30-1
     sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
   annotations: {}
   name: ${{ defaults.app_name }}-mysql
@@ -91,12 +90,14 @@ spec:
     nodeLabels: {}
     podAntiAffinity: Preferred
     tenancy: SharedNode
-    topologyKeys: []
+    topologyKeys:
+      - kubernetes.io/hostname
   clusterDefinitionRef: apecloud-mysql
-  clusterVersionRef: ac-mysql-8.0.30
+  clusterVersionRef: ac-mysql-8.0.30-1
   componentSpecs:
     - componentDefRef: mysql
       monitor: true
+      noCreatePDB: false
       name: mysql
       replicas: 1
       resources:
@@ -131,7 +132,15 @@ spec:
     spec:
       containers:
         - name: mysql-init
-          image: mysql:8.0
+          image: mysql:8.0.44
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 10m
+              memory: 12Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
           env:
             - name: MYSQL_PASSWORD
               valueFrom:
@@ -147,116 +156,28 @@ spec:
             - /bin/sh
             - -c
             - |
-              until mysql -h${MYSQL_HOST} -uroot -p${MYSQL_PASSWORD} -e 'CREATE DATABASE IF NOT EXISTS matomo CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;' &>/dev/null; do sleep 1; done
+              set -eu
+              for i in $(seq 1 60); do
+                if mysqladmin ping -h"${MYSQL_HOST}" -uroot -p"${MYSQL_PASSWORD}" --silent; then
+                  break
+                fi
+                sleep 2
+              done
+              mysqladmin ping -h"${MYSQL_HOST}" -uroot -p"${MYSQL_PASSWORD}" --silent
+              mysql -h"${MYSQL_HOST}" -uroot -p"${MYSQL_PASSWORD}" -e "CREATE DATABASE IF NOT EXISTS matomo CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
       restartPolicy: Never
-  backoffLimit: 0
+  backoffLimit: 3
   ttlSecondsAfterFinished: 300
 
 ---
-# ConfigMap with vn- naming
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: ${{ defaults.app_name }}
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-data:
-  vn-etcvn-nginxvn-nginxvn-conf: |
-    events {
-      worker_connections 768;
-    }
-
-    http {
-      upstream backend {
-        server localhost:9000;
-      }
-
-      include /etc/nginx/mime.types;
-      default_type application/octet-stream;
-      gzip on;
-      gzip_disable "msie6";
-
-      map $http_x_forwarded_proto $proxy_x_forwarded_proto {
-        default $http_x_forwarded_proto;
-        ''      $scheme;
-      }
-      map $http_x_forwarded_port $proxy_x_forwarded_port {
-        default $http_x_forwarded_port;
-        ''      $server_port;
-      }
-      map $http_upgrade $proxy_connection {
-        default upgrade;
-        '' close;
-      }
-      map $scheme $proxy_x_forwarded_ssl {
-        default off;
-        https on;
-      }
-      proxy_http_version 1.1;
-      proxy_buffering off;
-      proxy_set_header Host $http_host;
-      proxy_set_header Upgrade $http_upgrade;
-      proxy_set_header Connection $proxy_connection;
-      proxy_set_header X-Real-IP $remote_addr;
-      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-      proxy_set_header X-Forwarded-Proto $proxy_x_forwarded_proto;
-      proxy_set_header X-Forwarded-Ssl $proxy_x_forwarded_ssl;
-      proxy_set_header X-Forwarded-Port $proxy_x_forwarded_port;
-      proxy_set_header Proxy "";
-
-      server {
-        listen 80;
-
-        root /var/www/html/;
-        index index.php index.html index.htm;
-
-        location / {
-          try_files $uri $uri/ =404;
-        }
-
-        error_page 404 /404.html;
-        error_page 500 502 503 504 /50x.html;
-        location = /50x.html {
-          root /usr/share/nginx/html;
-        }
-
-        location = /favicon.ico {
-          log_not_found off;
-          access_log off;
-        }
-
-        location ~ \.php$ {
-          fastcgi_param  GATEWAY_INTERFACE  CGI/1.1;
-          fastcgi_param  SERVER_SOFTWARE    nginx;
-          fastcgi_param  QUERY_STRING       $query_string;
-          fastcgi_param  REQUEST_METHOD     $request_method;
-          fastcgi_param  CONTENT_TYPE       $content_type;
-          fastcgi_param  CONTENT_LENGTH     $content_length;
-          fastcgi_param  SCRIPT_FILENAME    $document_root$fastcgi_script_name;
-          fastcgi_param  SCRIPT_NAME        $fastcgi_script_name;
-          fastcgi_param  REQUEST_URI        $request_uri;
-          fastcgi_param  DOCUMENT_URI       $document_uri;
-          fastcgi_param  DOCUMENT_ROOT      $document_root;
-          fastcgi_param  SERVER_PROTOCOL    $server_protocol;
-          fastcgi_param  REMOTE_ADDR        $remote_addr;
-          fastcgi_param  REMOTE_PORT        $remote_port;
-          fastcgi_param  SERVER_ADDR        $server_addr;
-          fastcgi_param  SERVER_PORT        $server_port;
-          fastcgi_param  SERVER_NAME        $server_name;
-          fastcgi_intercept_errors on;
-          fastcgi_pass backend;
-        }
-      }
-    }
-
----
-# StatefulSet (converted from Deployment)
+# StatefulSet
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: matomo:5.3.2-fpm
+    originImageName: matomo:5.10.0-apache
+    docker-to-sealos.resource-override-source: 'Sealos validation on 2026-06-03: Matomo setup exceeded a 256Mi container limit and was OOMKilled; 512Mi is required to complete the installation wizard reliably.'
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -277,20 +198,37 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: matomo:5.3.2-fpm
+          image: matomo:5.10.0-apache
           imagePullPolicy: IfNotPresent
+          startupProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            failureThreshold: 3
           env:
             - name: MATOMO_DATABASE_HOST
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-mysql-conn-credential
                   key: host
-            - name: MATOMO_DATABASE_ADAPTER
-              value: "MYSQL"
-            - name: MATOMO_DATABASE_TABLES_PREFIX
-              value: "matomo_"
             - name: MATOMO_DATABASE_USERNAME
-              value: "root"
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: username
             - name: MATOMO_DATABASE_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -298,51 +236,28 @@ spec:
                   key: password
             - name: MATOMO_DATABASE_DBNAME
               value: "matomo"
+            - name: MATOMO_DATABASE_ADAPTER
+              value: "mysql"
+            - name: MATOMO_DATABASE_TABLES_PREFIX
+              value: "matomo_"
             - name: MATOMO_GENERAL_TRUSTED_HOST
               value: "${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
-          ports:
-            - name: php-fpm
-              containerPort: 9000
-              protocol: TCP
-          volumeMounts:
-            - name: vn-varvn-wwwvn-html
-              mountPath: /var/www/html
-          resources:
-            requests:
-              cpu: 20m
-              memory: 25Mi
-            limits:
-              cpu: 200m
-              memory: 256Mi
-        - name: ${{ defaults.app_name }}-nginx
-          image: nginx:alpine
-          imagePullPolicy: IfNotPresent
-          command: ["nginx", "-g", "daemon off;", "-c", "/etc/nginx/nginx.conf"]
+            - name: PHP_MEMORY_LIMIT
+              value: "256M"
           ports:
             - name: http
               containerPort: 80
               protocol: TCP
           volumeMounts:
-            - name: vn-etcvn-nginxvn-nginxvn-conf
-              mountPath: /etc/nginx/nginx.conf
-              subPath: ./etc/nginx/nginx.conf
             - name: vn-varvn-wwwvn-html
               mountPath: /var/www/html
           resources:
             requests:
-              cpu: 20m
-              memory: 25Mi
+              cpu: 50m
+              memory: 51Mi
             limits:
-              cpu: 200m
-              memory: 256Mi
-      volumes:
-        - name: vn-etcvn-nginxvn-nginxvn-conf
-          configMap:
-            name: ${{ defaults.app_name }}
-            items:
-              - key: vn-etcvn-nginxvn-nginxvn-conf
-                path: ./etc/nginx/nginx.conf
-            defaultMode: 420
+              cpu: 500m
+              memory: 512Mi
   volumeClaimTemplates:
     - metadata:
         annotations:
@@ -363,6 +278,7 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   type: ClusterIP
@@ -381,6 +297,7 @@ kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:

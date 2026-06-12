@@ -3,44 +3,178 @@ kind: Template
 metadata:
   name: metabase
 spec:
-  title: 'metabase'
-  url: 'https://metabase.com'
-  gitRepo: 'https://github.com/metabase/metabase'
-  author: 'Sealos'
-  description: 'The simplest, fastest way to get business intelligence and analytics to everyone in your company 😋'
-  readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/metabase/README.md'
-  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/metabase/logo.png'
+  title: Metabase
+  url: https://www.metabase.com/
+  gitRepo: https://github.com/metabase/metabase
+  author: Sealos
+  description: Open source business intelligence and analytics platform for dashboards, SQL exploration, and self-service reporting.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/metabase/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/metabase/logo.png
   screenshots:
-    - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/metabase/website-screenshot.webp'
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/metabase/website-screenshot.webp
   templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: 开源商业智能与数据分析平台，适用于仪表盘、SQL 探索和自助式报表。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/metabase/README_zh.md
   categories:
     - database
     - low-code
   defaults:
     app_host:
-      # number or string..
       type: string
-      value: ${{ random(8) }}
+      value: metabase-${{ random(8) }}
     app_name:
       type: string
       value: metabase-${{ random(8) }}
-  inputs:
-
-  i18n:
-    zh:
-      readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/metabase/README_zh.md'
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  terminationPolicy: Delete
+  componentSpecs:
+    - name: postgresql
+      componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
+      replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: pgsql-init
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+          env:
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: endpoint
+            - name: PG_DATABASE
+              value: metabaseappdb
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              for i in $(seq 1 60); do
+                if pg_isready -h "${PG_ENDPOINT%:*}" -p "${PG_ENDPOINT##*:}" -U postgres -d postgres >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 2
+              done
+              pg_isready -h "${PG_ENDPOINT%:*}" -p "${PG_ENDPOINT##*:}" -U postgres -d postgres >/dev/null 2>&1
+              if ! psql "postgresql://postgres:$(PG_PASSWORD)@$(PG_ENDPOINT)/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='metabaseappdb'" | grep -q 1; then
+                psql "postgresql://postgres:$(PG_PASSWORD)@$(PG_ENDPOINT)/postgres" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE "metabaseappdb";'
+              fi
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: metabase/metabase:v0.50.17
+    originImageName: metabase/metabase:v0.61.3
+    docker-to-sealos.resource-override-source: 'Live Sealos validation on 2026-05-30: Metabase v0.61.3 live setup/login validated at 1 CPU/2G; the workload may restart once while PostgreSQL finishes accepting connections; smaller memory tiers need fresh cold-start validation before use.'
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   replicas: 1
   revisionHistoryLimit: 1
@@ -54,11 +188,11 @@ spec:
       labels:
         app: ${{ defaults.app_name }}
     spec:
-      terminationGracePeriodSeconds: 10
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: metabase/metabase:v0.50.17
+          image: metabase/metabase:v0.61.3
+          imagePullPolicy: IfNotPresent
           env:
             - name: MB_DB_TYPE
               value: postgres
@@ -84,60 +218,97 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: host
+            - name: JAVA_OPTS
+              value: -XX:MaxRAMPercentage=75 -XX:InitialRAMPercentage=25
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            failureThreshold: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            failureThreshold: 6
+            periodSeconds: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            failureThreshold: 6
+            periodSeconds: 10
+            timeoutSeconds: 5
           resources:
             limits:
-              cpu: 2
-              memory: 2Gi
+              cpu: 1
+              memory: 2048Mi
             requests:
-              cpu: 200m
-              memory: 200Mi
-          ports:
-            - containerPort: 3000
-          imagePullPolicy: IfNotPresent
+              cpu: 100m
+              memory: 204Mi
           volumeMounts:
             - name: vn-plugins
               mountPath: /plugins
-      securityContext:
-        runAsUser: 2000
-        runAsGroup: 2000
-        fsGroup: 2000
-        fsGroupChangePolicy: "OnRootMismatch"
   volumeClaimTemplates:
     - metadata:
+        name: vn-plugins
         annotations:
           path: /plugins
-          value: '0.3'
-        name: vn-plugins
+          value: '1'
       spec:
         accessModes:
           - ReadWriteOnce
         resources:
           requests:
-            storage: 300Mi
-
+            storage: 1Gi
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 3000
+    - name: http
+      port: 3000
+      targetPort: http
+      protocol: TCP
   selector:
     app: ${{ defaults.app_name }}
-
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
     kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
 spec:
   rules:
     - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
@@ -154,126 +325,6 @@ spec:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
-
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
-    app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-pg
-
----
-apiVersion: apps.kubeblocks.io/v1alpha1
-kind: Cluster
-metadata:
-  finalizers:
-    - cluster.kubeblocks.io/finalizer
-  labels:
-    clusterdefinition.kubeblocks.io/name: postgresql
-    clusterversion.kubeblocks.io/name: postgresql-14.8.0
-    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
-  annotations: {}
-  name: ${{ defaults.app_name }}-pg
-spec:
-  affinity:
-    nodeLabels: {}
-    podAntiAffinity: Preferred
-    tenancy: SharedNode
-    topologyKeys: []
-  clusterDefinitionRef: postgresql
-  clusterVersionRef: postgresql-14.8.0
-  componentSpecs:
-    - componentDefRef: postgresql
-      monitor: true
-      name: postgresql
-      replicas: 1
-      resources:
-        limits:
-          cpu: 500m
-          memory: 512Mi
-        requests:
-          cpu: 50m
-          memory: 51Mi
-      serviceAccountName: ${{ defaults.app_name }}-pg
-      switchPolicy:
-        type: Noop
-      volumeClaimTemplates:
-        - name: data
-          spec:
-            accessModes:
-              - ReadWriteOnce
-            resources:
-              requests:
-                storage: 1Gi
-
-  terminationPolicy: Delete
-  tolerations: []
-
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
-    app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-pg
-rules:
-  - apiGroups:
-      - '*'
-    resources:
-      - '*'
-    verbs:
-      - '*'
-
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
-    app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-pg
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: ${{ defaults.app_name }}-pg
-subjects:
-  - kind: ServiceAccount
-    name: ${{ defaults.app_name }}-pg
-
----
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: ${{ defaults.app_name }}-init
-spec:
-  completions: 1
-  template:
-    spec:
-      containers:
-        - name: pgsql-init
-          image: senzing/postgresql-client:2.2.4
-          env:
-            - name: PG_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: password
-            - name: DATABASE_URL
-              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
-          command:
-            - /bin/sh
-            - -c
-            - |
-              until psql ${DATABASE_URL} -c 'CREATE DATABASE metabaseappdb;' &>/dev/null; do sleep 1; done
-      restartPolicy: Never
-  backoffLimit: 0
-  ttlSecondsAfterFinished: 300
 ---
 apiVersion: app.sealos.io/v1
 kind: App
@@ -285,6 +336,6 @@ spec:
   data:
     url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
   displayType: normal
-  icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/metabase/logo.png"
-  name: metabase
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/metabase/logo.png
+  name: Metabase
   type: link

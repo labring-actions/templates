@@ -3,61 +3,70 @@ kind: Template
 metadata:
   name: langflow
 spec:
-  title: 'Langflow'
-  url: 'http://www.langflow.org'
-  gitRepo: 'https://github.com/langflow-ai/langflow'
-  author: 'Sealos'
-  description: 'Langflow is a low-code app builder for RAG and multi-agent AI applications. Build, iterate, and deploy AI workflows with a drag-and-drop interface.'
-  readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/langflow/README.md'
-  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/langflow/logo.png'
+  title: Langflow
+  url: https://www.langflow.org/
+  gitRepo: https://github.com/langflow-ai/langflow
+  author: Sealos
+  description: Langflow is a low-code visual builder for RAG, agents, and AI applications. Build, test, and share AI workflows through a browser-based interface.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/langflow/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/langflow/logo.png
   screenshots:
-    - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/langflow/website-screenshot.webp'
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/langflow/website-screenshot.webp
   templateType: inline
   locale: en
   i18n:
     zh:
-      title: 'Langflow'
-      description: 'Langflow 是一个用于 RAG 和多代理 AI 应用的低代码应用构建器。通过拖放界面构建、迭代和部署 AI 工作流。'
-      readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/langflow/README_zh.md'
+      description: Langflow 是一个用于 RAG、智能体和 AI 应用的低代码可视化构建器，可在浏览器中构建、测试和共享 AI 工作流。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/langflow/README_zh.md
   categories:
     - ai
     - low-code
     - tool
   defaults:
-    app_name:
-      type: string
-      value: langflow-${{ random(8) }}
     app_host:
       type: string
       value: langflow-${{ random(8) }}
+    app_name:
+      type: string
+      value: langflow-${{ random(8) }}
+    secret_key:
+      type: string
+      value: ${{ random(32) }}
   inputs:
+    admin_username:
+      description: Initial Langflow superuser username.
+      type: string
+      default: admin
+      required: true
+    admin_password:
+      description: Initial Langflow superuser password. Use a strong password.
+      type: string
+      default: ''
+      required: true
     enable_database:
-      description: 'Enable external database (PostgreSQL) for production use'
+      description: Enable PostgreSQL instead of the built-in SQLite database.
       type: boolean
       default: 'false'
       required: false
 ---
 ${{ if(inputs.enable_database === 'true') }}
-# PostgreSQL ServiceAccount
 apiVersion: v1
 kind: ServiceAccount
 metadata:
+  name: ${{ defaults.app_name }}-pg
   labels:
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
     app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
     app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-pg
-
 ---
-# PostgreSQL Role
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
+  name: ${{ defaults.app_name }}-pg
   labels:
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
     app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
     app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-pg
 rules:
   - apiGroups:
       - '*'
@@ -65,17 +74,15 @@ rules:
       - '*'
     verbs:
       - '*'
-
 ---
-# PostgreSQL RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
+  name: ${{ defaults.app_name }}-pg
   labels:
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
     app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
     app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-pg
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -83,33 +90,33 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: ${{ defaults.app_name }}-pg
-
 ---
-# PostgreSQL Cluster
 apiVersion: apps.kubeblocks.io/v1alpha1
 kind: Cluster
 metadata:
-  finalizers:
-    - cluster.kubeblocks.io/finalizer
-  labels:
-    clusterdefinition.kubeblocks.io/name: postgresql
-    clusterversion.kubeblocks.io/name: postgresql-14.8.0
-    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
-  annotations: {}
   name: ${{ defaults.app_name }}-pg
+  labels:
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
 spec:
   affinity:
-    nodeLabels: {}
     podAntiAffinity: Preferred
     tenancy: SharedNode
-    topologyKeys: []
   clusterDefinitionRef: postgresql
-  clusterVersionRef: postgresql-14.8.0
+  clusterVersionRef: postgresql-16.4.0
+  terminationPolicy: Delete
   componentSpecs:
-    - componentDefRef: postgresql
-      monitor: true
-      name: postgresql
+    - name: postgresql
+      componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
       replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
       resources:
         limits:
           cpu: 500m
@@ -117,9 +124,6 @@ spec:
         requests:
           cpu: 50m
           memory: 51Mi
-      serviceAccountName: ${{ defaults.app_name }}-pg
-      switchPolicy:
-        type: Noop
       volumeClaimTemplates:
         - name: data
           spec:
@@ -129,53 +133,95 @@ spec:
               requests:
                 storage: 1Gi
             storageClassName: openebs-backup
-  terminationPolicy: Delete
-  tolerations: []
-
 ---
-# PostgreSQL Init Job
 apiVersion: batch/v1
 kind: Job
 metadata:
   name: ${{ defaults.app_name }}-pg-init
 spec:
-  completions: 1
+  backoffLimit: 10
+  ttlSecondsAfterFinished: 300
   template:
     spec:
+      automountServiceAccountToken: false
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
       containers:
-        - name: pgsql-init
-          image: postgres:14-alpine
+        - name: pg-init
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
           env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
             - name: PG_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
-            - name: DATABASE_URL
-              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
+            - name: PG_DATABASE
+              value: langflow
           command:
             - /bin/sh
-            - -c
+            - -ec
             - |
-              until psql ${DATABASE_URL} -c 'CREATE DATABASE langflow;' &>/dev/null; do sleep 1; done
-      restartPolicy: Never
-  backoffLimit: 0
-  ttlSecondsAfterFinished: 300
+              export PGPASSWORD="$PG_PASSWORD"
+              for i in $(seq 1 90); do
+                if pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; then
+                  break
+                fi
+                if [ "$i" -eq 90 ]; then
+                  echo "PostgreSQL is not ready" >&2
+                  exit 1
+                fi
+                sleep 2
+              done
+              if ! psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='langflow'" | grep -q 1; then
+                psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE "langflow";'
+              fi
 ${{ endif() }}
-
 ---
-# Frontend StatefulSet (Main Application)
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: langflowai/langflow-frontend:1.5.0.post2
+    originImageName: langflowai/langflow:1.9.5
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   serviceName: ${{ defaults.app_name }}
   replicas: 1
@@ -194,129 +240,36 @@ spec:
         runAsGroup: 1000
         runAsNonRoot: true
         runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: ${{ defaults.app_name }}
-          image: langflowai/langflow-frontend:1.5.0.post2
+          image: langflowai/langflow:1.9.5
           imagePullPolicy: IfNotPresent
-          ports:
-            - name: http
-              containerPort: 8080
-              protocol: TCP
-          env:
-            - name: BACKEND_URL
-              value: "http://${{ defaults.app_name }}-backend:7860"
-            - name: FRONTEND_PORT
-              value: "8080"
-          resources:
-            requests:
-              cpu: 50m
-              memory: 51Mi
-            limits:
-              cpu: 500m
-              memory: 512Mi
-          volumeMounts:
-            - name: vn-varvn-cachevn-nginx
-              mountPath: /var/cache/nginx
-          livenessProbe:
-            httpGet:
-              path: /index.html
-              port: http
-            initialDelaySeconds: 5
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 3
-          readinessProbe:
-            httpGet:
-              path: /index.html
-              port: http
-            initialDelaySeconds: 5
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 10
-  volumeClaimTemplates:
-    - metadata:
-        annotations:
-          path: /var/cache/nginx
-          value: '1'
-        name: vn-varvn-cachevn-nginx
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 1Gi
-
----
-# Frontend Service
-apiVersion: v1
-kind: Service
-metadata:
-  name: ${{ defaults.app_name }}
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-spec:
-  type: ClusterIP
-  ports:
-    - port: 8080
-      targetPort: 8080
-      protocol: TCP
-      name: http
-  selector:
-    app: ${{ defaults.app_name }}
-
----
-# Backend StatefulSet
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: ${{ defaults.app_name }}-backend
-  annotations:
-    originImageName: langflowai/langflow-frontend:1.5.0.post2
-    deploy.cloud.sealos.io/minReplicas: '1'
-    deploy.cloud.sealos.io/maxReplicas: '1'
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-backend
-    app: ${{ defaults.app_name }}
-spec:
-  serviceName: ${{ defaults.app_name }}-backend
-  replicas: 1
-  revisionHistoryLimit: 1
-  selector:
-    matchLabels:
-      app: ${{ defaults.app_name }}-backend
-  template:
-    metadata:
-      labels:
-        app: ${{ defaults.app_name }}-backend
-    spec:
-      automountServiceAccountToken: false
-      securityContext:
-        fsGroup: 1000
-        runAsGroup: 1000
-        runAsNonRoot: true
-        runAsUser: 1000
-      containers:
-        - name: ${{ defaults.app_name }}-backend
-          image: langflowai/langflow:1.5.0.post2
-          imagePullPolicy: IfNotPresent
-          command: ["/bin/bash", "-c"]
+          command:
+            - /bin/bash
+            - -ec
           args:
-            - >
-              set -e &&
-              langflow run --host 0.0.0.0 --port 7860
+            - langflow run --host 0.0.0.0 --port 7860
           ports:
             - name: http
               containerPort: 7860
               protocol: TCP
           env:
-            - name: LANGFLOW_BACKEND_ONLY
-              value: "true"
-            - name: LANGFLOW_NUM_WORKERS
-              value: "1"
             - name: LANGFLOW_PORT
-              value: "7860"
+              value: '7860'
+            - name: LANGFLOW_HOST
+              value: 0.0.0.0
+            - name: LANGFLOW_AUTO_LOGIN
+              value: 'false'
+            - name: LANGFLOW_SUPERUSER
+              value: '${{ inputs.admin_username }}'
+            - name: LANGFLOW_SUPERUSER_PASSWORD
+              value: '${{ inputs.admin_password }}'
+            - name: LANGFLOW_SECRET_KEY
+              value: '${{ defaults.secret_key }}'
             - name: LANGFLOW_UPDATE_STARTER_PROJECTS
-              value: "false"
+              value: 'false'
             ${{ if(inputs.enable_database === 'true') }}
             - name: PG_PASSWORD
               valueFrom:
@@ -342,36 +295,41 @@ spec:
               value: postgresql://$(PG_USER):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/langflow
             ${{ else() }}
             - name: LANGFLOW_DATABASE_URL
-              value: "sqlite:////app/data/langflow.db"
+              value: sqlite:////app/data/langflow.db
             ${{ endif() }}
           resources:
-            requests:
-              cpu: 100m
-              memory: 102Mi
             limits:
-              cpu: 1000m
-              memory: 1Gi
+              cpu: 2
+              memory: 4Gi
+            requests:
+              cpu: 200m
+              memory: 400Mi
           volumeMounts:
             - name: vn-appvn-data
               mountPath: /app/data
             - name: vn-appvn-flows
               mountPath: /app/flows
-          livenessProbe:
+          startupProbe:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 30
             periodSeconds: 10
             timeoutSeconds: 5
-            failureThreshold: 10
+            failureThreshold: 60
           readinessProbe:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 30
             periodSeconds: 10
             timeoutSeconds: 5
-            failureThreshold: 3
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
   volumeClaimTemplates:
     - metadata:
         annotations:
@@ -395,32 +353,30 @@ spec:
         resources:
           requests:
             storage: 1Gi
-
 ---
-# Backend Service
 apiVersion: v1
 kind: Service
 metadata:
-  name: ${{ defaults.app_name }}-backend
+  name: ${{ defaults.app_name }}
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-backend
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   type: ClusterIP
   ports:
-    - port: 7860
+    - name: http
+      port: 7860
       targetPort: 7860
       protocol: TCP
-      name: http
   selector:
-    app: ${{ defaults.app_name }}-backend
-
+    app: ${{ defaults.app_name }}
 ---
-# Ingress
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
@@ -451,14 +407,12 @@ spec:
               service:
                 name: ${{ defaults.app_name }}
                 port:
-                  number: 8080
+                  number: 7860
   tls:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
-
 ---
-# App CR
 apiVersion: app.sealos.io/v1
 kind: App
 metadata:
@@ -469,6 +423,6 @@ spec:
   data:
     url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
   displayType: normal
-  icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/langflow/logo.png"
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/langflow/logo.png
   name: Langflow
   type: link

@@ -6,7 +6,7 @@ Mage AI is an open-source data pipeline tool for building and running data workf
 
 Mage AI provides a notebook-style environment to build, schedule, and monitor data pipelines. The template provisions a dedicated PostgreSQL cluster for metadata and a persistent volume for project files at `/home/src`.
 
-The deployment includes a public HTTPS endpoint via Ingress, automatic SSL certificates, and managed networking on Sealos. You can manage resources and environment variables through the App Launchpad without touching YAML.
+The deployment includes a public HTTPS endpoint via Ingress, automatic SSL certificates, and managed networking on Sealos. You can manage resources and environment variables through the Canvas without touching YAML.
 
 ## Common Use Cases
 
@@ -25,7 +25,7 @@ The Sealos template includes all required dependencies: Mage AI runtime, Postgre
 - [Mage AI Documentation](https://docs.mage.ai/) - Official documentation and guides
 - [Mage AI GitHub Repository](https://github.com/mage-ai/mage-ai) - Source code and releases
 - [Mage AI GitHub Issues](https://github.com/mage-ai/mage-ai/issues) - Community support and issue tracking
-- [Sealos Cloud](https://sealos.io) - Deployment platform and App Launchpad
+- [Sealos Cloud](https://sealos.io) - Deployment platform and Canvas
 
 ### Implementation Details
 
@@ -43,11 +43,11 @@ This template deploys the following services:
 
 - **Admin Credentials**: Set `DEFAULT_OWNER_EMAIL` and `DEFAULT_OWNER_PASSWORD` during deployment
 - **Database**: Connection details are injected automatically; database name is `mage`
-- **Connection URL**: `MAGE_DATABASE_CONNECTION_URL` is assembled from the PostgreSQL credentials
+- **Connection URL**: Mage builds its PostgreSQL URL from `DB_USER`, `DB_PASS`, `DB_HOST`, `DB_PORT`, and `DB_NAME`
 
 **License Information:**
 
-Mage AI is licensed under its upstream open-source license. See the Mage AI GitHub repository for details.
+Mage AI is licensed under the Apache License 2.0. See the Mage AI GitHub repository for details.
 
 ## Why Deploy Mage AI on Sealos?
 
@@ -55,7 +55,7 @@ Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies
 
 - **One-Click Deployment**: Launch Mage AI with PostgreSQL and storage in minutes
 - **Auto-Scaling Built-In**: Adjust resources as workload grows without manual orchestration
-- **Easy Customization**: Configure environment variables and storage in the App Launchpad
+- **Easy Customization**: Configure environment variables and storage in the Canvas
 - **Zero Kubernetes Expertise Required**: Managed Kubernetes benefits without the complexity
 - **Persistent Storage Included**: Data and projects survive restarts with built-in volumes
 - **Instant Public Access**: Automatic HTTPS endpoint with SSL certificates
@@ -70,9 +70,9 @@ Deploy Mage AI on Sealos and focus on building data workflows instead of managin
 3. Configure the parameters in the popup dialog:
    - **Default Owner Email**: Admin login email
    - **Default Owner Password**: Admin login password
-4. Wait for deployment to complete (typically 0-1 minutes). After deployment, you will be redirected to the Canvas. For later changes, describe your requirements in the dialog to let AI apply updates, or click the relevant resource cards to modify settings.
+4. Wait for deployment to complete (typically 2-4 minutes). After deployment, you will be redirected to the Canvas. For later changes, describe your requirements in the dialog to let AI apply updates, or click the relevant resource cards to modify settings.
 5. Access your Mage AI instance via the provided URLs:
-   - **Mage AI Web UI**: Log in with your default owner credentials
+   - **Mage AI Web UI**: open the provided URL or `/sign-in`, then log in with your default owner credentials. Mage AI creates this owner account automatically during the first startup; no separate registration step is required.
 
 ## Configuration
 
@@ -80,14 +80,14 @@ After deployment, you can configure Mage AI through:
 
 - **AI Dialog**: Describe the changes you want and let AI apply updates directly
 - **Resource Cards**: Click the relevant resource cards to modify settings
-- **Web UI**: Log in at the provided URL using the default owner credentials
+- **Web UI**: Log in at the provided URL or `/sign-in` using the default owner credentials. Self-registration is not required for the initial owner account.
 - **Storage**: Projects are stored in `/home/src` on a persistent volume
 
 ## Scaling
 
 This template runs a single Mage AI replica by default. To scale resources:
 
-1. Open App Launchpad in Sealos
+1. Open Canvas in Sealos
 2. Select your Mage AI deployment
 3. Adjust CPU/Memory limits and click "Update"
 
@@ -97,7 +97,7 @@ This template runs a single Mage AI replica by default. To scale resources:
 
 **Issue: Cannot log in to Mage AI**
 - Cause: Incorrect default owner email or password
-- Solution: Verify credentials in the deployment configuration and update in App Launchpad if needed
+- Solution: Verify credentials in the deployment configuration and update in Canvas if needed
 
 **Issue: Database connection failed**
 - Cause: PostgreSQL is still initializing or the init job has not completed
@@ -119,4 +119,4 @@ This template runs a single Mage AI replica by default. To scale resources:
 
 ## License
 
-This Sealos template follows the repository licensing terms. Mage AI itself is licensed under its upstream license; see the Mage AI GitHub repository for details.
+This Sealos template follows the repository licensing terms. Mage AI itself is licensed under the Apache License 2.0; see the Mage AI GitHub repository for details.

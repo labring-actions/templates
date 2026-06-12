@@ -17,7 +17,6 @@ spec:
   locale: en
   i18n:
     zh:
-      title: 'Mage AI'
       description: '开源数据流水线工具，用于构建与运行数据工作流。'
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/mage-ai/README_zh.md'
   categories:
@@ -148,7 +147,7 @@ spec:
     spec:
       containers:
         - name: pgsql-init
-          image: postgres:16-alpine
+          image: postgres:16.4-alpine
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_HOST
@@ -171,22 +170,36 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
-            - name: DATABASE_URL
-              value: postgresql://$(PG_USERNAME):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)
+            - name: PG_DATABASE
+              value: mage
           command:
             - /bin/sh
             - -c
             - |
-              until psql ${DATABASE_URL} -c 'CREATE DATABASE mage;' &>/dev/null; do sleep 1; done
+              set -eu
+              export PGPASSWORD="$PG_PASSWORD"
+              for i in $(seq 1 90); do
+                if pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d postgres >/dev/null 2>&1; then
+                  break
+                fi
+                if [ "$i" -eq 90 ]; then
+                  echo "PostgreSQL is not ready" >&2
+                  exit 1
+                fi
+                sleep 2
+              done
+              if ! psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='mage'" | grep -q 1; then
+                createdb -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" "$PG_DATABASE"
+              fi
           resources:
             requests:
               cpu: 20m
-              memory: 32Mi
+              memory: 25Mi
             limits:
               cpu: 200m
               memory: 256Mi
-      restartPolicy: Never
-  backoffLimit: 0
+      restartPolicy: OnFailure
+  backoffLimit: 10
   ttlSecondsAfterFinished: 300
 ---
 # Mage AI StatefulSet
@@ -196,10 +209,12 @@ metadata:
   name: ${{ defaults.app_name }}
   annotations:
     originImageName: mageai/mageai:0.9.79
+    docker-to-sealos.resource-override-source: 'https://docs.mage.ai/getting-started/setup#docker runs mageai/mageai with /home/src persistent project storage and full data-pipeline runtime dependencies'
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
 spec:
   revisionHistoryLimit: 1
   replicas: 1
@@ -215,7 +230,7 @@ spec:
       automountServiceAccountToken: false
       initContainers:
         - name: wait-for-postgres
-          image: postgres:16-alpine
+          image: mageai/mageai:0.9.79
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_HOST
@@ -245,12 +260,12 @@ spec:
             - -c
             - |
               echo "waiting for postgresql to be ready..."
-              until PGPASSWORD="${PGPASSWORD}" pg_isready -h ${PG_HOST} -p ${PG_PORT} -U ${PG_USERNAME}; do
+              until PGPASSWORD="${PGPASSWORD}" pg_isready -h "${PG_HOST}" -p "${PG_PORT}" -U "${PG_USERNAME}"; do
                 echo "postgresql not ready, rechecking in 2s"
                 sleep 2
               done
               echo "database ${DB_NAME} is ready"
-              until PGPASSWORD="${PGPASSWORD}" psql -h ${PG_HOST} -p ${PG_PORT} -U ${PG_USERNAME} -d postgres \
+              until PGPASSWORD="${PGPASSWORD}" psql -h "${PG_HOST}" -p "${PG_PORT}" -U "${PG_USERNAME}" -d postgres \
                 -tAc "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}';" | grep -q 1; do
                 echo "database ${DB_NAME} not found, rechecking in 2s"
                 sleep 2
@@ -259,7 +274,7 @@ spec:
           resources:
             requests:
               cpu: 20m
-              memory: 32Mi
+              memory: 25Mi
             limits:
               cpu: 200m
               memory: 256Mi
@@ -268,52 +283,76 @@ spec:
           image: mageai/mageai:0.9.79
           imagePullPolicy: IfNotPresent
           command:
-            - mage
-            - start
-            - magic
+            - /app/run_app.sh
           ports:
-            - containerPort: 6789
+            - name: http
+              containerPort: 6789
+              protocol: TCP
           env:
             - name: ENV
               value: dev
+            - name: USER_CODE_PATH
+              value: magic
             - name: DEFAULT_OWNER_EMAIL
               value: ${{ inputs.default_owner_email }}
             - name: DEFAULT_OWNER_PASSWORD
               value: ${{ inputs.default_owner_password }}
-            - name: POSTGRES_DB
+            - name: DB_NAME
               value: mage
-            - name: POSTGRES_HOST
+            - name: DB_HOST
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: host
-            - name: POSTGRES_PORT
+            - name: DB_PORT
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: port
-            - name: POSTGRES_USER
+            - name: DB_USER
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: username
-            - name: POSTGRES_PASSWORD
+            - name: DB_PASS
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
-            - name: MAGE_DATABASE_CONNECTION_URL
-              value: postgresql+psycopg2://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):$(POSTGRES_PORT)/$(POSTGRES_DB)
           volumeMounts:
             - name: vn-homevn-src
               mountPath: /home/src
+          startupProbe:
+            httpGet:
+              path: /api/status
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /api/status
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 6
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/status
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 6
+            timeoutSeconds: 5
           resources:
             requests:
-              cpu: 200m
-              memory: 512Mi
+              cpu: 20m
+              memory: 102Mi
             limits:
-              cpu: 1000m
-              memory: 1Gi
+              cpu: 200m
+              memory: 1024Mi
   volumeClaimTemplates:
     - metadata:
         annotations:
@@ -334,11 +373,14 @@ metadata:
   name: ${{ defaults.app_name }}
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
 spec:
   type: ClusterIP
   ports:
-    - port: 6789
-      targetPort: 6789
+    - name: http
+      port: 6789
+      targetPort: http
+      protocol: TCP
   selector:
     app: ${{ defaults.app_name }}
 ---
