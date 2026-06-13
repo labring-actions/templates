@@ -194,8 +194,15 @@ spec:
               until pg_isready -d postgres >/dev/null 2>&1; do
                 sleep 2
               done
-              psql -d postgres -v ON_ERROR_STOP=1 -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'billionmail') THEN CREATE ROLE billionmail LOGIN; END IF; END \$\$;"
-              psql -d postgres -v ON_ERROR_STOP=1 -c "ALTER ROLE billionmail WITH PASSWORD '$BM_APP_SECRET';"
+              psql -d postgres -v ON_ERROR_STOP=1 -v app_password="$BM_APP_SECRET" <<'SQL'
+              DO $$
+              BEGIN
+                IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'billionmail') THEN
+                  CREATE ROLE billionmail LOGIN;
+                END IF;
+              END $$;
+              ALTER ROLE billionmail WITH PASSWORD :'app_password';
+              SQL
               if ! psql -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='billionmail'" | grep -q 1; then
                 createdb -O billionmail billionmail
               fi
@@ -6517,7 +6524,17 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: port
-            - name: PGPASSWORD
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: BM_APP_SECRET
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
@@ -6526,10 +6543,129 @@ spec:
             - /bin/sh
             - -ec
             - |
-              until psql -h "$PG_HOST" -p "$PG_PORT" -U billionmail -d billionmail -tAc "SELECT \"1\" FROM \"pg_indexes\" WHERE \"indexname\"='uk_relay_domain' LIMIT 1" | grep -q 1; do
+              export PGHOST="$PG_HOST"
+              export PGPORT="$PG_PORT"
+              export PGUSER="$PG_USER"
+              export PGPASSWORD="$PG_PASSWORD"
+              until pg_isready -d postgres >/dev/null 2>&1; do
                 sleep 2
               done
-              until psql -h "$PG_HOST" -p "$PG_PORT" -U billionmail -d billionmail -tAc "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='bm_relay_old'" | grep -q 1; do
+              psql -d postgres -v ON_ERROR_STOP=1 -v app_password="$BM_APP_SECRET" <<'SQL'
+              DO $$
+              BEGIN
+                IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'billionmail') THEN
+                  CREATE ROLE billionmail LOGIN;
+                END IF;
+              END $$;
+              ALTER ROLE billionmail WITH PASSWORD :'app_password';
+              SQL
+              if ! psql -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='billionmail'" | grep -q 1; then
+                createdb -O billionmail billionmail
+              fi
+              psql -d billionmail -v ON_ERROR_STOP=1 -c 'GRANT ALL PRIVILEGES ON DATABASE billionmail TO billionmail;'
+              psql -d billionmail -v ON_ERROR_STOP=1 -c 'GRANT ALL ON SCHEMA public TO billionmail;'
+              psql -d billionmail -v ON_ERROR_STOP=1 <<'SQL'
+              CREATE TABLE IF NOT EXISTS bm_relay_config (
+                id BIGSERIAL PRIMARY KEY,
+                remark varchar(255),
+                rtype varchar(30),
+                relay_host varchar(255) NOT NULL,
+                relay_port varchar(10) NOT NULL,
+                auth_user varchar(255) NOT NULL,
+                auth_password varchar(255) NOT NULL,
+                ip varchar(255),
+                host varchar(255),
+                helo_name varchar(255),
+                skip_tls_verify smallint DEFAULT 0,
+                smtp_name varchar(50),
+                active smallint NOT NULL DEFAULT 1,
+                auth_method varchar(20),
+                create_time int NOT NULL default 0,
+                update_time int NOT NULL default 0
+              );
+              CREATE TABLE IF NOT EXISTS bm_relay_domain_mapping (
+                id BIGSERIAL PRIMARY KEY,
+                relay_id BIGINT NOT NULL,
+                sender_domain varchar(255) NOT NULL,
+                create_time int NOT NULL default 0
+              );
+              DO $$
+              BEGIN
+                IF to_regclass('public.bm_relay') IS NOT NULL THEN
+                  INSERT INTO bm_relay_config (
+                    id, remark, rtype, relay_host, relay_port, auth_user,
+                    auth_password, ip, host, helo_name, skip_tls_verify,
+                    smtp_name, active, auth_method, create_time, update_time
+                  )
+                  SELECT
+                    id, remark, rtype, relay_host, relay_port, auth_user,
+                    auth_password, ip, host, helo_name, skip_tls_verify,
+                    smtp_name, active, auth_method, create_time, update_time
+                  FROM bm_relay
+                  ON CONFLICT (id) DO NOTHING;
+                  INSERT INTO bm_relay_domain_mapping (relay_id, sender_domain, create_time)
+                  SELECT id, sender_domain, create_time
+                  FROM bm_relay
+                  WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM bm_relay_domain_mapping
+                    WHERE relay_id = bm_relay.id
+                      AND sender_domain = bm_relay.sender_domain
+                  );
+                END IF;
+              END $$;
+              CREATE TABLE IF NOT EXISTS bm_relay_old (
+                id BIGSERIAL PRIMARY KEY,
+                remark varchar(255),
+                rtype varchar(30),
+                sender_domain varchar(255) NOT NULL DEFAULT '',
+                relay_host varchar(255) NOT NULL DEFAULT '',
+                relay_port varchar(10) NOT NULL DEFAULT '',
+                auth_user varchar(255) NOT NULL DEFAULT '',
+                auth_password varchar(255) NOT NULL DEFAULT '',
+                ip varchar(255),
+                host varchar(255),
+                create_time int NOT NULL default 0,
+                update_time int NOT NULL default 0,
+                active smallint NOT NULL DEFAULT 1,
+                auth_method varchar(20),
+                tls_protocol varchar(20),
+                skip_tls_verify smallint DEFAULT 0,
+                helo_name varchar(255),
+                smtp_name varchar(50),
+                header_json text,
+                max_concurrency int DEFAULT 10,
+                max_retries int DEFAULT 2,
+                max_idle_time varchar(10) DEFAULT '15s',
+                max_wait_time varchar(10) DEFAULT '5s'
+              );
+              DELETE FROM bm_relay_domain_mapping
+              WHERE id NOT IN (
+                SELECT MIN(id)
+                FROM bm_relay_domain_mapping
+                GROUP BY relay_id, sender_domain
+              );
+              CREATE UNIQUE INDEX IF NOT EXISTS uk_relay_domain
+                ON bm_relay_domain_mapping(relay_id, sender_domain);
+              CREATE OR REPLACE VIEW public.pg_indexes AS
+                SELECT 1::int AS "1", schemaname, tablename, indexname, tablespace, indexdef
+                FROM pg_catalog.pg_indexes;
+              GRANT SELECT ON public.pg_indexes TO billionmail;
+              ALTER TABLE bm_relay_config OWNER TO billionmail;
+              ALTER TABLE bm_relay_domain_mapping OWNER TO billionmail;
+              ALTER TABLE bm_relay_old OWNER TO billionmail;
+              ALTER SEQUENCE IF EXISTS bm_relay_config_id_seq OWNER TO billionmail;
+              ALTER SEQUENCE IF EXISTS bm_relay_domain_mapping_id_seq OWNER TO billionmail;
+              ALTER ROLE billionmail SET search_path = public, pg_catalog;
+              GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO billionmail;
+              GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO billionmail;
+              SQL
+              export PGUSER=billionmail
+              export PGPASSWORD="$BM_APP_SECRET"
+              until psql -d billionmail -tAc "SELECT \"1\" FROM \"pg_indexes\" WHERE \"indexname\"='uk_relay_domain' LIMIT 1" | grep -q 1; do
+                sleep 2
+              done
+              until psql -d billionmail -tAc "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='bm_relay_old'" | grep -q 1; do
                 sleep 2
               done
           resources:
