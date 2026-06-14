@@ -1,6 +1,6 @@
 # 在 Sealos 上部署和托管 FileCodeBox
 
-FileCodeBox 是一款基于 FastAPI 和 Vue 构建的轻量级匿名文本与文件分享服务。此模板会在 Sealos Cloud 上部署 FileCodeBox，默认使用持久化本地存储，并支持可选的 Sealos 对象存储后端。
+FileCodeBox 是一款基于 FastAPI 和 Vue 构建的轻量级匿名文本与文件分享服务。此模板会在 Sealos Cloud 上部署 FileCodeBox，默认使用持久化本地存储，并支持可选的 Sealos 对象存储开关。
 
 ![FileCodeBox 截图](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/filecodebox/website-screenshot.webp)
 
@@ -10,7 +10,7 @@ FileCodeBox 支持用户分享文本片段或文件，并生成提取码供接�
 
 此 Sealos 模板会将 FileCodeBox 作为单个 StatefulSet 运行，并把持久化卷挂载到 `/app/data`。该卷用于保存 SQLite 数据库、本地上传文件、启动锁文件和运行时配置，因此分享内容和管理设置会在重启后继续保留。
 
-模板还提供可选的 `sealos-objectstorage` 存储后端。选择该后端时，Sealos 会创建 `ObjectStorageBucket`，模板会按 FileCodeBox 官方 S3 兼容配置初始化应用，并通过服务端代理下载访问私有存储桶中的文件。
+模板还提供可选的 `enable_s3_storage` 开关。启用后，Sealos 会创建 `ObjectStorageBucket`，模板会按 FileCodeBox 官方 S3 兼容配置初始化应用，并通过服务端代理下载访问私有存储桶中的文件。
 
 ## 常见使用场景
 
@@ -47,9 +47,9 @@ FileCodeBox 支持用户分享文本片段或文件，并生成提取码供接�
 模板需要填写：
 
 - `admin_password`：FileCodeBox `/admin` 管理面板的初始密码。
-- `storage_backend`：选择 `local` 或 `sealos-objectstorage`。
+- `enable_s3_storage`：启用 Sealos 对象存储作为 FileCodeBox 的 S3 兼容文件后端。
 
-首次启动时，容器会把所选管理员密码和存储后端写入 FileCodeBox 的 SQLite settings 行。之后在 FileCodeBox 管理面板中完成的修改会保存在 `/app/data/filecodebox.db`。
+首次启动时，容器会把所选管理员密码和存储模式写入 FileCodeBox 的 SQLite settings 行。之后在 FileCodeBox 管理面板中完成的修改会保存在 `/app/data/filecodebox.db`。
 
 **许可证信息：**
 
@@ -72,9 +72,7 @@ Sealos 是基于 Kubernetes 的 AI 辅助云操作系统，覆盖从部署到运
 
 1. 打开 [FileCodeBox 模板](https://sealos.io/products/app-store/filecodebox)，点击 **Deploy Now**。
 2. 输入用于 `/admin` 管理面板的 `admin_password`。
-3. 选择存储后端：
-   - `local`：把上传文件保存在挂载到 `/app/data` 的持久化卷中。
-   - `sealos-objectstorage`：创建私有 Sealos 对象存储桶，并配置 FileCodeBox 使用 S3 兼容存储。
+3. 保持 `enable_s3_storage` 关闭时，上传文件会保存在挂载到 `/app/data` 的持久化卷中；启用它则会创建私有 Sealos 对象存储桶，并配置 FileCodeBox 使用 S3 兼容存储。
 4. 等待部署完成，通常需要 2-3 分钟。部署后会跳转到 Canvas。后续如需修改，可在 AI 对话框中描述需求，或点击对应资源卡片调整配置。
 5. 从 App 入口打开生成的 FileCodeBox URL。
 6. 在首页分享文本或文件，并复制生成的提取码。

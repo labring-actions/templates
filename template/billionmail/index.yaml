@@ -189,13 +189,10 @@ spec:
               until pg_isready -d postgres >/dev/null 2>&1; do
                 sleep 2
               done
+              if ! psql -d postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='billionmail'" | grep -q 1; then
+                psql -d postgres -v ON_ERROR_STOP=1 -c 'CREATE ROLE billionmail LOGIN;'
+              fi
               psql -d postgres -v ON_ERROR_STOP=1 -v app_password="$BM_APP_SECRET" <<'SQL'
-              DO $$
-              BEGIN
-                IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'billionmail') THEN
-                  CREATE ROLE billionmail LOGIN;
-                END IF;
-              END $$;
               ALTER ROLE billionmail WITH PASSWORD :'app_password';
               SQL
               if ! psql -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='billionmail'" | grep -q 1; then
@@ -228,31 +225,32 @@ spec:
                 sender_domain varchar(255) NOT NULL,
                 create_time int NOT NULL default 0
               );
-              DO $$
-              BEGIN
-                IF to_regclass('public.bm_relay') IS NOT NULL THEN
-                  INSERT INTO bm_relay_config (
-                    id, remark, rtype, relay_host, relay_port, auth_user,
-                    auth_password, ip, host, helo_name, skip_tls_verify,
-                    smtp_name, active, auth_method, create_time, update_time
-                  )
-                  SELECT
-                    id, remark, rtype, relay_host, relay_port, auth_user,
-                    auth_password, ip, host, helo_name, skip_tls_verify,
-                    smtp_name, active, auth_method, create_time, update_time
-                  FROM bm_relay
-                  ON CONFLICT (id) DO NOTHING;
-                  INSERT INTO bm_relay_domain_mapping (relay_id, sender_domain, create_time)
-                  SELECT id, sender_domain, create_time
-                  FROM bm_relay
-                  WHERE NOT EXISTS (
-                    SELECT 1
-                    FROM bm_relay_domain_mapping
-                    WHERE relay_id = bm_relay.id
-                      AND sender_domain = bm_relay.sender_domain
-                  );
-                END IF;
-              END $$;
+              SQL
+              if psql -d billionmail -tAc "SELECT to_regclass('public.bm_relay') IS NOT NULL" | grep -q t; then
+                psql -d billionmail -v ON_ERROR_STOP=1 <<'SQL'
+              INSERT INTO bm_relay_config (
+                id, remark, rtype, relay_host, relay_port, auth_user,
+                auth_password, ip, host, helo_name, skip_tls_verify,
+                smtp_name, active, auth_method, create_time, update_time
+              )
+              SELECT
+                id, remark, rtype, relay_host, relay_port, auth_user,
+                auth_password, ip, host, helo_name, skip_tls_verify,
+                smtp_name, active, auth_method, create_time, update_time
+              FROM bm_relay
+              ON CONFLICT (id) DO NOTHING;
+              INSERT INTO bm_relay_domain_mapping (relay_id, sender_domain, create_time)
+              SELECT id, sender_domain, create_time
+              FROM bm_relay
+              WHERE NOT EXISTS (
+                SELECT 1
+                FROM bm_relay_domain_mapping
+                WHERE relay_id = bm_relay.id
+                  AND sender_domain = bm_relay.sender_domain
+              );
+              SQL
+              fi
+              psql -d billionmail -v ON_ERROR_STOP=1 <<'SQL'
               CREATE TABLE IF NOT EXISTS bm_relay_old (
                 id BIGSERIAL PRIMARY KEY,
                 remark varchar(255),
@@ -445,6 +443,7 @@ data:
     mkdir -p \
       /data/conf/core/fail2ban_init/filter.d \
       /data/conf/core/fail2ban_init/jail.d \
+      /data/conf/askai \
       /data/conf/dovecot/conf.d \
       /data/conf/php/php-fpm.d \
       /data/conf/php/php/conf.d \
@@ -518,6 +517,7 @@ data:
     : > /data/conf/postfix/conf/vmail_ssl.map
     mkdir -p /data/postfix-spool/public /data/postfix-spool/maildrop /data/postfix-spool/dev /data/postfix-spool/pid
     touch /data/logs/postfix/postfix.log /data/logs/dovecot/dovecot.log /data/logs/rspamd/rspamd.log
+    touch /data/core-logs/access-$(date -u +%Y%m%d).log
     if [ ! -s /data/ssl/key.pem ] || [ ! -s /data/ssl/cert.pem ]; then
       openssl req -x509 -nodes -newkey rsa:2048 -days 3650 \
         -subj "/CN=${BILLIONMAIL_HOSTNAME}" \
@@ -6545,13 +6545,10 @@ spec:
               until pg_isready -d postgres >/dev/null 2>&1; do
                 sleep 2
               done
+              if ! psql -d postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='billionmail'" | grep -q 1; then
+                psql -d postgres -v ON_ERROR_STOP=1 -c 'CREATE ROLE billionmail LOGIN;'
+              fi
               psql -d postgres -v ON_ERROR_STOP=1 -v app_password="$BM_APP_SECRET" <<'SQL'
-              DO $$
-              BEGIN
-                IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'billionmail') THEN
-                  CREATE ROLE billionmail LOGIN;
-                END IF;
-              END $$;
               ALTER ROLE billionmail WITH PASSWORD :'app_password';
               SQL
               if ! psql -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='billionmail'" | grep -q 1; then
@@ -6584,31 +6581,32 @@ spec:
                 sender_domain varchar(255) NOT NULL,
                 create_time int NOT NULL default 0
               );
-              DO $$
-              BEGIN
-                IF to_regclass('public.bm_relay') IS NOT NULL THEN
-                  INSERT INTO bm_relay_config (
-                    id, remark, rtype, relay_host, relay_port, auth_user,
-                    auth_password, ip, host, helo_name, skip_tls_verify,
-                    smtp_name, active, auth_method, create_time, update_time
-                  )
-                  SELECT
-                    id, remark, rtype, relay_host, relay_port, auth_user,
-                    auth_password, ip, host, helo_name, skip_tls_verify,
-                    smtp_name, active, auth_method, create_time, update_time
-                  FROM bm_relay
-                  ON CONFLICT (id) DO NOTHING;
-                  INSERT INTO bm_relay_domain_mapping (relay_id, sender_domain, create_time)
-                  SELECT id, sender_domain, create_time
-                  FROM bm_relay
-                  WHERE NOT EXISTS (
-                    SELECT 1
-                    FROM bm_relay_domain_mapping
-                    WHERE relay_id = bm_relay.id
-                      AND sender_domain = bm_relay.sender_domain
-                  );
-                END IF;
-              END $$;
+              SQL
+              if psql -d billionmail -tAc "SELECT to_regclass('public.bm_relay') IS NOT NULL" | grep -q t; then
+                psql -d billionmail -v ON_ERROR_STOP=1 <<'SQL'
+              INSERT INTO bm_relay_config (
+                id, remark, rtype, relay_host, relay_port, auth_user,
+                auth_password, ip, host, helo_name, skip_tls_verify,
+                smtp_name, active, auth_method, create_time, update_time
+              )
+              SELECT
+                id, remark, rtype, relay_host, relay_port, auth_user,
+                auth_password, ip, host, helo_name, skip_tls_verify,
+                smtp_name, active, auth_method, create_time, update_time
+              FROM bm_relay
+              ON CONFLICT (id) DO NOTHING;
+              INSERT INTO bm_relay_domain_mapping (relay_id, sender_domain, create_time)
+              SELECT id, sender_domain, create_time
+              FROM bm_relay
+              WHERE NOT EXISTS (
+                SELECT 1
+                FROM bm_relay_domain_mapping
+                WHERE relay_id = bm_relay.id
+                  AND sender_domain = bm_relay.sender_domain
+              );
+              SQL
+              fi
+              psql -d billionmail -v ON_ERROR_STOP=1 <<'SQL'
               CREATE TABLE IF NOT EXISTS bm_relay_old (
                 id BIGSERIAL PRIMARY KEY,
                 remark varchar(255),
@@ -7039,15 +7037,11 @@ spec:
               value: "${{ inputs.timezone }}"
             - name: FAIL2BAN_INIT
               value: 'n'
+          workingDir: /opt/billionmail/core
           command:
             - /bin/sh
             - -ec
-            - |
-              cp -d -n /etc/ssl/ssl-self-signed/* /etc/ssl/mail/ || true
-              mkdir -p /opt/billionmail/conf/askai /opt/billionmail/core/template /opt/billionmail/core/logs
-              touch /opt/billionmail/core/logs/access-$(date -u +%Y%m%d).log
-              cd /opt/billionmail/core
-              exec ./billionmail
+            - mkdir -p template && exec ./billionmail
           ports:
             - containerPort: 80
               name: http

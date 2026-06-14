@@ -34,16 +34,13 @@ spec:
       type: string
       default: ''
       required: true
-    storage_backend:
-      description: Storage backend for shared files.
-      type: choice
-      default: local
-      required: true
-      options:
-        - local
-        - sealos-objectstorage
+    enable_s3_storage:
+      description: Use Sealos Object Storage as FileCodeBox's S3-compatible file backend.
+      type: boolean
+      default: 'false'
+      required: false
 ---
-${{ if(inputs.storage_backend === 'sealos-objectstorage') }}
+${{ if(inputs.enable_s3_storage === 'true') }}
 apiVersion: objectstorage.sealos.io/v1
 kind: ObjectStorageBucket
 metadata:
@@ -54,6 +51,72 @@ spec:
   policy: private
 ---
 ${{ endif() }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-config
+  labels:
+    app: ${{ defaults.app_name }}-config
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-config
+data:
+  vn-optvn-filecodeboxvn-initvn-settingsvn-py: |
+    import json
+    import os
+    import sqlite3
+
+    db_path = "/app/data/filecodebox.db"
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS keyvalue (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          key VARCHAR(255) NOT NULL UNIQUE,
+          value JSON,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_keyvalue_key_eab890 ON keyvalue (key)")
+    existing = conn.execute("SELECT value FROM keyvalue WHERE key = ?", ("settings",)).fetchone()
+
+    if existing is None:
+        config = {
+            "admin_token": os.environ["FILECODEBOX_ADMIN_PASSWORD"],
+            "file_storage": "local",
+            "storage_path": "",
+        }
+
+        if os.environ.get("FILECODEBOX_USE_S3_STORAGE") == "true":
+            config.update(
+                {
+                    "file_storage": "s3",
+                    "s3_access_key_id": os.environ["FILECODEBOX_S3_ACCESS_KEY_ID"],
+                    "s3_secret_access_key": os.environ["FILECODEBOX_S3_SECRET_ACCESS_KEY"],
+                    "s3_bucket_name": os.environ["FILECODEBOX_S3_BUCKET_NAME"],
+                    "s3_endpoint_url": os.environ["FILECODEBOX_S3_ENDPOINT_URL"],
+                    "s3_region_name": "us-east-1",
+                    "s3_signature_version": "s3v4",
+                    "s3_addressing_style": "path",
+                    "s3_proxy": 1,
+                }
+            )
+
+        conn.execute(
+            "INSERT INTO keyvalue (key, value) VALUES (?, ?)",
+            ("settings", json.dumps(config, ensure_ascii=False)),
+        )
+        conn.commit()
+
+    conn.close()
+  vn-optvn-filecodeboxvn-startvn-sh: |
+    #!/bin/sh
+    set -eu
+
+    python /opt/filecodebox/init-settings.py
+    exec uvicorn main:app --host "${HOST}" --port "${PORT}" --workers "${WORKERS}" --log-level "${LOG_LEVEL}" --proxy-headers --forwarded-allow-ips '*'
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -85,57 +148,8 @@ spec:
           imagePullPolicy: IfNotPresent
           command:
             - /bin/sh
-            - -c
-            - |
-              set -eu
-              python - <<'PY'
-              import json
-              import os
-              import sqlite3
-
-              db_path = "/app/data/filecodebox.db"
-              os.makedirs(os.path.dirname(db_path), exist_ok=True)
-              conn = sqlite3.connect(db_path)
-              conn.execute(
-                  """
-                  CREATE TABLE IF NOT EXISTS keyvalue (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    key VARCHAR(255) NOT NULL UNIQUE,
-                    value JSON,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
-                  )
-                  """
-              )
-              conn.execute("CREATE INDEX IF NOT EXISTS idx_keyvalue_key_eab890 ON keyvalue (key)")
-              existing = conn.execute("SELECT value FROM keyvalue WHERE key = ?", ("settings",)).fetchone()
-              if existing is None:
-                  config = {
-                      "admin_token": os.environ["FILECODEBOX_ADMIN_PASSWORD"],
-                      "file_storage": "local",
-                      "storage_path": "",
-                  }
-                  if os.environ.get("FILECODEBOX_STORAGE_BACKEND") == "sealos-objectstorage":
-                      config.update(
-                          {
-                              "file_storage": "s3",
-                              "s3_access_key_id": os.environ["FILECODEBOX_S3_ACCESS_KEY_ID"],
-                              "s3_secret_access_key": os.environ["FILECODEBOX_S3_SECRET_ACCESS_KEY"],
-                              "s3_bucket_name": os.environ["FILECODEBOX_S3_BUCKET_NAME"],
-                              "s3_endpoint_url": os.environ["FILECODEBOX_S3_ENDPOINT_URL"],
-                              "s3_region_name": "us-east-1",
-                              "s3_signature_version": "s3v4",
-                              "s3_addressing_style": "path",
-                              "s3_proxy": 1,
-                          }
-                      )
-                  conn.execute(
-                      "INSERT INTO keyvalue (key, value) VALUES (?, ?)",
-                      ("settings", json.dumps(config, ensure_ascii=False)),
-                  )
-                  conn.commit()
-              conn.close()
-              PY
-              exec uvicorn main:app --host "${HOST}" --port "${PORT}" --workers "${WORKERS}" --log-level "${LOG_LEVEL}" --proxy-headers --forwarded-allow-ips '*'
+            - -ec
+            - /opt/filecodebox/start.sh
           env:
             - name: HOST
               value: 0.0.0.0
@@ -147,18 +161,18 @@ spec:
               value: info
             - name: FILECODEBOX_ADMIN_PASSWORD
               value: ${{ inputs.admin_password }}
-            - name: FILECODEBOX_STORAGE_BACKEND
-              value: ${{ inputs.storage_backend }}
-            ${{ if(inputs.storage_backend === 'sealos-objectstorage') }}
+            ${{ if(inputs.enable_s3_storage === 'true') }}
+            - name: FILECODEBOX_USE_S3_STORAGE
+              value: 'true'
             - name: FILECODEBOX_S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
-                  name: object-storage-key
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
                   key: accessKey
             - name: FILECODEBOX_S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: object-storage-key
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
                   key: secretKey
             - name: FILECODEBOX_S3_BUCKET_NAME
               valueFrom:
@@ -168,7 +182,7 @@ spec:
             - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
               valueFrom:
                 secretKeyRef:
-                  name: object-storage-key
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
                   key: external
             - name: FILECODEBOX_S3_ENDPOINT_URL
               value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
@@ -204,6 +218,9 @@ spec:
           volumeMounts:
             - name: vn-appvn-data
               mountPath: /app/data
+            - name: vn-optvn-filecodebox
+              mountPath: /opt/filecodebox
+              readOnly: true
           resources:
             limits:
               cpu: 200m
@@ -211,6 +228,16 @@ spec:
             requests:
               cpu: 20m
               memory: 25Mi
+      volumes:
+        - name: vn-optvn-filecodebox
+          configMap:
+            name: ${{ defaults.app_name }}-config
+            defaultMode: 493
+            items:
+              - key: vn-optvn-filecodeboxvn-initvn-settingsvn-py
+                path: init-settings.py
+              - key: vn-optvn-filecodeboxvn-startvn-sh
+                path: start.sh
   volumeClaimTemplates:
     - metadata:
         name: vn-appvn-data
