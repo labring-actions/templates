@@ -5,7 +5,7 @@ metadata:
 spec:
   title: MindsDB
   url: https://mindshub.ai/
-  gitRepo: https://github.com/mindsdb/minds-platform
+  gitRepo: https://github.com/mindsdb/mindsdb
   author: Sealos
   description: MindsDB is an open-source AI query engine and automation platform for building controllable AI systems over connected data.
   readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/mindsdb/README.md
@@ -38,7 +38,7 @@ spec:
     admin_password:
       description: MindsDB administrator password for the web UI and REST API.
       type: string
-      default: ''
+      default: "MindsDB@${{ random(16) }}!1"
       required: true
     file_storage:
       description: Permanent file storage backend for uploaded files, model artifacts, and tab content.
@@ -110,6 +110,7 @@ metadata:
     clusterdefinition.kubeblocks.io/name: postgresql
     clusterversion.kubeblocks.io/name: postgresql-16.4.0
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
 spec:
   affinity:
     podAntiAffinity: Preferred
@@ -157,6 +158,13 @@ spec:
         - name: pgsql-init
           image: public.ecr.aws/docker/library/postgres:16.4-alpine
           imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
           env:
             - name: PG_HOST
               valueFrom:
@@ -192,9 +200,16 @@ spec:
               done
               pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1
               for database in mindsdb kb; do
-                if ! psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='${database}'" | grep -q 1; then
-                  psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"${database}\";"
-                fi
+                for attempt in $(seq 1 30); do
+                  if psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='${database}'" | grep -q 1; then
+                    break
+                  fi
+                  if psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"${database}\";"; then
+                    break
+                  fi
+                  sleep 2
+                done
+                psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='${database}'" | grep -q 1
               done
               psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d kb -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS "vector";'
       restartPolicy: Never
@@ -212,6 +227,7 @@ metadata:
   labels:
     app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
 spec:
   replicas: 1
   revisionHistoryLimit: 1
@@ -406,16 +422,18 @@ spec:
           resources:
             limits:
               cpu: 200m
-              memory: 1Gi
+              memory: 1024Mi
             requests:
               cpu: 20m
-              memory: 256Mi
+              memory: 102Mi
           volumeMounts:
             - name: vn-mindsdbvn-var
               mountPath: /mindsdb/var
   volumeClaimTemplates:
     - metadata:
         name: vn-mindsdbvn-var
+        labels:
+          cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
         annotations:
           path: /mindsdb/var
           value: '1'
@@ -503,4 +521,4 @@ spec:
   displayType: normal
   icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/mindsdb/logo.png
   name: ${{ defaults.app_name }}
-  type: iframe
+  type: link
