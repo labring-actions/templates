@@ -308,13 +308,11 @@ volumeClaimTemplates:
 
 ### 命名规则
 
-ConfigMap 的名称必须和挂载该 ConfigMap 的应用的 `metadata.name` 值一样
+ConfigMap 的名称必须和挂载该 ConfigMap 的工作负载 `metadata.name` 一致。
 
-### 文件存储规则（极其重要！！！）
+### 文件存储规则
 
-**⚠️ 重要提醒：ConfigMap 的 data 字段中的所有键名（key）必须严格遵循 vn- 转换规则！**
-
-所有配置文件都应该放到同一个 ConfigMap 中，ConfigMap 中的 `data.<文件名>` 键名**必须**将挂载路径中的特殊字符替换为 "vn-"：
+同一工作负载的配置文件放到同一个 ConfigMap 中。ConfigMap `data` key 必须来自完整挂载路径，并按 `scripts/path_converter.py` 的 `vn-` 规则转换：
 
 **转换规则：**
 - 将路径中的 `/` 替换为 `vn-`
@@ -322,16 +320,6 @@ ConfigMap 的名称必须和挂载该 ConfigMap 的应用的 `metadata.name` 值
 - 将路径中的 `.` 替换为 `vn-`
 - 其他特殊字符也替换为 `vn-`
 
-**❌ 错误示例（绝对不要这样写）：**
-```yaml
-data:
-  inifile: |  # 错误！没有使用 vn- 转换
-    content here
-  chart.ini: | # 错误！包含点号
-    content here
-```
-
-**✅ 正确示例：**
 ```yaml
 apiVersion: v1
 kind: ConfigMap
@@ -355,28 +343,22 @@ data:
     seedlist = example
 ```
 
-### Volume 挂载规范
+### Volume 和 VolumeMount 规范
 
-#### Volumes 格式
+工作负载只创建一个 ConfigMap volume，名称为 `<workload metadata.name>-cm`。每个 ConfigMap `data` key 都必须有一个独立 `volumeMount`，`subPath` 必须与 `data` key 完全一致。
 
 ```yaml
 volumes:
-  - name: vn-etcvn-nginxvn-confvn-dvn-defaultvn-conf
+  - name: ${{ defaults.app_name }}-cm
     configMap:
       name: ${{ defaults.app_name }}
-      items:
-        - key: vn-etcvn-nginxvn-confvn-dvn-defaultvn-conf
-          path: ./etc/nginx/conf.d/default.conf
-      defaultMode: 420
-```
-
-#### VolumeMount 格式
-
-```yaml
 volumeMounts:
-  - name: vn-etcvn-nginxvn-confvn-dvn-defaultvn-conf
+  - name: ${{ defaults.app_name }}-cm
     mountPath: /etc/nginx/conf.d/default.conf
-    subPath: ./etc/nginx/conf.d/default.conf
+    subPath: vn-etcvn-nginxvn-confvn-dvn-defaultvn-conf
+  - name: ${{ defaults.app_name }}-cm
+    mountPath: /app/config.yml
+    subPath: vn-appvn-configvn-yml
 ```
 
 ### 完整示例
@@ -400,7 +382,7 @@ data:
         index index.html;
       }
     }
-  vn-appvn-configvn-ymlvn-: |
+  vn-appvn-configvn-yml: |
     database:
       host: localhost
       port: 5432
@@ -429,27 +411,17 @@ spec:
               cpu: 20m
               memory: 25Mi
           volumeMounts:
-            - name: vn-etcvn-nginxvn-confvn-dvn-defaultvn-conf
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /etc/nginx/conf.d/default.conf
-              subPath: ./etc/nginx/conf.d/default.conf
-            - name: vn-appvn-configvn-ymlvn-
+              subPath: vn-etcvn-nginxvn-confvn-dvn-defaultvn-conf
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /app/config.yml
-              subPath: ./app/config.yml
+              subPath: vn-appvn-configvn-yml
       volumes:
-        - name: vn-etcvn-nginxvn-confvn-dvn-defaultvn-conf
+        - name: ${{ defaults.app_name }}-cm
           configMap:
             name: ${{ defaults.app_name }}
-            items:
-              - key: vn-etcvn-nginxvn-confvn-dvn-defaultvn-conf
-                path: ./etc/nginx/conf.d/default.conf
-            defaultMode: 420
-        - name: vn-appvn-configvn-ymlvn-
-          configMap:
-            name: ${{ defaults.app_name }}
-            items:
-              - key: vn-appvn-configvn-ymlvn-
-                path: ./app/config.yml
-            defaultMode: 420
+            defaultMode: 493
 ```
 
 ## 标签和命名规范
@@ -530,6 +502,29 @@ metadata:
 
 ## 对象存储配置
 
+### 条件输入
+
+当应用只有启用或关闭 S3/Object Storage 两种状态时，使用 boolean 输入，并用字符串比较控制条件渲染：
+
+```yaml
+inputs:
+  enable_s3_storage:
+    description: "Enable S3 object storage"
+    type: boolean
+    default: "false"
+    required: false
+
+---
+${{ if(inputs.enable_s3_storage === 'true') }}
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}
+spec:
+  policy: private
+${{ endif() }}
+```
+
 ### 环境变量设置
 
 对象存储的环境变量配置必须遵循以下格式：
@@ -539,12 +534,12 @@ env:
   - name: S3_ACCESS_KEY_ID
     valueFrom:
       secretKeyRef:
-        name: object-storage-key
+        name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
         key: accessKey
   - name: S3_SECRET_ACCESS_KEY
     valueFrom:
       secretKeyRef:
-        name: object-storage-key
+        name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
         key: secretKey
   - name: S3_BUCKET
     valueFrom:
@@ -556,7 +551,7 @@ env:
   - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
     valueFrom:
       secretKeyRef:
-        name: object-storage-key
+        name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
         key: external
   - name: S3_PUBLIC_DOMAIN
     value: "https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)"
@@ -566,10 +561,9 @@ env:
 
 ### 注意事项
 
-1. `object-storage-key` 是固定的 secret 名称（不包含应用名称）
-2. 只有 bucket 的 secret 名称包含应用名称：`object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}`
-3. S3_ENDPOINT 和 S3_PUBLIC_DOMAIN 使用环境变量引用：`$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)`
-4. S3_ENABLE_PATH_STYLE 必须设置为 "1"
+1. 优先使用桶级 secret：`object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}`
+2. S3_ENDPOINT 和 S3_PUBLIC_DOMAIN 使用环境变量引用：`$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)`
+3. S3_ENABLE_PATH_STYLE 必须设置为 "1"
 
 ## Ingress 配置规范
 

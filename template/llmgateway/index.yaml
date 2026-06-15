@@ -157,16 +157,26 @@ spec:
           image: public.ecr.aws/docker/library/postgres:16.4-alpine
           imagePullPolicy: IfNotPresent
           env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
             - name: PG_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
-            - name: PG_ENDPOINT
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: endpoint
             - name: PG_DATABASE
               value: llmgateway
           command:
@@ -174,15 +184,16 @@ spec:
             - -ec
             - |
               set -eu
-              for i in $(seq 1 60); do
-                if pg_isready -h "${PG_ENDPOINT%:*}" -p "${PG_ENDPOINT##*:}" -U postgres -d postgres >/dev/null 2>&1; then
+              export PGPASSWORD="$PG_PASSWORD"
+              for i in $(seq 1 150); do
+                if pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; then
                   break
                 fi
                 sleep 2
               done
-              pg_isready -h "${PG_ENDPOINT%:*}" -p "${PG_ENDPOINT##*:}" -U postgres -d postgres >/dev/null 2>&1
-              if ! psql "postgresql://postgres:$(PG_PASSWORD)@$(PG_ENDPOINT)/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='llmgateway'" | grep -q 1; then
-                psql "postgresql://postgres:$(PG_PASSWORD)@$(PG_ENDPOINT)/postgres" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE "llmgateway";'
+              pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1
+              if ! psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='llmgateway'" | grep -q 1; then
+                psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE "llmgateway";'
               fi
           resources:
             limits:
@@ -412,16 +423,11 @@ spec:
               value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
             - name: REDIS_PORT
               value: '6379'
-            - name: REDIS_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-redis-redis-account-default
-                  key: password
           command:
             - /bin/sh
             - -ec
             - |
-              until redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" ping >/dev/null 2>&1; do
+              until redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" ping 2>&1 | grep -Eq 'PONG|NOAUTH|Authentication required'; do
                 sleep 2
               done
           resources:
@@ -641,6 +647,47 @@ spec:
             requests:
               cpu: 20m
               memory: 25Mi
+        - name: wait-for-migrations
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_DATABASE
+              value: llmgateway
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export PGPASSWORD="$PG_PASSWORD"
+              until psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DATABASE" -tAc "SELECT to_regclass('public.lock') IS NOT NULL AND to_regclass('public.log') IS NOT NULL AND to_regclass('public.provider') IS NOT NULL;" 2>/dev/null | grep -q t; do
+                sleep 2
+              done
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
         - name: wait-for-redis
           image: public.ecr.aws/docker/library/redis:7.2.7-alpine
           imagePullPolicy: IfNotPresent
@@ -649,16 +696,11 @@ spec:
               value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
             - name: REDIS_PORT
               value: '6379'
-            - name: REDIS_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-redis-redis-account-default
-                  key: password
           command:
             - /bin/sh
             - -ec
             - |
-              until redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" ping >/dev/null 2>&1; do
+              until redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" ping 2>&1 | grep -Eq 'PONG|NOAUTH|Authentication required'; do
                 sleep 2
               done
           resources:
@@ -890,6 +932,47 @@ spec:
             requests:
               cpu: 20m
               memory: 25Mi
+        - name: wait-for-migrations
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_DATABASE
+              value: llmgateway
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export PGPASSWORD="$PG_PASSWORD"
+              until psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DATABASE" -tAc "SELECT to_regclass('public.lock') IS NOT NULL AND to_regclass('public.log') IS NOT NULL AND to_regclass('public.provider') IS NOT NULL;" 2>/dev/null | grep -q t; do
+                sleep 2
+              done
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
         - name: wait-for-redis
           image: public.ecr.aws/docker/library/redis:7.2.7-alpine
           imagePullPolicy: IfNotPresent
@@ -898,16 +981,11 @@ spec:
               value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
             - name: REDIS_PORT
               value: '6379'
-            - name: REDIS_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-redis-redis-account-default
-                  key: password
           command:
             - /bin/sh
             - -ec
             - |
-              until redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" ping >/dev/null 2>&1; do
+              until redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" ping 2>&1 | grep -Eq 'PONG|NOAUTH|Authentication required'; do
                 sleep 2
               done
           resources:
@@ -1152,22 +1230,19 @@ spec:
               cpu: 20m
               memory: 25Mi
           startupProbe:
-            httpGet:
-              path: /
+            tcpSocket:
               port: http
             failureThreshold: 60
             periodSeconds: 5
             timeoutSeconds: 5
           readinessProbe:
-            httpGet:
-              path: /
+            tcpSocket:
               port: http
             initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 5
           livenessProbe:
-            httpGet:
-              path: /
+            tcpSocket:
               port: http
             initialDelaySeconds: 60
             periodSeconds: 30
