@@ -40,16 +40,13 @@ spec:
       type: string
       default: "MindsDB@${{ random(16) }}!1"
       required: true
-    file_storage:
-      description: Permanent file storage backend for uploaded files, model artifacts, and tab content.
-      type: choice
-      default: local
-      required: true
-      options:
-        - local
-        - sealos-objectstorage
+    use_object_storage:
+      description: Use Sealos Object Storage as MindsDB's S3-compatible permanent file backend.
+      type: boolean
+      default: 'false'
+      required: false
 ---
-${{ if(inputs.file_storage === 'sealos-objectstorage') }}
+${{ if(inputs.use_object_storage === 'true') }}
 apiVersion: objectstorage.sealos.io/v1
 kind: ObjectStorageBucket
 metadata:
@@ -215,6 +212,39 @@ spec:
       restartPolicy: Never
   ttlSecondsAfterFinished: 300
 ---
+${{ if(inputs.use_object_storage === 'true') }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-s3-config
+data:
+  vn-tmpvn-writevn-s3vn-configvn-py: |
+    import json
+    import os
+
+    config_dir = "/mindsdb/var/config"
+    os.makedirs(config_dir, exist_ok=True)
+
+    config = {
+        "permanent_storage": {
+            "location": "s3",
+            "bucket": os.environ["MINDSDB_S3_BUCKET"],
+            "s3_credentials": {
+                "aws_access_key_id": os.environ["MINDSDB_S3_ACCESS_KEY_ID"],
+                "aws_secret_access_key": os.environ["MINDSDB_S3_SECRET_ACCESS_KEY"],
+                "endpoint_url": f"http://{os.environ['MINDSDB_S3_INTERNAL_ENDPOINT']}",
+                "region_name": "us-east-1",
+            },
+        },
+        "paths": {
+            "root": "/mindsdb/var",
+        },
+    }
+
+    with open(f"{config_dir}/mindsdb_config.json", "w", encoding="utf-8") as config_file:
+        json.dump(config, config_file)
+---
+${{ endif() }}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -281,39 +311,67 @@ spec:
               done
               psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d mindsdb -tAc "SELECT 1"
               psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d kb -tAc "SELECT 1"
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+        ${{ if(inputs.use_object_storage === 'true') }}
+        - name: write-s3-config
+          image: mindsdb/mindsdb:v26.1.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - /tmp/write-s3-config.py
+          env:
+            - name: MINDSDB_S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: MINDSDB_S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: MINDSDB_S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: MINDSDB_S3_INTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: internal
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+          volumeMounts:
+            - name: vn-mindsdbvn-var
+              mountPath: /mindsdb/var
+            - name: vn-tmpvn-writevn-s3vn-configvn-py
+              mountPath: /tmp/write-s3-config.py
+              subPath: ./tmp/write-s3-config.py
+        ${{ endif() }}
       containers:
         - name: ${{ defaults.app_name }}
           image: mindsdb/mindsdb:v26.1.0
           imagePullPolicy: IfNotPresent
-          ${{ if(inputs.file_storage === 'sealos-objectstorage') }}
+          ${{ if(inputs.use_object_storage === 'true') }}
           command:
-            - /bin/sh
-            - -ec
-            - |
-              python - <<'PY'
-              import json
-              import os
-
-              config = {
-                  "permanent_storage": {
-                      "location": "s3",
-                      "bucket": os.environ["MINDSDB_S3_BUCKET"],
-                      "s3_credentials": {
-                          "aws_access_key_id": os.environ["MINDSDB_S3_ACCESS_KEY_ID"],
-                          "aws_secret_access_key": os.environ["MINDSDB_S3_SECRET_ACCESS_KEY"],
-                          "endpoint_url": f"http://{os.environ['MINDSDB_S3_INTERNAL_ENDPOINT']}",
-                          "region_name": "us-east-1",
-                      },
-                  },
-                  "paths": {
-                      "root": "/mindsdb/var",
-                  },
-              }
-
-              with open("/tmp/mindsdb_config.json", "w", encoding="utf-8") as config_file:
-                  json.dump(config, config_file)
-              PY
-              exec python -Im mindsdb --config=/tmp/mindsdb_config.json --api=http,mysql
+            - python
+            - -Im
+            - mindsdb
+          args:
+            - --config=/mindsdb/var/config/mindsdb_config.json
+            - --api=http,mysql
           ${{ endif() }}
           env:
             - name: MINDSDB_DOCKER_ENV
@@ -366,7 +424,7 @@ spec:
               value: postgresql://$(PG_USERNAME):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/mindsdb
             - name: KB_PGVECTOR_URL
               value: postgresql://$(PG_USERNAME):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/kb
-            ${{ if(inputs.file_storage === 'sealos-objectstorage') }}
+            ${{ if(inputs.use_object_storage === 'true') }}
             - name: MINDSDB_S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
@@ -429,6 +487,16 @@ spec:
           volumeMounts:
             - name: vn-mindsdbvn-var
               mountPath: /mindsdb/var
+      ${{ if(inputs.use_object_storage === 'true') }}
+      volumes:
+        - name: vn-tmpvn-writevn-s3vn-configvn-py
+          configMap:
+            name: ${{ defaults.app_name }}-s3-config
+            items:
+              - key: vn-tmpvn-writevn-s3vn-configvn-py
+                path: ./tmp/write-s3-config.py
+            defaultMode: 420
+      ${{ endif() }}
   volumeClaimTemplates:
     - metadata:
         name: vn-mindsdbvn-var

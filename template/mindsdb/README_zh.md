@@ -43,7 +43,7 @@ Sealos 模板包含 MindsDB、PostgreSQL 16.4、PostgreSQL 初始化 Job、持�
 - **PostgreSQL**：由 KubeBlocks 管理的 PostgreSQL 16.4 数据库，用于 MindsDB 元数据和知识库存储。
 - **PostgreSQL 初始化 Job**：等待 PostgreSQL 就绪，在首次启动期间重试数据库创建，创建 `mindsdb` 和 `kb`，并在 `kb` 数据库中启用 `vector`。
 - **持久卷**：挂载到 `/mindsdb/var` 的 `1Gi` 卷，用于 local 文件存储模式下的运行时文件、GUI 资产、缓存、日志和上传内容。
-- **可选对象存储**：选择 `sealos-objectstorage` 时，为 MindsDB 永久文件存储创建 Sealos `ObjectStorageBucket`。
+- **可选对象存储**：启用 `use_object_storage` 时，为 MindsDB 永久文件存储创建 Sealos `ObjectStorageBucket`。
 - **Ingress 和 App 入口**：Sealos 通过 HTTPS URL 暴露 MindsDB，并创建可直接访问的仪表盘入口。
 
 **配置：**
@@ -52,11 +52,11 @@ Sealos 模板包含 MindsDB、PostgreSQL 16.4、PostgreSQL 初始化 Job、持�
 
 - `admin_username`：Web UI 和 REST API 的管理员用户名。
 - `admin_password`：Web UI 和 REST API 的管理员密码。模板提供强随机默认值，部署前也可以替换。
-- `file_storage`：选择 `local` 使用持久卷文件存储，或选择 `sealos-objectstorage` 使用 S3 兼容永久存储。
+- `use_object_storage`：启用后使用 Sealos Object Storage 作为 S3 兼容永久文件存储；关闭时使用持久卷。
 
 MindsDB 以 `MINDSDB_APIS=http,mysql` 运行。Web UI 和 REST API 暴露在 `47334` 端口，MySQL 兼容 API 可通过同命名空间内 Service 的 `47335` 端口访问。PostgreSQL 凭据来自 Sealos 管理的 KubeBlocks 连接密钥。
 
-启用对象存储时，容器会在启动时使用 Sealos bucket、access key、secret key 和内部 S3 endpoint 生成 MindsDB 配置文件。
+启用对象存储时，init container 会在主容器启动前使用 Sealos bucket、access key、secret key 和内部 S3 endpoint 写入 MindsDB 配置文件。
 
 **许可证信息：**
 
@@ -82,7 +82,7 @@ Sealos 是基于 Kubernetes 的 AI 云操作系统，统一了从部署到生产
 2. 在弹窗中配置参数：
    - `admin_username`：MindsDB 登录用户名。
    - `admin_password`：MindsDB 登录密码。你可以保留生成的默认值，也可以替换为自己的强密码。
-   - `file_storage`：选择 `local` 或 `sealos-objectstorage`。
+   - `use_object_storage`：启用后使用 Sealos Object Storage，关闭时使用持久卷。
 3. 等待部署完成，通常需要 3-5 分钟。首次冷启动时，PostgreSQL 初始化、初始化 Job 创建数据库、MindsDB 数据库迁移和 Web GUI 资产准备会带来更长等待时间。
 4. 打开生成的公网 URL：
    - 启用本地认证时，根路径会跳转到 `/local-login`。

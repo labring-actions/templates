@@ -43,7 +43,7 @@ This template deploys the following services:
 - **PostgreSQL**: KubeBlocks-managed PostgreSQL 16.4 database for MindsDB metadata and knowledge base storage.
 - **PostgreSQL Init Job**: Waits for PostgreSQL readiness, retries database creation during first boot, creates `mindsdb` and `kb`, and enables `vector` in the `kb` database.
 - **Persistent Volume**: A `1Gi` volume mounted at `/mindsdb/var` for local runtime files, GUI assets, cache, logs, and uploaded content when local storage is selected.
-- **Optional Object Storage**: A Sealos `ObjectStorageBucket` for S3-compatible permanent file storage when `sealos-objectstorage` is selected.
+- **Optional Object Storage**: A Sealos `ObjectStorageBucket` for S3-compatible permanent file storage when `use_object_storage` is enabled.
 - **Ingress and App Entry**: Sealos exposes MindsDB through an HTTPS URL and creates a dashboard entry for direct access.
 
 **Configuration:**
@@ -52,11 +52,11 @@ The template asks for:
 
 - `admin_username`: Administrator username for the web UI and REST API.
 - `admin_password`: Administrator password for the web UI and REST API. A strong generated default is provided and can be replaced before deployment.
-- `file_storage`: `local` for persistent-volume file storage, or `sealos-objectstorage` for S3-compatible permanent storage.
+- `use_object_storage`: Enable Sealos Object Storage for S3-compatible permanent file storage. Leave it disabled to use the persistent volume.
 
 MindsDB runs with `MINDSDB_APIS=http,mysql`. The web UI and REST API are exposed on port `47334`, while the MySQL-compatible API is available inside the cluster on port `47335`. PostgreSQL credentials are injected from the Sealos-managed KubeBlocks connection secret.
 
-When Object Storage is enabled, the container generates a MindsDB configuration file at startup with the Sealos bucket, access key, secret key, and internal S3 endpoint.
+When Object Storage is enabled, an init container writes a MindsDB configuration file with the Sealos bucket, access key, secret key, and internal S3 endpoint before the main container starts.
 
 **License Information:**
 
@@ -82,7 +82,7 @@ Deploy MindsDB on Sealos to run a self-hosted AI query and automation platform w
 2. Configure the parameters in the popup dialog:
    - `admin_username`: the username for MindsDB login.
    - `admin_password`: the password for MindsDB login. You can keep the generated default or replace it with a strong password.
-   - `file_storage`: choose `local` or `sealos-objectstorage`.
+   - `use_object_storage`: enable it to use Sealos Object Storage, or leave it disabled to use the persistent volume.
 3. Wait for deployment to complete, typically 3-5 minutes. The first cold start can take longer while PostgreSQL initializes, the init Job creates databases, MindsDB applies migrations, and the web GUI assets are prepared.
 4. Open the generated public URL:
    - The root path redirects to `/local-login` when local authentication is enabled.
