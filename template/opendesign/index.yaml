@@ -1,0 +1,340 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: opendesign
+spec:
+  title: OpenDesign
+  url: https://open-design.ai/
+  gitRepo: https://github.com/nexu-io/open-design
+  author: Sealos
+  description: OpenDesign is a local-first, open-source AI design workspace for generating prototypes, decks, images, videos, and design-system-driven artifacts.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/opendesign/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/opendesign/logo.png
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/opendesign/website-screenshot.webp
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: OpenDesign 是一个本地优先的开源 AI 设计工作区，可生成原型、演示文稿、图片、视频和基于设计系统的可交付产物。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/opendesign/README_zh.md
+  categories:
+    - ai
+    - tool
+  defaults:
+    app_name:
+      type: string
+      value: opendesign-${{ random(8) }}
+    app_host:
+      type: string
+      value: opendesign-${{ random(8) }}
+    api_token:
+      type: string
+      value: ${{ random(64) }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-proxy
+  labels:
+    app: ${{ defaults.app_name }}-proxy
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-proxy
+data:
+  vn-etcvn-nginxvn-confvn-dvn-defaultvn-conf: |
+    server {
+      listen 8080;
+      client_max_body_size 32m;
+
+      location / {
+        proxy_pass http://${{ defaults.app_name }}:7456;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+      }
+
+      location /api/ {
+        proxy_pass http://${{ defaults.app_name }}:7456;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header Authorization "Bearer ${{ defaults.api_token }}";
+        proxy_buffering off;
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
+        proxy_set_header Connection "";
+      }
+    }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: docker.io/vanjayak/open-design:latest
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+    deploy.cloud.sealos.io/resize: 1Gi
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  serviceName: ${{ defaults.app_name }}
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      imagePullSecrets:
+        - name: ${{ defaults.app_name }}
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: docker.io/vanjayak/open-design:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: NODE_OPTIONS
+              value: --max-old-space-size=192
+            - name: OD_BIND_HOST
+              value: 0.0.0.0
+            - name: OD_PORT
+              value: '7456'
+            - name: OD_WEB_PORT
+              value: '7456'
+            - name: OD_API_TOKEN
+              value: ${{ defaults.api_token }}
+            - name: OD_ALLOWED_ORIGINS
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: OD_CODEX_SANDBOX
+              value: danger-full-access
+          ports:
+            - containerPort: 7456
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+          resources:
+            requests:
+              cpu: 20m
+              memory: 128Mi
+            limits:
+              cpu: 1000m
+              memory: 256Mi
+          volumeMounts:
+            - name: vn-appvn-od
+              mountPath: /app/.od
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -lc
+                - node -e "fetch('http://127.0.0.1:7456/api/health',{headers:{authorization:'Bearer '+process.env.OD_API_TOKEN}}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -lc
+                - node -e "fetch('http://127.0.0.1:7456/api/health',{headers:{authorization:'Bearer '+process.env.OD_API_TOKEN}}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /app/.od
+          value: '1'
+        name: vn-appvn-od
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - name: http
+      port: 7456
+      targetPort: 7456
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-proxy
+  annotations:
+    originImageName: nginxinc/nginx-unprivileged:1.25-alpine-slim
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}-proxy
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-proxy
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-proxy
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-proxy
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      imagePullSecrets:
+        - name: ${{ defaults.app_name }}
+      containers:
+        - name: ${{ defaults.app_name }}-proxy
+          image: nginxinc/nginx-unprivileged:1.25-alpine-slim
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+          resources:
+            requests:
+              cpu: 20m
+              memory: 25Mi
+            limits:
+              cpu: 200m
+              memory: 64Mi
+          volumeMounts:
+            - name: vn-etcvn-nginxvn-confvn-dvn-defaultvn-conf
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: ./etc/nginx/conf.d/default.conf
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+      volumes:
+        - name: vn-etcvn-nginxvn-confvn-dvn-defaultvn-conf
+          configMap:
+            name: ${{ defaults.app_name }}-proxy
+            items:
+              - key: vn-etcvn-nginxvn-confvn-dvn-defaultvn-conf
+                path: ./etc/nginx/conf.d/default.conf
+            defaultMode: 420
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-proxy
+  labels:
+    app: ${{ defaults.app_name }}-proxy
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-proxy
+spec:
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+  selector:
+    app: ${{ defaults.app_name }}-proxy
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-proxy
+  labels:
+    app: ${{ defaults.app_name }}-proxy
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-proxy
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-proxy
+                port:
+                  number: 8080
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/opendesign/logo.png
+  name: OpenDesign
+  type: link
