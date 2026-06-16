@@ -1,0 +1,324 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: filecodebox
+spec:
+  title: FileCodeBox
+  url: https://fcb-docs.aiuo.net/en/
+  gitRepo: https://github.com/vastsa/FileCodeBox
+  author: Sealos
+  description: Lightweight anonymous text and file sharing service with access codes, admin management, and optional S3-compatible storage.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/filecodebox/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/filecodebox/logo.png
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/filecodebox/website-screenshot.webp
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: 轻量级匿名文本和文件分享服务，支持提取码、管理后台和可选 S3 兼容存储。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/filecodebox/README_zh.md
+  categories:
+    - storage
+    - tool
+  defaults:
+    app_name:
+      type: string
+      value: filecodebox-${{ random(8) }}
+    app_host:
+      type: string
+      value: filecodebox-${{ random(8) }}
+  inputs:
+    admin_password:
+      description: Initial FileCodeBox administrator password for the /admin panel.
+      type: string
+      default: ''
+      required: true
+    enable_s3_storage:
+      description: Use Sealos Object Storage as FileCodeBox's S3-compatible file backend.
+      type: boolean
+      default: 'false'
+      required: false
+---
+${{ if(inputs.enable_s3_storage === 'true') }}
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  policy: private
+---
+${{ endif() }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-optvn-filecodeboxvn-initvn-settingsvn-py: |
+    import json
+    import os
+    import sqlite3
+
+    db_path = "/app/data/filecodebox.db"
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS keyvalue (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          key VARCHAR(255) NOT NULL UNIQUE,
+          value JSON,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_keyvalue_key_eab890 ON keyvalue (key)")
+    existing = conn.execute("SELECT value FROM keyvalue WHERE key = ?", ("settings",)).fetchone()
+
+    if existing is None:
+        config = {
+            "admin_token": os.environ["FILECODEBOX_ADMIN_PASSWORD"],
+            "file_storage": "local",
+            "storage_path": "",
+        }
+
+        if os.environ.get("FILECODEBOX_USE_S3_STORAGE") == "true":
+            config.update(
+                {
+                    "file_storage": "s3",
+                    "s3_access_key_id": os.environ["FILECODEBOX_S3_ACCESS_KEY_ID"],
+                    "s3_secret_access_key": os.environ["FILECODEBOX_S3_SECRET_ACCESS_KEY"],
+                    "s3_bucket_name": os.environ["FILECODEBOX_S3_BUCKET_NAME"],
+                    "s3_endpoint_url": os.environ["FILECODEBOX_S3_ENDPOINT_URL"],
+                    "s3_region_name": "us-east-1",
+                    "s3_signature_version": "s3v4",
+                    "s3_addressing_style": "path",
+                    "s3_proxy": 1,
+                }
+            )
+
+        conn.execute(
+            "INSERT INTO keyvalue (key, value) VALUES (?, ?)",
+            ("settings", json.dumps(config, ensure_ascii=False)),
+        )
+        conn.commit()
+
+    conn.close()
+  vn-optvn-filecodeboxvn-startvn-sh: |
+    #!/bin/sh
+    set -eu
+
+    python /opt/filecodebox/init-settings.py
+    exec uvicorn main:app --host "${HOST}" --port "${PORT}" --workers "${WORKERS}" --log-level "${LOG_LEVEL}" --proxy-headers --forwarded-allow-ips '*'
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: lanol/filecodebox@sha256:e3609361ae7dfb7b72fef94d97e58ea268b960c3dc70719b7221277612946ad2
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: lanol/filecodebox@sha256:e3609361ae7dfb7b72fef94d97e58ea268b960c3dc70719b7221277612946ad2
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - /opt/filecodebox/start.sh
+          env:
+            - name: HOST
+              value: 0.0.0.0
+            - name: PORT
+              value: '12345'
+            - name: WORKERS
+              value: '1'
+            - name: LOG_LEVEL
+              value: info
+            - name: FILECODEBOX_ADMIN_PASSWORD
+              value: ${{ inputs.admin_password }}
+            ${{ if(inputs.enable_s3_storage === 'true') }}
+            - name: FILECODEBOX_USE_S3_STORAGE
+              value: 'true'
+            - name: FILECODEBOX_S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: accessKey
+            - name: FILECODEBOX_S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: secretKey
+            - name: FILECODEBOX_S3_BUCKET_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: external
+            - name: FILECODEBOX_S3_ENDPOINT_URL
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+            ${{ endif() }}
+          ports:
+            - name: http
+              containerPort: 12345
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+              scheme: HTTP
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 36
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+              scheme: HTTP
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+              scheme: HTTP
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          volumeMounts:
+            - name: vn-appvn-data
+              mountPath: /app/data
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /opt/filecodebox/start.sh
+              subPath: vn-optvn-filecodeboxvn-startvn-sh
+              readOnly: true
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /opt/filecodebox/init-settings.py
+              subPath: vn-optvn-filecodeboxvn-initvn-settingsvn-py
+              readOnly: true
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+      volumes:
+        - name: ${{ defaults.app_name }}-cm
+          configMap:
+            name: ${{ defaults.app_name }}
+            defaultMode: 493
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-appvn-data
+        annotations:
+          path: /app/data
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  selector:
+    app: ${{ defaults.app_name }}
+  ports:
+    - name: http
+      port: 12345
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 12345
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/filecodebox/logo.png
+  name: FileCodeBox
+  type: link

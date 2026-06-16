@@ -1,0 +1,1326 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: llmgateway
+spec:
+  title: LLM Gateway
+  url: https://llmgateway.io
+  gitRepo: https://github.com/theopenco/llmgateway
+  author: Sealos
+  description: Open-source LLM API gateway for routing, managing, and analyzing requests across multiple AI providers.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/llmgateway/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/llmgateway/logo.svg
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/llmgateway/website-screenshot.webp
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: LLM Gateway 是开源 LLM API 网关，用于统一路由、管理和分析多个 AI 服务商的请求。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/llmgateway/README_zh.md
+  categories:
+    - ai
+    - backend
+  defaults:
+    app_name:
+      type: string
+      value: llmgateway-${{ random(8) }}
+    app_host:
+      type: string
+      value: llmgateway-${{ random(8) }}
+    api_host:
+      type: string
+      value: llmgateway-api-${{ random(8) }}
+    gateway_host:
+      type: string
+      value: llmgateway-gateway-${{ random(8) }}
+    docs_host:
+      type: string
+      value: llmgateway-docs-${{ random(8) }}
+    auth_secret:
+      type: string
+      value: ${{ random(64) }}
+    gateway_api_key_hash_secret:
+      type: string
+      value: ${{ random(64) }}
+  inputs:
+    openai_api_key:
+      description: Optional OpenAI API key for gateway routing
+      type: string
+      default: ''
+      required: false
+    anthropic_api_key:
+      description: Optional Anthropic API key for gateway routing
+      type: string
+      default: ''
+      required: false
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  terminationPolicy: Delete
+  componentSpecs:
+    - name: postgresql
+      componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
+      replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+spec:
+  completions: 1
+  template:
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: pg-init
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_DATABASE
+              value: llmgateway
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              set -eu
+              export PGPASSWORD="$PG_PASSWORD"
+              for i in $(seq 1 150); do
+                if pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 2
+              done
+              pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1
+              if ! psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='llmgateway'" | grep -q 1; then
+                psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE "llmgateway";'
+              fi
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+      restartPolicy: OnFailure
+  backoffLimit: 5
+  ttlSecondsAfterFinished: 300
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-redis
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-redis
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    kb.io/database: redis-7.2.7
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/version: 7.2.7
+    clusterversion.kubeblocks.io/name: redis-7.2.7
+    clusterdefinition.kubeblocks.io/name: redis
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys:
+      - kubernetes.io/hostname
+  clusterDefinitionRef: redis
+  componentSpecs:
+    - name: redis
+      componentDef: redis-7
+      enabledLogs:
+        - running
+      env:
+        - name: CUSTOM_SENTINEL_MASTER_NAME
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      serviceVersion: 7.2.7
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+    - name: redis-sentinel
+      componentDef: redis-sentinel-7
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      serviceVersion: 7.2.7
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+  topology: replication
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-config
+  labels:
+    app: ${{ defaults.app_name }}-config
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-config
+data:
+  NODE_ENV: production
+  PORT: '80'
+  APP_URL: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  UI_URL: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  API_URL: https://${{ defaults.api_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  API_BACKEND_URL: http://${{ defaults.app_name }}-api.${{ SEALOS_NAMESPACE }}.svc.cluster.local:80
+  GATEWAY_URL: https://${{ defaults.gateway_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  DOCS_URL: https://${{ defaults.docs_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  PLAYGROUND_URL: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  COOKIE_DOMAIN: ${{ SEALOS_CLOUD_DOMAIN }}
+  ORIGIN_URLS: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }},https://${{ defaults.api_host }}.${{ SEALOS_CLOUD_DOMAIN }},https://${{ defaults.gateway_host }}.${{ SEALOS_CLOUD_DOMAIN }},https://${{ defaults.docs_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  PASSKEY_RP_ID: ${{ SEALOS_CLOUD_DOMAIN }}
+  PASSKEY_RP_NAME: LLMGateway
+  HOSTED: 'false'
+  DATABASE_POOL_MAX: '20'
+  DATABASE_POOL_MIN: '2'
+  DATABASE_IDLE_TIMEOUT_MS: '30000'
+  DATABASE_CONNECTION_TIMEOUT_MS: '10000'
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-api
+  annotations:
+    originImageName: ghcr.io/theopenco/llmgateway-api:v1.3.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}-api
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-api
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-api
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-api
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-api
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: wait-for-postgres
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_DATABASE
+              value: llmgateway
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export PGPASSWORD="$PG_PASSWORD"
+              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DATABASE" >/dev/null 2>&1; do
+                sleep 2
+              done
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+        - name: wait-for-redis
+          image: public.ecr.aws/docker/library/redis:7.2.7-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" ping 2>&1 | grep -Eq 'PONG|NOAUTH|Authentication required'; do
+                sleep 2
+              done
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+      containers:
+        - name: ${{ defaults.app_name }}-api
+          image: ghcr.io/theopenco/llmgateway-api:v1.3.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: ${{ defaults.app_name }}-config
+          env:
+            - name: AUTH_SECRET
+              value: ${{ defaults.auth_secret }}
+            - name: GATEWAY_API_KEY_HASH_SECRET
+              value: ${{ defaults.gateway_api_key_hash_secret }}
+            - name: RUN_MIGRATIONS
+              value: 'true'
+            - name: KEEP_ALIVE_TIMEOUT_S
+              value: '60'
+            - name: TIMEOUT_MS
+              value: '5000'
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgres://$(PG_USER):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/llmgateway
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          startupProbe:
+            httpGet:
+              path: /login
+              port: http
+            failureThreshold: 60
+            periodSeconds: 5
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /login
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /login
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-api
+  labels:
+    app: ${{ defaults.app_name }}-api
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-api
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-api
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-api
+  labels:
+    app: ${{ defaults.app_name }}-api
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-api
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.api_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/app-root: /login
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.api_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-api
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.api_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-gateway
+  annotations:
+    originImageName: ghcr.io/theopenco/llmgateway-gateway:v1.3.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}-gateway
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-gateway
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-gateway
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-gateway
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-gateway
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: wait-for-postgres
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_DATABASE
+              value: llmgateway
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export PGPASSWORD="$PG_PASSWORD"
+              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DATABASE" >/dev/null 2>&1; do
+                sleep 2
+              done
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+        - name: wait-for-migrations
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_DATABASE
+              value: llmgateway
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export PGPASSWORD="$PG_PASSWORD"
+              until psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DATABASE" -tAc "SELECT to_regclass('public.lock') IS NOT NULL AND to_regclass('public.log') IS NOT NULL AND to_regclass('public.provider') IS NOT NULL;" 2>/dev/null | grep -q t; do
+                sleep 2
+              done
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+        - name: wait-for-redis
+          image: public.ecr.aws/docker/library/redis:7.2.7-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" ping 2>&1 | grep -Eq 'PONG|NOAUTH|Authentication required'; do
+                sleep 2
+              done
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+      containers:
+        - name: ${{ defaults.app_name }}-gateway
+          image: ghcr.io/theopenco/llmgateway-gateway:v1.3.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: ${{ defaults.app_name }}-config
+          env:
+            - name: GATEWAY_API_KEY_HASH_SECRET
+              value: ${{ defaults.gateway_api_key_hash_secret }}
+            - name: GATEWAY_TIMEOUT_MS
+              value: '1500000'
+            - name: AI_STREAMING_TIMEOUT_MS
+              value: '1200000'
+            - name: AI_TIMEOUT_MS
+              value: '600000'
+            - name: KEEP_ALIVE_TIMEOUT_S
+              value: '620'
+            - name: SHUTDOWN_GRACE_PERIOD_MS
+              value: '1200000'
+            - name: HEALTH_CHECK_TIMEOUT_MS
+              value: '15000'
+            - name: MAX_STREAMING_BUFFER_MB
+              value: '50'
+            - name: LLM_OPENAI_API_KEY
+              value: ${{ inputs.openai_api_key }}
+            - name: LLM_ANTHROPIC_API_KEY
+              value: ${{ inputs.anthropic_api_key }}
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgres://$(PG_USER):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/llmgateway
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            failureThreshold: 60
+            periodSeconds: 5
+            timeoutSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 15
+      terminationGracePeriodSeconds: 120
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-gateway
+  labels:
+    app: ${{ defaults.app_name }}-gateway
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-gateway
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-gateway
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-gateway
+  labels:
+    app: ${{ defaults.app_name }}-gateway
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-gateway
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.gateway_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.gateway_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-gateway
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.gateway_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-worker
+  annotations:
+    originImageName: ghcr.io/theopenco/llmgateway-worker:v1.3.0
+    docker-to-sealos.resource-override-source: Live Sealos cold-start validation on 2026-06-05 showed LLM Gateway worker v1.3.0 running at about 68Mi memory after startup; 128Mi kept the worker Ready with the API, Gateway, PostgreSQL, and Redis stack.
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}-worker
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-worker
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-worker
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-worker
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-worker
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: wait-for-postgres
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_DATABASE
+              value: llmgateway
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export PGPASSWORD="$PG_PASSWORD"
+              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DATABASE" >/dev/null 2>&1; do
+                sleep 2
+              done
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+        - name: wait-for-migrations
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_DATABASE
+              value: llmgateway
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export PGPASSWORD="$PG_PASSWORD"
+              until psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DATABASE" -tAc "SELECT to_regclass('public.lock') IS NOT NULL AND to_regclass('public.log') IS NOT NULL AND to_regclass('public.provider') IS NOT NULL;" 2>/dev/null | grep -q t; do
+                sleep 2
+              done
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+        - name: wait-for-redis
+          image: public.ecr.aws/docker/library/redis:7.2.7-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" ping 2>&1 | grep -Eq 'PONG|NOAUTH|Authentication required'; do
+                sleep 2
+              done
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+      containers:
+        - name: ${{ defaults.app_name }}-worker
+          image: ghcr.io/theopenco/llmgateway-worker:v1.3.0
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: ${{ defaults.app_name }}-config
+          env:
+            - name: GATEWAY_API_KEY_HASH_SECRET
+              value: ${{ defaults.gateway_api_key_hash_secret }}
+            - name: BACKFILL_DURATION_SECONDS
+              value: '300'
+            - name: ENABLE_DATA_RETENTION_CLEANUP
+              value: 'false'
+            - name: EMAIL_FOLLOW_UPS
+              value: 'false'
+            - name: LOG_QUEUE_BATCH_SIZE
+              value: '100'
+            - name: CREDIT_BATCH_SIZE
+              value: '100'
+            - name: CREDIT_BATCH_INTERVAL
+              value: '5'
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgres://$(PG_USER):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/llmgateway
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
+          resources:
+            limits:
+              cpu: 200m
+              memory: 128Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/theopenco/llmgateway-ui:v1.3.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: ghcr.io/theopenco/llmgateway-ui:v1.3.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: ${{ defaults.app_name }}-config
+          env:
+            - name: AUTH_SECRET
+              value: ${{ defaults.auth_secret }}
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            failureThreshold: 60
+            periodSeconds: 5
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-docs
+  annotations:
+    originImageName: ghcr.io/theopenco/llmgateway-docs:v1.3.0
+    docker-to-sealos.resource-override-source: LLM Gateway official Helm values set docs resources to requests 50m/64Mi and limits 100m/128Mi; live Sealos validation showed the docs service Ready at about 114Mi memory.
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}-docs
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-docs
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-docs
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-docs
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-docs
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-docs
+          image: ghcr.io/theopenco/llmgateway-docs:v1.3.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: ${{ defaults.app_name }}-config
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          startupProbe:
+            tcpSocket:
+              port: http
+            failureThreshold: 60
+            periodSeconds: 5
+            timeoutSeconds: 5
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-docs
+  labels:
+    app: ${{ defaults.app_name }}-docs
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-docs
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-docs
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-docs
+  labels:
+    app: ${{ defaults.app_name }}-docs
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-docs
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.docs_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.docs_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-docs
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.docs_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/login
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/llmgateway/logo.svg
+  name: LLM Gateway
+  type: link

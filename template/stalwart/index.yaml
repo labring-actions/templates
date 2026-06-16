@@ -1,0 +1,534 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: stalwart
+spec:
+  title: Stalwart
+  url: https://stalw.art/
+  gitRepo: https://github.com/stalwartlabs/stalwart
+  author: Sealos
+  description: Open-source mail and collaboration server with SMTP, IMAP, JMAP, CalDAV, CardDAV, WebDAV, and a web administration console.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/stalwart/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/stalwart/logo.svg
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/stalwart/website-screenshot.webp
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: Stalwart 是开源邮件与协作服务器，提供 SMTP、IMAP、JMAP、CalDAV、CardDAV、WebDAV 和 Web 管理控制台。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/stalwart/README_zh.md
+  categories:
+    - backend
+    - tool
+  defaults:
+    app_name:
+      type: string
+      value: stalwart-${{ random(8) }}
+    app_host:
+      type: string
+      value: stalwart-${{ random(8) }}
+  inputs:
+    admin_password:
+      description: Bootstrap administrator password used with the admin username during first setup
+      type: string
+      default: ''
+      required: true
+    use_object_storage:
+      description: Provision a Sealos ObjectStorageBucket and inject S3-compatible credentials for later blob-store configuration
+      type: boolean
+      default: 'false'
+      required: false
+
+---
+${{ if(inputs.use_object_storage === 'true') }}
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  policy: private
+
+---
+${{ endif() }}
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  terminationPolicy: Delete
+  componentSpecs:
+    - name: postgresql
+      componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
+      replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+spec:
+  completions: 1
+  template:
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: pg-init
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_DATABASE
+              value: stalwart
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export PGHOST="$PG_HOST"
+              export PGPORT="$PG_PORT"
+              export PGUSER="$PG_USER"
+              export PGPASSWORD="$PG_PASSWORD"
+              until pg_isready -d postgres >/dev/null 2>&1; do
+                sleep 2
+              done
+              if ! psql -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$PG_DATABASE'" | grep -q 1; then
+                createdb "$PG_DATABASE"
+              fi
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+      restartPolicy: OnFailure
+  backoffLimit: 5
+  ttlSecondsAfterFinished: 300
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  config.json: |
+    {
+      "@type": "PostgreSql",
+      "host": "${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc.cluster.local",
+      "port": 5432,
+      "database": "stalwart",
+      "authUsername": "postgres",
+      "authSecret": {
+        "@type": "EnvironmentVariable",
+        "variableName": "STALWART_DB_PASSWORD"
+      }
+    }
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: stalwartlabs/stalwart:v0.16.7
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+    docker-to-sealos.official-kubernetes-source: https://stalw.art/docs/cluster/orchestration/kubernetes/
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: wait-for-postgres
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export PGHOST="$PG_HOST"
+              export PGPORT="$PG_PORT"
+              export PGUSER="$PG_USER"
+              export PGPASSWORD="$PG_PASSWORD"
+              until pg_isready -d stalwart >/dev/null 2>&1 && psql -d stalwart -tAc "SELECT 1" >/dev/null 2>&1; do
+                sleep 2
+              done
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: stalwartlabs/stalwart:v0.16.7
+          imagePullPolicy: IfNotPresent
+          args:
+            - --config
+            - /etc/stalwart/config.json
+          ports:
+            - name: smtp
+              containerPort: 25
+              protocol: TCP
+            - name: smtps
+              containerPort: 465
+              protocol: TCP
+            - name: submission
+              containerPort: 587
+              protocol: TCP
+            - name: imap
+              containerPort: 143
+              protocol: TCP
+            - name: imaps
+              containerPort: 993
+              protocol: TCP
+            - name: pop3
+              containerPort: 110
+              protocol: TCP
+            - name: pop3s
+              containerPort: 995
+              protocol: TCP
+            - name: sieve
+              containerPort: 4190
+              protocol: TCP
+            - name: http
+              containerPort: 80
+              protocol: TCP
+            - name: https
+              containerPort: 443
+              protocol: TCP
+            - name: mgmt
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: STALWART_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: STALWART_RECOVERY_ADMIN
+              value: admin:${{ inputs.admin_password }}
+            - name: STALWART_PUBLIC_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: STALWART_HOSTNAME
+              value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            ${{ if(inputs.use_object_storage === 'true') }}
+            - name: STALWART_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: STALWART_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: STALWART_S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: STALWART_S3_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            - name: STALWART_S3_ENDPOINT
+              value: https://$(STALWART_S3_EXTERNAL_ENDPOINT)
+            - name: STALWART_S3_REGION
+              value: us-east-1
+            ${{ endif() }}
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          startupProbe:
+            httpGet:
+              path: /healthz/live
+              port: mgmt
+              scheme: HTTP
+            failureThreshold: 60
+            periodSeconds: 5
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz/live
+              port: mgmt
+              scheme: HTTP
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /healthz/ready
+              port: mgmt
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: vn-etcvn-stalwartvn-config-json
+              mountPath: /etc/stalwart/config.json
+              subPath: config.json
+              readOnly: true
+      volumes:
+        - name: vn-etcvn-stalwartvn-config-json
+          configMap:
+            name: ${{ defaults.app_name }}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: smtp
+      port: 25
+      targetPort: smtp
+      protocol: TCP
+    - name: smtps
+      port: 465
+      targetPort: smtps
+      protocol: TCP
+    - name: submission
+      port: 587
+      targetPort: submission
+      protocol: TCP
+    - name: imap
+      port: 143
+      targetPort: imap
+      protocol: TCP
+    - name: imaps
+      port: 993
+      targetPort: imaps
+      protocol: TCP
+    - name: pop3
+      port: 110
+      targetPort: pop3
+      protocol: TCP
+    - name: pop3s
+      port: 995
+      targetPort: pop3s
+      protocol: TCP
+    - name: sieve
+      port: 4190
+      targetPort: sieve
+      protocol: TCP
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+    - name: https
+      port: 443
+      targetPort: https
+      protocol: TCP
+    - name: mgmt
+      port: 8080
+      targetPort: mgmt
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 8080
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/admin
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/stalwart/logo.svg
+  name: Stalwart
+  type: link

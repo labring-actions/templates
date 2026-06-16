@@ -1,0 +1,1160 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: bunkerweb
+spec:
+  title: BunkerWeb
+  url: https://www.bunkerweb.io/
+  gitRepo: https://github.com/bunkerity/bunkerweb
+  author: Sealos
+  description: BunkerWeb is an open-source Web Application Firewall and reverse proxy that protects web services with secure-by-default NGINX-based traffic handling.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/bunkerweb/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/bunkerweb/logo.svg
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/bunkerweb/website-screenshot.webp
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: BunkerWeb 是一款开源 Web 应用防火墙和反向代理，基于 NGINX 为 Web 服务提供默认安全的流量防护。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/bunkerweb/README_zh.md
+  categories:
+    - dev-ops
+    - tool
+  defaults:
+    app_host:
+      type: string
+      value: bunkerweb-${{ random(8) }}
+    ui_host:
+      type: string
+      value: bunkerweb-ui-${{ random(8) }}
+    app_name:
+      type: string
+      value: bunkerweb-${{ random(8) }}
+    flask_secret:
+      type: string
+      value: ${{ random(48) }}
+  inputs:
+    admin_username:
+      description: BunkerWeb Web UI administrator username.
+      type: string
+      default: admin
+      required: true
+    admin_password:
+      description: BunkerWeb Web UI administrator password. Leave the generated default or use at least 8 characters with uppercase, lowercase, number, and special character.
+      type: string
+      default: "BunkerWeb@${{ random(16) }}!1"
+      required: true
+    enable_s3_backup:
+      description: Provision Sealos Object Storage and inject S3 backup settings for BunkerWeb PRO backup_s3 usage.
+      type: boolean
+      default: 'false'
+      required: false
+---
+${{ if(inputs.enable_s3_backup === 'true') }}
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  policy: private
+---
+${{ endif() }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  terminationPolicy: Delete
+  componentSpecs:
+    - name: postgresql
+      componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
+      replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  backoffLimit: 10
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: pg-init
+          image: docker.io/library/postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_DATABASE
+              value: bunkerweb
+            - name: PGPASSWORD
+              value: $(PG_PASSWORD)
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              for i in $(seq 1 120); do
+                if pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d postgres >/dev/null 2>&1; then
+                  break
+                fi
+                if [ "$i" -eq 120 ]; then
+                  echo "PostgreSQL is not ready" >&2
+                  exit 1
+                fi
+                sleep 2
+              done
+              if ! psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='bunkerweb'" | grep -q 1; then
+                psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE "bunkerweb";'
+              fi
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+      restartPolicy: OnFailure
+  ttlSecondsAfterFinished: 300
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-redis
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-redis
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    kb.io/database: redis-7.2.7
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/version: 7.2.7
+    clusterversion.kubeblocks.io/name: redis-7.2.7
+    clusterdefinition.kubeblocks.io/name: redis
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys:
+      - kubernetes.io/hostname
+  clusterDefinitionRef: redis
+  componentSpecs:
+    - componentDef: redis-7
+      name: redis
+      replicas: 1
+      enabledLogs:
+        - running
+      env:
+        - name: CUSTOM_SENTINEL_MASTER_NAME
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      serviceVersion: 7.2.7
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+    - componentDef: redis-sentinel-7
+      name: redis-sentinel
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      serviceVersion: 7.2.7
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+  topology: replication
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-protected
+  annotations:
+    originImageName: docker.io/traefik/whoami:v1.11.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}-protected
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-protected
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-protected
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-protected
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-protected
+          image: docker.io/traefik/whoami:v1.11.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            failureThreshold: 6
+            periodSeconds: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            failureThreshold: 6
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-protected
+  labels:
+    app: ${{ defaults.app_name }}-protected
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-protected
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-protected
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-bunkerweb
+  annotations:
+    originImageName: docker.io/bunkerity/bunkerweb:1.6.11
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+    docker-to-sealos.resource-override-source: 'BunkerWeb Helm chart values.yaml recommends bunkerweb requests cpu=2000m memory=4096Mi and limits cpu=4000m memory=8192Mi for production; Sealos template starts lower and is tuned by live cold-start evidence.'
+  labels:
+    app: ${{ defaults.app_name }}-bunkerweb
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-bunkerweb
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-bunkerweb
+  template:
+    metadata:
+      annotations:
+        bunkerweb.io/INSTANCE: 'yes'
+      labels:
+        app: ${{ defaults.app_name }}-bunkerweb
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: wait-for-postgres
+          image: docker.io/library/postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_DATABASE
+              value: bunkerweb
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d "$PG_DATABASE" >/dev/null 2>&1; do
+                sleep 2
+              done
+              sleep 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+        - name: wait-for-redis
+          image: docker.io/library/busybox:1.36.1
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until nc -z ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local 6379; do
+                sleep 2
+              done
+              sleep 15
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+      containers:
+        - name: ${{ defaults.app_name }}-bunkerweb
+          image: docker.io/bunkerity/bunkerweb:1.6.11
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 101
+            runAsGroup: 101
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: KUBERNETES_MODE
+              value: 'yes'
+            - name: DNS_RESOLVERS
+              value: kube-dns.kube-system.svc.cluster.local
+            - name: API_WHITELIST_IP
+              value: 127.0.0.0/8 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+            - name: USE_REDIS
+              value: 'yes'
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
+            - name: REDIS_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: username
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
+          ports:
+            - name: bwapi
+              containerPort: 5000
+              protocol: TCP
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          startupProbe:
+            exec:
+              command:
+                - /usr/share/bunkerweb/helpers/healthcheck.sh
+            failureThreshold: 60
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            exec:
+              command:
+                - /usr/share/bunkerweb/helpers/healthcheck.sh
+            initialDelaySeconds: 30
+            failureThreshold: 6
+            periodSeconds: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            exec:
+              command:
+                - /usr/share/bunkerweb/helpers/healthcheck.sh
+                - ok
+            initialDelaySeconds: 30
+            failureThreshold: 6
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            limits:
+              cpu: 500m
+              memory: 768Mi
+            requests:
+              cpu: 50m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-bunkerweb
+  labels:
+    app: ${{ defaults.app_name }}-bunkerweb
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-bunkerweb
+spec:
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+    - name: bwapi
+      port: 5000
+      targetPort: bwapi
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-bunkerweb
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-scheduler
+  annotations:
+    originImageName: docker.io/bunkerity/bunkerweb-scheduler:1.6.11
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+    docker-to-sealos.resource-override-source: 'BunkerWeb Helm chart values.yaml recommends scheduler requests cpu=250m memory=256Mi and limits cpu=500m memory=512Mi for production; Sealos template starts lower and is tuned by live cold-start evidence.'
+  labels:
+    app: ${{ defaults.app_name }}-scheduler
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-scheduler
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}-scheduler
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-scheduler
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-scheduler
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: wait-for-redis
+          image: docker.io/library/busybox:1.36.1
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until nc -z ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local 6379; do
+                sleep 2
+              done
+              sleep 15
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+        - name: wait-for-bunkerweb-api
+          image: docker.io/library/busybox:1.36.1
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until nc -z ${{ defaults.app_name }}-bunkerweb.${{ SEALOS_NAMESPACE }}.svc.cluster.local 5000; do
+                sleep 2
+              done
+              sleep 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+      containers:
+        - name: ${{ defaults.app_name }}-scheduler
+          image: docker.io/bunkerity/bunkerweb-scheduler:1.6.11
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 101
+            runAsGroup: 101
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_DATABASE
+              value: bunkerweb
+            - name: DATABASE_URI
+              value: postgresql://$(PG_USERNAME):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/bunkerweb
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
+            - name: REDIS_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: username
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
+            - name: KUBERNETES_MODE
+              value: 'yes'
+            - name: SERVER_NAME
+              value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: MULTISITE
+              value: 'yes'
+            - name: BUNKERWEB_INSTANCES
+              value: http://${{ defaults.app_name }}-bunkerweb.${{ SEALOS_NAMESPACE }}.svc.cluster.local:5000
+            - name: DNS_RESOLVERS
+              value: kube-dns.kube-system.svc.cluster.local
+            - name: API_WHITELIST_IP
+              value: 127.0.0.0/8 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+            - name: SERVE_FILES
+              value: 'no'
+            - name: DISABLE_DEFAULT_SERVER
+              value: 'yes'
+            - name: USE_CLIENT_CACHE
+              value: 'yes'
+            - name: USE_GZIP
+              value: 'yes'
+            - name: USE_REDIS
+              value: 'yes'
+            - name: USE_REVERSE_PROXY
+              value: 'yes'
+            - name: REVERSE_PROXY_URL
+              value: /
+            - name: REVERSE_PROXY_HOST
+              value: http://${{ defaults.app_name }}-protected.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            ${{ if(inputs.enable_s3_backup === 'true') }}
+            - name: USE_BACKUP_S3
+              value: 'yes'
+            - name: BACKUP_S3_SCHEDULE
+              value: daily
+            - name: BACKUP_S3_ROTATION
+              value: '7'
+            - name: BACKUP_S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: BACKUP_S3_ENDPOINT
+              value: https://$(BACKUP_S3_EXTERNAL_ENDPOINT)
+            - name: BACKUP_S3_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            - name: BACKUP_S3_REGION
+              value: us-east-1
+            - name: BACKUP_S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: BACKUP_S3_ACCESS_KEY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            ${{ endif() }}
+          startupProbe:
+            exec:
+              command:
+                - /usr/share/bunkerweb/helpers/healthcheck-scheduler.sh
+            failureThreshold: 90
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            exec:
+              command:
+                - /usr/share/bunkerweb/helpers/healthcheck-scheduler.sh
+            initialDelaySeconds: 30
+            failureThreshold: 6
+            periodSeconds: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            exec:
+              command:
+                - /usr/share/bunkerweb/helpers/healthcheck-scheduler.sh
+            initialDelaySeconds: 30
+            failureThreshold: 6
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 50m
+              memory: 128Mi
+          volumeMounts:
+            - name: vn-data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-data
+        annotations:
+          path: /data
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-scheduler
+  labels:
+    app: ${{ defaults.app_name }}-scheduler
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-scheduler
+spec:
+  ports:
+    - name: scheduler
+      port: 7000
+      targetPort: 7000
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-scheduler
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-ui
+  annotations:
+    originImageName: docker.io/bunkerity/bunkerweb-ui:1.6.11
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+    docker-to-sealos.resource-override-source: 'BunkerWeb Helm chart values.yaml leaves UI resources configurable; official Web UI docs describe Gunicorn UI plus database/API dependencies, and live cold-start evidence is used for Sealos tuning.'
+  labels:
+    app: ${{ defaults.app_name }}-ui
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-ui
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}-ui
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-ui
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-ui
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: wait-for-database
+          image: docker.io/library/postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_DATABASE
+              value: bunkerweb
+            - name: PGPASSWORD
+              value: $(PG_PASSWORD)
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              for i in $(seq 1 180); do
+                if psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d "$PG_DATABASE" -tAc "SELECT 1 FROM bw_metadata WHERE id = 1 AND is_initialized IS TRUE;" 2>/dev/null | grep -q 1 && \
+                   psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d "$PG_DATABASE" -tAc "SELECT to_regclass('public.bw_ui_roles') IS NOT NULL;" 2>/dev/null | grep -q t; then
+                  exit 0
+                fi
+                if [ "$i" -eq 180 ]; then
+                  echo "BunkerWeb database metadata is not ready" >&2
+                  exit 1
+                fi
+                sleep 2
+              done
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+      containers:
+        - name: ${{ defaults.app_name }}-ui
+          image: docker.io/bunkerity/bunkerweb-ui:1.6.11
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 101
+            runAsGroup: 101
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_DATABASE
+              value: bunkerweb
+            - name: DATABASE_URI
+              value: postgresql://$(PG_USERNAME):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/bunkerweb
+            - name: ADMIN_USERNAME
+              value: ${{ inputs.admin_username }}
+            - name: ADMIN_PASSWORD
+              value: ${{ inputs.admin_password }}
+            - name: FLASK_SECRET
+              value: ${{ defaults.flask_secret }}
+            - name: OVERRIDE_ADMIN_CREDS
+              value: 'no'
+            - name: ENABLE_HEALTHCHECK
+              value: 'yes'
+            - name: FORWARDED_ALLOW_IPS
+              value: 127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+            - name: CHECK_PRIVATE_IP
+              value: 'no'
+          ports:
+            - name: http
+              containerPort: 7000
+              protocol: TCP
+          startupProbe:
+            exec:
+              command:
+                - /usr/share/bunkerweb/helpers/healthcheck-ui.sh
+            failureThreshold: 90
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            exec:
+              command:
+                - /usr/share/bunkerweb/helpers/healthcheck-ui.sh
+            initialDelaySeconds: 30
+            failureThreshold: 6
+            periodSeconds: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            exec:
+              command:
+                - /usr/share/bunkerweb/helpers/healthcheck-ui.sh
+            initialDelaySeconds: 30
+            failureThreshold: 6
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 50m
+              memory: 128Mi
+          volumeMounts:
+            - name: vn-varvn-libvn-bunkerweb
+              mountPath: /var/lib/bunkerweb
+            - name: vn-varvn-logvn-bunkerweb
+              mountPath: /var/log/bunkerweb
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-varvn-libvn-bunkerweb
+        annotations:
+          path: /var/lib/bunkerweb
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+    - metadata:
+        name: vn-varvn-logvn-bunkerweb
+        annotations:
+          path: /var/log/bunkerweb
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-ui
+  labels:
+    app: ${{ defaults.app_name }}-ui
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-ui
+spec:
+  ports:
+    - name: http
+      port: 7000
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-ui
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-bunkerweb
+  labels:
+    app: ${{ defaults.app_name }}-bunkerweb
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-bunkerweb
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-bunkerweb
+                port:
+                  number: 8080
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-ui
+  labels:
+    app: ${{ defaults.app_name }}-ui
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-ui
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.ui_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.ui_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-ui
+                port:
+                  number: 7000
+  tls:
+    - hosts:
+        - ${{ defaults.ui_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.ui_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/bunkerweb/logo.svg
+  name: BunkerWeb
+  type: link
