@@ -29,12 +29,20 @@ spec:
     app_host:
       type: string
       value: erpnext-${{ random(8) }}
-    admin_password:
-      type: string
-      value: ${{ random(24) }}
     mariadb_root_password:
       type: string
       value: ${{ random(32) }}
+  inputs:
+    admin_username:
+      description: Initial ERPNext administrator login username. Use letters, numbers, dots, underscores, or hyphens.
+      type: string
+      default: admin
+      required: true
+    admin_password:
+      description: Initial ERPNext administrator password.
+      type: string
+      default: ''
+      required: true
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -542,13 +550,28 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
+            - name: ADMIN_USERNAME
+              value: ${{ inputs.admin_username }}
             - name: ADMIN_PASSWORD
-              value: ${{ defaults.admin_password }}
+              value: ${{ inputs.admin_password }}
           command:
             - bash
             - -lc
             - |
               set -e
+              python3 - <<'PY'
+              import os
+              import re
+
+              username = os.environ["ADMIN_USERNAME"].strip()
+              password = os.environ["ADMIN_PASSWORD"]
+              if not re.fullmatch(r"[A-Za-z0-9_.-]{3,64}", username):
+                  raise SystemExit("ADMIN_USERNAME must be 3-64 characters and contain only letters, numbers, dots, underscores, or hyphens.")
+              if username.lower() in {"administrator", "guest"}:
+                  raise SystemExit("ADMIN_USERNAME must use an application administrator login name such as admin or owner.")
+              if not password:
+                  raise SystemExit("ADMIN_PASSWORD is required.")
+              PY
               wait-for-it -t 180 "$FRAPPE_SQL_SERVICE:$FRAPPE_SQL_LISTENER"
               wait-for-it -t 180 "$REDIS_CACHE"
               wait-for-it -t 180 "$REDIS_QUEUE"
@@ -569,8 +592,46 @@ spec:
                 rm -rf sites/frontend
                 bench new-site --mariadb-user-host-login-scope='%' --admin-password="$ADMIN_PASSWORD" --db-root-username=root --db-root-password="$FRAPPE_SQL_ROOT_SECRET" --install-app erpnext --set-default frontend
                 bench --site frontend migrate
-                printf 'ready\n' > sites/frontend/.site-ready
               fi
+              bench --site frontend set-admin-password "$ADMIN_PASSWORD"
+              python3 - <<'PY'
+              import os
+              import re
+              import subprocess
+
+              username = os.environ["ADMIN_USERNAME"].strip()
+              if not re.fullmatch(r"[A-Za-z0-9_.-]{3,64}", username):
+                  raise SystemExit("ADMIN_USERNAME must be 3-64 characters and contain only letters, numbers, dots, underscores, or hyphens.")
+              if username.lower() in {"administrator", "guest"}:
+                  raise SystemExit("ADMIN_USERNAME must use an application administrator login name such as admin or owner.")
+
+              subprocess.run(
+                  [
+                      "bench",
+                      "--site",
+                      "frontend",
+                      "execute",
+                      "frappe.db.set_value",
+                      "--args",
+                      repr(("User", "Administrator", "username", username)),
+                  ],
+                  check=True,
+              )
+              subprocess.run(
+                  [
+                      "bench",
+                      "--site",
+                      "frontend",
+                      "execute",
+                      "frappe.db.set_single_value",
+                      "--args",
+                      repr(("System Settings", "allow_login_using_user_name", "1")),
+                  ],
+                  check=True,
+              )
+              subprocess.run(["bench", "--site", "frontend", "clear-cache"], check=True)
+              PY
+              printf 'ready\n' > sites/frontend/.site-ready
           volumeMounts:
             - name: sites
               mountPath: /home/frappe/frappe-bench/sites

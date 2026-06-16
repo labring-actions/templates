@@ -44,7 +44,7 @@ ERPNext 基于 Frappe 框架运行，采用多服务运行时。Frontend Nginx �
 
 **配置：**
 
-模板会自动生成 ERPNext Administrator 密码 `admin_password`。默认 ERPNext 登录用户为 `Administrator`。
+部署表单会要求填写初始 ERPNext 管理员用户名和密码。模板会在创建站点时把配置的用户名写入内置 Administrator 账号，并启用用户名登录。
 
 **许可证信息：**
 
@@ -65,11 +65,11 @@ Sealos 是基于 Kubernetes 的 AI 云操作系统，统一覆盖从云端 IDE �
 ## 部署指南
 
 1. 打开 [ERPNext 模板](https://sealos.io/products/app-store/erpnext)，点击 **Deploy Now**。
-2. 在弹窗中配置参数。
+2. 在弹窗中配置管理员用户名和密码。
 3. 等待部署完成。部署完成后会跳转到 Canvas。
 4. 通过提供的 URL 访问应用：
-   - **ERPNext Desk**：使用 `Administrator` 和生成的 `admin_password` 登录。
-5. 首次使用 Administrator 登录后会进入 ERPNext 初始化向导。完成账号、组织、币种和科目表步骤后即可使用 Desk。
+   - **ERPNext Desk**：使用部署时配置的管理员用户名和密码登录。
+5. 首次使用管理员账号登录后会进入 ERPNext 初始化向导。完成账号、组织、币种和科目表步骤后即可使用 Desk。
 
 ## 配置
 

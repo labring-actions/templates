@@ -44,7 +44,7 @@ The Sealos template includes ERPNext frontend, backend, websocket, queue workers
 
 **Configuration:**
 
-The template generates the ERPNext Administrator password automatically as `admin_password`. The default ERPNext login user is `Administrator`.
+The deployment form asks for the initial ERPNext administrator username and password. The template stores the configured username on the built-in Administrator account and enables username-based login during site creation.
 
 **License Information:**
 
@@ -65,11 +65,11 @@ Deploy ERPNext on Sealos and focus on business operations instead of infrastruct
 ## Deployment Guide
 
 1. Open the [ERPNext template](https://sealos.io/products/app-store/erpnext) and click **Deploy Now**.
-2. Configure the parameters in the popup dialog.
+2. Configure the administrator username and password in the popup dialog.
 3. Wait for deployment to complete. After deployment, you will be redirected to the Canvas.
 4. Access your application via the provided URL:
-   - **ERPNext Desk**: Log in as `Administrator` with the generated `admin_password`.
-5. The first Administrator login opens the ERPNext setup wizard. Complete the account, organization, currency, and chart-of-accounts steps before using Desk.
+   - **ERPNext Desk**: Log in with the administrator username and password you configured during deployment.
+5. The first administrator login opens the ERPNext setup wizard. Complete the account, organization, currency, and chart-of-accounts steps before using Desk.
 
 ## Configuration
 
