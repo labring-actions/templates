@@ -25,6 +25,7 @@ Sealos 会负责公网 HTTPS 访问、服务发现、资源配置和应用入口
 
 - cobalt 镜像 `ghcr.io/imputnet/cobalt:7.13.3`
 - HTTPS Ingress 和 Sealos App 入口
+- `/api/serverInfo` 健康检查和服务元数据端点
 
 ### 部署依赖
 
@@ -62,7 +63,7 @@ cobalt 没有登录或注册流程。默认情况下 API 直接开放。需要�
 
 **健康检查：**
 
-模板在 cobalt API 端口上使用 TCP 启动、就绪和存活探针。
+模板对 `/api/serverInfo` 使用 HTTP 启动、就绪和存活探针。
 
 **许可信息：**
 
@@ -88,7 +89,8 @@ Sealos 是基于 Kubernetes 构建的 AI 辅助云操作系统，统一应用部
 3. 等待部署完成，通常需要 1-2 分钟。部署完成后，你会进入 Canvas。后续如需修改配置，可以在对话框中描述需求，让 AI 自动应用变更；也可以点击对应资源卡片手动调整设置。
 4. 通过提供的 URL 访问 cobalt：
    - **API Base URL**：使用 Sealos 提供的公网 HTTPS 地址。
-   - **Server Info**：打开 `/` 查看 cobalt 元数据。
+   - **Server Info**：打开 `/api/serverInfo` 确认运行版本、公网地址和启动时间。
+   - **Processing Endpoint**：携带 `Accept: application/json` 和 `Content-Type: application/json` 请求 `/api/json`。
 
 ## 配置
 

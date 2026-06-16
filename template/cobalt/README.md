@@ -25,6 +25,7 @@ The Sealos template includes the required runtime dependencies:
 
 - cobalt image `ghcr.io/imputnet/cobalt:7.13.3`
 - HTTPS Ingress and Sealos App entry
+- `/api/serverInfo` health and service metadata endpoint
 
 ### Deployment Dependencies
 
@@ -62,7 +63,7 @@ cobalt has no login or registration flow. API access is open by default. Enable 
 
 **Health Checks:**
 
-The template uses TCP startup, readiness, and liveness probes on the cobalt API port.
+The template uses HTTP startup, readiness, and liveness probes against `/api/serverInfo`.
 
 **License Information:**
 
@@ -88,7 +89,8 @@ Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies
 3. Wait for deployment to complete. This typically takes 1-2 minutes. After deployment, you will be redirected to the Canvas. For later changes, describe your requirements in the dialog to let AI apply updates, or click the relevant resource cards to modify settings.
 4. Access cobalt through the provided URL:
    - **API Base URL**: Use the public HTTPS URL from Sealos.
-   - **Server Info**: Open `/` to see cobalt metadata.
+   - **Server Info**: Open `/api/serverInfo` to confirm the running version, public URL, and start time.
+   - **Processing Endpoint**: Send JSON requests to `/api/json` with `Accept: application/json` and `Content-Type: application/json`.
 
 ## Configuration
 
