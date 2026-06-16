@@ -8,7 +8,7 @@ Appwrite 是一个开源后端平台，提供认证、数据库、存储、函�
 
 Appwrite 提供自托管后端控制台和 API，适合需要用户认证、文档数据库、文件存储、函数能力和统一 API 的项目。
 
-这个 Sealos 模板会创建 Appwrite Web/API 服务、KubeBlocks MongoDB、轻量 Redis 服务、挂载到 `/storage` 的持久化存储，以及公开 HTTPS 地址。模板还提供可选的 Sealos S3 兼容对象存储桶，用于用户上传文件。
+这个 Sealos 模板会创建 Appwrite Web/API 服务、KubeBlocks 管理的 MongoDB 和 Redis 集群、挂载到 `/storage` 的持久化存储，以及公开 HTTPS 地址。模板还提供可选的 Sealos S3 兼容对象存储桶，用于用户上传文件。
 
 ## 常见使用场景
 
@@ -43,11 +43,12 @@ Appwrite 提供自托管后端控制台和 API，适合需要用户认证、文�
 |-----------|-------------|-----------|----------------|--------------|
 | Appwrite | 20m | 200m | 25Mi | 256Mi |
 | MongoDB | 50m | 500m | 51Mi | 512Mi |
-| Redis | 20m | 200m | 25Mi | 256Mi |
+| Redis | 50m | 500m | 51Mi | 512Mi |
+| Redis Sentinel | 50m | 500m | 51Mi | 512Mi |
 
 ### 配置说明
 
-Sealos 会自动生成公网域名、应用名、OpenSSL key 和 executor secret。MongoDB 凭据通过 KubeBlocks 管理的 Secret 注入，Redis 通过内部 Kubernetes Service 连接。模板会关闭 Appwrite router protection，使 Sealos Ingress 流量和 Kubernetes 内部健康检查都能访问服务。
+Sealos 会自动生成公网域名、应用名、OpenSSL key 和 executor secret。MongoDB 和 Redis 凭据通过 KubeBlocks 管理的 Secret 注入。模板会关闭 Appwrite router protection，使 Sealos Ingress 流量和 Kubernetes 内部健康检查都能访问服务。
 
 ### 许可证信息
 
@@ -58,7 +59,7 @@ Appwrite 使用 [BSD 3-Clause License](https://github.com/appwrite/appwrite/blob
 Sealos 是构建在 Kubernetes 之上的 AI 驱动云操作系统，可以简化完整部署生命周期。部署 Appwrite 后，你可以获得：
 
 - **一键部署**：从一个模板页面启动 Appwrite、MongoDB、Redis、存储和 HTTPS。
-- **托管运行依赖**：使用 KubeBlocks 管理 MongoDB，并由模板内置 Redis 服务。
+- **托管运行依赖**：使用 KubeBlocks 管理 MongoDB 和 Redis。
 - **数据持久化**：Appwrite 存储和数据库数据在重启后保留。
 - **公网 HTTPS 访问**：通过自动生成的安全 URL 打开 Appwrite Console。
 - **简单运维**：通过 Sealos Canvas 和资源卡调整资源。
@@ -67,7 +68,7 @@ Sealos 是构建在 Kubernetes 之上的 AI 驱动云操作系统，可以简化
 
 1. 打开 [Appwrite 模板页面](https://sealos.io/products/app-store/appwrite)，点击 **Deploy Now**。
 2. 在弹窗中配置参数。上传文件需要使用 Sealos S3 兼容存储时，开启对象存储选项。
-3. 等待部署完成。MongoDB 初始化后，Appwrite 会启动。
+3. 等待部署完成。MongoDB 和 Redis 初始化后，Appwrite 会启动。
 4. 打开生成的 Appwrite 地址，在注册页面创建第一个 root 账号。
 5. 登录 Appwrite Console，创建项目，再创建集合或存储桶。
 
@@ -82,7 +83,7 @@ Sealos 是构建在 Kubernetes 之上的 AI 驱动云操作系统，可以简化
 ## 故障排查
 
 **问题：Appwrite 需要几分钟才 Ready**
-- 原因：MongoDB 需要先初始化。
+- 原因：MongoDB 和 Redis 需要先初始化。
 - 处理方法：等待数据库 Pod 就绪，再查看 Appwrite StatefulSet 日志。
 
 **问题：上传文件需要对象存储**

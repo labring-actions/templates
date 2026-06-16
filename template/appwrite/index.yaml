@@ -137,88 +137,118 @@ spec:
   terminationPolicy: Delete
 
 ---
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: ${{ defaults.app_name }}-redis-redis
-  annotations:
-    originImageName: redis:7.2.7-alpine
-    deploy.cloud.sealos.io/minReplicas: '1'
-    deploy.cloud.sealos.io/maxReplicas: '1'
-  labels:
-    app: ${{ defaults.app_name }}-redis-redis
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-redis-redis
-spec:
-  replicas: 1
-  revisionHistoryLimit: 1
-  serviceName: ${{ defaults.app_name }}-redis-redis
-  selector:
-    matchLabels:
-      app: ${{ defaults.app_name }}-redis-redis
-  template:
-    metadata:
-      labels:
-        app: ${{ defaults.app_name }}-redis-redis
-    spec:
-      automountServiceAccountToken: false
-      securityContext:
-        seccompProfile:
-          type: RuntimeDefault
-      containers:
-        - name: ${{ defaults.app_name }}-redis-redis
-          image: redis:7.2.7-alpine
-          imagePullPolicy: IfNotPresent
-          securityContext:
-            allowPrivilegeEscalation: false
-            runAsGroup: 999
-            runAsUser: 999
-            capabilities:
-              drop:
-                - ALL
-          command:
-            - /usr/local/bin/redis-server
-          args:
-            - --appendonly
-            - 'no'
-          ports:
-            - name: redis
-              containerPort: 6379
-              protocol: TCP
-          resources:
-            limits:
-              cpu: 200m
-              memory: 256Mi
-            requests:
-              cpu: 20m
-              memory: 25Mi
-          readinessProbe:
-            tcpSocket:
-              port: redis
-            initialDelaySeconds: 10
-            periodSeconds: 10
-            timeoutSeconds: 5
-          livenessProbe:
-            tcpSocket:
-              port: redis
-            initialDelaySeconds: 30
-            periodSeconds: 20
-            timeoutSeconds: 5
----
 apiVersion: v1
-kind: Service
+kind: ServiceAccount
 metadata:
-  name: ${{ defaults.app_name }}-redis-redis
   labels:
-    app: ${{ defaults.app_name }}-redis-redis
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-redis-redis
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-redis
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-redis
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-redis
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    kb.io/database: redis-7.2.7
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/version: 7.2.7
+    clusterversion.kubeblocks.io/name: redis-7.2.7
+    clusterdefinition.kubeblocks.io/name: redis
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
 spec:
-  ports:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys:
+      - kubernetes.io/hostname
+  clusterDefinitionRef: redis
+  topology: replication
+  terminationPolicy: Delete
+  componentSpecs:
     - name: redis
-      port: 6379
-      targetPort: 6379
-      protocol: TCP
-  selector:
-    app: ${{ defaults.app_name }}-redis-redis
+      componentDef: redis-7
+      replicas: 1
+      enabledLogs:
+        - running
+      env:
+        - name: CUSTOM_SENTINEL_MASTER_NAME
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      serviceVersion: 7.2.7
+      switchPolicy:
+        type: Noop
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+    - name: redis-sentinel
+      componentDef: redis-sentinel-7
+      replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      serviceVersion: 7.2.7
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
 
 ---
 apiVersion: apps/v1
@@ -285,12 +315,22 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: REDIS_HOST
-              value: ${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: username
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
           command:
             - /bin/sh
             - -ec
             - |
-              until redis-cli -h "$REDIS_HOST" -p 6379 ping >/dev/null 2>&1; do
+              until REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli -h "$REDIS_HOST" -p 6379 --user "$REDIS_USER" ping >/dev/null 2>&1; do
                 sleep 2
               done
           resources:
@@ -368,13 +408,19 @@ spec:
                   name: ${{ defaults.app_name }}-mongo-mongodb-account-root
                   key: password
             - name: _APP_REDIS_HOST
-              value: ${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
             - name: _APP_REDIS_PORT
               value: '6379'
             - name: _APP_REDIS_USER
-              value: ''
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: username
             - name: _APP_REDIS_PASS
-              value: ''
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
             - name: _APP_EXECUTOR_SECRET
               value: ${{ defaults.executor_secret }}
             - name: _APP_STORAGE_LIMIT

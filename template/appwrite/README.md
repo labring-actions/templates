@@ -8,7 +8,7 @@ Appwrite is an open-source backend platform for building applications with authe
 
 Appwrite provides a self-hosted backend console and API for projects that need user authentication, document databases, file storage, serverless-style functions, and platform services behind a single API surface.
 
-This Sealos template provisions the core Appwrite web/API service, a KubeBlocks MongoDB database, a lightweight Redis service, persistent `/storage`, and a public HTTPS URL. The template also includes an optional Sealos S3-compatible object storage bucket for user uploads.
+This Sealos template provisions the core Appwrite web/API service, KubeBlocks-managed MongoDB and Redis clusters, persistent `/storage`, and a public HTTPS URL. The template also includes an optional Sealos S3-compatible object storage bucket for user uploads.
 
 ## Common Use Cases
 
@@ -43,11 +43,12 @@ The Sealos template includes Appwrite, MongoDB, Redis, persistent storage, optio
 |-----------|-------------|-----------|----------------|--------------|
 | Appwrite | 20m | 200m | 25Mi | 256Mi |
 | MongoDB | 50m | 500m | 51Mi | 512Mi |
-| Redis | 20m | 200m | 25Mi | 256Mi |
+| Redis | 50m | 500m | 51Mi | 512Mi |
+| Redis Sentinel | 50m | 500m | 51Mi | 512Mi |
 
 ### Configuration
 
-Sealos generates the public hostname, application name, OpenSSL key, and executor secret automatically. MongoDB credentials are injected from KubeBlocks-managed secrets, and the bundled Redis service is wired through an internal Kubernetes Service. Appwrite router protection is disabled so both Sealos ingress traffic and internal Kubernetes health checks can reach the service.
+Sealos generates the public hostname, application name, OpenSSL key, and executor secret automatically. MongoDB and Redis credentials are injected from KubeBlocks-managed secrets. Appwrite router protection is disabled so both Sealos ingress traffic and internal Kubernetes health checks can reach the service.
 
 ### License Information
 
@@ -58,7 +59,7 @@ Appwrite is licensed under the [BSD 3-Clause License](https://github.com/appwrit
 Sealos is an AI-assisted Cloud Operating System built on Kubernetes that simplifies the full deployment lifecycle. By deploying Appwrite on Sealos, you get:
 
 - **One-Click Deployment**: Launch Appwrite with MongoDB, Redis, storage, and HTTPS from one template page.
-- **Managed Runtime Dependencies**: Use KubeBlocks-managed MongoDB and an internal Redis service without wiring them by hand.
+- **Managed Runtime Dependencies**: Use KubeBlocks-managed MongoDB and Redis without wiring them by hand.
 - **Persistent Data**: Keep Appwrite storage and database data across restarts.
 - **Public HTTPS Access**: Open the Appwrite Console from an automatically generated secure URL.
 - **Simple Operations**: Use the Sealos Canvas and resource cards to adjust resources after deployment.
@@ -67,7 +68,7 @@ Sealos is an AI-assisted Cloud Operating System built on Kubernetes that simplif
 
 1. Open the [Appwrite template](https://sealos.io/products/app-store/appwrite) and click **Deploy Now**.
 2. Configure the parameters in the popup dialog. Enable object storage when uploaded files should use Sealos S3-compatible storage.
-3. Wait for deployment to complete, which typically takes several minutes because MongoDB must initialize before Appwrite starts.
+3. Wait for deployment to complete, which typically takes several minutes because MongoDB and Redis must initialize before Appwrite starts.
 4. Open the generated Appwrite URL and create the first root account from the sign-up screen.
 5. Sign in to the Appwrite Console, create a project, and create a collection or storage bucket.
 
@@ -82,7 +83,7 @@ This template is optimized for a single Appwrite web/API instance. Scale vertica
 ## Troubleshooting
 
 **Issue: Appwrite takes several minutes to become ready**
-- Cause: MongoDB needs to initialize before Appwrite can connect.
+- Cause: MongoDB and Redis need to initialize before Appwrite can connect.
 - Solution: Wait for the database pods to become ready, then check the Appwrite StatefulSet logs.
 
 **Issue: Uploads should use object storage**
