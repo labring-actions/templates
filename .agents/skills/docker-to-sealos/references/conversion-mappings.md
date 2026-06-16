@@ -433,9 +433,6 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: ${{ defaults.app_name }}
-  labels:
-    app: ${{ defaults.app_name }}
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 data:
   vn-etcvn-nginxvn-nginxvn-conf: |
     server {
@@ -453,14 +450,17 @@ spec:
       containers:
         - name: ${{ defaults.app_name }}
           volumeMounts:
-            - name: ${{ defaults.app_name }}-cm
+            - name: vn-etcvn-nginxvn-nginxvn-conf
               mountPath: /etc/nginx/nginx.conf
-              subPath: vn-etcvn-nginxvn-nginxvn-conf
+              subPath: ./etc/nginx/nginx.conf
       volumes:
-        - name: ${{ defaults.app_name }}-cm
+        - name: vn-etcvn-nginxvn-nginxvn-conf
           configMap:
             name: ${{ defaults.app_name }}
-            defaultMode: 493
+            items:
+              - key: vn-etcvn-nginxvn-nginxvn-conf
+                path: ./etc/nginx/nginx.conf
+            defaultMode: 420
 ```
 
 ## 数据库服务映射
@@ -769,22 +769,12 @@ services:
 
 ### Sealos Template
 ```yaml
-inputs:
-  enable_s3_storage:
-    description: "Enable S3 object storage"
-    type: boolean
-    default: "false"
-    required: false
-
----
-${{ if(inputs.enable_s3_storage === 'true') }}
 apiVersion: objectstorage.sealos.io/v1
 kind: ObjectStorageBucket
 metadata:
   name: ${{ defaults.app_name }}
 spec:
   policy: private
-${{ endif() }}
 
 ---
 # 应用中使用对象存储
@@ -797,12 +787,12 @@ spec:
             - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
-                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  name: object-storage-key
                   key: accessKey
             - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  name: object-storage-key
                   key: secretKey
             - name: S3_BUCKET
               valueFrom:

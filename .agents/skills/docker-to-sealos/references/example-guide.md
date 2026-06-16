@@ -1438,25 +1438,15 @@ spec:
 
 #### `对象存储`
 
-我们使用对象存储提供存储桶资源支持。只有启用或关闭对象存储两种状态时，使用 boolean 输入控制条件渲染：
+我们使用对象存储提供存储桶资源支持。您可以直接使用以下代码来部署存储桶：
 
 ```yaml
-inputs:
-  enable_s3_storage:
-    description: "Enable S3 object storage"
-    type: boolean
-    default: "false"
-    required: false
-
----
-${{ if(inputs.enable_s3_storage === 'true') }}
 apiVersion: objectstorage.sealos.io/v1
 kind: ObjectStorageBucket
 metadata:
   name: ${{ defaults.app_name }}
 spec:
   policy: private
-${{ endif() }}
 ```
 
 其中 policy 有三种类型，分别为 private（私有存储桶，不开放）、publicRead（共享存储桶，开放公共读功能）和 publicReadwrite（共享存储桶，开放公共读写功能）。

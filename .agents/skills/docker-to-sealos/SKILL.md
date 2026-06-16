@@ -144,10 +144,7 @@ If validation fails, fix template/rules/examples first.
 - Do not use `emptyDir`.
 - Use persistent storage patterns (`volumeClaimTemplates`) where storage is needed.
 - PVC request must be `<= 1Gi` unless source spec explicitly requires less.
-- ConfigMap data keys must follow vn naming (`scripts/path_converter.py`), including `/`, `-`, `.`, and other special characters.
-- ConfigMaps mounted by managed Deployment/StatefulSet workloads must use `metadata.name == workload.metadata.name`.
-- ConfigMap workload volumes must use `<workload-name>-cm`, and every ConfigMap `data` key must be mounted as its own `volumeMount` with `subPath` exactly equal to that key.
-- Avoid long inline startup scripts or heredocs in `command`/`args`; place initialization/start scripts in ConfigMap files and invoke them with a short command.
+- ConfigMap keys and volume names must follow vn naming (`scripts/path_converter.py`).
 
 ### Env and secrets
 
@@ -193,7 +190,6 @@ Do not upscale container resources from architecture guesses, language/runtime a
 - `defaults` for generated values (`app_name`, `app_host`, random passwords/keys).
 - `inputs` only for truly user-provided operational values (email/SMTP/external API keys, etc.).
 - `inputs.description` must be in English.
-- For binary object storage choices, use a boolean input (for example `enable_s3_storage`) and test with `inputs.<name> === 'true'`.
 
 ## Validation Commands
 
