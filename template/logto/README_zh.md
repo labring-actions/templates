@@ -1,28 +1,46 @@
-# Logto
+# 在 Sealos 上部署和托管 Logto
 
-## 应用概览
+[Logto](https://logto.io/) 是一个开源身份平台，适合为现代应用构建登录注册、用户管理、OIDC/OAuth 2.0、SAML、多租户和授权能力。
 
-Logto 是一个开源的 身份与访问管理（IAM）平台，是 Auth0 的开源替代方案，旨在帮助开发者快速构建安全、可扩展的登录注册系统和用户身份体系。
+## 模板内容
 
-此 Sealos 模板会将 **Logto** 部署为 `logto` 应用。部署、网络和存储配置都由仓库中的 Sealos 模板维护。
+- 使用固定镜像 `svhd/logto:1.40.1` 部署 Logto `1.40.1`。
+- 自动创建并初始化专用 PostgreSQL 数据库。
+- 提供两个公开 HTTPS 地址：一个用于应用认证流量，一个用于 Admin Console。
+- 首次启动时自动创建数据库、写入种子数据并执行数据库变更。
+
+## 使用要求
+
+- 一个 [Sealos](https://sealos.io/) 账号。
+- 不需要外部数据库；模板会自动创建 PostgreSQL。
 
 ## 在 Sealos 上部署
 
-在 Sealos 应用商店打开此模板，检查配置项后点击 **部署**。Sealos 会渲染模板变量，创建所需的 Kubernetes 资源，并为应用管理公网访问入口。
+1. 打开 [Sealos Logto 模板](https://sealos.io/products/app-store/logto)。
+2. 点击 **Deploy Now**，可以使用自动生成的应用名和域名，也可以在部署前自定义。
+3. 等待 Logto 应用和 PostgreSQL 数据库都进入运行状态。
+4. 在 Sealos 应用详情中打开 Admin Console 地址。
 
-## 访问方式
+## 首次注册与登录
 
-部署完成后，打开 `https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}`。实际域名由 `defaults.app_host` 和当前 Sealos Cloud 域名生成。
+Logto 会提供两个地址：
 
-## 配置说明
+- **Admin Console**：`https://${{ defaults.app_host }}-admin.${{ SEALOS_CLOUD_DOMAIN }}`
+- **Core/Auth 端点**：`https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}`
 
-部署时可以配置以下用户可见输入项：
+首次启动后，请打开 **Admin Console** 地址。欢迎页会显示 **Create account** 入口，可用用户名和密码创建初始管理员账号。开源版只允许创建一次初始管理员账号；创建完成后，再回到 Admin Console 使用 **Sign in** 登录。
 
-此模板没有额外的用户输入项；保留默认配置即可完成部署。
+将 **Core/Auth 端点** 作为连接业务应用时的 issuer 和重定向地址基础域名，用于 OIDC/OAuth 登录流程。
 
-请将敏感信息保存在 Sealos 管理的输入项或生成默认值中，不要把私有凭据提交到模板仓库。
+## 部署后检查
 
-## 官方链接
+- 在 Admin Console 创建第一个管理员账号。
+- 在 Logto 中配置业务应用的 redirect URI。
+- 确认 Core/Auth 端点和 Admin Console 端点都使用 HTTPS。
+- 在启用生产身份流程前，先阅读 Logto 官方文档。
 
-- 官方网站: https://logto.io/
-- 源码仓库: https://github.com/logto-io/logto
+## 参考链接
+
+- [Logto 文档](https://docs.logto.io/)
+- [Logto GitHub 仓库](https://github.com/logto-io/logto)
+- [Sealos 文档](https://sealos.io/docs/)

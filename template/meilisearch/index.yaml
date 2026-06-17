@@ -7,7 +7,8 @@ spec:
   url: 'https://www.meilisearch.com/'
   gitRepo: 'https://github.com/meilisearch/meilisearch'
   author: 'Sealos'
-  description: 'A lightning-fast search API that fits effortlessly into your apps, websites, and workflow.'
+  description: 'A fast, open-source search engine API with a lightweight web dashboard for managing indexes, documents, and search settings.'
+  locale: en
   readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/meilisearch/README.md'
   icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/meilisearch/logo.png'
   screenshots:
@@ -23,19 +24,15 @@ spec:
     app_name:
       type: string
       value: meilisearch-${{ random(8) }}
-  inputs:
-    MEILI_ENV:
-      description: "Configures the instance's environment. Value must be either production or development."
+    master_key:
       type: string
-      default: "development"
-      required: false
-    MEILI_MASTER_KEY:
-      description: "Sets the instance's master key, automatically protecting all routes except GET /health."
+      value: ${{ random(32) }}
+    ui_host:
       type: string
-      default: ""
-      required: false
+      value: meilisearch-ui-${{ random(8) }}
   i18n:
     zh:
+      description: '快速、开源的搜索引擎 API，并带有轻量 Web 管理界面，可管理索引、文档和搜索设置。'
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/meilisearch/README_zh.md'
 
 ---
@@ -44,9 +41,10 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: getmeili/meilisearch:v1.8
+    originImageName: getmeili/meilisearch:v1.45.1
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
+    docker-to-sealos.resource-override-source: 'Live validation on Sealos usw-1 (2026-05-29): Meilisearch v1.45.1 cold-started, served /health, /version, index creation, document ingestion, and search with 100m CPU / 128Mi memory; observed usage 3-4m CPU and 10Mi memory, restartCount=0.'
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
@@ -67,12 +65,12 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: getmeili/meilisearch:v1.8
+          image: getmeili/meilisearch:v1.45.1
           env:
             - name: MEILI_ENV
-              value: ${{ inputs.MEILI_ENV }}
+              value: production
             - name: MEILI_MASTER_KEY
-              value: ${{ inputs.MEILI_MASTER_KEY }}
+              value: ${{ defaults.master_key }}
           resources:
             requests:
               cpu: 10m
@@ -88,20 +86,31 @@ spec:
           volumeMounts:
             - name: vn-meili-data
               mountPath: /meili_data
+          startupProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - curl -sf http://localhost:7700/health | grep 'available'
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 24
           livenessProbe:
             exec:
               command:
-              - /bin/sh
-              - -c
-              - curl -sf http://localhost:7700/health | grep 'available'
+                - /bin/sh
+                - -c
+                - curl -sf http://localhost:7700/health | grep 'available'
             initialDelaySeconds: 20
+            periodSeconds: 10
           readinessProbe:
             exec:
               command:
-              - /bin/sh
-              - -c
-              - curl -sf http://localhost:7700/health | grep 'available'
+                - /bin/sh
+                - -c
+                - curl -sf http://localhost:7700/health | grep 'available'
             initialDelaySeconds: 20
+            periodSeconds: 10
   volumeClaimTemplates:
     - metadata:
         annotations:
@@ -116,17 +125,95 @@ spec:
             storage: 1Gi
 
 ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-ui
+  annotations:
+    originImageName: eyeix/meilisearch-ui:v0.15.1-lite
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-ui
+    app: ${{ defaults.app_name }}-ui
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-ui
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-ui
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-ui
+          image: eyeix/meilisearch-ui:v0.15.1-lite
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              protocol: TCP
+              containerPort: 24900
+          resources:
+            requests:
+              cpu: 20m
+              memory: 25Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 5
+            failureThreshold: 24
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+---
 apiVersion: v1
 kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 7700
+    - name: http
+      port: 7700
+      targetPort: 7700
   selector:
     app: ${{ defaults.app_name }}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-ui
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-ui
+    app: ${{ defaults.app_name }}-ui
+spec:
+  ports:
+    - name: http
+      port: 24900
+      targetPort: 24900
+  selector:
+    app: ${{ defaults.app_name }}-ui
+
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -147,15 +234,11 @@ metadata:
       large_client_header_buffers 4 128k;
     nginx.ingress.kubernetes.io/ssl-redirect: 'true'
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
-    nginx.ingress.kubernetes.io/rewrite-target: /$2
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
     nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
     nginx.ingress.kubernetes.io/configuration-snippet: |
-      more_clear_headers "X-Frame-Options:";
-      more_set_headers "Content-Security-Policy: default-src * blob: data: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; img-src * data: blob: resource: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; connect-src * wss: blob: resource:; style-src 'self' 'unsafe-inline' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource: *.baidu.com *.bdstatic.com; frame-src 'self' *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} mailto: tel: weixin: mtt: *.baidu.com; frame-ancestors 'self' https://${{ SEALOS_CLOUD_DOMAIN }} https://*.${{ SEALOS_CLOUD_DOMAIN }}";
-      more_set_headers "X-Xss-Protection: 1; mode=block";
       if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
         expires 30d;
         add_header Cache-Control "public";
@@ -166,7 +249,7 @@ spec:
       http:
         paths:
           - pathType: Prefix
-            path: /()(.*)
+            path: /
             backend:
               service:
                 name: ${{ defaults.app_name }}
@@ -178,6 +261,48 @@ spec:
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
 
 ---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-ui
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-ui
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.ui_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.ui_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-ui
+                port:
+                  number: 24900
+  tls:
+    - hosts:
+        - ${{ defaults.ui_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
 apiVersion: app.sealos.io/v1
 kind: App
 metadata:
@@ -186,8 +311,8 @@ metadata:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   data:
-    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+    url: https://${{ defaults.ui_host }}.${{ SEALOS_CLOUD_DOMAIN }}
   displayType: normal
   icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/meilisearch/logo.png"
   name: "Meilisearch"
-  type: iframe
+  type: link

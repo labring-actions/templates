@@ -7,7 +7,7 @@ spec:
   url: 'https://mlflow.org/'
   gitRepo: 'https://github.com/mlflow/mlflow'
   author: 'Sealos'
-  description: 'MLflow is an open-source developer platform to build AI/LLM applications and models with confidence.'
+  description: 'MLflow is an open-source platform for tracking machine learning experiments, packaging projects, and managing model artifacts.'
   readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/mlflow/README.md'
   icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/mlflow/logo.png'
   screenshots:
@@ -20,7 +20,7 @@ spec:
   locale: en
   i18n:
     zh:
-      description: '开源机器学习生命周期平台 - 跟踪实验、打包代码为可重现运行、共享和部署模型'
+      description: '开源机器学习生命周期平台，用于跟踪实验、管理模型和存储训练产物。'
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/mlflow/README_zh.md'
   defaults:
     app_name:
@@ -90,10 +90,10 @@ metadata:
   finalizers:
     - cluster.kubeblocks.io/finalizer
   labels:
+    kb.io/database: postgresql-16.4.0
     clusterdefinition.kubeblocks.io/name: postgresql
-    clusterversion.kubeblocks.io/name: postgresql-14.8.0
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
-  annotations: {}
   name: ${{ defaults.app_name }}-pg
 spec:
   affinity:
@@ -102,10 +102,12 @@ spec:
     tenancy: SharedNode
     topologyKeys: []
   clusterDefinitionRef: postgresql
-  clusterVersionRef: postgresql-14.8.0
+  clusterVersionRef: postgresql-16.4.0
   componentSpecs:
     - componentDefRef: postgresql
-      monitor: true
+      disableExporter: true
+      enabledLogs:
+        - running
       name: postgresql
       replicas: 1
       resources:
@@ -138,29 +140,57 @@ metadata:
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
-  completions: 1
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 120
   template:
     spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
       containers:
         - name: pgsql-init
-          image: postgres:14-alpine
+          image: senzing/postgresql-client:2.2.4
+          imagePullPolicy: IfNotPresent
           env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
             - name: PG_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
-            - name: DATABASE_URL
-              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
+            - name: PG_DATABASE
+              value: mlflow
           command:
             - /bin/sh
             - -c
             - |
-              until psql ${DATABASE_URL} -c 'CREATE DATABASE mlflow;' &>/dev/null; do sleep 1; done
-      restartPolicy: Never
-  backoffLimit: 0
-  ttlSecondsAfterFinished: 300
-
+              set -eu
+              until PGPASSWORD="$PG_PASSWORD" pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; do
+                sleep 5
+              done
+              if ! PGPASSWORD="$PG_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='mlflow'" | grep -q 1; then
+                PGPASSWORD="$PG_PASSWORD" createdb -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" mlflow
+              fi
+          resources:
+            requests:
+              cpu: 20m
+              memory: 25Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
 
 ---
 apiVersion: apps/v1
@@ -168,9 +198,10 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: ghcr.io/mlflow/mlflow:v2.22.2
+    originImageName: ghcr.io/mlflow/mlflow:v3.12.0
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
+    docker-to-sealos.resource-override-source: 'Empirical Sealos deployment test for MLflow 3.12.0: 256Mi, 512Mi and 1024Mi memory failed cold-start readiness; 2 CPU / 2G with two Uvicorn workers reached Ready and served UI plus REST API with PostgreSQL 16.4 and S3 artifact storage. MLflow 3 security middleware also requires --allowed-hosts and --cors-allowed-origins for the generated public host.'
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
@@ -188,7 +219,8 @@ spec:
       automountServiceAccountToken: false
       initContainers:
         - name: wait-for-postgres
-          image: busybox:latest
+          image: senzing/postgresql-client:2.2.4
+          imagePullPolicy: IfNotPresent
           env:
             - name: PG_HOST
               valueFrom:
@@ -200,19 +232,42 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_DATABASE
+              value: mlflow
           command:
             - /bin/sh
             - -c
             - |
-              echo "Waiting for PostgreSQL..."
-              until nc -z $(PG_HOST) $(PG_PORT); do
-                echo "PostgreSQL is not ready..."
-                sleep 5
+              set -eu
+              until PGPASSWORD="$PG_PASSWORD" pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; do
+                sleep 2
               done
-              echo "PostgreSQL is ready!"
+              until PGPASSWORD="$PG_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='mlflow'" | grep -q 1; do
+                sleep 2
+              done
+              until PGPASSWORD="$PG_PASSWORD" pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DATABASE" >/dev/null 2>&1; do
+                sleep 2
+              done
+          resources:
+            requests:
+              cpu: 20m
+              memory: 25Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
       containers:
         - name: ${{ defaults.app_name }}
-          image: ghcr.io/mlflow/mlflow:v2.22.2
+          image: ghcr.io/mlflow/mlflow:v3.12.0
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_HOST
@@ -237,16 +292,20 @@ spec:
                   key: password
             - name: MLFLOW_BACKEND_STORE_URI
               value: postgresql://$(PG_USER):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/mlflow
-            - name: AWS_ACCESS_KEY_ID
+            - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: accessKey
-            - name: AWS_SECRET_ACCESS_KEY
+            - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: secretKey
+            - name: AWS_ACCESS_KEY_ID
+              value: $(S3_ACCESS_KEY_ID)
+            - name: AWS_SECRET_ACCESS_KEY
+              value: $(S3_SECRET_ACCESS_KEY)
             - name: MLFLOW_S3_BUCKET
               valueFrom:
                 secretKeyRef:
@@ -260,7 +319,7 @@ spec:
             - name: MLFLOW_S3_ENDPOINT_URL
               value: "https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)"
             - name: MLFLOW_DEFAULT_ARTIFACT_ROOT
-              value: s3://$(MLFLOW_S3_BUCKET)/
+              value: s3://$(MLFLOW_S3_BUCKET)/mlflow
             - name: AWS_DEFAULT_REGION
               value: us-east-1
             - name: MLFLOW_S3_IGNORE_TLS
@@ -269,16 +328,25 @@ spec:
               value: 0.0.0.0
             - name: MLFLOW_PORT
               value: "5000"
+            - name: MLFLOW_ALLOWED_HOSTS
+              value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: MLFLOW_CORS_ALLOWED_ORIGINS
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: MLFLOW_UVICORN_OPTS
+              value: "--workers 2"
           command:
             - /bin/bash
             - -c
             - |
-              pip install --no-cache-dir mlflow[extras] boto3 psycopg2-binary
+              pip install --no-cache-dir boto3==1.43.17 psycopg2-binary==2.9.12
               mlflow server \
                 --backend-store-uri ${MLFLOW_BACKEND_STORE_URI} \
                 --default-artifact-root ${MLFLOW_DEFAULT_ARTIFACT_ROOT} \
                 --host ${MLFLOW_HOST} \
-                --port ${MLFLOW_PORT}
+                --port ${MLFLOW_PORT} \
+                --allowed-hosts ${MLFLOW_ALLOWED_HOSTS} \
+                --cors-allowed-origins ${MLFLOW_CORS_ALLOWED_ORIGINS} \
+                --uvicorn-opts "${MLFLOW_UVICORN_OPTS}"
           ports:
             - containerPort: 5000
               name: http
@@ -296,13 +364,11 @@ spec:
             periodSeconds: 10
           resources:
             requests:
-              cpu: 100m
-              memory: 102Mi
-              ephemeral-storage: 300Mi
+              cpu: 200m
+              memory: 200Mi
             limits:
-              cpu: 1000m
-              memory: 1024Mi
-              ephemeral-storage: 300Mi
+              cpu: 2
+              memory: 2G
 
 ---
 apiVersion: v1
@@ -311,6 +377,7 @@ metadata:
   name: ${{ defaults.app_name }}
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
 spec:
   ports:
     - name: http

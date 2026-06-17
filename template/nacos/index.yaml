@@ -87,7 +87,7 @@ metadata:
     - cluster.kubeblocks.io/finalizer
   labels:
     clusterdefinition.kubeblocks.io/name: apecloud-mysql
-    clusterversion.kubeblocks.io/name: ac-mysql-8.0.30
+    clusterversion.kubeblocks.io/name: ac-mysql-8.0.30-1
     sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
   annotations: {}
   name: ${{ defaults.app_name }}-mysql
@@ -98,11 +98,12 @@ spec:
     tenancy: SharedNode
     topologyKeys: []
   clusterDefinitionRef: apecloud-mysql
-  clusterVersionRef: ac-mysql-8.0.30
+  clusterVersionRef: ac-mysql-8.0.30-1
   componentSpecs:
-    - componentDefRef: mysql
+    - name: mysql
+      componentDefRef: mysql
       monitor: true
-      name: mysql
+      noCreatePDB: false
       replicas: 1
       resources:
         limits:
@@ -112,6 +113,8 @@ spec:
           cpu: 50m
           memory: 51Mi
       serviceAccountName: ${{ defaults.app_name }}-mysql
+      switchPolicy:
+        type: Noop
       volumeClaimTemplates:
         - name: data
           spec:
@@ -130,6 +133,7 @@ kind: ConfigMap
 metadata:
   name: ${{ defaults.app_name }}-mysql-init
   labels:
+    app: ${{ defaults.app_name }}-mysql-init
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-mysql-init
 data:
   vn-tmpvn-nacosvn-mysqlvn-sql: |
@@ -316,9 +320,6 @@ data:
                                    UNIQUE INDEX `uk_role_permission` (`role`,`resource`,`action`) USING BTREE
     );
 
-    -- Insert default user
-    INSERT INTO users (username, password, enabled) VALUES ('nacos', '$2a$10$EuWPZHzz32dJN7jexM34MOeYirDdFAZm2kuWj7VEOJhhZkDrxfvUu', TRUE);
-    INSERT INTO roles (username, role) VALUES ('nacos', 'ROLE_ADMIN');
 
 ---
 apiVersion: v1
@@ -326,6 +327,7 @@ kind: ConfigMap
 metadata:
   name: ${{ defaults.app_name }}-console
   labels:
+    app: ${{ defaults.app_name }}-console
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-console
 data:
   vn-homevn-nacosvn-confvn-clustervn-conf: |
@@ -342,7 +344,8 @@ spec:
     spec:
       containers:
         - name: mysql-init
-          image: mysql:8.0.30
+          image: mysql:8.0.44
+          imagePullPolicy: IfNotPresent
           env:
             - name: MYSQL_ROOT_PASSWORD
               valueFrom:
@@ -375,6 +378,13 @@ spec:
               mysql -h${MYSQL_HOST} -P${MYSQL_PORT} -uroot -p${MYSQL_ROOT_PASSWORD} < /tmp/nacos-mysql.sql
               
               echo "Database initialization completed successfully."
+          resources:
+            requests:
+              cpu: 50m
+              memory: 51Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
           volumeMounts:
             - name: vn-tmpvn-nacosvn-mysqlvn-sql
               mountPath: /tmp/nacos-mysql.sql
@@ -397,7 +407,8 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}-console
   annotations:
-    originImageName: nacos/nacos-server:v3.0.3
+    originImageName: nacos/nacos-server:v3.2.2
+    docker-to-sealos.resource-override-source: "README.md#Implementation-Details: validated single-node Nacos JVM profile capped at 1024Mi"
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -418,7 +429,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}-console
-          image: nacos/nacos-server:v3.0.3
+          image: nacos/nacos-server:v3.2.2
           imagePullPolicy: IfNotPresent
           env:
             - name: NACOS_DEPLOYMENT_TYPE
@@ -427,6 +438,12 @@ spec:
               value: hostname
             - name: MODE
               value: standalone
+            - name: JVM_XMS
+              value: 512m
+            - name: JVM_XMX
+              value: 512m
+            - name: JVM_XMN
+              value: 256m
             - name: SPRING_DATASOURCE_PLATFORM
               value: mysql
             - name: MYSQL_SERVICE_HOST
@@ -442,7 +459,10 @@ spec:
             - name: MYSQL_SERVICE_DB_NAME
               value: nacos_devtest
             - name: MYSQL_SERVICE_USER
-              value: root
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: username
             - name: MYSQL_SERVICE_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -451,6 +471,10 @@ spec:
             - name: MYSQL_SERVICE_DB_PARAM
               value: characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useUnicode=true&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
             - name: NACOS_AUTH_ENABLE
+              value: 'true'
+            - name: NACOS_AUTH_ADMIN_ENABLE
+              value: 'true'
+            - name: NACOS_AUTH_CONSOLE_ENABLE
               value: 'true'
             - name: NACOS_AUTH_TOKEN
               value: ${{ inputs.auth_token }}
@@ -464,10 +488,10 @@ spec:
           resources:
             requests:
               cpu: 20m
-              memory: 512Mi
+              memory: 102Mi
             limits:
               cpu: 200m
-              memory: 1Gi
+              memory: 1024Mi
           volumeMounts:
             - name: vn-homevn-nacosvn-logs
               mountPath: /home/nacos/logs
@@ -502,6 +526,7 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-console
   labels:
+    app: ${{ defaults.app_name }}-console
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-console
 spec:
   ports:
@@ -517,7 +542,8 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: nacos/nacos-server:v3.0.3
+    originImageName: nacos/nacos-server:v3.2.2
+    docker-to-sealos.resource-override-source: "README.md#Implementation-Details: validated single-node Nacos JVM profile capped at 1024Mi"
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -538,7 +564,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: nacos/nacos-server:v3.0.3
+          image: nacos/nacos-server:v3.2.2
           imagePullPolicy: IfNotPresent
           env:
             - name: NACOS_DEPLOYMENT_TYPE
@@ -547,6 +573,12 @@ spec:
               value: hostname
             - name: MODE
               value: standalone
+            - name: JVM_XMS
+              value: 512m
+            - name: JVM_XMX
+              value: 512m
+            - name: JVM_XMN
+              value: 256m
             - name: SPRING_DATASOURCE_PLATFORM
               value: mysql
             - name: MYSQL_SERVICE_HOST
@@ -562,7 +594,10 @@ spec:
             - name: MYSQL_SERVICE_DB_NAME
               value: nacos_devtest
             - name: MYSQL_SERVICE_USER
-              value: root
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: username
             - name: MYSQL_SERVICE_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -571,6 +606,10 @@ spec:
             - name: MYSQL_SERVICE_DB_PARAM
               value: characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useUnicode=true&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
             - name: NACOS_AUTH_ENABLE
+              value: 'true'
+            - name: NACOS_AUTH_ADMIN_ENABLE
+              value: 'true'
+            - name: NACOS_AUTH_CONSOLE_ENABLE
               value: 'true'
             - name: NACOS_AUTH_TOKEN
               value: ${{ inputs.auth_token }}
@@ -589,7 +628,7 @@ spec:
               memory: 102Mi
             limits:
               cpu: 500m
-              memory: 1Gi
+              memory: 1024Mi
           volumeMounts:
             - name: vn-homevn-nacosvn-logs
               mountPath: /home/nacos/logs
@@ -627,6 +666,7 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
