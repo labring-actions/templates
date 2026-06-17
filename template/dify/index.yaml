@@ -74,7 +74,7 @@ spec:
       automountServiceAccountToken: false
       initContainers:
         - name: wait-db
-          image: senzing/postgresql-client:2.2.4
+          image: postgres:14-alpine
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_USERNAME
@@ -431,7 +431,7 @@ spec:
       automountServiceAccountToken: false
       initContainers:
         - name: wait-db
-          image: senzing/postgresql-client:2.2.4
+          image: postgres:14-alpine
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_USERNAME
@@ -701,7 +701,7 @@ spec:
       automountServiceAccountToken: false
       initContainers:
         - name: wait-db
-          image: senzing/postgresql-client:2.2.4
+          image: postgres:14-alpine
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_USERNAME
@@ -962,7 +962,7 @@ spec:
     spec:
       containers:
         - name: pgsql-init
-          image: senzing/postgresql-client:2.2.4
+          image: postgres:14-alpine
           env:
             - name: PG_USERNAME
               valueFrom:
@@ -985,8 +985,13 @@ spec:
             - /bin/sh
             - -c
             - |
-              until psql ${DATABASE_URL} -c 'CREATE DATABASE dify;' &>/dev/null; do sleep 1; done
-              until psql ${DATABASE_URL} -c 'CREATE DATABASE dify_plugin;' &>/dev/null; do sleep 1; done
+              until pg_isready -d "${DATABASE_URL}"; do
+                sleep 2
+              done
+              psql "${DATABASE_URL}" -tc "SELECT 1 FROM pg_database WHERE datname = 'dify'" | grep -q 1 \
+                || psql "${DATABASE_URL}" -c "CREATE DATABASE dify;"
+              psql "${DATABASE_URL}" -tc "SELECT 1 FROM pg_database WHERE datname = 'dify_plugin'" | grep -q 1 \
+                || psql "${DATABASE_URL}" -c "CREATE DATABASE dify_plugin;"
           resources:
             limits:
               cpu: 500m
