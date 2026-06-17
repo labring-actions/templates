@@ -197,6 +197,51 @@ spec:
   ttlSecondsAfterFinished: 300
 
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-usrvn-localvn-binvn-ghostvn-sealosvn-entrypointvn-sh: |
+    #!/bin/sh
+    set -e
+
+    node <<'NODE'
+    const fs = require('fs');
+    const patches = [
+      {
+        file: '/var/lib/ghost/current/core/server/data/migrations/versions/5.128/2025-06-26-09-36-41-add-social-web-setting.js',
+        from: "key: 'social_web',\n    value: 'true'",
+        to: "key: 'social_web',\n    value: 'false'"
+      },
+      {
+        file: '/var/lib/ghost/current/core/server/data/migrations/versions/5.130/2025-07-11-14-14-54-add-explore-settings.js',
+        from: "key: 'explore_ping',\n        value: 'true'",
+        to: "key: 'explore_ping',\n        value: 'false'"
+      },
+      {
+        file: '/var/lib/ghost/current/core/server/data/schema/default-settings/default-settings.json',
+        from: /"social_web":\s*\{\s*"social_web":\s*\{\s*"defaultValue":\s*"true"/,
+        to: '"social_web": {\n        "social_web": {\n            "defaultValue": "false"'
+      },
+      {
+        file: '/var/lib/ghost/current/core/server/data/schema/default-settings/default-settings.json',
+        from: /"explore":\s*\{\s*"explore_ping":\s*\{\s*"defaultValue":\s*"true"/,
+        to: '"explore": {\n        "explore_ping": {\n            "defaultValue": "false"'
+      }
+    ];
+    for (const patch of patches) {
+      const source = fs.readFileSync(patch.file, 'utf8');
+      fs.writeFileSync(patch.file, source.replace(patch.from, patch.to));
+    }
+    NODE
+
+    exec docker-entrypoint.sh node current/index.js
+
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -294,39 +339,7 @@ spec:
           image: ghost:6.44.1-alpine
           imagePullPolicy: IfNotPresent
           command:
-            - /bin/sh
-            - -ec
-            - |
-              node <<'NODE'
-              const fs = require('fs');
-              const patches = [
-                {
-                  file: '/var/lib/ghost/current/core/server/data/migrations/versions/5.128/2025-06-26-09-36-41-add-social-web-setting.js',
-                  from: "key: 'social_web',\n    value: 'true'",
-                  to: "key: 'social_web',\n    value: 'false'"
-                },
-                {
-                  file: '/var/lib/ghost/current/core/server/data/migrations/versions/5.130/2025-07-11-14-14-54-add-explore-settings.js',
-                  from: "key: 'explore_ping',\n        value: 'true'",
-                  to: "key: 'explore_ping',\n        value: 'false'"
-                },
-                {
-                  file: '/var/lib/ghost/current/core/server/data/schema/default-settings/default-settings.json',
-                  from: /"social_web":\s*\{\s*"social_web":\s*\{\s*"defaultValue":\s*"true"/,
-                  to: '"social_web": {\n        "social_web": {\n            "defaultValue": "false"'
-                },
-                {
-                  file: '/var/lib/ghost/current/core/server/data/schema/default-settings/default-settings.json',
-                  from: /"explore":\s*\{\s*"explore_ping":\s*\{\s*"defaultValue":\s*"true"/,
-                  to: '"explore": {\n        "explore_ping": {\n            "defaultValue": "false"'
-                }
-              ];
-              for (const patch of patches) {
-                const source = fs.readFileSync(patch.file, 'utf8');
-                fs.writeFileSync(patch.file, source.replace(patch.from, patch.to));
-              }
-              NODE
-              exec docker-entrypoint.sh node current/index.js
+            - /usr/local/bin/ghost-sealos-entrypoint.sh
           ports:
             - name: http
               containerPort: 2368
@@ -434,8 +447,19 @@ spec:
             periodSeconds: 20
             timeoutSeconds: 5
           volumeMounts:
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /usr/local/bin/ghost-sealos-entrypoint.sh
+              subPath: vn-usrvn-localvn-binvn-ghostvn-sealosvn-entrypointvn-sh
             - name: vn-varvn-libvn-ghostvn-content
               mountPath: /var/lib/ghost/content
+      volumes:
+        - name: ${{ defaults.app_name }}-cm
+          configMap:
+            name: ${{ defaults.app_name }}
+            defaultMode: 493
+            items:
+              - key: vn-usrvn-localvn-binvn-ghostvn-sealosvn-entrypointvn-sh
+                path: vn-usrvn-localvn-binvn-ghostvn-sealosvn-entrypointvn-sh
   volumeClaimTemplates:
     - metadata:
         annotations:
