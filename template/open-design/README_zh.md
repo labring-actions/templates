@@ -1,6 +1,6 @@
 # 在 Sealos 上部署和托管 Open Design
 
-Open Design 是一个本地优先的开源 AI 设计工作区，可生成原型、演示文稿、图片、视频和基于设计系统的可交付产物。此模板会在 Sealos Cloud 上部署 Open Design，并提供持久化工作区卷与 Nginx API 代理。
+Open Design 是一个本地优先的开源 AI 设计工作区，可生成原型、演示文稿、图片、视频和基于设计系统的可交付产物。此模板会在 Sealos Cloud 上部署 Open Design，并提供持久化工作区卷与带认证的 Nginx 代理。
 
 ![Open Design 截图](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/open-design/website-screenshot.webp)
 
@@ -8,7 +8,7 @@ Open Design 是一个本地优先的开源 AI 设计工作区，可生成原型�
 
 Open Design 提供由本地 daemon 支撑的浏览器工作区。daemon 会在同一个容器内提供 Web UI、API 路由、项目文件、插件数据和生成产物。部署到 Sealos 后，工作区会持久化到 `/app/.od`，项目、会话、媒体配置和生成结果在重启后仍然保留。
 
-上游 Docker 部署暴露 `7456` 端口，使用 Docker volume 保存运行数据，并在 daemon 绑定公网接口时要求配置 `OD_API_TOKEN`。此模板会在 Open Design 前面运行 Nginx 代理：Nginx 对外暴露 `8080`，将流量转发到 `7456` 端口的 Open Design 服务，并为 `/api` 路由注入内部 bearer token。
+上游 Docker 部署暴露 `7456` 端口，使用 Docker volume 保存运行数据，并在 daemon 绑定公网接口时要求配置 `OD_API_TOKEN`。此模板会在 Open Design 前面运行 Nginx 代理：Nginx 对外暴露 `8080`，用 Basic Auth 保护公网入口，将流量转发到 `7456` 端口的 Open Design 服务，并为 `/api` 路由注入内部 bearer token。
 
 ## 常见使用场景
 
@@ -19,7 +19,7 @@ Open Design 提供由本地 daemon 支撑的浏览器工作区。daemon 会在�
 
 ## Open Design 托管依赖
 
-此 Sealos 模板包含 Open Design 运行镜像、轻量 Nginx 代理、公网 HTTPS Ingress 和持久化工作区存储。上游 Docker 部署路径无需 PostgreSQL、MySQL、Redis、SQLite 配置，也无需 S3 兼容对象存储。
+此 Sealos 模板包含 Open Design 运行镜像、轻量 Nginx 代理、公网 HTTPS Ingress 和持久化工作区存储。上游 Docker 部署路径基于本地文件和工作区卷运行，部署栈由运行容器、代理、Ingress 与工作区卷组成。
 
 ### 部署依赖
 
@@ -33,7 +33,7 @@ Open Design 提供由本地 daemon 支撑的浏览器工作区。daemon 会在�
 **架构组件：**
 
 - **Open Design Runtime**：StatefulSet，在 `7456` 端口提供 Web UI 和 daemon API。
-- **Nginx Proxy**：公网入口，监听 `8080`，并在转发 API 请求时注入生成的 bearer token。
+- **Nginx Proxy**：公网入口，监听 `8080`，执行 Basic Auth，并在转发 API 请求时注入生成的 bearer token。
 - **持久化工作区卷**：保存 `/app/.od`，包含项目、会话、生成产物和本地配置。
 - **Ingress 与应用入口**：通过 Sealos 生成的域名暴露 Open Design Web 界面。
 
@@ -42,8 +42,9 @@ Open Design 提供由本地 daemon 支撑的浏览器工作区。daemon 会在�
 - Open Design 镜像使用 digest 固定，避免 mutable `latest` 漂移。
 - `OD_BIND_HOST=0.0.0.0`、`OD_PORT=7456`、`OD_WEB_PORT=7456` 和生成的 `OD_API_TOKEN` 与上游云端运行要求保持一致。
 - `OD_ALLOWED_ORIGINS` 会设置为 Sealos 生成的 HTTPS 域名，让浏览器请求在 Ingress 后正常通过。
+- `auth_username` 和 `auth_password` 用于配置 Open Design 公网地址的 Nginx Basic Auth。
 - Nginx 会为 `/api/` 请求注入 `Authorization: Bearer <generated token>`，因此浏览器通过 Sealos 公网域名访问时 API 调用仍可正常工作。
-- Open Design 上游 Docker 指南建议在共享公网部署前增加认证反向代理、SSH 隧道、VPN 或等效访问层。此模板会在内部保护 daemon API token，最终用户访问控制由你的部署策略决定。
+- Open Design 上游 Docker 指南建议在共享公网部署前增加认证反向代理、SSH 隧道、VPN 或等效访问层。此模板增加认证反向代理层，并在内部保护 daemon API token。
 
 **许可证信息：**
 
@@ -63,11 +64,16 @@ Sealos 是基于 Kubernetes 的 AI 云操作系统，统一了从云端开发到
 ## 部署指南
 
 1. 打开 [Open Design 模板](https://sealos.io/products/app-store/open-design)，点击 **Deploy Now**。
-2. 检查默认资源和存储配置。
+2. 检查默认资源、存储和 Basic Auth 配置。`auth_username` 默认是 `admin`；`auth_password` 会自动生成，也可以在部署前替换为自己的强密码。
 3. 等待部署完成，通常需要 2-3 分钟。部署完成后会跳转到 Canvas。后续调整可以在 AI 对话框中描述需求，也可以点击相关资源卡片修改配置。
 4. 从 Canvas 或应用列表打开 Open Design 应用入口。
+5. 在浏览器认证弹窗中输入部署表单里的 `auth_username` 和 `auth_password`。
 
-Open Design 不会创建由模板管理的管理员账号，也没有默认登录页。首次打开时，应用可能显示 onboarding 页面；选择运行方式，或点击 **Skip** 直接进入工作区。进入工作区后，可以在 Open Design 内配置 BYOK 模型提供商、插件、设计系统和本地工作区设置。
+## 登录与注册
+
+账号设置发生在部署表单阶段：填写 `auth_username` 和 `auth_password` 后，代理会用这组凭据保护公网应用地址。打开生成的应用地址后，在浏览器 Basic Auth 弹窗中登录。用户名默认是 `admin`，密码使用部署表单里的生成值，或使用你在部署前设置的值。
+
+认证通过后，Open Design 会显示首次启动 onboarding 页面。选择运行方式，或点击 **Skip** 进入工作区，然后在 Open Design 内配置 BYOK 模型提供商、插件、设计系统和本地工作区设置。
 
 此模板已在 Sealos 完成线上测试：Open Design 主容器使用 `100m` CPU / `256Mi` 内存，Nginx 代理使用 `100m` CPU / `128Mi` 内存，并配置 `1Gi` 持久化工作区卷。Smoke test 期间，Open Design 主容器约使用 `30m` CPU 和 `67Mi` 内存，代理约使用 `1m` CPU 和 `22Mi` 内存。
 
@@ -78,6 +84,7 @@ Open Design 不会创建由模板管理的管理员账号，也没有默认登�
 - **AI 对话框**：描述需要调整的内容，例如扩大存储、增加内存或调整访问控制。
 - **资源卡片**：在 Canvas 中修改 StatefulSet、代理 Deployment、Service、Ingress 或持久化卷。
 - **Open Design UI**：在 Open Design 内配置 BYOK 模型提供商、插件、设计系统和工作区设置。
+- **Basic Auth 输入项**：需要轮换 `auth_username` 或 `auth_password` 时，重新部署或更新代理配置。
 
 ## 扩缩容
 
@@ -95,6 +102,10 @@ Open Design 会把本地工作区状态保存在单个持久化卷中，因此�
 ### 应用已启动但 API 调用失败
 
 此模板使用 Nginx 代理为 `/api/` 路由注入生成的 API token。如果 API 调用失败，请确认代理 Deployment 正在运行，并且仍然挂载了生成的 Nginx 配置。
+
+### 浏览器提示输入用户名和密码
+
+使用部署表单中的 `auth_username` 和 `auth_password`。这组凭据属于公网代理层。
 
 ### 出现 onboarding 页面
 
