@@ -133,6 +133,7 @@ metadata:
   name: ${{ defaults.app_name }}-pg
   labels:
     kb.io/database: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
     clusterdefinition.kubeblocks.io/name: postgresql
     clusterversion.kubeblocks.io/name: postgresql-16.4.0
 spec:
@@ -274,6 +275,7 @@ metadata:
   name: ${{ defaults.app_name }}-redis
   labels:
     kb.io/database: redis-7.2.7
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
     app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
     app.kubernetes.io/version: 7.2.7
     clusterversion.kubeblocks.io/name: redis-7.2.7
@@ -343,6 +345,7 @@ metadata:
   labels:
     app: ${{ defaults.app_name }}-clickhouse
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-clickhouse
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
 data:
   vn-etcvn-clickhousevn-servervn-configvn-dvn-networkvn-xml: |-
     <clickhouse>
@@ -386,6 +389,7 @@ metadata:
   labels:
     app: ${{ defaults.app_name }}-clickhouse
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-clickhouse
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
 spec:
   replicas: 1
   revisionHistoryLimit: 1
@@ -454,40 +458,27 @@ spec:
               mountPath: /var/lib/clickhouse
             - name: vn-varvn-logvn-clickhouse-server
               mountPath: /var/log/clickhouse-server
-            - name: vn-etcvn-clickhousevn-servervn-configvn-dvn-networkvn-xml
+            - name: ${{ defaults.app_name }}-clickhouse-cm
               mountPath: /etc/clickhouse-server/config.d/network.xml
-              subPath: network.xml
-            - name: vn-etcvn-clickhousevn-servervn-configvn-dvn-loggingvn-xml
+              subPath: vn-etcvn-clickhousevn-servervn-configvn-dvn-networkvn-xml
+            - name: ${{ defaults.app_name }}-clickhouse-cm
               mountPath: /etc/clickhouse-server/config.d/logging.xml
-              subPath: logging.xml
-            - name: vn-etcvn-clickhousevn-servervn-usersvn-dvn-defaultvn-password
+              subPath: vn-etcvn-clickhousevn-servervn-configvn-dvn-loggingvn-xml
+            - name: ${{ defaults.app_name }}-clickhouse-cm
               mountPath: /etc/clickhouse-server/users.d/default-password.xml
-              subPath: default-password.xml
+              subPath: vn-etcvn-clickhousevn-servervn-usersvn-dvn-defaultvn-password
       volumes:
-        - name: vn-etcvn-clickhousevn-servervn-configvn-dvn-networkvn-xml
+        - name: ${{ defaults.app_name }}-clickhouse-cm
           configMap:
             name: ${{ defaults.app_name }}-clickhouse
-            items:
-              - key: vn-etcvn-clickhousevn-servervn-configvn-dvn-networkvn-xml
-                path: network.xml
-        - name: vn-etcvn-clickhousevn-servervn-configvn-dvn-loggingvn-xml
-          configMap:
-            name: ${{ defaults.app_name }}-clickhouse
-            items:
-              - key: vn-etcvn-clickhousevn-servervn-configvn-dvn-loggingvn-xml
-                path: logging.xml
-        - name: vn-etcvn-clickhousevn-servervn-usersvn-dvn-defaultvn-password
-          configMap:
-            name: ${{ defaults.app_name }}-clickhouse
-            items:
-              - key: vn-etcvn-clickhousevn-servervn-usersvn-dvn-defaultvn-password
-                path: default-password.xml
   volumeClaimTemplates:
     - metadata:
         name: vn-varvn-libvn-clickhouse
         annotations:
           path: /var/lib/clickhouse
           value: '1'
+        labels:
+          cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
       spec:
         accessModes:
           - ReadWriteOnce
@@ -499,6 +490,8 @@ spec:
         annotations:
           path: /var/log/clickhouse-server
           value: '1'
+        labels:
+          cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
       spec:
         accessModes:
           - ReadWriteOnce
@@ -533,7 +526,7 @@ metadata:
   name: ${{ defaults.app_name }}-worker
   annotations:
     originImageName: docker.io/langfuse/langfuse-worker:3.180.0
-    docker-to-sealos.resource-override-source: https://langfuse.com/self-hosting/deployment/docker-compose documents a dedicated Langfuse worker process for background ingestion and exports.
+    docker-to-sealos.resource-override-source: https://langfuse.com/self-hosting/deployment/infrastructure/containers documents NODE_OPTIONS memory settings for Langfuse Web and Worker containers.
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -656,6 +649,8 @@ spec:
                   key: password
             - name: NEXTAUTH_URL
               value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: NODE_OPTIONS
+              value: --max-old-space-size=1024
             - name: DATABASE_URL
               value: postgresql://$(PG_USER):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/langfuse
             - name: SALT
@@ -789,7 +784,7 @@ metadata:
   name: ${{ defaults.app_name }}
   annotations:
     originImageName: docker.io/langfuse/langfuse:3.180.0
-    docker-to-sealos.resource-override-source: https://langfuse.com/self-hosting/deployment/docker-compose documents the Langfuse web container as a Next.js application server with API routes and dashboard UI.
+    docker-to-sealos.resource-override-source: https://langfuse.com/self-hosting/deployment/infrastructure/containers documents NODE_OPTIONS memory settings for Langfuse Web and Worker containers.
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -871,6 +866,8 @@ spec:
                   key: password
             - name: NEXTAUTH_URL
               value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: NODE_OPTIONS
+              value: --max-old-space-size=2048
             - name: DATABASE_URL
               value: postgresql://$(PG_USER):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/langfuse
             - name: SALT
@@ -1002,10 +999,10 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 102Mi
+              memory: 204Mi
             limits:
               cpu: '1'
-              memory: 1024Mi
+              memory: 2048Mi
           startupProbe:
             httpGet:
               path: /api/public/health
