@@ -47,6 +47,7 @@ Sealos 会负责公网 HTTPS 访问、数据库创建、持久化存储、资源
 - **PostgreSQL Cluster**：存储用户、公司、Issue、审批、插件状态和运行时元数据。
 - **PostgreSQL 初始化 Job**：等待 PostgreSQL 就绪，并以幂等方式创建 `paperclip` 数据库。
 - **Paperclip 配置 Init Container**：写入 `/paperclip/instances/default/config.json` 并设置 Agent JWT secret。
+- **Bootstrap CEO Job**：等待 Paperclip 健康，创建 Sealos App 入口使用的首个管理员邀请，并在 Job 日志中输出 `Invite URL`。
 - **Paperclip 持久卷**：保存 `/paperclip` 数据、本地密钥、日志、工作区和本地存储。
 - **可选 ObjectStorageBucket**：通过 `PAPERCLIP_STORAGE_PROVIDER=s3` 启用 S3 存储。
 - **Service、Ingress 和 App Resource**：通过公网 HTTPS 地址暴露 Paperclip。
@@ -55,7 +56,9 @@ Sealos 会负责公网 HTTPS 访问、数据库创建、持久化存储、资源
 
 模板以 `authenticated` 部署模式和 `public` 暴露模式运行 Paperclip，并将 `PAPERCLIP_PUBLIC_URL`、`PAPERCLIP_AUTH_PUBLIC_BASE_URL` 和允许访问的 hostname 设置为 Sealos 公网地址。
 
-模板会在启动阶段写入 Paperclip 首次配置。应用健康后，打开 Paperclip StatefulSet 终端并运行下面的 bootstrap 命令生成首个 CEO 邀请。打开输出的 `Invite URL`，点击 **Sign in / Create account**，创建第一个用户，再回到邀请页点击 **Accept bootstrap invite**。bootstrap 完成后，已登录用户会进入创建第一个公司的 onboarding 流程。
+模板会在启动阶段写入 Paperclip 首次配置。`${{ defaults.app_name }}-bootstrap-ceo` Job 会等待 Paperclip 健康并生成首个 CEO 邀请。Sealos App 入口会直接打开该邀请链接。点击 **Sign in / Create account**，创建第一个用户，再回到邀请页点击 **Accept bootstrap invite**。bootstrap 完成后，已登录用户会进入创建第一个公司的 onboarding 流程。
+
+如需在首个管理员领取实例前轮换邀请，可在 Paperclip StatefulSet 终端运行：
 
 ```bash
 node cli/node_modules/tsx/dist/cli.mjs cli/src/index.ts auth bootstrap-ceo \
@@ -111,8 +114,9 @@ Sealos 是基于 Kubernetes 构建的 AI 辅助云操作系统，统一应用部
    - **gemini_api_key**：用于 Gemini 后端 Agent 的可选密钥。
 3. 等待部署完成，通常需要 2-3 分钟。部署完成后，你会进入 Canvas。后续如需修改配置，可以在对话框中描述需求，让 AI 自动应用变更；也可以点击对应资源卡片手动调整设置。
 4. 通过提供的 URL 访问 Paperclip：
-   - **首个管理员**：打开 Paperclip StatefulSet 终端，运行配置章节中的 bootstrap 命令，然后复制生成的 `Invite URL`。
-   - **Paperclip Web UI**：打开邀请链接，创建第一个账号，接受 bootstrap 邀请，然后完成 onboarding。
+   - **首个管理员**：打开 Sealos App 入口，创建第一个账号，接受 bootstrap 邀请，然后完成 onboarding。
+   - **邀请审计**：打开 `${{ defaults.app_name }}-bootstrap-ceo` Job 日志查看生成的 `Invite URL`。
+   - **Paperclip Web UI**：bootstrap 完成后，使用同一个公网 host 的根路径正常访问。
    - **Paperclip API**：使用同一公网地址访问 `/api/*` 路径。
 
 ## 配置
@@ -129,7 +133,7 @@ Sealos 是基于 Kubernetes 构建的 AI 辅助云操作系统，统一应用部
 ### 健康检查显示 bootstrap pending
 
 - **原因**：Paperclip 正在等待第一个管理员账号和 bootstrap 流程。
-- **解决方法**：打开 Paperclip StatefulSet 终端，运行配置章节中的 bootstrap 命令，通过输出的邀请链接创建第一个账号，并点击 **Accept bootstrap invite**。
+- **解决方法**：打开 Sealos App 入口并完成 bootstrap 邀请流程。`${{ defaults.app_name }}-bootstrap-ceo` Job 日志也会保留生成的 `Invite URL` 72 小时，与默认邀请有效期一致。
 
 ### Agent 运行失败并提示缺少凭据
 

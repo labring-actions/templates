@@ -47,6 +47,7 @@ The Sealos template includes the required runtime dependencies:
 - **PostgreSQL Cluster**: Stores users, companies, issues, approvals, plugin state, and runtime metadata.
 - **PostgreSQL Init Job**: Waits for PostgreSQL readiness and creates the `paperclip` database idempotently.
 - **Paperclip Configure Init Container**: Writes `/paperclip/instances/default/config.json` and sets the agent JWT secret.
+- **Bootstrap CEO Job**: Waits for Paperclip health, creates the first-admin invite used by the Sealos App entry, and prints the `Invite URL` in Job logs.
 - **Persistent Paperclip Volume**: Stores `/paperclip` data, local secrets, logs, workspaces, and local storage.
 - **Optional ObjectStorageBucket**: Enables S3 storage through `PAPERCLIP_STORAGE_PROVIDER=s3`.
 - **Service, Ingress, and App Resource**: Expose Paperclip through a public HTTPS URL.
@@ -55,7 +56,9 @@ The Sealos template includes the required runtime dependencies:
 
 The template runs Paperclip in `authenticated` deployment mode with `public` exposure. It sets `PAPERCLIP_PUBLIC_URL`, `PAPERCLIP_AUTH_PUBLIC_BASE_URL`, and allowed hostnames to the Sealos public URL.
 
-The template writes the first-run Paperclip configuration during startup. After the app is healthy, open the Paperclip StatefulSet terminal and run the bootstrap command below to generate the first CEO invite. Open the printed `Invite URL`, click **Sign in / Create account**, create the first user, then return to the invite page and click **Accept bootstrap invite**. After bootstrap completes, signed-in users land in the onboarding flow for creating the first company.
+The template writes the first-run Paperclip configuration during startup. The `${{ defaults.app_name }}-bootstrap-ceo` Job then waits for Paperclip health and generates the first CEO invite. The Sealos App entry opens that invite URL directly. Click **Sign in / Create account**, create the first user, then return to the invite page and click **Accept bootstrap invite**. After bootstrap completes, signed-in users land in the onboarding flow for creating the first company.
+
+To rotate the first-admin invite before any admin claims the instance, run this command from the Paperclip StatefulSet terminal:
 
 ```bash
 node cli/node_modules/tsx/dist/cli.mjs cli/src/index.ts auth bootstrap-ceo \
@@ -111,8 +114,9 @@ Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies
    - **gemini_api_key**: Optional key for Gemini-backed agents.
 3. Wait for deployment to complete. This typically takes 2-3 minutes. After deployment, you will be redirected to the Canvas. For later changes, describe your requirements in the dialog to let AI apply updates, or click the relevant resource cards to modify settings.
 4. Access Paperclip through the provided URL:
-   - **First admin**: Open the Paperclip StatefulSet terminal and run the bootstrap command from the Configuration section, then copy the generated `Invite URL`.
-   - **Paperclip Web UI**: Open the invite URL, create the first account, accept the bootstrap invite, then complete onboarding.
+   - **First admin**: Open the Sealos App entry, create the first account, accept the bootstrap invite, then complete onboarding.
+   - **Invite audit**: Open the `${{ defaults.app_name }}-bootstrap-ceo` Job logs to view the generated `Invite URL`.
+   - **Paperclip Web UI**: After bootstrap, use the same public host root URL for normal access.
    - **Paperclip API**: Use the same public URL with `/api/*` paths.
 
 ## Configuration
@@ -129,7 +133,7 @@ After deployment, configure Paperclip through:
 ### Health check reports bootstrap pending
 
 - **Cause**: Paperclip is waiting for the first admin account and bootstrap flow.
-- **Solution**: Open the Paperclip StatefulSet terminal, run the bootstrap command from the Configuration section, create the first account from the printed invite, and click **Accept bootstrap invite**.
+- **Solution**: Open the Sealos App entry and finish the bootstrap invite flow. The `${{ defaults.app_name }}-bootstrap-ceo` Job logs also contain the generated `Invite URL` for 72 hours, matching the default invite expiration window.
 
 ### Agent runs fail because credentials are missing
 

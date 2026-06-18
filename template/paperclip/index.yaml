@@ -38,6 +38,9 @@ spec:
     agent_jwt_secret:
       type: string
       value: ${{ random(48) }}
+    bootstrap_invite_token:
+      type: string
+      value: pcp_bootstrap_${{ random(48) }}
   inputs:
     use_object_storage:
       description: Use S3-compatible object storage for attachments and company assets
@@ -122,6 +125,7 @@ kind: Cluster
 metadata:
   name: ${{ defaults.app_name }}-pg
   labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
     kb.io/database: postgresql-16.4.0
     clusterdefinition.kubeblocks.io/name: postgresql
     clusterversion.kubeblocks.io/name: postgresql-16.4.0
@@ -671,6 +675,204 @@ spec:
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
 
 ---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-bootstrap-ceo
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  completions: 1
+  template:
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: bootstrap-ceo
+          image: ghcr.io/paperclipai/paperclip:sha-b8725c5
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PAPERCLIP_CONFIG
+              value: /tmp/paperclip/config.json
+            - name: PAPERCLIP_PUBLIC_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: PAPERCLIP_AUTH_PUBLIC_BASE_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: PAPERCLIP_AGENT_JWT_SECRET
+              value: ${{ defaults.agent_jwt_secret }}
+            - name: PAPERCLIP_BOOTSTRAP_INVITE_TOKEN
+              value: ${{ defaults.bootstrap_invite_token }}
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgres://$(PG_USER):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/paperclip
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              mkdir -p /tmp/paperclip
+              node <<'NODE'
+              const fs = require("fs");
+              const configPath = process.env.PAPERCLIP_CONFIG;
+              const cfg = {
+                $meta: {
+                  version: 1,
+                  updatedAt: new Date().toISOString(),
+                  source: "configure"
+                },
+                database: {
+                  mode: "postgres",
+                  connectionString: process.env.DATABASE_URL,
+                  embeddedPostgresDataDir: "/tmp/paperclip/db",
+                  embeddedPostgresPort: 54329,
+                  backup: {
+                    enabled: true,
+                    intervalMinutes: 60,
+                    retentionDays: 30,
+                    dir: "/tmp/paperclip/backups"
+                  }
+                },
+                logging: {
+                  mode: "file",
+                  logDir: "/tmp/paperclip/logs"
+                },
+                server: {
+                  deploymentMode: "authenticated",
+                  exposure: "public",
+                  bind: "lan",
+                  host: "0.0.0.0",
+                  port: 3100,
+                  allowedHostnames: [],
+                  serveUi: true
+                },
+                auth: {
+                  baseUrlMode: "explicit",
+                  publicBaseUrl: process.env.PAPERCLIP_PUBLIC_URL,
+                  disableSignUp: false
+                },
+                telemetry: {
+                  enabled: true
+                },
+                storage: {
+                  provider: "local_disk",
+                  localDisk: {
+                    baseDir: "/tmp/paperclip/storage"
+                  }
+                },
+                secrets: {
+                  provider: "local_encrypted",
+                  strictMode: false,
+                  localEncrypted: {
+                    keyFilePath: "/tmp/paperclip/secrets/master.key"
+                  }
+                }
+              };
+              fs.writeFileSync(configPath, `${JSON.stringify(cfg, null, 2)}\n`);
+              NODE
+              for i in $(seq 1 120); do
+                if curl -fsS "http://${{ defaults.app_name }}:3100/api/health" >/dev/null; then
+                  break
+                fi
+                sleep 2
+              done
+              curl -fsS "http://${{ defaults.app_name }}:3100/api/health" >/dev/null
+              node cli/node_modules/tsx/dist/cli.mjs -e '
+                import { createHash } from "node:crypto";
+                import { createRequire } from "node:module";
+                import { createDb, instanceUserRoles, invites } from "/app/packages/db/src/index.ts";
+
+                const require = createRequire("/app/packages/db/src/index.ts");
+                const { and, eq, gt, isNull } = require("drizzle-orm");
+
+                async function main() {
+                  const token = process.env.PAPERCLIP_BOOTSTRAP_INVITE_TOKEN;
+                  const baseUrl = process.env.PAPERCLIP_PUBLIC_URL.replace(/\/+$/, "");
+                  const db = createDb(process.env.DATABASE_URL);
+                  const existingAdminCount = await db
+                    .select()
+                    .from(instanceUserRoles)
+                    .where(eq(instanceUserRoles.role, "instance_admin"))
+                    .then((rows) => rows.length);
+
+                  if (existingAdminCount > 0) {
+                    console.log("Instance already has an admin user.");
+                    return;
+                  }
+
+                  const now = new Date();
+                  await db
+                    .update(invites)
+                    .set({ revokedAt: now, updatedAt: now })
+                    .where(
+                      and(
+                        eq(invites.inviteType, "bootstrap_ceo"),
+                        isNull(invites.revokedAt),
+                        isNull(invites.acceptedAt),
+                        gt(invites.expiresAt, now),
+                      ),
+                    );
+                  const tokenHash = createHash("sha256").update(token).digest("hex");
+                  const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000);
+                  await db
+                    .insert(invites)
+                    .values({
+                      inviteType: "bootstrap_ceo",
+                      tokenHash,
+                      allowedJoinTypes: "human",
+                      expiresAt,
+                      invitedByUserId: "system",
+                    })
+                    .onConflictDoUpdate({
+                      target: invites.tokenHash,
+                      set: {
+                        revokedAt: null,
+                        acceptedAt: null,
+                        expiresAt,
+                        updatedAt: now,
+                      },
+                    });
+                  console.log(`Created bootstrap CEO invite.`);
+                  console.log(`Invite URL: ${baseUrl}/invite/${token}`);
+                  console.log(`Expires: ${expiresAt.toISOString()}`);
+                }
+
+                main().then(() => {
+                  process.exit(0);
+                }).catch((error) => {
+                  console.error(error);
+                  process.exit(1);
+                });
+              '
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 50m
+              memory: 51Mi
+      restartPolicy: OnFailure
+  backoffLimit: 5
+  ttlSecondsAfterFinished: 259200
+
+---
 apiVersion: app.sealos.io/v1
 kind: App
 metadata:
@@ -679,7 +881,7 @@ metadata:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   data:
-    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/invite/${{ defaults.bootstrap_invite_token }}
   displayType: normal
   icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/paperclip/logo.svg
   name: Paperclip
