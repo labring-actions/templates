@@ -1224,7 +1224,7 @@ class CheckConsistencyTests(unittest.TestCase):
             )
             self.assertFalse(any(item.rule_id == "R026" for item in violations))
 
-    def test_allows_longer_http_ingress_timeouts_for_websocket_artifact(self):
+    def test_allows_websocket_ingress_annotations_in_artifact(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             skill = root / "SKILL.md"
@@ -1246,20 +1246,10 @@ class CheckConsistencyTests(unittest.TestCase):
                   annotations:
                     kubernetes.io/ingress.class: nginx
                     nginx.ingress.kubernetes.io/proxy-body-size: 32m
-                    nginx.ingress.kubernetes.io/server-snippet: |
-                      client_header_buffer_size 64k;
-                      large_client_header_buffers 4 128k;
-                    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
-                    nginx.ingress.kubernetes.io/backend-protocol: HTTP
-                    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
-                    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
-                    nginx.ingress.kubernetes.io/proxy-send-timeout: '3600'
-                    nginx.ingress.kubernetes.io/proxy-read-timeout: '3600'
-                    nginx.ingress.kubernetes.io/configuration-snippet: |
-                      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
-                        expires 30d;
-                        add_header Cache-Control "public";
-                      }
+                    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+                    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+                    nginx.ingress.kubernetes.io/backend-protocol: WS
+                    nginx.ingress.kubernetes.io/ssl-redirect: "true"
                 spec:
                   rules:
                     - host: demo.example.com
