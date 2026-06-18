@@ -83,6 +83,10 @@ HTTP_INGRESS_REQUIRED_ANNOTATIONS: Dict[str, str] = {
         "}"
     ),
 }
+HTTP_INGRESS_TIMEOUT_ANNOTATIONS = {
+    "nginx.ingress.kubernetes.io/proxy-send-timeout",
+    "nginx.ingress.kubernetes.io/proxy-read-timeout",
+}
 CRONJOB_LABEL_KEY = "cloud.sealos.io/cronjob"
 RESOURCE_OVERRIDE_SOURCE_ANNOTATION = "docker-to-sealos.resource-override-source"
 CRONJOB_REQUIRED_LABELS: Dict[str, str] = {
@@ -958,6 +962,15 @@ def _normalize_annotation_value(value: Any) -> Optional[str]:
     return str(value).strip()
 
 
+def _is_valid_timeout_annotation(actual: Optional[str], expected: str) -> bool:
+    if actual is None:
+        return False
+    try:
+        return int(actual) >= int(expected)
+    except ValueError:
+        return False
+
+
 def check_http_ingress_annotations(context: ScanContext) -> List[Violation]:
     violations: List[Violation] = []
     for doc in iter_documents_by_kind(context, "Ingress"):
@@ -990,7 +1003,10 @@ def check_http_ingress_annotations(context: ScanContext) -> List[Violation]:
         for key, expected in HTTP_INGRESS_REQUIRED_ANNOTATIONS.items():
             actual_normalized = _normalize_annotation_value(annotations.get(key))
             expected_normalized = _normalize_annotation_value(expected)
-            if actual_normalized == expected_normalized:
+            if key in HTTP_INGRESS_TIMEOUT_ANNOTATIONS:
+                if _is_valid_timeout_annotation(actual_normalized, expected_normalized):
+                    continue
+            elif actual_normalized == expected_normalized:
                 continue
             add_doc_violation(
                 violations,
