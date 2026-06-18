@@ -31,6 +31,17 @@ spec:
     api_token:
       type: string
       value: ${{ random(64) }}
+  inputs:
+    auth_username:
+      description: Open Design Basic Auth username for the public proxy.
+      type: string
+      default: admin
+      required: true
+    auth_password:
+      description: Open Design Basic Auth password for the public proxy.
+      type: string
+      default: ${{ random(24) }}
+      required: true
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -45,7 +56,15 @@ data:
       listen 8080;
       client_max_body_size 32m;
 
+      location = /__nginx_health {
+        access_log off;
+        return 204;
+      }
+
       location / {
+        auth_basic "Open Design";
+        auth_basic_user_file /tmp/open-design.htpasswd;
+
         proxy_pass http://${{ defaults.app_name }}:7456;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -56,6 +75,9 @@ data:
       }
 
       location /api/ {
+        auth_basic "Open Design";
+        auth_basic_user_file /tmp/open-design.htpasswd;
+
         proxy_pass http://${{ defaults.app_name }}:7456;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -225,6 +247,18 @@ spec:
         - name: ${{ defaults.app_name }}-proxy
           image: nginxinc/nginx-unprivileged:1.25-alpine-slim
           imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+          args:
+            - |
+              printf '%s:{PLAIN}%s\n' "${OPEN_DESIGN_AUTH_USERNAME}" "${OPEN_DESIGN_AUTH_PASSWORD}" > /tmp/open-design.htpasswd
+              exec /docker-entrypoint.sh nginx -g 'daemon off;'
+          env:
+            - name: OPEN_DESIGN_AUTH_USERNAME
+              value: ${{ inputs.auth_username }}
+            - name: OPEN_DESIGN_AUTH_PASSWORD
+              value: ${{ inputs.auth_password }}
           ports:
             - containerPort: 8080
           securityContext:
@@ -246,7 +280,7 @@ spec:
               subPath: ./etc/nginx/conf.d/default.conf
           livenessProbe:
             httpGet:
-              path: /api/health
+              path: /__nginx_health
               port: 8080
             initialDelaySeconds: 30
             periodSeconds: 30
@@ -254,7 +288,7 @@ spec:
             failureThreshold: 3
           readinessProbe:
             httpGet:
-              path: /api/health
+              path: /__nginx_health
               port: 8080
             initialDelaySeconds: 15
             periodSeconds: 10
