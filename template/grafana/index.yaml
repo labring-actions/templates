@@ -141,6 +141,13 @@ spec:
         - name: pg-init
           image: postgres:16.4-alpine
           imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
           env:
             - name: PG_HOST
               valueFrom:
@@ -189,6 +196,7 @@ metadata:
   labels:
     app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
 spec:
   replicas: 1
   revisionHistoryLimit: 1
@@ -247,9 +255,15 @@ spec:
             - name: GF_DATABASE_NAME
               value: grafana
             - name: GF_DATABASE_USER
-              value: $(PG_USER)
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
             - name: GF_DATABASE_PASSWORD
-              value: $(PG_PASSWORD)
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
             - name: GF_DATABASE_SSL_MODE
               value: disable
             ${{ endif() }}
@@ -279,18 +293,20 @@ spec:
             timeoutSeconds: 5
             failureThreshold: 6
           resources:
-            requests:
-              cpu: 50m
-              memory: 96Mi
             limits:
-              cpu: 300m
-              memory: 384Mi
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
           volumeMounts:
             - name: vn-varvn-libvn-grafana
               mountPath: /var/lib/grafana
   volumeClaimTemplates:
     - metadata:
         name: vn-varvn-libvn-grafana
+        labels:
+          cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
         annotations:
           path: /var/lib/grafana
           value: "1"

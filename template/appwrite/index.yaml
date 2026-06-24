@@ -106,6 +106,8 @@ metadata:
   labels:
     kb.io/database: mongodb-8.0.4
     app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    clusterdefinition.kubeblocks.io/name: mongodb
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
 spec:
   affinity:
     podAntiAffinity: Preferred
@@ -251,6 +253,26 @@ spec:
                 storage: 1Gi
 
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-etcvn-appwritevn-redisvn-compatvn-redisvn-compatvn-php: |
+    <?php
+    $file = '/usr/src/code/vendor/utopia-php/queue/src/Queue/Connection/Redis.php';
+    $source = file_get_contents($file);
+    $needle = "        if (\$this->readTimeout >= 0) {\n";
+    if (strpos($source, '$this->redis->auth($auth);') === false) {
+        $patch = "        if (\$this->user || \$this->password) {\n            \$auth = \$this->user ? [\$this->user, \$this->password ?? ''] : \$this->password;\n            \$this->redis->auth(\$auth);\n        }\n\n";
+        $source = str_replace($needle, $patch . $needle, $source);
+        file_put_contents($file, $source);
+    }
+
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -262,6 +284,7 @@ metadata:
   labels:
     app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
 spec:
   replicas: 1
   revisionHistoryLimit: 1
@@ -280,27 +303,25 @@ spec:
         fsGroup: 1000
         fsGroupChangePolicy: OnRootMismatch
       initContainers:
-        - name: wait-for-mongodb
-          image: mongo:8.0.4
+        - name: wait-for-data-store
+          image: busybox:1.36.1
           imagePullPolicy: IfNotPresent
           env:
             - name: MONGO_HOST
-              value: ${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc.cluster.local
-            - name: MONGO_USER
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-mongo-mongodb-account-root
-                  key: username
-            - name: MONGO_PASSWORD
+                  key: host
+            - name: MONGO_PORT
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-mongo-mongodb-account-root
-                  key: password
+                  key: port
           command:
             - /bin/sh
             - -ec
             - |
-              until mongosh "mongodb://${MONGO_USER}:${MONGO_PASSWORD}@${MONGO_HOST}:27017/admin" --quiet --eval 'db.runCommand({ ping: 1 }).ok' | grep -q 1; do
+              until nc -z "$MONGO_HOST" "$MONGO_PORT"; do
                 sleep 2
               done
           resources:
@@ -310,27 +331,19 @@ spec:
             requests:
               cpu: 20m
               memory: 25Mi
-        - name: wait-for-redis
-          image: redis:7.2.7-alpine
+        - name: wait-for-cache
+          image: busybox:1.36.1
           imagePullPolicy: IfNotPresent
           env:
             - name: REDIS_HOST
               value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
-            - name: REDIS_USER
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-redis-redis-account-default
-                  key: username
-            - name: REDIS_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-redis-redis-account-default
-                  key: password
+            - name: REDIS_PORT
+              value: '6379'
           command:
             - /bin/sh
             - -ec
             - |
-              until REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli -h "$REDIS_HOST" -p 6379 --user "$REDIS_USER" ping >/dev/null 2>&1; do
+              until nc -z "$REDIS_HOST" "$REDIS_PORT"; do
                 sleep 2
               done
           resources:
@@ -345,9 +358,9 @@ spec:
           image: appwrite/appwrite:1.9.0
           imagePullPolicy: IfNotPresent
           command:
-            - php
-            - -e
-            - app/http.php
+            - /bin/sh
+            - -ec
+            - exec php -d auto_prepend_file=/etc/appwrite-redis-compat/redis-compat.php -e app/http.php
           ports:
             - name: http
               containerPort: 80
@@ -364,10 +377,20 @@ spec:
               value: ${{ defaults.openssl_key }}
             - name: _APP_DOMAIN
               value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
-            - name: _APP_DOMAIN_TARGET
+            - name: _APP_DOMAIN_TARGET_CNAME
               value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: _APP_DOMAIN_TARGET_A
+              value: ''
+            - name: _APP_DOMAIN_TARGET_AAAA
+              value: ''
+            - name: _APP_DOMAIN_TARGET_CAA
+              value: digicert.com
             - name: _APP_CONSOLE_HOSTNAMES
               value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: _APP_CONSOLE_DOMAIN
+              value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: _APP_CONSOLE_SCHEMA
+              value: appwriteio
             - name: _APP_DOMAIN_FUNCTIONS
               value: functions-${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: _APP_DOMAIN_SITES
@@ -387,9 +410,15 @@ spec:
             - name: _APP_DB_ADAPTER
               value: mongodb
             - name: _APP_DB_HOST
-              value: ${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mongo-mongodb-account-root
+                  key: host
             - name: _APP_DB_PORT
-              value: '27017'
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mongo-mongodb-account-root
+                  key: port
             - name: _APP_DB_SCHEMA
               value: appwrite
             - name: _APP_DB_USER
@@ -432,17 +461,17 @@ spec:
             ${{ if(inputs.use_object_storage === 'true') }}
             - name: _APP_STORAGE_DEVICE
               value: s3
-            - name: _APP_STORAGE_S3_ACCESS_KEY
+            - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: accessKey
-            - name: _APP_STORAGE_S3_SECRET
+            - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: secretKey
-            - name: _APP_STORAGE_S3_BUCKET
+            - name: S3_BUCKET
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
@@ -454,6 +483,12 @@ spec:
                   key: external
             - name: _APP_STORAGE_S3_ENDPOINT
               value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+            - name: _APP_STORAGE_S3_ACCESS_KEY
+              value: $(S3_ACCESS_KEY_ID)
+            - name: _APP_STORAGE_S3_SECRET
+              value: $(S3_SECRET_ACCESS_KEY)
+            - name: _APP_STORAGE_S3_BUCKET
+              value: $(S3_BUCKET)
             - name: _APP_STORAGE_S3_REGION
               value: us-east-1
             ${{ else() }}
@@ -472,11 +507,11 @@ spec:
               value: ''
           resources:
             limits:
-              cpu: 200m
-              memory: 256Mi
+              cpu: 500m
+              memory: 512Mi
             requests:
-              cpu: 20m
-              memory: 25Mi
+              cpu: 50m
+              memory: 51Mi
           startupProbe:
             tcpSocket:
               port: http
@@ -497,9 +532,18 @@ spec:
           volumeMounts:
             - name: vn-storage
               mountPath: /storage
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /etc/appwrite-redis-compat/redis-compat.php
+              subPath: vn-etcvn-appwritevn-redisvn-compatvn-redisvn-compatvn-php
+      volumes:
+        - name: ${{ defaults.app_name }}-cm
+          configMap:
+            name: ${{ defaults.app_name }}
   volumeClaimTemplates:
     - metadata:
         name: vn-storage
+        labels:
+          cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
         annotations:
           path: /storage
           value: '1'
@@ -510,6 +554,65 @@ spec:
           requests:
             storage: 1Gi
         storageClassName: openebs-backup
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-console
+  annotations:
+    originImageName: appwrite/console:7.8.26
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}-console
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-console
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-console
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-console
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-console
+    spec:
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ${{ defaults.app_name }}
+      containers:
+        - name: ${{ defaults.app_name }}-console
+          image: appwrite/console:7.8.26
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+          startupProbe:
+            tcpSocket:
+              port: http
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
 
 ---
 apiVersion: v1
@@ -528,6 +631,24 @@ spec:
       protocol: TCP
   selector:
     app: ${{ defaults.app_name }}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-console
+  labels:
+    app: ${{ defaults.app_name }}-console
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-console
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-console
 
 ---
 apiVersion: networking.k8s.io/v1
@@ -565,6 +686,49 @@ spec:
             backend:
               service:
                 name: ${{ defaults.app_name }}
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-console
+  labels:
+    app: ${{ defaults.app_name }}-console
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-console
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /console
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-console
                 port:
                   number: 80
   tls:
