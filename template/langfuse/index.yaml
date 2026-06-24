@@ -1,0 +1,1221 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: langfuse
+spec:
+  title: Langfuse
+  url: https://langfuse.com/
+  gitRepo: https://github.com/langfuse/langfuse
+  author: Sealos
+  description: Open-source LLM engineering platform for tracing, prompt management, evaluation, and observability.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/langfuse/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/langfuse/logo.svg
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/langfuse/website-screenshot.webp
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: Langfuse 是开源 LLM 工程平台，支持追踪、提示词管理、评估和可观测性。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/langfuse/README_zh.md
+  categories:
+    - ai
+    - monitor
+    - dev-ops
+  defaults:
+    app_name:
+      type: string
+      value: langfuse-${{ random(8) }}
+    app_host:
+      type: string
+      value: langfuse-${{ random(8) }}
+    salt:
+      type: string
+      value: ${{ random(32) }}
+    encryption_key:
+      type: string
+      value: ${{ random(64) }}
+    nextauth_secret:
+      type: string
+      value: ${{ random(48) }}
+    clickhouse_password:
+      type: string
+      value: ${{ random(32) }}
+    minio_access_key:
+      type: string
+      value: ${{ random(24) }}
+    minio_secret_key:
+      type: string
+      value: ${{ random(48) }}
+    init_org_id:
+      type: string
+      value: langfuse-${{ random(8) }}
+    init_org_name:
+      type: string
+      value: Sealos Langfuse
+  inputs:
+    init_user_email:
+      description: Initial Langfuse user email address
+      type: string
+      default: ''
+      required: false
+    init_user_name:
+      description: Initial Langfuse user display name
+      type: string
+      default: ''
+      required: false
+    init_user_password:
+      description: Initial Langfuse user password
+      type: string
+      default: ''
+      required: false
+    use_object_storage:
+      description: Use Sealos S3-compatible object storage for Langfuse event and media blobs
+      type: boolean
+      default: 'true'
+      required: false
+---
+${{ if(inputs.use_object_storage === 'true') }}
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  policy: private
+---
+${{ endif() }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    kb.io/database: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  terminationPolicy: Delete
+  componentSpecs:
+    - name: postgresql
+      componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
+      replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+spec:
+  completions: 1
+  template:
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: pg-init
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_DATABASE
+              value: langfuse
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export PGPASSWORD="$PG_PASSWORD"
+              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; do
+                sleep 2
+              done
+              if ! psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='${PG_DATABASE}'" | grep -q 1; then
+                psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -c "CREATE DATABASE ${PG_DATABASE}"
+              fi
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+      restartPolicy: OnFailure
+  backoffLimit: 5
+  ttlSecondsAfterFinished: 300
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-redis
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-redis
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    kb.io/database: redis-7.2.7
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/version: 7.2.7
+    clusterversion.kubeblocks.io/name: redis-7.2.7
+    clusterdefinition.kubeblocks.io/name: redis
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys:
+      - kubernetes.io/hostname
+  clusterDefinitionRef: redis
+  terminationPolicy: Delete
+  topology: replication
+  componentSpecs:
+    - componentDef: redis-7
+      name: redis
+      replicas: 1
+      enabledLogs:
+        - running
+      env:
+        - name: CUSTOM_SENTINEL_MASTER_NAME
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      serviceVersion: 7.2.7
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+    - componentDef: redis-sentinel-7
+      name: redis-sentinel
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      serviceVersion: 7.2.7
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-clickhouse
+  labels:
+    app: ${{ defaults.app_name }}-clickhouse
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-clickhouse
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+data:
+  vn-etcvn-clickhousevn-servervn-configvn-dvn-networkvn-xml: |-
+    <clickhouse>
+        <listen_host>0.0.0.0</listen_host>
+    </clickhouse>
+  vn-etcvn-clickhousevn-servervn-configvn-dvn-loggingvn-xml: |-
+    <clickhouse>
+      <logger>
+          <level>warning</level>
+          <console>true</console>
+      </logger>
+      <query_thread_log remove="remove"/>
+      <query_log remove="remove"/>
+      <text_log remove="remove"/>
+      <trace_log remove="remove"/>
+      <metric_log remove="remove"/>
+      <asynchronous_metric_log remove="remove"/>
+      <session_log remove="remove"/>
+      <part_log remove="remove"/>
+      <latency_log remove="remove"/>
+      <processors_profile_log remove="remove"/>
+    </clickhouse>
+  vn-etcvn-clickhousevn-servervn-usersvn-dvn-defaultvn-password: |-
+    <clickhouse>
+      <users>
+        <default>
+          <password>${{ defaults.clickhouse_password }}</password>
+        </default>
+      </users>
+    </clickhouse>
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-clickhouse
+  annotations:
+    originImageName: clickhouse/clickhouse-server:25.4.2
+    docker-to-sealos.resource-override-source: https://langfuse.com/self-hosting/deployment/infrastructure/clickhouse documents ClickHouse as the analytics store for traces, observations, and scores.
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}-clickhouse
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-clickhouse
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}-clickhouse
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-clickhouse
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-clickhouse
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-clickhouse
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-clickhouse
+          image: clickhouse/clickhouse-server:25.4.2
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: CLICKHOUSE_DB
+              value: default
+            - name: CLICKHOUSE_USER
+              value: default
+            - name: CLICKHOUSE_PASSWORD
+              value: ${{ defaults.clickhouse_password }}
+          ports:
+            - name: http
+              containerPort: 8123
+              protocol: TCP
+            - name: tcp
+              containerPort: 9000
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 50m
+              memory: 51Mi
+          startupProbe:
+            httpGet:
+              path: /ping
+              port: 8123
+              scheme: HTTP
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 24
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: 8123
+              scheme: HTTP
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: 8123
+              scheme: HTTP
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          volumeMounts:
+            - name: vn-varvn-libvn-clickhouse
+              mountPath: /var/lib/clickhouse
+            - name: vn-varvn-logvn-clickhouse-server
+              mountPath: /var/log/clickhouse-server
+            - name: ${{ defaults.app_name }}-clickhouse-cm
+              mountPath: /etc/clickhouse-server/config.d/network.xml
+              subPath: vn-etcvn-clickhousevn-servervn-configvn-dvn-networkvn-xml
+            - name: ${{ defaults.app_name }}-clickhouse-cm
+              mountPath: /etc/clickhouse-server/config.d/logging.xml
+              subPath: vn-etcvn-clickhousevn-servervn-configvn-dvn-loggingvn-xml
+            - name: ${{ defaults.app_name }}-clickhouse-cm
+              mountPath: /etc/clickhouse-server/users.d/default-password.xml
+              subPath: vn-etcvn-clickhousevn-servervn-usersvn-dvn-defaultvn-password
+      volumes:
+        - name: ${{ defaults.app_name }}-clickhouse-cm
+          configMap:
+            name: ${{ defaults.app_name }}-clickhouse
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-varvn-libvn-clickhouse
+        annotations:
+          path: /var/lib/clickhouse
+          value: '1'
+        labels:
+          cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+    - metadata:
+        name: vn-varvn-logvn-clickhouse-server
+        annotations:
+          path: /var/log/clickhouse-server
+          value: '1'
+        labels:
+          cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-clickhouse
+  labels:
+    app: ${{ defaults.app_name }}-clickhouse
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-clickhouse
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8123
+      targetPort: 8123
+      protocol: TCP
+    - name: tcp
+      port: 9000
+      targetPort: 9000
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-clickhouse
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-worker
+  annotations:
+    originImageName: docker.io/langfuse/langfuse-worker:3.180.0
+    docker-to-sealos.resource-override-source: https://langfuse.com/self-hosting/deployment/infrastructure/containers documents NODE_OPTIONS memory settings for Langfuse Web and Worker containers.
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}-worker
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-worker
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-worker
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-worker
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-worker
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: wait-for-postgres-migrations
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" >/dev/null 2>&1; do
+                sleep 2
+              done
+              until PGPASSWORD="$PG_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d langfuse -tAc "select 1 from information_schema.columns where table_schema = 'public' and table_name = 'eval_templates' and column_name = 'type'" | grep -q 1; do
+                sleep 2
+              done
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+        - name: wait-for-redis
+          image: public.ecr.aws/docker/library/redis:7.2.7-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until [ -s /redis-secret/password ]; do
+                sleep 2
+              done
+              REDIS_PASSWORD="$(cat /redis-secret/password)"
+              until redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" ping >/dev/null 2>&1; do
+                sleep 2
+              done
+          volumeMounts:
+            - name: redis-credentials
+              mountPath: /redis-secret
+              readOnly: true
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+      containers:
+        - name: ${{ defaults.app_name }}-worker
+          image: docker.io/langfuse/langfuse-worker:3.180.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
+            - name: NEXTAUTH_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: NODE_OPTIONS
+              value: --max-old-space-size=1024
+            - name: DATABASE_URL
+              value: postgresql://$(PG_USER):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/langfuse
+            - name: SALT
+              value: ${{ defaults.salt }}
+            - name: ENCRYPTION_KEY
+              value: ${{ defaults.encryption_key }}
+            - name: TELEMETRY_ENABLED
+              value: 'true'
+            - name: LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES
+              value: 'false'
+            - name: CLICKHOUSE_MIGRATION_URL
+              value: clickhouse://default:${{ defaults.clickhouse_password }}@${{ defaults.app_name }}-clickhouse.${{ SEALOS_NAMESPACE }}.svc.cluster.local:9000
+            - name: CLICKHOUSE_URL
+              value: http://${{ defaults.app_name }}-clickhouse.${{ SEALOS_NAMESPACE }}.svc.cluster.local:8123
+            - name: CLICKHOUSE_USER
+              value: default
+            - name: CLICKHOUSE_PASSWORD
+              value: ${{ defaults.clickhouse_password }}
+            - name: CLICKHOUSE_CLUSTER_ENABLED
+              value: 'false'
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
+            - name: REDIS_AUTH
+              value: $(REDIS_PASSWORD)
+            - name: REDIS_TLS_ENABLED
+              value: 'false'
+            - name: LANGFUSE_BULLMQ_SKIP_REDIS_VERSION_CHECK
+              value: 'false'
+            ${{ if(inputs.use_object_storage === 'true') }}
+            - name: LANGFUSE_S3_EVENT_UPLOAD_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: BACKEND_STORAGE_MINIO_INTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: internal
+            - name: LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT
+              value: http://$(BACKEND_STORAGE_MINIO_INTERNAL_ENDPOINT)
+            ${{ else() }}
+            - name: LANGFUSE_S3_EVENT_UPLOAD_BUCKET
+              value: ${{ defaults.app_name }}
+            - name: LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID
+              value: ${{ defaults.minio_access_key }}
+            - name: LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY
+              value: ${{ defaults.minio_secret_key }}
+            - name: LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT
+              value: http://${{ defaults.app_name }}-minio.${{ SEALOS_NAMESPACE }}.svc.cluster.local:9000
+            ${{ endif() }}
+            - name: LANGFUSE_S3_EVENT_UPLOAD_REGION
+              value: auto
+            - name: LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE
+              value: 'true'
+            - name: LANGFUSE_S3_EVENT_UPLOAD_PREFIX
+              value: events/
+            ${{ if(inputs.use_object_storage === 'true') }}
+            - name: LANGFUSE_S3_MEDIA_UPLOAD_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            - name: LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+            ${{ else() }}
+            - name: LANGFUSE_S3_MEDIA_UPLOAD_BUCKET
+              value: ${{ defaults.app_name }}
+            - name: LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID
+              value: ${{ defaults.minio_access_key }}
+            - name: LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY
+              value: ${{ defaults.minio_secret_key }}
+            - name: LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT
+              value: http://${{ defaults.app_name }}-minio.${{ SEALOS_NAMESPACE }}.svc.cluster.local:9000
+            ${{ endif() }}
+            - name: LANGFUSE_S3_MEDIA_UPLOAD_REGION
+              value: auto
+            - name: LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE
+              value: 'true'
+            - name: LANGFUSE_S3_MEDIA_UPLOAD_PREFIX
+              value: media/
+            - name: LANGFUSE_S3_BATCH_EXPORT_ENABLED
+              value: 'false'
+          ports:
+            - name: http
+              containerPort: 3030
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 50m
+              memory: 102Mi
+            limits:
+              cpu: 500m
+              memory: 1024Mi
+      volumes:
+        - name: redis-credentials
+          secret:
+            secretName: ${{ defaults.app_name }}-redis-redis-account-default
+            optional: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: docker.io/langfuse/langfuse:3.180.0
+    docker-to-sealos.resource-override-source: https://langfuse.com/self-hosting/deployment/infrastructure/containers documents NODE_OPTIONS memory settings for Langfuse Web and Worker containers.
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: wait-for-redis
+          image: public.ecr.aws/docker/library/redis:7.2.7-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until [ -s /redis-secret/password ]; do
+                sleep 2
+              done
+              REDIS_PASSWORD="$(cat /redis-secret/password)"
+              until redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" ping >/dev/null 2>&1; do
+                sleep 2
+              done
+          volumeMounts:
+            - name: redis-credentials
+              mountPath: /redis-secret
+              readOnly: true
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: docker.io/langfuse/langfuse:3.180.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
+            - name: NEXTAUTH_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: NODE_OPTIONS
+              value: --max-old-space-size=2048
+            - name: DATABASE_URL
+              value: postgresql://$(PG_USER):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/langfuse
+            - name: SALT
+              value: ${{ defaults.salt }}
+            - name: ENCRYPTION_KEY
+              value: ${{ defaults.encryption_key }}
+            - name: NEXTAUTH_SECRET
+              value: ${{ defaults.nextauth_secret }}
+            - name: TELEMETRY_ENABLED
+              value: 'true'
+            - name: LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES
+              value: 'false'
+            - name: CLICKHOUSE_MIGRATION_URL
+              value: clickhouse://default:${{ defaults.clickhouse_password }}@${{ defaults.app_name }}-clickhouse.${{ SEALOS_NAMESPACE }}.svc.cluster.local:9000
+            - name: CLICKHOUSE_URL
+              value: http://${{ defaults.app_name }}-clickhouse.${{ SEALOS_NAMESPACE }}.svc.cluster.local:8123
+            - name: CLICKHOUSE_USER
+              value: default
+            - name: CLICKHOUSE_PASSWORD
+              value: ${{ defaults.clickhouse_password }}
+            - name: CLICKHOUSE_CLUSTER_ENABLED
+              value: 'false'
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
+            - name: REDIS_AUTH
+              value: $(REDIS_PASSWORD)
+            - name: REDIS_TLS_ENABLED
+              value: 'false'
+            - name: LANGFUSE_BULLMQ_SKIP_REDIS_VERSION_CHECK
+              value: 'false'
+            ${{ if(inputs.use_object_storage === 'true') }}
+            - name: LANGFUSE_S3_EVENT_UPLOAD_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: BACKEND_STORAGE_MINIO_INTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: internal
+            - name: LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT
+              value: http://$(BACKEND_STORAGE_MINIO_INTERNAL_ENDPOINT)
+            ${{ else() }}
+            - name: LANGFUSE_S3_EVENT_UPLOAD_BUCKET
+              value: ${{ defaults.app_name }}
+            - name: LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID
+              value: ${{ defaults.minio_access_key }}
+            - name: LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY
+              value: ${{ defaults.minio_secret_key }}
+            - name: LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT
+              value: http://${{ defaults.app_name }}-minio.${{ SEALOS_NAMESPACE }}.svc.cluster.local:9000
+            ${{ endif() }}
+            - name: LANGFUSE_S3_EVENT_UPLOAD_REGION
+              value: auto
+            - name: LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE
+              value: 'true'
+            - name: LANGFUSE_S3_EVENT_UPLOAD_PREFIX
+              value: events/
+            ${{ if(inputs.use_object_storage === 'true') }}
+            - name: LANGFUSE_S3_MEDIA_UPLOAD_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            - name: LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+            ${{ else() }}
+            - name: LANGFUSE_S3_MEDIA_UPLOAD_BUCKET
+              value: ${{ defaults.app_name }}
+            - name: LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID
+              value: ${{ defaults.minio_access_key }}
+            - name: LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY
+              value: ${{ defaults.minio_secret_key }}
+            - name: LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT
+              value: http://${{ defaults.app_name }}-minio.${{ SEALOS_NAMESPACE }}.svc.cluster.local:9000
+            ${{ endif() }}
+            - name: LANGFUSE_S3_MEDIA_UPLOAD_REGION
+              value: auto
+            - name: LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE
+              value: 'true'
+            - name: LANGFUSE_S3_MEDIA_UPLOAD_PREFIX
+              value: media/
+            - name: LANGFUSE_S3_BATCH_EXPORT_ENABLED
+              value: 'false'
+            ${{ if(inputs.init_user_email !== '' && inputs.init_user_password !== '') }}
+            - name: LANGFUSE_INIT_ORG_ID
+              value: ${{ defaults.init_org_id }}
+            - name: LANGFUSE_INIT_ORG_NAME
+              value: ${{ defaults.init_org_name }}
+            - name: LANGFUSE_INIT_USER_EMAIL
+              value: ${{ inputs.init_user_email }}
+            - name: LANGFUSE_INIT_USER_NAME
+              value: ${{ inputs.init_user_name }}
+            - name: LANGFUSE_INIT_USER_PASSWORD
+              value: ${{ inputs.init_user_password }}
+            ${{ endif() }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 100m
+              memory: 204Mi
+            limits:
+              cpu: '1'
+              memory: 2048Mi
+          startupProbe:
+            httpGet:
+              path: /api/public/health
+              port: 3000
+              scheme: HTTP
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /api/public/health
+              port: 3000
+              scheme: HTTP
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /api/public/ready
+              port: 3000
+              scheme: HTTP
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+      volumes:
+        - name: redis-credentials
+          secret:
+            secretName: ${{ defaults.app_name }}-redis-redis-account-default
+            optional: true
+---
+${{ if(inputs.use_object_storage === 'false') }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-minio
+  annotations:
+    originImageName: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    docker-to-sealos.resource-override-source: https://langfuse.com/self-hosting/deployment/blobstorage documents S3-compatible blob storage as the fallback when external object storage is disabled.
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}-minio
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}-minio
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-minio
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-minio
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-minio
+          image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              mkdir -p /data/${{ defaults.app_name }}
+              exec minio server --address ":9000" --console-address ":9001" /data
+          env:
+            - name: MINIO_ROOT_USER
+              value: ${{ defaults.minio_access_key }}
+            - name: MINIO_ROOT_PASSWORD
+              value: ${{ defaults.minio_secret_key }}
+          ports:
+            - name: api
+              containerPort: 9000
+              protocol: TCP
+            - name: console
+              containerPort: 9001
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          startupProbe:
+            httpGet:
+              path: /minio/health/live
+              port: 9000
+              scheme: HTTP
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 24
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: 9000
+              scheme: HTTP
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: 9000
+              scheme: HTTP
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          volumeMounts:
+            - name: vn-data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-data
+        annotations:
+          path: /data
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-minio
+  labels:
+    app: ${{ defaults.app_name }}-minio
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio
+spec:
+  type: ClusterIP
+  ports:
+    - name: api
+      port: 9000
+      targetPort: 9000
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-minio
+---
+${{ endif() }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 3000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/langfuse/logo.svg
+  name: Langfuse
+  type: link

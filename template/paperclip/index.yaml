@@ -1,0 +1,888 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: paperclip
+spec:
+  title: Paperclip
+  url: https://paperclip.ing
+  gitRepo: https://github.com/paperclipai/paperclip
+  author: Sealos
+  description: Open-source agent company platform for running AI teams, issue workflows, approvals, plugins, and local coding agents.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/paperclip/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/paperclip/logo.svg
+  screenshots:
+    - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/paperclip/website-screenshot.webp'
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: Paperclip 是开源 AI 团队运行平台，用于管理智能体公司、任务、审批、插件和本地编码 Agent。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/paperclip/README_zh.md
+  categories:
+    - ai
+    - tool
+    - dev-ops
+  defaults:
+    app_name:
+      type: string
+      value: paperclip-${{ random(8) }}
+    app_host:
+      type: string
+      value: paperclip-${{ random(8) }}
+    better_auth_secret:
+      type: string
+      value: ${{ random(48) }}
+    secrets_master_key:
+      type: string
+      value: ${{ random(32) }}
+    agent_jwt_secret:
+      type: string
+      value: ${{ random(48) }}
+    bootstrap_invite_token:
+      type: string
+      value: pcp_bootstrap_${{ random(48) }}
+  inputs:
+    use_object_storage:
+      description: Use S3-compatible object storage for attachments and company assets
+      type: boolean
+      default: 'false'
+      required: false
+    openai_api_key:
+      description: Optional OpenAI API key for Codex and OpenAI-backed agents
+      type: string
+      default: ''
+      required: false
+    anthropic_api_key:
+      description: Optional Anthropic API key for Claude-backed agents
+      type: string
+      default: ''
+      required: false
+    gemini_api_key:
+      description: Optional Gemini API key for Gemini-backed agents
+      type: string
+      default: ''
+      required: false
+
+---
+${{ if(inputs.use_object_storage === 'true') }}
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  policy: private
+
+---
+${{ endif() }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  terminationPolicy: Delete
+  componentSpecs:
+    - name: postgresql
+      componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
+      replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+spec:
+  completions: 1
+  template:
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: pg-init
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_DATABASE
+              value: paperclip
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export PGPASSWORD="$PG_PASSWORD"
+              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; do
+                sleep 2
+              done
+              if ! psql "postgresql://$PG_USER:$PG_PASSWORD@$PG_HOST:$PG_PORT/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='$PG_DATABASE'" | grep -q 1; then
+                createdb -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" "$PG_DATABASE"
+              fi
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+      restartPolicy: OnFailure
+  backoffLimit: 5
+  ttlSecondsAfterFinished: 300
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/paperclipai/paperclip:sha-b8725c5
+    docker-to-sealos.resource-override-source: https://github.com/paperclipai/paperclip/blob/master/docs/deploy/docker.md documents the Paperclip all-in-one server and configuration bootstrap path.
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      initContainers:
+        - name: fix-paperclip-volume-permissions
+          image: public.ecr.aws/docker/library/busybox:1.36.1
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              mkdir -p /paperclip
+              chown -R 1000:1000 /paperclip
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: vn-paperclip
+              mountPath: /paperclip
+        - name: wait-for-postgres
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_DATABASE
+              value: paperclip
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export PGPASSWORD="$PG_PASSWORD"
+              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DATABASE" >/dev/null 2>&1; do
+                sleep 2
+              done
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+        - name: configure-paperclip
+          image: ghcr.io/paperclipai/paperclip:sha-b8725c5
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PAPERCLIP_CONFIG
+              value: /paperclip/instances/default/config.json
+            - name: PAPERCLIP_PUBLIC_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: PAPERCLIP_ALLOWED_HOSTNAMES
+              value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: PAPERCLIP_AGENT_JWT_SECRET
+              value: ${{ defaults.agent_jwt_secret }}
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgres://$(PG_USER):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/paperclip
+            ${{ if(inputs.use_object_storage === 'true') }}
+            - name: PAPERCLIP_STORAGE_PROVIDER
+              value: s3
+            - name: PAPERCLIP_STORAGE_S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            ${{ else() }}
+            - name: PAPERCLIP_STORAGE_PROVIDER
+              value: local_disk
+            ${{ endif() }}
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              mkdir -p /paperclip/instances/default/logs
+              mkdir -p /paperclip/instances/default/logs
+              mkdir -p /paperclip/instances/default/data/backups
+              mkdir -p /paperclip/instances/default/data/storage
+              mkdir -p /paperclip/instances/default/secrets
+              if [ ! -s /paperclip/instances/default/.env ]; then
+                umask 077
+                printf 'PAPERCLIP_AGENT_JWT_SECRET=%s\n' "$PAPERCLIP_AGENT_JWT_SECRET" > /paperclip/instances/default/.env
+              fi
+              node <<'NODE'
+              const fs = require("fs");
+              const path = require("path");
+              const configPath = process.env.PAPERCLIP_CONFIG;
+              const storageProvider = process.env.PAPERCLIP_STORAGE_PROVIDER || "local_disk";
+              const cfg = {
+                $meta: {
+                  version: 1,
+                  updatedAt: new Date().toISOString(),
+                  source: "configure"
+                },
+                database: {
+                  mode: "postgres",
+                  connectionString: process.env.DATABASE_URL,
+                  embeddedPostgresDataDir: "/paperclip/instances/default/db",
+                  embeddedPostgresPort: 54329,
+                  backup: {
+                    enabled: true,
+                    intervalMinutes: 60,
+                    retentionDays: 30,
+                    dir: "/paperclip/instances/default/data/backups"
+                  }
+                },
+                logging: {
+                  mode: "file",
+                  logDir: "/paperclip/instances/default/logs"
+                },
+                server: {
+                  deploymentMode: "authenticated",
+                  exposure: "public",
+                  bind: "lan",
+                  host: "0.0.0.0",
+                  port: 3100,
+                  allowedHostnames: [process.env.PAPERCLIP_ALLOWED_HOSTNAMES],
+                  serveUi: true
+                },
+                auth: {
+                  baseUrlMode: "explicit",
+                  publicBaseUrl: process.env.PAPERCLIP_PUBLIC_URL,
+                  disableSignUp: false
+                },
+                telemetry: {
+                  enabled: true
+                },
+                storage: storageProvider === "s3"
+                  ? {
+                      provider: "s3",
+                      localDisk: {
+                        baseDir: "/paperclip/instances/default/data/storage"
+                      },
+                      s3: {
+                        bucket: process.env.PAPERCLIP_STORAGE_S3_BUCKET,
+                        region: "us-east-1",
+                        endpoint: `https://${process.env.BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT}`,
+                        prefix: "paperclip",
+                        forcePathStyle: true
+                      }
+                    }
+                  : {
+                      provider: "local_disk",
+                      localDisk: {
+                        baseDir: "/paperclip/instances/default/data/storage"
+                      }
+                    },
+                secrets: {
+                  provider: "local_encrypted",
+                  strictMode: false,
+                  localEncrypted: {
+                    keyFilePath: "/paperclip/instances/default/secrets/master.key"
+                  }
+                }
+              };
+              fs.mkdirSync(path.dirname(configPath), { recursive: true });
+              fs.writeFileSync(configPath, `${JSON.stringify(cfg, null, 2)}\n`);
+              NODE
+              chown -R 1000:1000 /paperclip
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 50m
+              memory: 128Mi
+          volumeMounts:
+            - name: vn-paperclip
+              mountPath: /paperclip
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: ghcr.io/paperclipai/paperclip:sha-b8725c5
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3100
+          env:
+            - name: HOST
+              value: 0.0.0.0
+            - name: PORT
+              value: '3100'
+            - name: SERVE_UI
+              value: 'true'
+            - name: PAPERCLIP_HOME
+              value: /paperclip
+            - name: PAPERCLIP_INSTANCE_ID
+              value: default
+            - name: PAPERCLIP_CONFIG
+              value: /paperclip/instances/default/config.json
+            - name: PAPERCLIP_DEPLOYMENT_MODE
+              value: authenticated
+            - name: PAPERCLIP_DEPLOYMENT_EXPOSURE
+              value: public
+            - name: PAPERCLIP_PUBLIC_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: PAPERCLIP_AUTH_PUBLIC_BASE_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: PAPERCLIP_AUTH_BASE_URL_MODE
+              value: explicit
+            - name: PAPERCLIP_AUTH_DISABLE_SIGN_UP
+              value: 'false'
+            - name: PAPERCLIP_ALLOWED_HOSTNAMES
+              value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: PAPERCLIP_SECRETS_MASTER_KEY
+              value: ${{ defaults.secrets_master_key }}
+            - name: BETTER_AUTH_SECRET
+              value: ${{ defaults.better_auth_secret }}
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgres://$(PG_USER):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/paperclip
+            ${{ if(inputs.use_object_storage === 'true') }}
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: PAPERCLIP_STORAGE_S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            - name: PAPERCLIP_STORAGE_PROVIDER
+              value: s3
+            - name: PAPERCLIP_STORAGE_S3_REGION
+              value: us-east-1
+            - name: PAPERCLIP_STORAGE_S3_ENDPOINT
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+            - name: PAPERCLIP_STORAGE_S3_PREFIX
+              value: paperclip
+            - name: PAPERCLIP_STORAGE_S3_FORCE_PATH_STYLE
+              value: 'true'
+            ${{ else() }}
+            - name: PAPERCLIP_STORAGE_PROVIDER
+              value: local_disk
+            - name: PAPERCLIP_STORAGE_LOCAL_DIR
+              value: /paperclip/instances/default/data/storage
+            ${{ endif() }}
+            - name: OPENAI_API_KEY
+              value: '${{ inputs.openai_api_key }}'
+            - name: ANTHROPIC_API_KEY
+              value: '${{ inputs.anthropic_api_key }}'
+            - name: GEMINI_API_KEY
+              value: '${{ inputs.gemini_api_key }}'
+            - name: HEARTBEAT_SCHEDULER_ENABLED
+              value: 'true'
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 50m
+              memory: 128Mi
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            failureThreshold: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: vn-paperclip
+              mountPath: /paperclip
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /paperclip
+          value: '1'
+        name: vn-paperclip
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 3100
+      targetPort: 3100
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 3100
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-bootstrap-ceo
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  completions: 1
+  template:
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: bootstrap-ceo
+          image: ghcr.io/paperclipai/paperclip:sha-b8725c5
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PAPERCLIP_CONFIG
+              value: /tmp/paperclip/config.json
+            - name: PAPERCLIP_PUBLIC_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: PAPERCLIP_AUTH_PUBLIC_BASE_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: PAPERCLIP_AGENT_JWT_SECRET
+              value: ${{ defaults.agent_jwt_secret }}
+            - name: PAPERCLIP_BOOTSTRAP_INVITE_TOKEN
+              value: ${{ defaults.bootstrap_invite_token }}
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgres://$(PG_USER):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/paperclip
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              mkdir -p /tmp/paperclip
+              node <<'NODE'
+              const fs = require("fs");
+              const configPath = process.env.PAPERCLIP_CONFIG;
+              const cfg = {
+                $meta: {
+                  version: 1,
+                  updatedAt: new Date().toISOString(),
+                  source: "configure"
+                },
+                database: {
+                  mode: "postgres",
+                  connectionString: process.env.DATABASE_URL,
+                  embeddedPostgresDataDir: "/tmp/paperclip/db",
+                  embeddedPostgresPort: 54329,
+                  backup: {
+                    enabled: true,
+                    intervalMinutes: 60,
+                    retentionDays: 30,
+                    dir: "/tmp/paperclip/backups"
+                  }
+                },
+                logging: {
+                  mode: "file",
+                  logDir: "/tmp/paperclip/logs"
+                },
+                server: {
+                  deploymentMode: "authenticated",
+                  exposure: "public",
+                  bind: "lan",
+                  host: "0.0.0.0",
+                  port: 3100,
+                  allowedHostnames: [],
+                  serveUi: true
+                },
+                auth: {
+                  baseUrlMode: "explicit",
+                  publicBaseUrl: process.env.PAPERCLIP_PUBLIC_URL,
+                  disableSignUp: false
+                },
+                telemetry: {
+                  enabled: true
+                },
+                storage: {
+                  provider: "local_disk",
+                  localDisk: {
+                    baseDir: "/tmp/paperclip/storage"
+                  }
+                },
+                secrets: {
+                  provider: "local_encrypted",
+                  strictMode: false,
+                  localEncrypted: {
+                    keyFilePath: "/tmp/paperclip/secrets/master.key"
+                  }
+                }
+              };
+              fs.writeFileSync(configPath, `${JSON.stringify(cfg, null, 2)}\n`);
+              NODE
+              for i in $(seq 1 120); do
+                if curl -fsS "http://${{ defaults.app_name }}:3100/api/health" >/dev/null; then
+                  break
+                fi
+                sleep 2
+              done
+              curl -fsS "http://${{ defaults.app_name }}:3100/api/health" >/dev/null
+              node cli/node_modules/tsx/dist/cli.mjs -e '
+                import { createHash } from "node:crypto";
+                import { createRequire } from "node:module";
+                import { createDb, instanceUserRoles, invites } from "/app/packages/db/src/index.ts";
+
+                const require = createRequire("/app/packages/db/src/index.ts");
+                const { and, eq, gt, isNull } = require("drizzle-orm");
+
+                async function main() {
+                  const token = process.env.PAPERCLIP_BOOTSTRAP_INVITE_TOKEN;
+                  const baseUrl = process.env.PAPERCLIP_PUBLIC_URL.replace(/\/+$/, "");
+                  const db = createDb(process.env.DATABASE_URL);
+                  const existingAdminCount = await db
+                    .select()
+                    .from(instanceUserRoles)
+                    .where(eq(instanceUserRoles.role, "instance_admin"))
+                    .then((rows) => rows.length);
+
+                  if (existingAdminCount > 0) {
+                    console.log("Instance already has an admin user.");
+                    return;
+                  }
+
+                  const now = new Date();
+                  await db
+                    .update(invites)
+                    .set({ revokedAt: now, updatedAt: now })
+                    .where(
+                      and(
+                        eq(invites.inviteType, "bootstrap_ceo"),
+                        isNull(invites.revokedAt),
+                        isNull(invites.acceptedAt),
+                        gt(invites.expiresAt, now),
+                      ),
+                    );
+                  const tokenHash = createHash("sha256").update(token).digest("hex");
+                  const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000);
+                  await db
+                    .insert(invites)
+                    .values({
+                      inviteType: "bootstrap_ceo",
+                      tokenHash,
+                      allowedJoinTypes: "human",
+                      expiresAt,
+                      invitedByUserId: "system",
+                    })
+                    .onConflictDoUpdate({
+                      target: invites.tokenHash,
+                      set: {
+                        revokedAt: null,
+                        acceptedAt: null,
+                        expiresAt,
+                        updatedAt: now,
+                      },
+                    });
+                  console.log(`Created bootstrap CEO invite.`);
+                  console.log(`Invite URL: ${baseUrl}/invite/${token}`);
+                  console.log(`Expires: ${expiresAt.toISOString()}`);
+                }
+
+                main().then(() => {
+                  process.exit(0);
+                }).catch((error) => {
+                  console.error(error);
+                  process.exit(1);
+                });
+              '
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 50m
+              memory: 51Mi
+      restartPolicy: OnFailure
+  backoffLimit: 5
+  ttlSecondsAfterFinished: 259200
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/invite/${{ defaults.bootstrap_invite_token }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/paperclip/logo.svg
+  name: Paperclip
+  type: link

@@ -1,0 +1,229 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: cobalt
+spec:
+  title: cobalt
+  url: https://cobalt.tools/
+  gitRepo: https://github.com/imputnet/cobalt
+  author: Sealos
+  description: Privacy-focused media processing API for saving media from supported social and video services.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/cobalt/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/cobalt/logo.png
+  screenshots:
+    - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/cobalt/website-screenshot.webp'
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: cobalt 是注重隐私的媒体处理 API，可从受支持的社交和视频服务保存媒体内容。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/cobalt/README_zh.md
+  categories:
+    - tool
+    - backend
+  defaults:
+    app_name:
+      type: string
+      value: cobalt-${{ random(8) }}
+    app_host:
+      type: string
+      value: cobalt-${{ random(8) }}
+    jwt_secret:
+      type: string
+      value: ${{ random(48) }}
+  inputs:
+    api_auth_required:
+      description: Require configured Turnstile sessions for API access
+      type: boolean
+      default: 'false'
+      required: false
+    disabled_services:
+      description: Optional comma-separated service list to disable, for example bilibili,youtube
+      type: string
+      default: ''
+      required: false
+    turnstile_sitekey:
+      description: Optional Cloudflare Turnstile site key for session authentication
+      type: string
+      default: ''
+      required: false
+    turnstile_secret:
+      description: Optional Cloudflare Turnstile secret for session authentication
+      type: string
+      default: ''
+      required: false
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/imputnet/cobalt:7.13.3
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: ghcr.io/imputnet/cobalt:7.13.3
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 9000
+          env:
+            - name: API_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/
+            - name: API_PORT
+              value: '9000'
+            - name: API_LISTEN_ADDRESS
+              value: 0.0.0.0
+            - name: CORS_WILDCARD
+              value: '1'
+            - name: RATELIMIT_WINDOW
+              value: '60'
+            - name: RATELIMIT_MAX
+              value: '20'
+            - name: SESSION_RATELIMIT_WINDOW
+              value: '60'
+            - name: SESSION_RATELIMIT_MAX
+              value: '10'
+            - name: TUNNEL_RATELIMIT_WINDOW
+              value: '60'
+            - name: TUNNEL_RATELIMIT_MAX
+              value: '40'
+            - name: TUNNEL_LIFESPAN
+              value: '90'
+            - name: DURATION_LIMIT
+              value: '10800'
+            - name: FORCE_LOCAL_PROCESSING
+              value: never
+            - name: DISABLED_SERVICES
+              value: ${{ inputs.disabled_services }}
+            - name: JWT_SECRET
+              value: ${{ defaults.jwt_secret }}
+            - name: TURNSTILE_SITEKEY
+              value: ${{ inputs.turnstile_sitekey }}
+            - name: TURNSTILE_SECRET
+              value: ${{ inputs.turnstile_secret }}
+            ${{ if(inputs.api_auth_required === 'true') }}
+            - name: API_AUTH_REQUIRED
+              value: '1'
+            ${{ else() }}
+            - name: API_AUTH_REQUIRED
+              value: '0'
+            ${{ endif() }}
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          startupProbe:
+            tcpSocket:
+              port: http
+            failureThreshold: 30
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 9000
+      targetPort: 9000
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 9000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/cobalt/logo.png
+  name: cobalt
+  type: link

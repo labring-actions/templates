@@ -1,0 +1,199 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: steel-browser
+spec:
+  title: Steel Browser
+  url: https://steel.dev/
+  gitRepo: https://github.com/steel-dev/steel-browser
+  author: Sealos
+  description: Open-source browser API for AI agents and applications that need live browser automation.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/steel-browser/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/steel-browser/logo.png
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/steel-browser/website-screenshot.webp
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: Steel Browser 是面向 AI Agent 和应用的开源浏览器 API，可提供实时浏览器自动化能力。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/steel-browser/README_zh.md
+  categories:
+    - ai
+    - tool
+    - dev-ops
+  defaults:
+    app_name:
+      type: string
+      value: steel-browser-${{ random(8) }}
+    app_host:
+      type: string
+      value: steel-browser-${{ random(8) }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/steel-dev/steel-browser@sha256:cbf4a44d575c0ae83d00d4ba6bb455d24980de0ced2b06fe8b890e835c923bd1
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+    docker-to-sealos.resource-override-source: https://docs.steel.dev/overview/self-hosting/docker
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: ghcr.io/steel-dev/steel-browser@sha256:cbf4a44d575c0ae83d00d4ba6bb455d24980de0ced2b06fe8b890e835c923bd1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: HOST_IP
+              value: localhost
+            - name: DBUS_SESSION_BUS_ADDRESS
+              value: 'autolaunch:'
+            - name: SKIP_FINGERPRINT_INJECTION
+              value: 'true'
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+            - name: debugger
+              containerPort: 9223
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 100m
+              memory: 409Mi
+            limits:
+              cpu: 1
+              memory: 4096Mi
+          startupProbe:
+            httpGet:
+              path: /
+              port: 3000
+              scheme: HTTP
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+              scheme: HTTP
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+              scheme: HTTP
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          volumeMounts:
+            - name: vn-files
+              mountPath: /files
+            - name: vn-puppeteer-cache
+              mountPath: /app/.cache
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-files
+        annotations:
+          path: /files
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+    - metadata:
+        name: vn-puppeteer-cache
+        annotations:
+          path: /app/.cache
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/backend-protocol: WS
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 3000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/steel-browser/logo.png
+  name: Steel Browser
+  type: link
