@@ -268,8 +268,12 @@ data:
     $needle = "        if (\$this->readTimeout >= 0) {\n";
     if (strpos($source, '$this->redis->auth($auth);') === false) {
         $patch = "        if (\$this->user || \$this->password) {\n            \$auth = \$this->user ? [\$this->user, \$this->password ?? ''] : \$this->password;\n            \$this->redis->auth(\$auth);\n        }\n\n";
-        $source = str_replace($needle, $patch . $needle, $source);
-        file_put_contents($file, $source);
+        $patched = str_replace($needle, $patch . $needle, $source);
+        if ($patched === $source) {
+            fwrite(STDERR, "Failed to patch Appwrite Redis queue connection.\n");
+            exit(1);
+        }
+        file_put_contents($file, $patched);
     }
 
 ---
@@ -308,15 +312,9 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: MONGO_HOST
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-mongo-mongodb-account-root
-                  key: host
+              value: ${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc.cluster.local
             - name: MONGO_PORT
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-mongo-mongodb-account-root
-                  key: port
+              value: '27017'
           command:
             - /bin/sh
             - -ec
@@ -360,7 +358,7 @@ spec:
           command:
             - /bin/sh
             - -ec
-            - exec php -d auto_prepend_file=/etc/appwrite-redis-compat/redis-compat.php -e app/http.php
+            - php /etc/appwrite-redis-compat/redis-compat.php && exec php -e app/http.php
           ports:
             - name: http
               containerPort: 80
@@ -410,15 +408,9 @@ spec:
             - name: _APP_DB_ADAPTER
               value: mongodb
             - name: _APP_DB_HOST
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-mongo-mongodb-account-root
-                  key: host
+              value: ${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc.cluster.local
             - name: _APP_DB_PORT
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-mongo-mongodb-account-root
-                  key: port
+              value: '27017'
             - name: _APP_DB_SCHEMA
               value: appwrite
             - name: _APP_DB_USER
@@ -580,8 +572,6 @@ spec:
         cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-console
     spec:
       automountServiceAccountToken: false
-      imagePullSecrets:
-        - name: ${{ defaults.app_name }}
       containers:
         - name: ${{ defaults.app_name }}-console
           image: appwrite/console:7.8.26
