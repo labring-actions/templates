@@ -138,6 +138,8 @@ spec:
               value: '6379'
             - name: REDIS_URL
               value: redis://default:$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)
+            - name: ATBOX_URL
+              value: http://${{ defaults.app_name }}-atbox.${{ SEALOS_NAMESPACE }}.svc.cluster.local:5300
             - name: LLM_API_KEY
               value: ${{ inputs.LLM_API_KEY }}
             - name: LLM_BASE_URL
@@ -182,6 +184,75 @@ spec:
   ports:
     - port: 80
       targetPort: 80
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-atbox
+  labels:
+    app: ${{ defaults.app_name }}-atbox
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-atbox
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-atbox
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-atbox
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: atbox
+          image: registry.cn-shanghai.aliyuncs.com/datamini/asktable-atbox:latest
+          env:
+            - name: TZ
+              value: Asia/Shanghai
+            - name: ATBOX_MAX_WORKERS
+              value: '8'
+            - name: ATBOX_DEFAULT_TIMEOUT
+              value: 30s
+            - name: ATBOX_MAX_TIMEOUT
+              value: 120s
+            - name: ATBOX_ENABLE_NETWORK
+              value: '0'
+          ports:
+            - containerPort: 5300
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - CHOWN
+                - DAC_OVERRIDE
+                - SETUID
+                - SETGID
+                - SYS_CHROOT
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-atbox
+  labels:
+    app: ${{ defaults.app_name }}-atbox
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-atbox
+spec:
+  selector:
+    app: ${{ defaults.app_name }}-atbox
+  ports:
+    - port: 5300
+      targetPort: 5300
 
 ---
 apiVersion: networking.k8s.io/v1
