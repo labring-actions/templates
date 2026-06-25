@@ -44,32 +44,16 @@ spec:
     ui_password:
       description: Administrator password for the LiteLLM Admin UI
       type: string
-      default: ''
+      default: LiteLLM@${{ random(16) }}!1
       required: true
-    database_mode:
-      description: Use the bundled PostgreSQL database or an external PostgreSQL URL
-      type: choice
-      default: bundled-postgresql
-      options:
-        - bundled-postgresql
-        - external-postgresql
-      required: false
-    external_database_url:
-      description: External PostgreSQL URL used when database_mode is external-postgresql
-      type: string
-      default: ''
-      required: false
-    config_storage:
-      description: Store LiteLLM config locally or in a Sealos S3-compatible bucket
-      type: choice
-      default: local
-      options:
-        - local
-        - sealos-s3
+    enable_s3_storage:
+      description: Store LiteLLM config in a Sealos S3-compatible bucket
+      type: boolean
+      default: 'false'
       required: false
 
 ---
-${{ if(inputs.config_storage === 'sealos-s3') }}
+${{ if(inputs.enable_s3_storage === 'true') }}
 apiVersion: objectstorage.sealos.io/v1
 kind: ObjectStorageBucket
 metadata:
@@ -80,9 +64,36 @@ spec:
   policy: private
 
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-tmpvn-initvn-s3vn-configvn-sh: |
+    #!/bin/sh
+    set -eu
+
+    cat > /tmp/litellm_proxy_config.yaml <<'YAML'
+    model_list: []
+    general_settings: {}
+    router_settings: {}
+    litellm_settings: {}
+    YAML
+
+    mc alias set sealos "https://${BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT}" "${S3_ACCESS_KEY_ID}" "${S3_SECRET_ACCESS_KEY}"
+    until mc ls "sealos/${S3_BUCKET}" >/dev/null 2>&1; do
+      sleep 2
+    done
+    if ! mc stat "sealos/${S3_BUCKET}/${LITELLM_CONFIG_BUCKET_OBJECT_KEY}" >/dev/null 2>&1; then
+      mc cp /tmp/litellm_proxy_config.yaml "sealos/${S3_BUCKET}/${LITELLM_CONFIG_BUCKET_OBJECT_KEY}"
+    fi
+
+---
 ${{ endif() }}
 
-${{ if(inputs.database_mode === 'bundled-postgresql') }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -133,6 +144,7 @@ metadata:
   name: ${{ defaults.app_name }}-pg
   labels:
     kb.io/database: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
     clusterdefinition.kubeblocks.io/name: postgresql
     clusterversion.kubeblocks.io/name: postgresql-16.4.0
 spec:
@@ -212,8 +224,6 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
-            - name: PG_DATABASE
-              value: litellm
           command:
             - /bin/sh
             - -ec
@@ -222,8 +232,8 @@ spec:
               until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; do
                 sleep 2
               done
-              if ! psql "postgresql://$PG_USER:$PG_PASSWORD@$PG_HOST:$PG_PORT/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='$PG_DATABASE'" | grep -q 1; then
-                createdb -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" "$PG_DATABASE"
+              if ! psql "postgresql://$PG_USER:$PG_PASSWORD@$PG_HOST:$PG_PORT/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='litellm'" | grep -q 1; then
+                createdb -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" litellm
               fi
           resources:
             limits:
@@ -237,8 +247,6 @@ spec:
   ttlSecondsAfterFinished: 300
 
 ---
-${{ endif() }}
-
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -247,7 +255,7 @@ metadata:
     originImageName: litellm/litellm-database:v1.88.1
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
-    docker-to-sealos.resource-override-source: "Live Sealos validation on 2026-06-11: litellm/litellm-database:v1.88.1 was OOMKilled with 768Mi during startup; 1536Mi booted successfully."
+    docker-to-sealos.resource-override-source: "Live Sealos validation on 2026-06-11: litellm/litellm-database:v1.88.1 was OOMKilled with 768Mi during startup; use the next valid Sealos memory ladder tier, 2048Mi."
   labels:
     app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
@@ -266,6 +274,49 @@ spec:
       securityContext:
         seccompProfile:
           type: RuntimeDefault
+      ${{ if(inputs.enable_s3_storage === 'true') }}
+      initContainers:
+        - name: init-s3-config
+          image: minio/mc:RELEASE.2025-05-21T01-59-54Z
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - /tmp/init-s3-config.sh
+          env:
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: LITELLM_CONFIG_BUCKET_OBJECT_KEY
+              value: litellm_proxy_config.yaml
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+          volumeMounts:
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /tmp/init-s3-config.sh
+              subPath: vn-tmpvn-initvn-s3vn-configvn-sh
+      ${{ endif() }}
       containers:
         - name: ${{ defaults.app_name }}
           image: litellm/litellm-database:v1.88.1
@@ -279,7 +330,6 @@ spec:
             - --port
             - '4000'
           env:
-            ${{ if(inputs.database_mode === 'bundled-postgresql') }}
             - name: PG_HOST
               valueFrom:
                 secretKeyRef:
@@ -302,10 +352,6 @@ spec:
                   key: password
             - name: DATABASE_URL
               value: postgresql://$(PG_USER):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/litellm
-            ${{ else() }}
-            - name: DATABASE_URL
-              value: ${{ inputs.external_database_url }}
-            ${{ endif() }}
             - name: STORE_MODEL_IN_DB
               value: 'True'
             - name: LITELLM_MASTER_KEY
@@ -318,28 +364,43 @@ spec:
               value: ${{ inputs.ui_password }}
             - name: LITELLM_LOG
               value: INFO
-            ${{ if(inputs.config_storage === 'sealos-s3') }}
-            - name: AWS_ACCESS_KEY_ID
+            - name: ROOT_REDIRECT_URL
+              value: /ui
+            ${{ if(inputs.enable_s3_storage === 'true') }}
+            - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: accessKey
-            - name: AWS_SECRET_ACCESS_KEY
+            - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: secretKey
-            - name: LITELLM_CONFIG_BUCKET_NAME
+            - name: S3_BUCKET
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
                   key: bucket
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            - name: AWS_ACCESS_KEY_ID
+              value: $(S3_ACCESS_KEY_ID)
+            - name: AWS_SECRET_ACCESS_KEY
+              value: $(S3_SECRET_ACCESS_KEY)
+            - name: LITELLM_CONFIG_BUCKET_NAME
+              value: $(S3_BUCKET)
             - name: LITELLM_CONFIG_BUCKET_OBJECT_KEY
               value: litellm_proxy_config.yaml
             - name: LITELLM_CONFIG_BUCKET_TYPE
               value: s3
+            - name: AWS_DEFAULT_REGION
+              value: us-east-1
             - name: AWS_ENDPOINT_URL
-              value: http://object-storage.objectstorage-system.svc.cluster.local
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
             ${{ endif() }}
           ports:
             - name: http
@@ -348,10 +409,10 @@ spec:
           resources:
             limits:
               cpu: 500m
-              memory: 1536Mi
+              memory: 2048Mi
             requests:
               cpu: 50m
-              memory: 256Mi
+              memory: 204Mi
           startupProbe:
             httpGet:
               path: /health/liveliness
@@ -372,6 +433,13 @@ spec:
             initialDelaySeconds: 60
             periodSeconds: 20
             timeoutSeconds: 5
+      ${{ if(inputs.enable_s3_storage === 'true') }}
+      volumes:
+        - name: ${{ defaults.app_name }}-cm
+          configMap:
+            name: ${{ defaults.app_name }}
+            defaultMode: 0755
+      ${{ endif() }}
 
 ---
 apiVersion: v1
