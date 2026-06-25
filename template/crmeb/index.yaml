@@ -27,6 +27,7 @@ spec:
 
   i18n:
     zh:
+      description: "CRMEB 是开源商城系统 PHP 版，适合搭建电商业务和门店管理平台。"
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/crmeb/README_zh.md'
 ---
 apiVersion: v1
@@ -79,8 +80,10 @@ metadata:
   finalizers:
     - cluster.kubeblocks.io/finalizer
   labels:
+    kb.io/database: ac-mysql-8.0.30
     clusterdefinition.kubeblocks.io/name: apecloud-mysql
     clusterversion.kubeblocks.io/name: ac-mysql-8.0.30
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
   name: ${{ defaults.app_name }}-mysql
 spec:
   affinity:
@@ -126,8 +129,15 @@ spec:
     spec:
       containers:
         - name: mysql-init
-          image: joseluisq/mysql-client:8.0.30
+          image: joseluisq/mysql-client:8.0.44
           imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
           env:
             - name: MYSQL_USER
               valueFrom:
@@ -223,11 +233,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 100m
-          memory: 100Mi
+          cpu: 500m
+          memory: 512Mi
         requests:
-          cpu: 10m
-          memory: 10Mi
+          cpu: 50m
+          memory: 51Mi
       serviceVersion: 7.2.7
       volumeClaimTemplates:
         - name: data
@@ -280,6 +290,9 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
 data:
   vn-etcvn-nginxvn-confvn-dvn-defaultvn-conf: |-
     server {
@@ -373,6 +386,13 @@ spec:
           image: ghcr.io/yangchuansheng/crmeb:v5.4.0
           command: ["/bin/sh", "-c", "if [ ! -f /tmp/index.html ]; then cp -rf /var/www/* /tmp/; cp -rf /var/www/.* /tmp/; mkdir /tmp/backup; chmod a+w /tmp/backup; chmod a+w /tmp/public; chmod a+w /tmp/runtime; chmod a+w /tmp/.env; chmod a+w /tmp/.version; chmod a+w /tmp/.constant; fi"]
           imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
           volumeMounts:
             - name: vn-varvn-www
               mountPath: /tmp
@@ -397,9 +417,9 @@ spec:
           volumeMounts:
             - name: vn-varvn-www
               mountPath: /var/www
-            - name: vn-etcvn-nginxvn-confvn-dvn-defaultvn-conf
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /etc/nginx/conf.d/default.conf
-              subPath: ./etc/nginx/conf.d/default.conf
+              subPath: vn-etcvn-nginxvn-confvn-dvn-defaultvn-conf
         - name: ${{ defaults.app_name }}-php
           image: ghcr.io/yangchuansheng/crmeb:v5.4.0
           env:
@@ -421,12 +441,12 @@ spec:
             - name: vn-varvn-www
               mountPath: /var/www
       volumes:
-        - name: vn-etcvn-nginxvn-confvn-dvn-defaultvn-conf
+        - name: ${{ defaults.app_name }}-cm
           configMap:
             name: ${{ defaults.app_name }}
             items:
               - key: vn-etcvn-nginxvn-confvn-dvn-defaultvn-conf
-                path: ./etc/nginx/conf.d/default.conf
+                path: vn-etcvn-nginxvn-confvn-dvn-defaultvn-conf
   volumeClaimTemplates:
     - metadata:
         annotations:
@@ -447,9 +467,11 @@ metadata:
   name: ${{ defaults.app_name }}
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 80
+    - name: http
+      port: 80
   selector:
     app: ${{ defaults.app_name }}
 ---

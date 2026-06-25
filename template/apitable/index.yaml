@@ -32,52 +32,54 @@ spec:
       type: string
       value: ${{ random(32) }}
   inputs:
-    apitable_s3_provider:
-      description: S3-compatible storage backend for APITable attachments, images, and uploads.
-      type: choice
-      default: sealos-objectstorage
-      required: true
-      options:
-        - sealos-objectstorage
-        - external-s3
+    use_sealos_objectstorage:
+      description: Use the Sealos ObjectStorage bucket for APITable attachments, images, and uploads.
+      type: boolean
+      default: 'true'
+      required: false
+    use_external_s3:
+      description: Use an externally managed S3-compatible bucket for APITable attachments, images, and uploads.
+      type: boolean
+      default: 'false'
+      required: false
     external_s3_endpoint:
       description: External S3-compatible API endpoint, for example https://s3.amazonaws.com or https://s3.example.com.
       type: string
       default: ''
       required: true
-      if: inputs.apitable_s3_provider === 'external-s3'
+      if: inputs.use_external_s3 === 'true'
     external_s3_public_endpoint:
       description: Public S3-compatible endpoint used in generated asset URLs.
       type: string
       default: ''
       required: true
-      if: inputs.apitable_s3_provider === 'external-s3'
+      if: inputs.use_external_s3 === 'true'
     external_s3_access_key:
       description: Access key for the external S3-compatible bucket.
       type: string
       default: ''
       required: true
-      if: inputs.apitable_s3_provider === 'external-s3'
+      if: inputs.use_external_s3 === 'true'
     external_s3_secret_key:
       description: Secret key for the external S3-compatible bucket.
       type: string
       default: ''
       required: true
-      if: inputs.apitable_s3_provider === 'external-s3'
+      if: inputs.use_external_s3 === 'true'
     external_s3_bucket:
       description: Existing external S3-compatible bucket name.
       type: string
       default: ''
       required: true
-      if: inputs.apitable_s3_provider === 'external-s3'
+      if: inputs.use_external_s3 === 'true'
     external_s3_region:
       description: Region for the external S3-compatible bucket.
       type: string
       default: us-east-1
       required: true
-      if: inputs.apitable_s3_provider === 'external-s3'
+      if: inputs.use_external_s3 === 'true'
 ---
-${{ if(inputs.apitable_s3_provider === 'sealos-objectstorage') }}
+${{ if(inputs.use_sealos_objectstorage === 'true') }}
 apiVersion: objectstorage.sealos.io/v1
 kind: ObjectStorageBucket
 metadata:
@@ -136,7 +138,8 @@ metadata:
   name: ${{ defaults.app_name }}-mysql
   labels:
     clusterdefinition.kubeblocks.io/name: apecloud-mysql
-    clusterversion.kubeblocks.io/name: ac-mysql-8.0.30
+    clusterversion.kubeblocks.io/name: ac-mysql-8.0.30-1
+    kb.io/database: ac-mysql-8.0.30-1
     sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
 spec:
   affinity:
@@ -146,7 +149,7 @@ spec:
     topologyKeys:
       - kubernetes.io/hostname
   clusterDefinitionRef: apecloud-mysql
-  clusterVersionRef: ac-mysql-8.0.30
+  clusterVersionRef: ac-mysql-8.0.30-1
   componentSpecs:
     - componentDefRef: mysql
       monitor: true
@@ -341,6 +344,10 @@ metadata:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-gateway
     app: ${{ defaults.app_name }}-gateway
 data:
+  vn-etcvn-nginxvn-templatesvn-apitablevn-entrypointvn-sh: |
+    set -eu
+    envsubst '$OBJECT_STORAGE_EXTERNAL_ENDPOINT' < /etc/nginx/templates/apitable.conf.template > /etc/nginx/conf.d/default.conf
+    exec nginx -g 'daemon off;'
   vn-etcvn-nginxvn-templatesvn-apitablevn-confvn-template: |
     log_format json_combined escape=json '{"@timestamp":"$time_iso8601","@source":"$server_addr","@nginx_fields":{"remote_addr":"$remote_addr","body_bytes_sent":"$body_bytes_sent","request_time":"$request_time","status":"$status","host":"$host","uri":"$uri","server":"$server_name","request_uri":"$request_uri","request_method":"$request_method","http_referrer":"$http_referer","http_x_forwarded_for":"$http_x_forwarded_for","http_user_agent":"$http_user_agent","upstream_response_time":"$upstream_response_time","upstream_status":"$upstream_status","upstream_addr":"$upstream_addr"}}';
     access_log /dev/stdout json_combined;
@@ -634,8 +641,8 @@ spec:
                 -e "CREATE DATABASE IF NOT EXISTS \`${MYSQL_DATABASE}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
           resources:
             requests:
-              cpu: 50m
-              memory: 64Mi
+              cpu: 20m
+              memory: 25Mi
             limits:
               cpu: 200m
               memory: 256Mi
@@ -716,8 +723,8 @@ spec:
             failureThreshold: 60
           resources:
             requests:
-              cpu: 100m
-              memory: 256Mi
+              cpu: 50m
+              memory: 51Mi
             limits:
               cpu: 500m
               memory: 512Mi
@@ -809,8 +816,8 @@ spec:
               done
           resources:
             requests:
-              cpu: 20m
-              memory: 32Mi
+              cpu: 10m
+              memory: 12Mi
             limits:
               cpu: 100m
               memory: 128Mi
@@ -850,11 +857,11 @@ spec:
               value: update
           resources:
             requests:
-              cpu: 100m
-              memory: 256Mi
+              cpu: 50m
+              memory: 102Mi
             limits:
               cpu: 500m
-              memory: 768Mi
+              memory: 1024Mi
   ttlSecondsAfterFinished: 300
 ---
 apiVersion: batch/v1
@@ -913,8 +920,8 @@ spec:
               done
           resources:
             requests:
-              cpu: 20m
-              memory: 32Mi
+              cpu: 10m
+              memory: 12Mi
             limits:
               cpu: 100m
               memory: 128Mi
@@ -950,11 +957,11 @@ spec:
               value: apitable
           resources:
             requests:
-              cpu: 100m
-              memory: 256Mi
+              cpu: 50m
+              memory: 102Mi
             limits:
               cpu: 500m
-              memory: 768Mi
+              memory: 1024Mi
   ttlSecondsAfterFinished: 300
 ---
 apiVersion: apps/v1
@@ -1004,10 +1011,10 @@ spec:
           resources:
             requests:
               cpu: 10m
-              memory: 16Mi
+              memory: 12Mi
             limits:
               cpu: 100m
-              memory: 64Mi
+              memory: 128Mi
       containers:
         - name: ${{ defaults.app_name }}-backend-server
           image: apitable/backend-server:v1.13.0-beta.1_2016
@@ -1065,27 +1072,28 @@ spec:
               value: ${{ defaults.rabbitmq_password }}
             - name: RABBITMQ_VHOST
               value: /
-${{ if(inputs.apitable_s3_provider === 'sealos-objectstorage') }}
-            - name: AWS_ACCESS_KEY
+${{ if(inputs.use_sealos_objectstorage === 'true') }}
+            - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: accessKey
-            - name: AWS_ACCESS_SECRET
+            - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: secretKey
+            - name: AWS_ACCESS_KEY
+              value: $(S3_ACCESS_KEY_ID)
+            - name: AWS_ACCESS_SECRET
+              value: $(S3_SECRET_ACCESS_KEY)
             - name: ASSETS_BUCKET
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
                   key: bucket
             - name: OSS_BUCKET_NAME
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
-                  key: bucket
+              value: $(ASSETS_BUCKET)
             - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
               valueFrom:
                 secretKeyRef:
@@ -1098,7 +1106,7 @@ ${{ if(inputs.apitable_s3_provider === 'sealos-objectstorage') }}
             - name: AWS_REGION
               value: us-east-1
 ${{ endif() }}
-${{ if(inputs.apitable_s3_provider === 'external-s3') }}
+${{ if(inputs.use_external_s3 === 'true') }}
             - name: AWS_ACCESS_KEY
               value: ${{ inputs.external_s3_access_key }}
             - name: AWS_ACCESS_SECRET
@@ -1142,10 +1150,10 @@ ${{ endif() }}
             failureThreshold: 6
           resources:
             requests:
-              cpu: 200m
-              memory: 512Mi
+              cpu: 100m
+              memory: 102Mi
             limits:
-              cpu: 1000m
+              cpu: 1
               memory: 1024Mi
 ---
 apiVersion: v1
@@ -1209,10 +1217,10 @@ spec:
           resources:
             requests:
               cpu: 10m
-              memory: 16Mi
+              memory: 12Mi
             limits:
               cpu: 100m
-              memory: 64Mi
+              memory: 128Mi
       containers:
         - name: ${{ defaults.app_name }}-room-server
           image: apitable/room-server:v1.13.0-beta.1_2016
@@ -1278,7 +1286,7 @@ spec:
               value: ${{ defaults.rabbitmq_password }}
             - name: RABBITMQ_VHOST
               value: /
-${{ if(inputs.apitable_s3_provider === 'sealos-objectstorage') }}
+${{ if(inputs.use_sealos_objectstorage === 'true') }}
             - name: OSS_BUCKET
               valueFrom:
                 secretKeyRef:
@@ -1292,7 +1300,7 @@ ${{ if(inputs.apitable_s3_provider === 'sealos-objectstorage') }}
             - name: OSS_HOST
               value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
 ${{ endif() }}
-${{ if(inputs.apitable_s3_provider === 'external-s3') }}
+${{ if(inputs.use_external_s3 === 'true') }}
             - name: OSS_BUCKET
               value: ${{ inputs.external_s3_bucket }}
             - name: OSS_HOST
@@ -1338,10 +1346,10 @@ ${{ endif() }}
             failureThreshold: 6
           resources:
             requests:
-              cpu: 200m
-              memory: 512Mi
+              cpu: 100m
+              memory: 102Mi
             limits:
-              cpu: 1000m
+              cpu: 1
               memory: 1024Mi
 ---
 apiVersion: v1
@@ -1609,7 +1617,7 @@ spec:
           image: apitable/imageproxy-server:v0.13.4-alpha_build13
           imagePullPolicy: IfNotPresent
           env:
-${{ if(inputs.apitable_s3_provider === 'sealos-objectstorage') }}
+${{ if(inputs.use_sealos_objectstorage === 'true') }}
             - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
               valueFrom:
                 secretKeyRef:
@@ -1618,7 +1626,7 @@ ${{ if(inputs.apitable_s3_provider === 'sealos-objectstorage') }}
             - name: BASEURL
               value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
 ${{ endif() }}
-${{ if(inputs.apitable_s3_provider === 'external-s3') }}
+${{ if(inputs.use_external_s3 === 'true') }}
             - name: BASEURL
               value: ${{ inputs.external_s3_public_endpoint }}
 ${{ endif() }}
@@ -1644,8 +1652,8 @@ ${{ endif() }}
             failureThreshold: 6
           resources:
             requests:
-              cpu: 20m
-              memory: 32Mi
+              cpu: 10m
+              memory: 12Mi
             limits:
               cpu: 100m
               memory: 128Mi
@@ -1695,20 +1703,20 @@ spec:
           imagePullPolicy: IfNotPresent
           command:
             - /bin/sh
-            - -c
-            - |
-              set -eu
-              envsubst '$OBJECT_STORAGE_EXTERNAL_ENDPOINT' < /etc/nginx/templates/apitable.conf.template > /etc/nginx/conf.d/default.conf
-              nginx -g 'daemon off;'
+            - -ec
+          args:
+            - exec /bin/sh /etc/nginx/templates/apitable-entrypoint.sh
           env:
-${{ if(inputs.apitable_s3_provider === 'sealos-objectstorage') }}
-            - name: OBJECT_STORAGE_EXTERNAL_ENDPOINT
+${{ if(inputs.use_sealos_objectstorage === 'true') }}
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: external
+            - name: OBJECT_STORAGE_EXTERNAL_ENDPOINT
+              value: $(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
 ${{ endif() }}
-${{ if(inputs.apitable_s3_provider === 'external-s3') }}
+${{ if(inputs.use_external_s3 === 'true') }}
             - name: OBJECT_STORAGE_EXTERNAL_ENDPOINT
               value: ${{ inputs.external_s3_public_endpoint }}
 ${{ endif() }}
@@ -1740,17 +1748,20 @@ ${{ endif() }}
             failureThreshold: 6
           resources:
             requests:
-              cpu: 20m
-              memory: 32Mi
+              cpu: 10m
+              memory: 12Mi
             limits:
               cpu: 100m
               memory: 128Mi
           volumeMounts:
-            - name: vn-etcvn-nginxvn-templatesvn-apitablevn-confvn-template
+            - name: ${{ defaults.app_name }}-gateway-cm
               mountPath: /etc/nginx/templates/apitable.conf.template
               subPath: vn-etcvn-nginxvn-templatesvn-apitablevn-confvn-template
+            - name: ${{ defaults.app_name }}-gateway-cm
+              mountPath: /etc/nginx/templates/apitable-entrypoint.sh
+              subPath: vn-etcvn-nginxvn-templatesvn-apitablevn-entrypointvn-sh
       volumes:
-        - name: vn-etcvn-nginxvn-templatesvn-apitablevn-confvn-template
+        - name: ${{ defaults.app_name }}-gateway-cm
           configMap:
             name: ${{ defaults.app_name }}-gateway
 ---

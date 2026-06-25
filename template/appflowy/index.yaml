@@ -35,14 +35,11 @@ spec:
       type: string
       value: ${{ random(64) }}
   inputs:
-    appflowy_s3_provider:
-      description: File storage backend for uploads, imports, and collaboration snapshots.
-      type: choice
-      default: sealos-objectstorage
-      required: true
-      options:
-        - sealos-objectstorage
-        - external-s3
+    use_sealos_objectstorage:
+      description: Use the Sealos ObjectStorage bucket for uploads, imports, and collaboration snapshots.
+      type: boolean
+      default: 'true'
+      required: false
     gotrue_admin_email:
       description: Bootstrap admin email for GoTrue service administration. Use AppFlowy Web registration for workspace login.
       type: string
@@ -58,39 +55,39 @@ spec:
       type: string
       default: ''
       required: true
-      if: inputs.appflowy_s3_provider === 'external-s3'
+      if: inputs.use_sealos_objectstorage === 'false'
     external_s3_public_endpoint:
       description: Public endpoint used in generated presigned URLs. Leave equal to external_s3_endpoint unless clients need a different URL.
       type: string
       default: ''
       required: true
-      if: inputs.appflowy_s3_provider === 'external-s3'
+      if: inputs.use_sealos_objectstorage === 'false'
     external_s3_access_key:
       description: Access key for the external S3-compatible bucket.
       type: string
       default: ''
       required: true
-      if: inputs.appflowy_s3_provider === 'external-s3'
+      if: inputs.use_sealos_objectstorage === 'false'
     external_s3_secret_key:
       description: Secret key for the external S3-compatible bucket.
       type: string
       default: ''
       required: true
-      if: inputs.appflowy_s3_provider === 'external-s3'
+      if: inputs.use_sealos_objectstorage === 'false'
     external_s3_bucket:
       description: Existing external S3-compatible bucket name.
       type: string
       default: ''
       required: true
-      if: inputs.appflowy_s3_provider === 'external-s3'
+      if: inputs.use_sealos_objectstorage === 'false'
     external_s3_region:
       description: Region for the external S3-compatible bucket.
       type: string
       default: us-east-1
       required: true
-      if: inputs.appflowy_s3_provider === 'external-s3'
+      if: inputs.use_sealos_objectstorage === 'false'
 ---
-${{ if(inputs.appflowy_s3_provider === 'sealos-objectstorage') }}
+${{ if(inputs.use_sealos_objectstorage === 'true') }}
 apiVersion: objectstorage.sealos.io/v1
 kind: ObjectStorageBucket
 metadata:
@@ -353,7 +350,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-gotrue
   annotations:
-    originImageName: appflowyinc/gotrue:0.15.22
+    originImageName: appflowyinc/gotrue:0.16.5
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -373,7 +370,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}-gotrue
-          image: appflowyinc/gotrue:0.15.22
+          image: appflowyinc/gotrue:0.16.5
           imagePullPolicy: IfNotPresent
           resources:
             limits:
@@ -488,7 +485,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-cloud
   annotations:
-    originImageName: appflowyinc/appflowy_cloud:0.15.22
+    originImageName: appflowyinc/appflowy_cloud:0.16.5
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -508,7 +505,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}-cloud
-          image: appflowyinc/appflowy_cloud:0.15.22
+          image: appflowyinc/appflowy_cloud:0.16.5
           imagePullPolicy: IfNotPresent
           resources:
             limits:
@@ -553,8 +550,12 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc
+            - name: REDIS_PORT
+              value: '6379'
             - name: APPFLOWY_REDIS_URI
-              value: redis://:$(REDIS_PASSWORD)@${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc:6379
+              value: redis://:$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)
             - name: APPFLOWY_GOTRUE_JWT_SECRET
               value: ${{ defaults.gotrue_jwt_secret }}
             - name: APPFLOWY_GOTRUE_BASE_URL
@@ -593,44 +594,44 @@ spec:
               value: unused
             - name: APPFLOWY_MAILER_SMTP_TLS_KIND
               value: none
-${{ if(inputs.appflowy_s3_provider === 'sealos-objectstorage') }}
+${{ if(inputs.use_sealos_objectstorage === 'true') }}
             - name: APPFLOWY_S3_USE_MINIO
               value: 'true'
             - name: APPFLOWY_S3_CREATE_BUCKET
               value: 'false'
-            - name: APPFLOWY_S3_ACCESS_KEY
+            - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: accessKey
-            - name: APPFLOWY_S3_SECRET_KEY
+            - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: secretKey
-            - name: APPFLOWY_S3_BUCKET
+            - name: S3_BUCKET
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
                   key: bucket
-            - name: APPFLOWY_S3_INTERNAL_ENDPOINT
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key
-                  key: internal
-            - name: APPFLOWY_S3_EXTERNAL_ENDPOINT
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: external
+            - name: APPFLOWY_S3_ACCESS_KEY
+              value: $(S3_ACCESS_KEY_ID)
+            - name: APPFLOWY_S3_SECRET_KEY
+              value: $(S3_SECRET_ACCESS_KEY)
+            - name: APPFLOWY_S3_BUCKET
+              value: $(S3_BUCKET)
             - name: APPFLOWY_S3_MINIO_URL
-              value: http://$(APPFLOWY_S3_INTERNAL_ENDPOINT)
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
             - name: APPFLOWY_S3_PRESIGNED_URL_ENDPOINT
-              value: https://$(APPFLOWY_S3_EXTERNAL_ENDPOINT)
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
             - name: APPFLOWY_S3_REGION
               value: us-east-1
-${{ endif() }}
-${{ if(inputs.appflowy_s3_provider === 'external-s3') }}
+${{ else() }}
             - name: APPFLOWY_S3_USE_MINIO
               value: 'true'
             - name: APPFLOWY_S3_CREATE_BUCKET
@@ -689,7 +690,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-worker
   annotations:
-    originImageName: appflowyinc/appflowy_worker:0.15.22
+    originImageName: appflowyinc/appflowy_worker:0.16.5
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -709,7 +710,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}-worker
-          image: appflowyinc/appflowy_worker:0.15.22
+          image: appflowyinc/appflowy_worker:0.16.5
           imagePullPolicy: IfNotPresent
           resources:
             limits:
@@ -749,8 +750,12 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc
+            - name: REDIS_PORT
+              value: '6379'
             - name: APPFLOWY_WORKER_REDIS_URL
-              value: redis://:$(REDIS_PASSWORD)@${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc:6379
+              value: redis://:$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)
             - name: APPFLOWY_WORKER_IMPORT_TICK_INTERVAL
               value: '30'
             - name: APPFLOWY_MAILER_SMTP_HOST
@@ -765,37 +770,42 @@ spec:
               value: unused
             - name: APPFLOWY_MAILER_SMTP_TLS_KIND
               value: none
-${{ if(inputs.appflowy_s3_provider === 'sealos-objectstorage') }}
+${{ if(inputs.use_sealos_objectstorage === 'true') }}
             - name: APPFLOWY_S3_USE_MINIO
               value: 'true'
             - name: APPFLOWY_S3_CREATE_BUCKET
               value: 'false'
-            - name: APPFLOWY_S3_ACCESS_KEY
+            - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: accessKey
-            - name: APPFLOWY_S3_SECRET_KEY
+            - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: secretKey
-            - name: APPFLOWY_S3_BUCKET
+            - name: S3_BUCKET
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
                   key: bucket
-            - name: APPFLOWY_S3_INTERNAL_ENDPOINT
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
-                  key: internal
+                  key: external
+            - name: APPFLOWY_S3_ACCESS_KEY
+              value: $(S3_ACCESS_KEY_ID)
+            - name: APPFLOWY_S3_SECRET_KEY
+              value: $(S3_SECRET_ACCESS_KEY)
+            - name: APPFLOWY_S3_BUCKET
+              value: $(S3_BUCKET)
             - name: APPFLOWY_S3_MINIO_URL
-              value: http://$(APPFLOWY_S3_INTERNAL_ENDPOINT)
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
             - name: APPFLOWY_S3_REGION
               value: us-east-1
-${{ endif() }}
-${{ if(inputs.appflowy_s3_provider === 'external-s3') }}
+${{ else() }}
             - name: APPFLOWY_S3_USE_MINIO
               value: 'true'
             - name: APPFLOWY_S3_CREATE_BUCKET
@@ -817,7 +827,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-web
   annotations:
-    originImageName: appflowyinc/appflowy_web:0.14.9
+    originImageName: appflowyinc/appflowy_web:0.15.4
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -837,7 +847,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}-web
-          image: appflowyinc/appflowy_web:0.14.9
+          image: appflowyinc/appflowy_web:0.15.4
           imagePullPolicy: IfNotPresent
           resources:
             limits:

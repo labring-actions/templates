@@ -1,19 +1,20 @@
 apiVersion: app.sealos.io/v1
 kind: Template
 metadata:
-  name: Readeck
+  name: readeck
 spec:
   title: 'Readeck'
   url: 'readeck.org'
   gitRepo: 'https://codeberg.org/readeck/readeck'
   author: 'mlhiter'
   description: 'Readeck helps you keep all that web content you’ll want to revisit in an hour, tomorrow, or in 20 years.'
-  readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/Readeck/README.md'
-  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/Readeck/logo.svg'
+  readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/readeck/README.md'
+  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/readeck/logo.svg'
   screenshots:
-    - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/Readeck/website-screenshot.webp'
+    - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/readeck/website-screenshot.webp'
 
   templateType: inline
+  locale: en
   categories:
     - tool
   defaults:
@@ -26,14 +27,15 @@ spec:
   inputs:
   i18n:
     zh:
-      readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/Readeck/README_zh.md'
+      description: 'Readeck 帮助你保存想在一小时后、明天或多年后再次阅读的网页内容。'
+      readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/readeck/README_zh.md'
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: codeberg.org/readeck/readeck:0.16.0
+    originImageName: codeberg.org/readeck/readeck:0.22.3
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
     deploy.cloud.sealos.io/resize: 1Gi
@@ -56,12 +58,13 @@ spec:
     metadata:
       labels:
         app: ${{ defaults.app_name }}
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     spec:
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 10
       containers:
         - name: ${{ defaults.app_name }}
-          image: codeberg.org/readeck/readeck:0.16.0
+          image: codeberg.org/readeck/readeck:0.22.3
           env: []
           resources:
             requests:
@@ -72,7 +75,7 @@ spec:
               memory: 256Mi
           ports:
             - containerPort: 8000
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           volumeMounts:
             - name: vn-readeck
               mountPath: /readeck
@@ -95,10 +98,12 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 8000
+    - name: http
+      port: 8000
       targetPort: 8000
   selector:
     app: ${{ defaults.app_name }}
@@ -108,17 +113,23 @@ kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/proxy-body-size: 32m
-    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
     nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
     nginx.ingress.kubernetes.io/server-snippet: |
       client_header_buffer_size 64k;
       large_client_header_buffers 4 128k;

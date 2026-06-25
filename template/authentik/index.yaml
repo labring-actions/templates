@@ -82,6 +82,7 @@ metadata:
     kb.io/database: postgresql-16.4.0
     clusterdefinition.kubeblocks.io/name: postgresql
     clusterversion.kubeblocks.io/name: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
 spec:
   affinity:
     podAntiAffinity: Preferred
@@ -163,6 +164,13 @@ spec:
           done
           psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -tc "SELECT 1 FROM pg_database WHERE datname = '$AK_DB_NAME'" | grep -q 1 || \
             psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -c "CREATE DATABASE \"$AK_DB_NAME\";"
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 50m
+            memory: 51Mi
       restartPolicy: Never
   backoffLimit: 5
   ttlSecondsAfterFinished: 300
@@ -172,7 +180,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: ghcr.io/goauthentik/server:2025.12.3
+    originImageName: ghcr.io/goauthentik/server:2026.5.3
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -192,7 +200,7 @@ spec:
       automountServiceAccountToken: false
       containers:
       - name: ${{ defaults.app_name }}
-        image: ghcr.io/goauthentik/server:2025.12.3
+        image: ghcr.io/goauthentik/server:2026.5.3
         imagePullPolicy: IfNotPresent
         resources:
           limits:
@@ -287,7 +295,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}-worker
   annotations:
-    originImageName: ghcr.io/goauthentik/server:2025.12.3
+    originImageName: ghcr.io/goauthentik/server:2026.5.3
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -307,7 +315,7 @@ spec:
       automountServiceAccountToken: false
       containers:
       - name: ${{ defaults.app_name }}-worker
-        image: ghcr.io/goauthentik/server:2025.12.3
+        image: ghcr.io/goauthentik/server:2026.5.3
         imagePullPolicy: IfNotPresent
         resources:
           limits:
@@ -416,6 +424,7 @@ metadata:
   name: ${{ defaults.app_name }}
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
 spec:
   ports:
   - name: tcp-9000
@@ -438,7 +447,21 @@ metadata:
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
     kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
     nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
 spec:
   rules:
   - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}

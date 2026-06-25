@@ -19,6 +19,7 @@ spec:
       description: 'A fast reverse proxy to help you expose a local server behind a NAT or firewall to the internet.'
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/frp/README.md'
     zh:
+      description: 'frp 是一个高性能反向代理工具，可将内网服务安全暴露到公网。'
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/frp/README_zh.md'
   categories:
     - tool
@@ -54,6 +55,9 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 data:
   vn-etcvn-frpvn-frpsvn-toml: |-
     # frps.toml
@@ -76,7 +80,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: snowdreamtech/frps:0.59
+    originImageName: snowdreamtech/frps:0.59.0
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -101,7 +105,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: snowdreamtech/frps:0.59
+          image: snowdreamtech/frps:0.59.0
           resources:
             requests:
               cpu: 10m
@@ -120,16 +124,13 @@ spec:
               name: ssh
           imagePullPolicy: IfNotPresent
           volumeMounts:
-            - name: vn-etcvn-frpvn-frpsvn-toml
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /etc/frp/frps.toml
-              subPath: ./etc/frp/frps.toml
+              subPath: vn-etcvn-frpvn-frpsvn-toml
       volumes:
-        - name: vn-etcvn-frpvn-frpsvn-toml
+        - name: ${{ defaults.app_name }}-cm
           configMap:
             name: ${{ defaults.app_name }}
-            items:
-              - key: vn-etcvn-frpvn-frpsvn-toml
-                path: ./etc/frp/frps.toml
 
 ---
 apiVersion: v1
@@ -137,6 +138,7 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
@@ -146,18 +148,6 @@ spec:
     - port: 80
       targetPort: 80
       name: http
-  selector:
-    app: ${{ defaults.app_name }}
-
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: ${{ defaults.app_name }}-nodeport
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-spec:
-  ports:
     - port: 7000
       targetPort: 7000
       name: server
@@ -194,9 +184,6 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
     nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
     nginx.ingress.kubernetes.io/configuration-snippet: |
-      more_clear_headers "X-Frame-Options:";
-      more_set_headers "Content-Security-Policy: default-src * blob: data: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; img-src * data: blob: resource: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; connect-src * wss: blob: resource:; style-src 'self' 'unsafe-inline' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource: *.baidu.com *.bdstatic.com; frame-src 'self' *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} mailto: tel: weixin: mtt: *.baidu.com; frame-ancestors 'self' https://${{ SEALOS_CLOUD_DOMAIN }} https://*.${{ SEALOS_CLOUD_DOMAIN }}";
-      more_set_headers "X-Xss-Protection: 1; mode=block";
       if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
         expires 30d;
         add_header Cache-Control "public";
@@ -224,7 +211,7 @@ kind: Ingress
 metadata:
   name: ${{ defaults.app_name1 }}
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name1 }}
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host_http }}
   annotations:
     higress.io/response-header-control-remove: X-Frame-Options
@@ -244,9 +231,6 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
     nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
     nginx.ingress.kubernetes.io/configuration-snippet: |
-      more_clear_headers "X-Frame-Options:";
-      more_set_headers "Content-Security-Policy: default-src * blob: data: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; img-src * data: blob: resource: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; connect-src * wss: blob: resource:; style-src 'self' 'unsafe-inline' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource: *.baidu.com *.bdstatic.com; frame-src 'self' *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} mailto: tel: weixin: mtt: *.baidu.com; frame-ancestors 'self' https://${{ SEALOS_CLOUD_DOMAIN }} https://*.${{ SEALOS_CLOUD_DOMAIN }}";
-      more_set_headers "X-Xss-Protection: 1; mode=block";
       if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
         expires 30d;
         add_header Cache-Control "public";
@@ -269,21 +253,6 @@ spec:
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
 
 ---
-apiVersion: app.sealos.io/v1
-kind: App
-metadata:
-  name: ${{ defaults.app_name }}
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-spec:
-  data:
-    url: https://${{ defaults.app_host_admin }}.${{ SEALOS_CLOUD_DOMAIN }}
-  displayType: normal
-  icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/frp/logo.svg"
-  name: frp
-  type: iframe
-
----
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -296,15 +265,23 @@ spec:
       serviceAccount: ${{ SEALOS_SERVICE_ACCOUNT }}
       containers:
         - name: switch-ports
-          image: bitnamilegacy/kubectl:1.28.9
+          image: bitnamilegacy/kubectl:1.33.4
+          resources:
+            requests:
+              cpu: 10m
+              memory: 12Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          imagePullPolicy: IfNotPresent
           command:
             - /bin/sh
             - -c
             - |
-              SSH_PORT=`kubectl get svc ${{ defaults.app_name }}-nodeport -o=jsonpath='{.spec.ports[?(@.name=="ssh")].nodePort}'`
-              kubectl patch svc ${{ defaults.app_name }}-nodeport --type='json' -p="[
-                {\"op\": \"replace\", \"path\": \"/spec/ports/1/port\", \"value\": $SSH_PORT},
-                {\"op\": \"replace\", \"path\": \"/spec/ports/1/targetPort\", \"value\": $SSH_PORT}
+              SSH_PORT=`kubectl get svc ${{ defaults.app_name }} -o=jsonpath='{.spec.ports[?(@.name=="ssh")].nodePort}'`
+              kubectl patch svc ${{ defaults.app_name }} --type='json' -p="[
+                {\"op\": \"replace\", \"path\": \"/spec/ports/3/port\", \"value\": $SSH_PORT},
+                {\"op\": \"replace\", \"path\": \"/spec/ports/3/targetPort\", \"value\": $SSH_PORT}
               ]"
               kubectl patch deployment ${{ defaults.app_name }} --type='json' -p="[
                 {
@@ -319,3 +296,18 @@ spec:
       restartPolicy: Never
   backoffLimit: 0
   ttlSecondsAfterFinished: 300
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host_admin }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/frp/logo.svg"
+  name: frp
+  type: link

@@ -107,6 +107,7 @@ metadata:
     kb.io/database: postgresql-16.4.0
     clusterdefinition.kubeblocks.io/name: postgresql
     clusterversion.kubeblocks.io/name: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
 spec:
   affinity:
     podAntiAffinity: Preferred
@@ -212,7 +213,7 @@ metadata:
     app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 data:
-  config.json: |
+  vn-etcvn-stalwartvn-configvn-json: |
     {
       "@type": "PostgreSql",
       "host": "${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc.cluster.local",
@@ -231,7 +232,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: stalwartlabs/stalwart:v0.16.7
+    originImageName: stalwartlabs/stalwart:v0.16.10
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
     docker-to-sealos.official-kubernetes-source: https://stalw.art/docs/cluster/orchestration/kubernetes/
@@ -256,7 +257,7 @@ spec:
       automountServiceAccountToken: false
       initContainers:
         - name: wait-for-postgres
-          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          image: senzing/postgresql-client:2.2.4
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_HOST
@@ -299,7 +300,7 @@ spec:
               memory: 25Mi
       containers:
         - name: ${{ defaults.app_name }}
-          image: stalwartlabs/stalwart:v0.16.7
+          image: stalwartlabs/stalwart:v0.16.10
           imagePullPolicy: IfNotPresent
           args:
             - --config
@@ -351,26 +352,34 @@ spec:
             - name: STALWART_HOSTNAME
               value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             ${{ if(inputs.use_object_storage === 'true') }}
-            - name: STALWART_S3_ACCESS_KEY
+            - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: accessKey
-            - name: STALWART_S3_SECRET_KEY
+            - name: STALWART_S3_ACCESS_KEY
+              value: $(S3_ACCESS_KEY_ID)
+            - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: secretKey
-            - name: STALWART_S3_BUCKET
+            - name: STALWART_S3_SECRET_KEY
+              value: $(S3_SECRET_ACCESS_KEY)
+            - name: S3_BUCKET
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
                   key: bucket
-            - name: STALWART_S3_EXTERNAL_ENDPOINT
+            - name: STALWART_S3_BUCKET
+              value: $(S3_BUCKET)
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: external
+            - name: STALWART_S3_EXTERNAL_ENDPOINT
+              value: $(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
             - name: STALWART_S3_ENDPOINT
               value: https://$(STALWART_S3_EXTERNAL_ENDPOINT)
             - name: STALWART_S3_REGION
@@ -408,14 +417,17 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
           volumeMounts:
-            - name: vn-etcvn-stalwartvn-config-json
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /etc/stalwart/config.json
-              subPath: config.json
+              subPath: vn-etcvn-stalwartvn-configvn-json
               readOnly: true
       volumes:
-        - name: vn-etcvn-stalwartvn-config-json
+        - name: ${{ defaults.app_name }}-cm
           configMap:
             name: ${{ defaults.app_name }}
+            items:
+              - key: vn-etcvn-stalwartvn-configvn-json
+                path: vn-etcvn-stalwartvn-configvn-json
 
 ---
 apiVersion: v1

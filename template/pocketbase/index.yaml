@@ -55,7 +55,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: adrianmusante/pocketbase:0.29.3
+    originImageName: adrianmusante/pocketbase:0.39.4
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -76,15 +76,22 @@ spec:
       automountServiceAccountToken: false
       initContainers:
         - name: take-data-dir-ownership
-          image: busybox:latest
+          image: busybox:1.38.0
           command: ["/bin/sh", "-c", "chown 1001:1001 /pocketbase"]
           imagePullPolicy: IfNotPresent
           volumeMounts:
             - name: vn-pocketbase
               mountPath: /pocketbase
+          resources:
+            requests:
+              cpu: 10m
+              memory: 12Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
       containers:
         - name: ${{ defaults.app_name }}
-          image: adrianmusante/pocketbase:0.29.3
+          image: adrianmusante/pocketbase:0.39.4
           imagePullPolicy: IfNotPresent
           env:
             - name: POCKETBASE_DEBUG
@@ -145,11 +152,13 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   type: ClusterIP
   ports:
-    - port: 3000
+    - name: http
+      port: 3000
       targetPort: 3000
       protocol: TCP
   selector:

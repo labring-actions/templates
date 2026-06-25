@@ -12,7 +12,7 @@ spec:
   screenshots:
     - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/wewe-rss/website-screenshot.webp'
   templateType: inline
-  locale: zh 
+  locale: zh
   categories:
     - tool
   defaults:
@@ -32,6 +32,7 @@ spec:
   readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/wewe-rss/README.md'
   i18n:
     zh:
+      description: '更优雅的微信公众号订阅方式，支持私有化部署和微信公众号 RSS 生成。'
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/wewe-rss/README_zh.md'
 ---
 apiVersion: apps.kubeblocks.io/v1alpha1
@@ -40,6 +41,7 @@ metadata:
   finalizers:
     - cluster.kubeblocks.io/finalizer
   labels:
+    kb.io/database: ac-mysql-8.0.30
     clusterdefinition.kubeblocks.io/name: apecloud-mysql
     clusterversion.kubeblocks.io/name: ac-mysql-8.0.30
     sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
@@ -131,8 +133,15 @@ spec:
     spec:
       containers:
         - name: mysql-init
-          image: joseluisq/mysql-client:8.0.30
+          image: joseluisq/mysql-client:8.0.44
           imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
           env:
             - name: MYSQL_USER
               valueFrom:
@@ -179,6 +188,7 @@ metadata:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   replicas: 1
+  revisionHistoryLimit: 1
   selector:
     matchLabels:
       app: ${{ defaults.app_name }}
@@ -189,7 +199,7 @@ spec:
     spec:
       automountServiceAccountToken: false
       containers:
-        - name: app
+        - name: ${{ defaults.app_name }}
           image: cooderl/wewe-rss:v2.6.1
           env:
             - name: MYSQL_PASSWORD
@@ -202,8 +212,13 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-mysql-conn-credential
                   key: host
+            - name: MYSQL_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: port
             - name: DATABASE_URL
-              value: mysql://root:$(MYSQL_PASSWORD)@$(MYSQL_HOST):3306/wewe_rss?schema=public&connect_timeout=30&pool_timeout=30&socket_timeout=30
+              value: mysql://root:$(MYSQL_PASSWORD)@$(MYSQL_HOST):$(MYSQL_PORT)/wewe_rss?schema=public&connect_timeout=30&pool_timeout=30&socket_timeout=30
             - name: AUTH_CODE
               value: ${{ inputs.auth_code }}
             - name: SERVER_ORIGIN_URL
@@ -212,8 +227,8 @@ spec:
             - containerPort: 4000
           resources:
             requests:
-              cpu: 100m
-              memory: 256Mi
+              cpu: 50m
+              memory: 51Mi
             limits:
               cpu: 500m
               memory: 512Mi
@@ -226,9 +241,11 @@ metadata:
   name: ${{ defaults.app_name }}
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 4000
+    - name: http
+      port: 4000
   selector:
     app: ${{ defaults.app_name }}
 
@@ -242,6 +259,21 @@ metadata:
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
     kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
 spec:
   rules:
     - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}

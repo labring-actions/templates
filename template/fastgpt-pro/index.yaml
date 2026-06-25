@@ -137,6 +137,8 @@ metadata:
   labels:
     kb.io/database: mongodb-8.0.4
     app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    clusterdefinition.kubeblocks.io/name: mongodb
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
 spec:
   affinity:
     podAntiAffinity: Preferred
@@ -149,11 +151,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 1000m
-          memory: 2Gi
+          cpu: 500m
+          memory: 512Mi
         requests:
-          cpu: 100m
-          memory: 256Mi
+          cpu: 50m
+          memory: 51Mi
       serviceAccountName: ${{ defaults.app_name }}-mongo
       serviceVersion: 8.0.4
       volumeClaimTemplates:
@@ -218,6 +220,7 @@ metadata:
   name: ${{ defaults.app_name }}-pg
   labels:
     kb.io/database: postgresql-16.4.0
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
     clusterdefinition.kubeblocks.io/name: postgresql
     clusterversion.kubeblocks.io/name: postgresql-16.4.0
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
@@ -236,11 +239,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 2
-          memory: 2Gi
+          cpu: 500m
+          memory: 512Mi
         requests:
-          cpu: 200m
-          memory: 256Mi
+          cpu: 50m
+          memory: 51Mi
       serviceAccountName: ${{ defaults.app_name }}-pg
       switchPolicy:
         type: Noop
@@ -256,109 +259,10 @@ spec:
   terminationPolicy: Delete
 
 ---
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: ${{ defaults.app_name }}-aiproxy-pg
-  labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-aiproxy-pg
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-aiproxy-pg
-    app.kubernetes.io/managed-by: kbcli
-
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: ${{ defaults.app_name }}-aiproxy-pg
-  labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-aiproxy-pg
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-aiproxy-pg
-    app.kubernetes.io/managed-by: kbcli
-rules:
-  - apiGroups:
-      - '*'
-    resources:
-      - '*'
-    verbs:
-      - '*'
-
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: ${{ defaults.app_name }}-aiproxy-pg
-  labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-aiproxy-pg
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-aiproxy-pg
-    app.kubernetes.io/managed-by: kbcli
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: ${{ defaults.app_name }}-aiproxy-pg
-subjects:
-  - kind: ServiceAccount
-    name: ${{ defaults.app_name }}-aiproxy-pg
-
----
-apiVersion: apps.kubeblocks.io/v1alpha1
-kind: Cluster
-metadata:
-  finalizers:
-    - cluster.kubeblocks.io/finalizer
-  name: ${{ defaults.app_name }}-aiproxy-pg
-  labels:
-    kb.io/database: postgresql-16.4.0
-    clusterdefinition.kubeblocks.io/name: postgresql
-    clusterversion.kubeblocks.io/name: postgresql-16.4.0
-    sealos-db-provider-cr: ${{ defaults.app_name }}-aiproxy-pg
-spec:
-  affinity:
-    nodeLabels: {}
-    podAntiAffinity: Preferred
-    tenancy: SharedNode
-    topologyKeys: []
-  clusterDefinitionRef: postgresql
-  clusterVersionRef: postgresql-16.4.0
-  backup:
-    enabled: true
-    cronExpression: 0 18 * * *
-    method: pg-basebackup
-    pitrEnabled: false
-    retentionPeriod: 7d
-  componentSpecs:
-    - componentDefRef: postgresql
-      disableExporter: true
-      enabledLogs:
-        - running
-      monitor: true
-      name: postgresql
-      replicas: 1
-      resources:
-        limits:
-          cpu: 2
-          memory: 2Gi
-        requests:
-          cpu: 200m
-          memory: 256Mi
-      serviceAccountName: ${{ defaults.app_name }}-aiproxy-pg
-      switchPolicy:
-        type: Noop
-      volumeClaimTemplates:
-        - name: data
-          spec:
-            accessModes:
-              - ReadWriteOnce
-            resources:
-              requests:
-                storage: 5Gi
-  terminationPolicy: Delete
-  tolerations: []
-
----
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: ${{ defaults.app_name }}-aiproxy-pg-init
+  name: ${{ defaults.app_name }}-pg-init
 spec:
   backoffLimit: 3
   ttlSecondsAfterFinished: 300
@@ -373,22 +277,22 @@ spec:
             - name: PG_HOST
               valueFrom:
                 secretKeyRef:
-                  name: ${{ defaults.app_name }}-aiproxy-pg-conn-credential
+                  name: ${{ defaults.app_name }}-pg-conn-credential
                   key: host
             - name: PG_PORT
               valueFrom:
                 secretKeyRef:
-                  name: ${{ defaults.app_name }}-aiproxy-pg-conn-credential
+                  name: ${{ defaults.app_name }}-pg-conn-credential
                   key: port
             - name: PG_USERNAME
               valueFrom:
                 secretKeyRef:
-                  name: ${{ defaults.app_name }}-aiproxy-pg-conn-credential
+                  name: ${{ defaults.app_name }}-pg-conn-credential
                   key: username
             - name: PG_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: ${{ defaults.app_name }}-aiproxy-pg-conn-credential
+                  name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
           command:
             - /bin/sh
@@ -405,6 +309,13 @@ spec:
               if ! psql "postgresql://${PG_USERNAME}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='aiproxy'" | grep -q 1; then
                 psql "postgresql://${PG_USERNAME}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/postgres" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE "aiproxy";'
               fi
+          resources:
+            requests:
+              cpu: 20m
+              memory: 25Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
 
 ---
 apiVersion: v1
@@ -461,6 +372,7 @@ metadata:
     app.kubernetes.io/version: 7.2.7
     clusterdefinition.kubeblocks.io/name: redis
     clusterversion.kubeblocks.io/name: redis-7.2.7
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
 spec:
   affinity:
     podAntiAffinity: Preferred
@@ -478,11 +390,11 @@ spec:
         - name: CUSTOM_SENTINEL_MASTER_NAME
       resources:
         limits:
-          cpu: 1000m
-          memory: 2Gi
+          cpu: 500m
+          memory: 512Mi
         requests:
-          cpu: 100m
-          memory: 256Mi
+          cpu: 50m
+          memory: 51Mi
       serviceAccountName: ${{ defaults.app_name }}-redis
       serviceVersion: 7.2.7
       switchPolicy:
@@ -745,11 +657,11 @@ spec:
               protocol: TCP
           resources:
             requests:
-              cpu: 100m
-              memory: 256Mi
+              cpu: 50m
+              memory: 204Mi
             limits:
-              cpu: 1000m
-              memory: 2Gi
+              cpu: 500m
+              memory: 2048Mi
           startupProbe:
             httpGet:
               path: /
@@ -776,16 +688,13 @@ spec:
           command: []
           args: []
           volumeMounts:
-            - name: vn-appvn-datavn-configvn-json
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /app/data/config.json
-              subPath: config.json
+              subPath: vn-appvn-datavn-configvn-json
       volumes:
-        - name: vn-appvn-datavn-configvn-json
+        - name: ${{ defaults.app_name }}-cm
           configMap:
             name: ${{ defaults.app_name }}
-            items:
-              - key: vn-appvn-datavn-configvn-json
-                path: config.json
 
 ---
 apiVersion: v1
@@ -966,11 +875,11 @@ spec:
               protocol: TCP
           resources:
             requests:
-              cpu: 100m
-              memory: 256Mi
+              cpu: 50m
+              memory: 204Mi
             limits:
-              cpu: 1000m
-              memory: 2Gi
+              cpu: 500m
+              memory: 2048Mi
           command: []
           args: []
 
@@ -1106,8 +1015,8 @@ spec:
               protocol: TCP
           resources:
             requests:
-              cpu: 20m
-              memory: 128Mi
+              cpu: 50m
+              memory: 51Mi
             limits:
               cpu: 500m
               memory: 512Mi
@@ -1220,10 +1129,10 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 256Mi
+              memory: 102Mi
             limits:
-              cpu: 1000m
-              memory: 1Gi
+              cpu: 1
+              memory: 1024Mi
           startupProbe:
             httpGet:
               path: /health
@@ -1313,7 +1222,7 @@ spec:
           resources:
             requests:
               cpu: 20m
-              memory: 64Mi
+              memory: 25Mi
             limits:
               cpu: 200m
               memory: 256Mi
@@ -1409,22 +1318,22 @@ spec:
             - name: AIPROXY_PG_HOST
               valueFrom:
                 secretKeyRef:
-                  name: ${{ defaults.app_name }}-aiproxy-pg-conn-credential
+                  name: ${{ defaults.app_name }}-pg-conn-credential
                   key: host
             - name: AIPROXY_PG_PORT
               valueFrom:
                 secretKeyRef:
-                  name: ${{ defaults.app_name }}-aiproxy-pg-conn-credential
+                  name: ${{ defaults.app_name }}-pg-conn-credential
                   key: port
             - name: AIPROXY_PG_USERNAME
               valueFrom:
                 secretKeyRef:
-                  name: ${{ defaults.app_name }}-aiproxy-pg-conn-credential
+                  name: ${{ defaults.app_name }}-pg-conn-credential
                   key: username
             - name: AIPROXY_PG_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: ${{ defaults.app_name }}-aiproxy-pg-conn-credential
+                  name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
             - name: ADMIN_KEY
               value: ${{ defaults.aiproxy_token }}
@@ -1445,7 +1354,7 @@ spec:
           resources:
             requests:
               cpu: 50m
-              memory: 128Mi
+              memory: 51Mi
             limits:
               cpu: 500m
               memory: 512Mi

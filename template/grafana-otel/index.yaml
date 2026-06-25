@@ -27,6 +27,7 @@ spec:
 
   i18n:
     zh:
+      description: "一键部署 Grafana、Prometheus 和 OpenTelemetry Collector 可观测性监控栈。"
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/grafana-otel/README_zh.md'
 ---
 # ConfigMap
@@ -36,6 +37,7 @@ metadata:
   name: ${{ defaults.app_name }}
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
 data:
   vn-confvn-otelvn-collectorvn-configvn-yaml: |
     receivers:
@@ -67,12 +69,12 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: otel/opentelemetry-collector:0.99.0
+    originImageName: otel/opentelemetry-collector:0.155.0
     deploy.cloud.sealos.io/minReplicas: "1"
     deploy.cloud.sealos.io/maxReplicas: "1"
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-    app: opentelemetry
+    app: ${{ defaults.app_name }}
     component: otel-collector
 spec:
   replicas: 1
@@ -88,7 +90,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: otel/opentelemetry-collector:0.99.0
+          image: otel/opentelemetry-collector:0.155.0
           imagePullPolicy: IfNotPresent
           command:
             - "/otelcol"
@@ -122,17 +124,16 @@ spec:
                   apiVersion: v1
                   fieldPath: status.podIP
           volumeMounts:
-            - name: vn-confvn-otelvn-collectorvn-configvn-yaml
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /conf/otel-collector-config.yaml
-              subPath: ./conf/otel-collector-config.yaml
+              subPath: vn-confvn-otelvn-collectorvn-configvn-yaml
       volumes:
-        - name: vn-confvn-otelvn-collectorvn-configvn-yaml
+        - name: ${{ defaults.app_name }}-cm
           configMap:
             name: ${{ defaults.app_name }}
             items:
               - key: vn-confvn-otelvn-collectorvn-configvn-yaml
-                path: ./conf/otel-collector-config.yaml
-            defaultMode: 420
+                path: vn-confvn-otelvn-collectorvn-configvn-yaml
 
 ---
 # Service
@@ -142,6 +143,7 @@ metadata:
   name: ${{ defaults.app_name }}
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
 spec:
   ports:
     - name: otlp-grpc
@@ -168,6 +170,9 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: ${{ defaults.app_name }}-prometheus
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-prometheus
+    app: ${{ defaults.app_name }}-prometheus
 data:
   vn-etcvn-prometheusvn-prometheusvn-yml: >-
     # my global config
@@ -218,7 +223,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}-prometheus
   annotations:
-    originImageName: prom/prometheus:v3.8.0
+    originImageName: prom/prometheus:v3.12.0
     deploy.cloud.sealos.io/minReplicas: "1"
     deploy.cloud.sealos.io/maxReplicas: "1"
   labels:
@@ -239,7 +244,7 @@ spec:
       automountServiceAccountToken: false
       initContainers:
         - name: init-step
-          image: busybox
+          image: busybox:1.38.0
           command:
             - sh
             - -c
@@ -249,9 +254,16 @@ spec:
             - name: vn-prometheus
               mountPath: /prometheus
           imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
       containers:
         - name: ${{ defaults.app_name }}-prometheus
-          image: prom/prometheus:v3.8.0
+          image: prom/prometheus:v3.12.0
           imagePullPolicy: IfNotPresent
           args:
             - --config.file=/etc/prometheus/prometheus.yml
@@ -273,14 +285,14 @@ spec:
               cpu: 10m
               memory: 12Mi
           volumeMounts:
-            - name: prometheus-cm
+            - name: ${{ defaults.app_name }}-prometheus-cm
               mountPath: /etc/prometheus/prometheus.yml
               subPath: vn-etcvn-prometheusvn-prometheusvn-yml
             - name: vn-prometheus
               mountPath: /prometheus
 
       volumes:
-        - name: prometheus-cm
+        - name: ${{ defaults.app_name }}-prometheus-cm
           configMap:
             name: ${{ defaults.app_name }}-prometheus
   volumeClaimTemplates:
@@ -303,6 +315,7 @@ metadata:
   name: ${{ defaults.app_name }}-prometheus
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-prometheus
+    app: ${{ defaults.app_name }}-prometheus
 spec:
   ports:
     - name: http
@@ -317,6 +330,9 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: ${{ defaults.app_name }}-grafana
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-grafana
+    app: ${{ defaults.app_name }}-grafana
 data:
   vn-etcvn-grafanavn-provisioningvn-datasourcesvn-datasourcesvn-yml: >-
     # Configuration file version
@@ -348,7 +364,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}-grafana
   annotations:
-    originImageName: grafana/grafana:12.3.0
+    originImageName: grafana/grafana:13.1.0
     deploy.cloud.sealos.io/minReplicas: "1"
     deploy.cloud.sealos.io/maxReplicas: "1"
   labels:
@@ -369,7 +385,7 @@ spec:
       automountServiceAccountToken: false
       initContainers:
         - name: init-step
-          image: busybox
+          image: busybox:1.38.0
           command:
             - sh
             - -c
@@ -379,9 +395,16 @@ spec:
             - name: vn-varvn-libvn-grafana
               mountPath: /var/lib/grafana
           imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
       containers:
         - name: ${{ defaults.app_name }}-grafana
-          image: grafana/grafana:12.3.0
+          image: grafana/grafana:13.1.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -395,14 +418,14 @@ spec:
               cpu: 10m
               memory: 12Mi
           volumeMounts:
-            - name: grafana-cm
+            - name: ${{ defaults.app_name }}-grafana-cm
               mountPath: /etc/grafana/provisioning/datasources/datasources.yml
               subPath: vn-etcvn-grafanavn-provisioningvn-datasourcesvn-datasourcesvn-yml
             - name: vn-varvn-libvn-grafana
               mountPath: /var/lib/grafana
 
       volumes:
-        - name: grafana-cm
+        - name: ${{ defaults.app_name }}-grafana-cm
           configMap:
             name: ${{ defaults.app_name }}-grafana
   volumeClaimTemplates:
@@ -425,6 +448,7 @@ metadata:
   name: ${{ defaults.app_name }}-grafana
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-grafana
+    app: ${{ defaults.app_name }}-grafana
 spec:
   ports:
     - name: http

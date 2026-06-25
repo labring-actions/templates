@@ -90,6 +90,8 @@ metadata:
   name: ${{ defaults.app_name }}-pg
   labels:
     kb.io/database: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
     clusterdefinition.kubeblocks.io/name: postgresql
     clusterversion.kubeblocks.io/name: postgresql-16.4.0
 spec:
@@ -254,6 +256,7 @@ metadata:
   name: ${{ defaults.app_name }}
   labels:
     kb.io/database: redis-7.2.7
+    sealos-db-provider-cr: ${{ defaults.app_name }}
     app.kubernetes.io/instance: ${{ defaults.app_name }}
     app.kubernetes.io/version: 7.2.7
     clusterversion.kubeblocks.io/name: redis-7.2.7
@@ -321,6 +324,7 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-kafka
   labels:
+    app: ${{ defaults.app_name }}-kafka
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-kafka
 spec:
   ports:
@@ -461,6 +465,7 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-zookeeper
   labels:
+    app: ${{ defaults.app_name }}-zookeeper
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-zookeeper
 spec:
   clusterIP: None
@@ -534,11 +539,12 @@ spec:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: ${{ defaults.app_name }}-clickhouse-config
+  name: ${{ defaults.app_name }}-clickhouse
   labels:
+    app: ${{ defaults.app_name }}-clickhouse
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-clickhouse
 data:
-  posthog-cluster.xml: |
+  vn-etcvn-clickhousevn-servervn-configvn-dvn-posthogvn-fea70979: |
     <clickhouse>
       <zookeeper>
         <node index="1">
@@ -583,7 +589,7 @@ data:
         <hostClusterRole>data</hostClusterRole>
       </macros>
     </clickhouse>
-  posthog-users.xml: |
+  vn-etcvn-clickhousevn-servervn-usersvn-dvn-posthogvn-usersvn-xml: |
     <clickhouse>
       <profiles>
         <default>
@@ -622,10 +628,10 @@ spec:
         resources:
           limits:
             cpu: 500m
-            memory: 4Gi
+            memory: 4096Mi
           requests:
-            cpu: 100m
-            memory: 1Gi
+            cpu: 50m
+            memory: 409Mi
         ports:
         - containerPort: 8000
         env:
@@ -650,7 +656,7 @@ spec:
         - name: CLICKHOUSE_DATABASE
           value: posthog
         - name: CLICKHOUSE_HOST
-          value: ${{ defaults.app_name }}-clickhouse-client
+          value: ${{ defaults.app_name }}-clickhouse
         - name: CLICKHOUSE_CLUSTER
           value: posthog
         - name: CLICKHOUSE_MIGRATIONS_CLUSTER
@@ -806,10 +812,10 @@ spec:
         resources:
           limits:
             cpu: 500m
-            memory: 2Gi
+            memory: 2048Mi
           requests:
-            cpu: 100m
-            memory: 512Mi
+            cpu: 50m
+            memory: 204Mi
         env:
         - name: CLICKHOUSE_PORT
           value: '8123'
@@ -830,7 +836,7 @@ spec:
         - name: CLICKHOUSE_DATABASE
           value: posthog
         - name: CLICKHOUSE_HOST
-          value: ${{ defaults.app_name }}-clickhouse-client
+          value: ${{ defaults.app_name }}-clickhouse
         - name: CLICKHOUSE_CLUSTER
           value: posthog
         - name: CLICKHOUSE_MIGRATIONS_CLUSTER
@@ -947,6 +953,53 @@ spec:
       enableServiceLinks: false
 ---
 apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-plugins
+  labels:
+    app: ${{ defaults.app_name }}-plugins
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-plugins
+data:
+  vn-usrvn-localvn-binvn-initvn-mmdbvn-sh: |
+    set -e
+    cp -f /app/share/GeoLite2-City.mmdb /share/GeoLite2-City.mmdb
+    printf '{"date":"seeded"}\n' > /share/GeoLite2-City.json
+    chmod 0644 /share/GeoLite2-City.mmdb /share/GeoLite2-City.json
+  vn-usrvn-localvn-binvn-pluginvn-statusvn-heartbeatvn-sh: |
+    set -eu
+    node - <<'NODE'
+    const Redis = require('/code/nodejs/node_modules/ioredis')
+    const url = process.env.REDIS_URL
+    const version = process.env.POSTHOG_PLUGIN_VERSION || 'posthog-node'
+    const queues = process.env.POSTHOG_PLUGIN_QUEUES || 'events,plugins,replay,logs,cdp'
+    const redis = new Redis(url, { maxRetriesPerRequest: null })
+
+    async function tick() {
+      const now = new Date().toISOString()
+      await redis.set('@posthog-plugin-server/ping', now, 'EX', 120)
+      await redis.set('@posthog-plugin-server/version', version, 'EX', 300)
+      await redis.set('@posthog-plugin-server/enabled-job-queues', queues, 'EX', 300)
+      process.stdout.write(`heartbeat ${now}\n`)
+    }
+
+    async function loop() {
+      for (;;) {
+        try {
+          await tick()
+        } catch (e) {
+          process.stderr.write(`heartbeat error ${e && e.message ? e.message : e}\n`)
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10000))
+      }
+    }
+
+    loop().catch((e) => {
+      process.stderr.write(`fatal ${e && e.message ? e.message : e}\n`)
+      process.exit(1)
+    })
+    NODE
+---
+apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: vn-share-${{ defaults.app_name }}
@@ -987,17 +1040,23 @@ spec:
       - name: init-mmdb
         image: ghcr.io/posthog/posthog/feature-flags@sha256:1e79e6e7e5b58da18e27ebdf0ef9b41d6c04136eac42bb9490e73a9a62f94f65
         imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 10m
+            memory: 12Mi
         securityContext:
           runAsUser: 0
         command:
         - sh
         - -c
-        - |-
-          set -e
-          cp -f /app/share/GeoLite2-City.mmdb /share/GeoLite2-City.mmdb
-          printf '{"date":"seeded"}\n' > /share/GeoLite2-City.json
-          chmod 0644 /share/GeoLite2-City.mmdb /share/GeoLite2-City.json
+        - sh /usr/local/bin/init-mmdb.sh
         volumeMounts:
+        - name: ${{ defaults.app_name }}-plugins-cm
+          mountPath: /usr/local/bin/init-mmdb.sh
+          subPath: vn-usrvn-localvn-binvn-initvn-mmdbvn-sh
         - name: vn-share
           mountPath: /share
       containers:
@@ -1006,11 +1065,11 @@ spec:
         imagePullPolicy: IfNotPresent
         resources:
           limits:
-            cpu: 50m
-            memory: 64Mi
+            cpu: 100m
+            memory: 128Mi
           requests:
             cpu: 10m
-            memory: 16Mi
+            memory: 12Mi
         env:
         - name: REDIS_HOST
           value: ${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc
@@ -1031,49 +1090,21 @@ spec:
         - sh
         - -c
         args:
-        - |-
-          set -eu
-          node - <<'NODE'
-          const Redis = require('/code/nodejs/node_modules/ioredis')
-          const url = process.env.REDIS_URL
-          const version = process.env.POSTHOG_PLUGIN_VERSION || 'posthog-node'
-          const queues = process.env.POSTHOG_PLUGIN_QUEUES || 'events,plugins,replay,logs,cdp'
-          const redis = new Redis(url, { maxRetriesPerRequest: null })
-
-          async function tick() {
-            const now = new Date().toISOString()
-            await redis.set('@posthog-plugin-server/ping', now, 'EX', 120)
-            await redis.set('@posthog-plugin-server/version', version, 'EX', 300)
-            await redis.set('@posthog-plugin-server/enabled-job-queues', queues, 'EX', 300)
-            process.stdout.write(`heartbeat ${now}\n`)
-          }
-
-          async function loop() {
-            for (;;) {
-              try {
-                await tick()
-              } catch (e) {
-                process.stderr.write(`heartbeat error ${e && e.message ? e.message : e}\n`)
-              }
-              await new Promise((resolve) => setTimeout(resolve, 10000))
-            }
-          }
-
-          loop().catch((e) => {
-            process.stderr.write(`fatal ${e && e.message ? e.message : e}\n`)
-            process.exit(1)
-          })
-          NODE
+        - exec sh /usr/local/bin/plugin-status-heartbeat.sh
+        volumeMounts:
+        - name: ${{ defaults.app_name }}-plugins-cm
+          mountPath: /usr/local/bin/plugin-status-heartbeat.sh
+          subPath: vn-usrvn-localvn-binvn-pluginvn-statusvn-heartbeatvn-sh
       - name: ${{ defaults.app_name }}-plugins
         image: ghcr.io/posthog/posthog-node@sha256:fd156e690ca1bb7cc1abd370e513ac532c57726ee11029721623f0db5b90b72a
         imagePullPolicy: IfNotPresent
         resources:
           limits:
             cpu: 500m
-            memory: 1Gi
+            memory: 1024Mi
           requests:
-            cpu: 100m
-            memory: 256Mi
+            cpu: 50m
+            memory: 102Mi
         env:
         - name: CLICKHOUSE_PORT
           value: '8123'
@@ -1128,7 +1159,7 @@ spec:
         - name: CLICKHOUSE_DATABASE
           value: posthog
         - name: CLICKHOUSE_HOST
-          value: ${{ defaults.app_name }}-clickhouse-client
+          value: ${{ defaults.app_name }}-clickhouse
         - name: CLICKHOUSE_SECURE
           value: 'false'
         - name: CLICKHOUSE_VERIFY
@@ -1289,6 +1320,9 @@ spec:
         - -c
         - export COOKIELESS_REDIS_HOST=''; export LOGS_REDIS_HOST=''; exec node nodejs/dist/index.js
       volumes:
+      - name: ${{ defaults.app_name }}-plugins-cm
+        configMap:
+          name: ${{ defaults.app_name }}-plugins
       - name: vn-share
         persistentVolumeClaim:
           claimName: vn-share-${{ defaults.app_name }}
@@ -1580,11 +1614,11 @@ spec:
         imagePullPolicy: IfNotPresent
         resources:
           limits:
-            cpu: 1000m
-            memory: 1Gi
+            cpu: 1
+            memory: 1024Mi
           requests:
             cpu: 100m
-            memory: 256Mi
+            memory: 102Mi
         env:
         - name: CLICKHOUSE_SKIP_USER_SETUP
           value: '1'
@@ -1593,16 +1627,16 @@ spec:
         volumeMounts:
         - name: vn-varvn-libvn-clickhouse
           mountPath: /var/lib/clickhouse
-        - name: clickhouse-config
+        - name: ${{ defaults.app_name }}-clickhouse-cm
           mountPath: /etc/clickhouse-server/config.d/posthog-cluster.xml
-          subPath: posthog-cluster.xml
-        - name: clickhouse-config
+          subPath: vn-etcvn-clickhousevn-servervn-configvn-dvn-posthogvn-fea70979
+        - name: ${{ defaults.app_name }}-clickhouse-cm
           mountPath: /etc/clickhouse-server/users.d/posthog-users.xml
-          subPath: posthog-users.xml
+          subPath: vn-etcvn-clickhousevn-servervn-usersvn-dvn-posthogvn-usersvn-xml
       volumes:
-      - name: clickhouse-config
+      - name: ${{ defaults.app_name }}-clickhouse-cm
         configMap:
-          name: ${{ defaults.app_name }}-clickhouse-config
+          name: ${{ defaults.app_name }}-clickhouse
   serviceName: ${{ defaults.app_name }}-clickhouse
   volumeClaimTemplates:
   - metadata:
@@ -1622,6 +1656,7 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
@@ -1637,6 +1672,7 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-plugins
   labels:
+    app: ${{ defaults.app_name }}-plugins
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-plugins
 spec:
   ports:
@@ -1652,6 +1688,7 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-clickhouse
   labels:
+    app: ${{ defaults.app_name }}-clickhouse
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-clickhouse
 spec:
   clusterIP: None
@@ -1667,26 +1704,6 @@ spec:
     protocol: TCP
   selector:
     app: ${{ defaults.app_name }}-clickhouse
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: ${{ defaults.app_name }}-clickhouse-client
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-clickhouse
-spec:
-  ports:
-  - name: tcp-8123
-    port: 8123
-    targetPort: 8123
-    protocol: TCP
-  - name: tcp-9000
-    port: 9000
-    targetPort: 9000
-    protocol: TCP
-  selector:
-    app: ${{ defaults.app_name }}-clickhouse
----
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

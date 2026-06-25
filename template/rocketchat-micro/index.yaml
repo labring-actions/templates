@@ -16,7 +16,6 @@ spec:
   locale: en
   i18n:
     zh:
-      title: 'Rocket.Chat (微服务版)'
       description: 'Rocket.Chat 微服务版本是一个开源的、完全可定制的通信平台，采用微服务架构提供更好的可扩展性和性能。适用于对数据保护有高标准要求的组织。'
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/rocketchat-micro/README_zh.md'
   categories:
@@ -81,10 +80,10 @@ metadata:
     - cluster.kubeblocks.io/finalizer
   labels:
     kb.io/database: mongodb-8.0.4
-    app.kubernetes.io/instance: ${{ defaults.app_name }}
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    clusterdefinition.kubeblocks.io/name: mongodb
     helm.sh/chart: mongodb-cluster-0.9.1
     sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
-  annotations: {}
   name: ${{ defaults.app_name }}-mongo
 spec:
   affinity:
@@ -128,6 +127,7 @@ spec:
       containers:
         - name: mongo-init
           image: mongo:6.0
+          imagePullPolicy: IfNotPresent
           env:
             - name: MONGO_INITDB_ROOT_PASSWORD
               valueFrom:
@@ -179,6 +179,7 @@ kind: ConfigMap
 metadata:
   name: ${{ defaults.app_name }}-nats
   labels:
+    app: ${{ defaults.app_name }}-nats
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-nats
 data:
   vn-etcvn-natsvn-configvn-natsvn-conf: |
@@ -317,9 +318,9 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 256Mi
+              memory: 102Mi
             limits:
-              cpu: 1000m
+              cpu: 1
               memory: 1024Mi
 
 ---
@@ -350,15 +351,9 @@ spec:
     spec:
       automountServiceAccountToken: false
       volumes:
-      - name: vn-etcvn-natsvn-configvn-natsvn-conf
+      - name: ${{ defaults.app_name }}-nats-cm
         configMap:
           name: ${{ defaults.app_name }}-nats
-          items:
-            - key: vn-etcvn-natsvn-configvn-natsvn-conf
-              path: ./etc/nats-config/nats.conf
-          defaultMode: 420
-      - name: pid
-        emptyDir: {}
 
       shareProcessNamespace: true
       terminationGracePeriodSeconds: 60
@@ -369,7 +364,7 @@ spec:
         resources:
           requests:
             cpu: 10m
-            memory: 32Mi
+            memory: 12Mi
           limits:
             cpu: 100m
             memory: 128Mi
@@ -402,10 +397,10 @@ spec:
         - name: CLUSTER_ADVERTISE
           value: $(POD_NAME).${{ defaults.app_name }}-nats.$(POD_NAMESPACE).svc.cluster.local
         volumeMounts:
-        - name: vn-etcvn-natsvn-configvn-natsvn-conf
+        - name: ${{ defaults.app_name }}-nats-cm
           mountPath: /etc/nats-config/nats.conf
-          subPath: ./etc/nats-config/nats.conf
-        - name: pid
+          subPath: vn-etcvn-natsvn-configvn-natsvn-conf
+        - name: vn-varvn-runvn-nats
           mountPath: /var/run/nats
 
         livenessProbe:
@@ -440,10 +435,10 @@ spec:
         resources:
           requests:
             cpu: 10m
-            memory: 16Mi
+            memory: 12Mi
           limits:
-            cpu: 50m
-            memory: 32Mi
+            cpu: 100m
+            memory: 128Mi
         command:
         - "nats-server-config-reloader"
         - "-pid"
@@ -451,11 +446,23 @@ spec:
         - "-config"
         - "/etc/nats-config/nats.conf"
         volumeMounts:
-        - name: vn-etcvn-natsvn-configvn-natsvn-conf
+        - name: ${{ defaults.app_name }}-nats-cm
           mountPath: /etc/nats-config/nats.conf
-          subPath: ./etc/nats-config/nats.conf
-        - name: pid
+          subPath: vn-etcvn-natsvn-configvn-natsvn-conf
+        - name: vn-varvn-runvn-nats
           mountPath: /var/run/nats
+  volumeClaimTemplates:
+  - metadata:
+      name: vn-varvn-runvn-nats
+      annotations:
+        path: /var/run/nats
+        value: '1'
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
 
 ---
 apiVersion: v1
@@ -463,6 +470,7 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
@@ -487,6 +495,7 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-nats
   labels:
+    app: ${{ defaults.app_name }}-nats
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-nats
 spec:
   selector:
@@ -585,6 +594,7 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-account
   labels:
+    app: ${{ defaults.app_name }}-account
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-account
 spec:
   type: ClusterIP
@@ -674,6 +684,7 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-authorization
   labels:
+    app: ${{ defaults.app_name }}-authorization
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-authorization
 spec:
   type: ClusterIP
@@ -767,6 +778,7 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-ddp-streamer
   labels:
+    app: ${{ defaults.app_name }}-ddp-streamer
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-ddp-streamer
 spec:
   type: ClusterIP
@@ -861,6 +873,7 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-presence
   labels:
+    app: ${{ defaults.app_name }}-presence
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-presence
 spec:
   type: ClusterIP
@@ -952,6 +965,7 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-stream-hub
   labels:
+    app: ${{ defaults.app_name }}-stream-hub
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-stream-hub
 spec:
   type: ClusterIP

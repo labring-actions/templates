@@ -3,6 +3,7 @@ kind: Template
 metadata:
   name: glitchtip
 spec:
+  locale: en
   title: 'glitchtip'
   url: 'https://glitchtip.com/'
   gitRepo: 'https://gitlab.com/glitchtip/glitchtip'
@@ -51,6 +52,7 @@ spec:
 
   i18n:
     zh:
+      description: "一键部署 GlitchTip 错误监控和性能追踪平台。"
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/glitchtip/README_zh.md'
 ---
 apiVersion: apps/v1
@@ -58,7 +60,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: glitchtip/glitchtip:v4.1.5
+    originImageName: glitchtip/glitchtip:v6.0.3
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -83,7 +85,7 @@ spec:
       automountServiceAccountToken: false
       initContainers:
         - name: ${{ defaults.app_name }}-api-migrate
-          image: glitchtip/glitchtip:v4.1.5
+          image: glitchtip/glitchtip:v6.0.3
           env:
             - name: PG_USER
               valueFrom:
@@ -95,13 +97,20 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
             - name: PG_PORT
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: port
             - name: DATABASE_URL
-              value: postgresql://$(PG_USER):$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:$(PG_PORT)/glitchtip
+              value: postgresql://$(PG_USER):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/glitchtip
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc
             - name: REDIS_PORT
               value: '6379'
             - name: REDIS_USER
@@ -115,29 +124,37 @@ spec:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
             - name: REDIS_URL
-              value: "redis://$(REDIS_USER):$(REDIS_PASSWORD)@${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc:$(REDIS_PORT)"
+              value: "redis://$(REDIS_USER):$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)"
             - name: DEFAULT_FILE_STORAGE
               value: 'storages.backends.s3boto3.S3Boto3Storage'
-            - name: AWS_STORAGE_BUCKET_NAME
+            - name: S3_BUCKET
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-private
                   key: bucket
-            - name: AWS_S3_ENDPOINT_URL
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: internal
-            - name: AWS_ACCESS_KEY_ID
+            - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: accessKey
-            - name: AWS_SECRET_ACCESS_KEY
+            - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: secretKey
+            - name: AWS_STORAGE_BUCKET_NAME
+              value: $(S3_BUCKET)
+            - name: AWS_S3_ENDPOINT_URL
+              value: $(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+            - name: AWS_ACCESS_KEY_ID
+              value: $(S3_ACCESS_KEY_ID)
+            - name: AWS_SECRET_ACCESS_KEY
+              value: $(S3_SECRET_ACCESS_KEY)
             - name: GLITCHTIP_DOMAIN
               value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: SECRET_KEY
@@ -162,17 +179,18 @@ spec:
           command:
             - /bin/sh
             - -c
-            - ./bin/run-migrate.sh
+            - exec ./bin/run-migrate.sh
+          imagePullPolicy: IfNotPresent
           resources:
             requests:
               cpu: 100m
               memory: 51Mi
             limits:
-              cpu: 1000m
+              cpu: 1
               memory: 512Mi
       containers:
-        - name: ${{ defaults.app_name }}-web
-          image: glitchtip/glitchtip:v4.1.5
+        - name: ${{ defaults.app_name }}
+          image: glitchtip/glitchtip:v6.0.3
           env:
             - name: PG_USER
               valueFrom:
@@ -184,13 +202,20 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
             - name: PG_PORT
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: port
             - name: DATABASE_URL
-              value: postgresql://$(PG_USER):$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:$(PG_PORT)/glitchtip
+              value: postgresql://$(PG_USER):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/glitchtip
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc
             - name: REDIS_PORT
               value: '6379'
             - name: REDIS_USER
@@ -204,29 +229,37 @@ spec:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
             - name: REDIS_URL
-              value: "redis://$(REDIS_USER):$(REDIS_PASSWORD)@${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc:$(REDIS_PORT)"
+              value: "redis://$(REDIS_USER):$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)"
             - name: DEFAULT_FILE_STORAGE
               value: 'storages.backends.s3boto3.S3Boto3Storage'
-            - name: AWS_STORAGE_BUCKET_NAME
+            - name: S3_BUCKET
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-private
                   key: bucket
-            - name: AWS_S3_ENDPOINT_URL
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: internal
-            - name: AWS_ACCESS_KEY_ID
+            - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: accessKey
-            - name: AWS_SECRET_ACCESS_KEY
+            - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: secretKey
+            - name: AWS_STORAGE_BUCKET_NAME
+              value: $(S3_BUCKET)
+            - name: AWS_S3_ENDPOINT_URL
+              value: $(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+            - name: AWS_ACCESS_KEY_ID
+              value: $(S3_ACCESS_KEY_ID)
+            - name: AWS_SECRET_ACCESS_KEY
+              value: $(S3_SECRET_ACCESS_KEY)
             - name: GLITCHTIP_DOMAIN
               value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: SECRET_KEY
@@ -253,7 +286,7 @@ spec:
               cpu: 100m
               memory: 102Mi
             limits:
-              cpu: 1000m
+              cpu: 1
               memory: 1024Mi
           command: []
           args: []
@@ -262,7 +295,7 @@ spec:
           imagePullPolicy: IfNotPresent
           volumeMounts: []
         - name: ${{ defaults.app_name }}-worker
-          image: glitchtip/glitchtip:v4.1.5
+          image: glitchtip/glitchtip:v6.0.3
           env:
             - name: PG_USER
               valueFrom:
@@ -274,13 +307,20 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
             - name: PG_PORT
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: port
             - name: DATABASE_URL
-              value: postgresql://$(PG_USER):$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:$(PG_PORT)/glitchtip
+              value: postgresql://$(PG_USER):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/glitchtip
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc
             - name: REDIS_PORT
               value: '6379'
             - name: REDIS_USER
@@ -294,29 +334,37 @@ spec:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
             - name: REDIS_URL
-              value: "redis://$(REDIS_USER):$(REDIS_PASSWORD)@${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc:$(REDIS_PORT)"
+              value: "redis://$(REDIS_USER):$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)"
             - name: DEFAULT_FILE_STORAGE
               value: 'storages.backends.s3boto3.S3Boto3Storage'
-            - name: AWS_STORAGE_BUCKET_NAME
+            - name: S3_BUCKET
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-private
                   key: bucket
-            - name: AWS_S3_ENDPOINT_URL
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: internal
-            - name: AWS_ACCESS_KEY_ID
+            - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: accessKey
-            - name: AWS_SECRET_ACCESS_KEY
+            - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: secretKey
+            - name: AWS_STORAGE_BUCKET_NAME
+              value: $(S3_BUCKET)
+            - name: AWS_S3_ENDPOINT_URL
+              value: $(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+            - name: AWS_ACCESS_KEY_ID
+              value: $(S3_ACCESS_KEY_ID)
+            - name: AWS_SECRET_ACCESS_KEY
+              value: $(S3_SECRET_ACCESS_KEY)
             - name: GLITCHTIP_DOMAIN
               value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: SECRET_KEY
@@ -343,16 +391,16 @@ spec:
               cpu: 100m
               memory: 102Mi
             limits:
-              cpu: 1000m
+              cpu: 1
               memory: 1024Mi
+          imagePullPolicy: IfNotPresent
           command:
             - /bin/sh
             - -c
-            - ./bin/run-celery-with-beat.sh
+            - exec ./bin/run-celery-with-beat.sh
           args: []
           ports:
             - containerPort: 8000
-          imagePullPolicy: IfNotPresent
           volumeMounts: []
       volumes: []
 ---
@@ -362,9 +410,11 @@ metadata:
   name: ${{ defaults.app_name }}
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 8000
+    - name: http
+      port: 8000
   selector:
     app: ${{ defaults.app_name }}
 ---
@@ -377,14 +427,25 @@ metadata:
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
     kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
     higress.io/response-header-control-remove: X-Frame-Options
     higress.io/response-header-control-update: |
       Content-Security-Policy "default-src * blob: data: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; img-src * data: blob: resource: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; connect-src * wss: blob: resource:; style-src 'self' 'unsafe-inline' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource: *.baidu.com *.bdstatic.com; frame-src 'self' *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} mailto: tel: weixin: mtt: *.baidu.com; frame-ancestors 'self' https://${{ SEALOS_CLOUD_DOMAIN }} https://*.${{ SEALOS_CLOUD_DOMAIN }}"
       X-Xss-Protection "1; mode=block"
     nginx.ingress.kubernetes.io/configuration-snippet: |
-      more_clear_headers "X-Frame-Options:";
-      more_set_headers "Content-Security-Policy: default-src * blob: data: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; img-src * data: blob: resource: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; connect-src * wss: blob: resource:; style-src 'self' 'unsafe-inline' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource: *.baidu.com *.bdstatic.com; frame-src 'self' *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} mailto: tel: weixin: mtt: *.baidu.com; frame-ancestors 'self' https://${{ SEALOS_CLOUD_DOMAIN }} https://*.${{ SEALOS_CLOUD_DOMAIN }}";
-      more_set_headers "X-Xss-Protection: 1; mode=block";
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
 spec:
   rules:
     - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
@@ -467,11 +528,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 100m
-          memory: 100Mi
+          cpu: 500m
+          memory: 512Mi
         requests:
-          cpu: 10m
-          memory: 10Mi
+          cpu: 50m
+          memory: 51Mi
       serviceVersion: 7.2.7
       volumeClaimTemplates:
         - name: data
@@ -536,9 +597,9 @@ metadata:
     - cluster.kubeblocks.io/finalizer
   labels:
     clusterdefinition.kubeblocks.io/name: postgresql
-    clusterversion.kubeblocks.io/name: postgresql-14.8.0
+    kb.io/database: postgresql-16.4.0
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
-  annotations: {}
   name: ${{ defaults.app_name }}-pg
 spec:
   affinity:
@@ -547,7 +608,7 @@ spec:
     tenancy: SharedNode
     topologyKeys: []
   clusterDefinitionRef: postgresql
-  clusterVersionRef: postgresql-14.8.0
+  clusterVersionRef: postgresql-16.4.0
   componentSpecs:
     - componentDefRef: postgresql
       monitor: true
@@ -613,27 +674,51 @@ subjects:
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: ${{ defaults.app_name }}-init
+  name: ${{ defaults.app_name }}-pg-init
 spec:
   completions: 1
   template:
     spec:
       containers:
         - name: pgsql-init
-          image: senzing/postgresql-client:2.2.4
+          image: postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
           env:
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
             - name: PG_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
             - name: DATABASE_URL
-              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
+              value: postgresql://$(PG_USER):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/postgres
           command:
             - /bin/sh
             - -c
             - |
-              until psql ${DATABASE_URL} -c 'CREATE DATABASE glitchtip;' &>/dev/null; do sleep 1; done
+              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER"; do sleep 2; done
+              psql "$DATABASE_URL" -tc "SELECT 1 FROM pg_database WHERE datname='glitchtip'" | grep -q 1 || psql "$DATABASE_URL" -c 'CREATE DATABASE glitchtip;'
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
       restartPolicy: Never
   backoffLimit: 0
   ttlSecondsAfterFinished: 300
@@ -659,4 +744,4 @@ spec:
   displayType: normal
   icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/glitchtip/logo.png"
   name: ${{ defaults.app_name }}
-  type: iframe
+  type: link

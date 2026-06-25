@@ -74,6 +74,11 @@ spec:
       type: boolean
       default: 'true'
       required: false
+    use_builtin_minio:
+      description: Use the built-in MinIO fallback for local S3-compatible object storage
+      type: boolean
+      default: 'false'
+      required: false
 ---
 ${{ if(inputs.use_object_storage === 'true') }}
 apiVersion: objectstorage.sealos.io/v1
@@ -214,8 +219,8 @@ spec:
               until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; do
                 sleep 2
               done
-              if ! psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='${PG_DATABASE}'" | grep -q 1; then
-                psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -c "CREATE DATABASE ${PG_DATABASE}"
+              if ! psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='langfuse'" | grep -q 1; then
+                createdb -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" langfuse
               fi
           resources:
             limits:
@@ -345,7 +350,6 @@ metadata:
   labels:
     app: ${{ defaults.app_name }}-clickhouse
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-clickhouse
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
 data:
   vn-etcvn-clickhousevn-servervn-configvn-dvn-networkvn-xml: |-
     <clickhouse>
@@ -389,7 +393,6 @@ metadata:
   labels:
     app: ${{ defaults.app_name }}-clickhouse
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-clickhouse
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
 spec:
   replicas: 1
   revisionHistoryLimit: 1
@@ -404,6 +407,8 @@ spec:
         cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-clickhouse
     spec:
       automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ${{ defaults.app_name }}
       containers:
         - name: ${{ defaults.app_name }}-clickhouse
           image: clickhouse/clickhouse-server:25.4.2
@@ -477,8 +482,6 @@ spec:
         annotations:
           path: /var/lib/clickhouse
           value: '1'
-        labels:
-          cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
       spec:
         accessModes:
           - ReadWriteOnce
@@ -490,8 +493,6 @@ spec:
         annotations:
           path: /var/log/clickhouse-server
           value: '1'
-        labels:
-          cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
       spec:
         accessModes:
           - ReadWriteOnce
@@ -547,7 +548,7 @@ spec:
       automountServiceAccountToken: false
       initContainers:
         - name: wait-for-postgres-migrations
-          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          image: public.ecr.aws/docker/library/alpine:3.22.2
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_HOST
@@ -574,6 +575,7 @@ spec:
             - /bin/sh
             - -ec
             - |
+              apk add --no-cache postgresql-client
               until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" >/dev/null 2>&1; do
                 sleep 2
               done
@@ -588,7 +590,7 @@ spec:
               cpu: 20m
               memory: 25Mi
         - name: wait-for-redis
-          image: public.ecr.aws/docker/library/redis:7.2.7-alpine
+          image: public.ecr.aws/docker/library/busybox:1.38.0
           imagePullPolicy: IfNotPresent
           env:
             - name: REDIS_HOST
@@ -599,17 +601,9 @@ spec:
             - /bin/sh
             - -ec
             - |
-              until [ -s /redis-secret/password ]; do
+              until nc -z "$REDIS_HOST" "$REDIS_PORT"; do
                 sleep 2
               done
-              REDIS_PASSWORD="$(cat /redis-secret/password)"
-              until redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" ping >/dev/null 2>&1; do
-                sleep 2
-              done
-          volumeMounts:
-            - name: redis-credentials
-              mountPath: /redis-secret
-              readOnly: true
           resources:
             limits:
               cpu: 200m
@@ -682,28 +676,34 @@ spec:
             - name: LANGFUSE_BULLMQ_SKIP_REDIS_VERSION_CHECK
               value: 'false'
             ${{ if(inputs.use_object_storage === 'true') }}
-            - name: LANGFUSE_S3_EVENT_UPLOAD_BUCKET
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
-                  key: bucket
-            - name: LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID
+            - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: accessKey
-            - name: LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY
+            - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: secretKey
-            - name: BACKEND_STORAGE_MINIO_INTERNAL_ENDPOINT
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
-                  key: internal
+                  key: external
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: LANGFUSE_S3_EVENT_UPLOAD_BUCKET
+              value: $(S3_BUCKET)
+            - name: LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID
+              value: $(S3_ACCESS_KEY_ID)
+            - name: LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY
+              value: $(S3_SECRET_ACCESS_KEY)
             - name: LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT
-              value: http://$(BACKEND_STORAGE_MINIO_INTERNAL_ENDPOINT)
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
             ${{ else() }}
             - name: LANGFUSE_S3_EVENT_UPLOAD_BUCKET
               value: ${{ defaults.app_name }}
@@ -722,25 +722,11 @@ spec:
               value: events/
             ${{ if(inputs.use_object_storage === 'true') }}
             - name: LANGFUSE_S3_MEDIA_UPLOAD_BUCKET
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
-                  key: bucket
+              value: $(S3_BUCKET)
             - name: LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key
-                  key: accessKey
+              value: $(S3_ACCESS_KEY_ID)
             - name: LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key
-                  key: secretKey
-            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key
-                  key: external
+              value: $(S3_SECRET_ACCESS_KEY)
             - name: LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT
               value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
             ${{ else() }}
@@ -772,11 +758,6 @@ spec:
             limits:
               cpu: 500m
               memory: 1024Mi
-      volumes:
-        - name: redis-credentials
-          secret:
-            secretName: ${{ defaults.app_name }}-redis-redis-account-default
-            optional: true
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -805,7 +786,7 @@ spec:
       automountServiceAccountToken: false
       initContainers:
         - name: wait-for-redis
-          image: public.ecr.aws/docker/library/redis:7.2.7-alpine
+          image: public.ecr.aws/docker/library/busybox:1.38.0
           imagePullPolicy: IfNotPresent
           env:
             - name: REDIS_HOST
@@ -816,17 +797,9 @@ spec:
             - /bin/sh
             - -ec
             - |
-              until [ -s /redis-secret/password ]; do
+              until nc -z "$REDIS_HOST" "$REDIS_PORT"; do
                 sleep 2
               done
-              REDIS_PASSWORD="$(cat /redis-secret/password)"
-              until redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" ping >/dev/null 2>&1; do
-                sleep 2
-              done
-          volumeMounts:
-            - name: redis-credentials
-              mountPath: /redis-secret
-              readOnly: true
           resources:
             limits:
               cpu: 200m
@@ -901,28 +874,34 @@ spec:
             - name: LANGFUSE_BULLMQ_SKIP_REDIS_VERSION_CHECK
               value: 'false'
             ${{ if(inputs.use_object_storage === 'true') }}
-            - name: LANGFUSE_S3_EVENT_UPLOAD_BUCKET
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
-                  key: bucket
-            - name: LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID
+            - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: accessKey
-            - name: LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY
+            - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: secretKey
-            - name: BACKEND_STORAGE_MINIO_INTERNAL_ENDPOINT
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
-                  key: internal
+                  key: external
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: LANGFUSE_S3_EVENT_UPLOAD_BUCKET
+              value: $(S3_BUCKET)
+            - name: LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID
+              value: $(S3_ACCESS_KEY_ID)
+            - name: LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY
+              value: $(S3_SECRET_ACCESS_KEY)
             - name: LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT
-              value: http://$(BACKEND_STORAGE_MINIO_INTERNAL_ENDPOINT)
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
             ${{ else() }}
             - name: LANGFUSE_S3_EVENT_UPLOAD_BUCKET
               value: ${{ defaults.app_name }}
@@ -941,25 +920,11 @@ spec:
               value: events/
             ${{ if(inputs.use_object_storage === 'true') }}
             - name: LANGFUSE_S3_MEDIA_UPLOAD_BUCKET
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
-                  key: bucket
+              value: $(S3_BUCKET)
             - name: LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key
-                  key: accessKey
+              value: $(S3_ACCESS_KEY_ID)
             - name: LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key
-                  key: secretKey
-            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key
-                  key: external
+              value: $(S3_SECRET_ACCESS_KEY)
             - name: LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT
               value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
             ${{ else() }}
@@ -1027,13 +992,21 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 6
-      volumes:
-        - name: redis-credentials
-          secret:
-            secretName: ${{ defaults.app_name }}-redis-redis-account-default
-            optional: true
 ---
-${{ if(inputs.use_object_storage === 'false') }}
+${{ if(inputs.use_builtin_minio === 'true') }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-minio
+  labels:
+    app: ${{ defaults.app_name }}-minio
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio
+data:
+  vn-usrvn-localvn-binvn-startvn-miniovn-sh: |-
+    set -eu
+    mkdir -p /data/${{ defaults.app_name }}
+    exec minio server --address ":9000" --console-address ":9001" /data
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -1060,6 +1033,8 @@ spec:
         cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio
     spec:
       automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ${{ defaults.app_name }}
       containers:
         - name: ${{ defaults.app_name }}-minio
           image: minio/minio:RELEASE.2025-09-07T16-13-09Z
@@ -1067,9 +1042,7 @@ spec:
           command:
             - /bin/sh
             - -ec
-            - |
-              mkdir -p /data/${{ defaults.app_name }}
-              exec minio server --address ":9000" --console-address ":9001" /data
+            - exec /bin/sh /usr/local/bin/start-minio.sh
           env:
             - name: MINIO_ROOT_USER
               value: ${{ defaults.minio_access_key }}
@@ -1085,7 +1058,7 @@ spec:
           resources:
             requests:
               cpu: 50m
-              memory: 128Mi
+              memory: 51Mi
             limits:
               cpu: 500m
               memory: 512Mi
@@ -1116,6 +1089,13 @@ spec:
           volumeMounts:
             - name: vn-data
               mountPath: /data
+            - name: ${{ defaults.app_name }}-minio-cm
+              mountPath: /usr/local/bin/start-minio.sh
+              subPath: vn-usrvn-localvn-binvn-startvn-miniovn-sh
+      volumes:
+        - name: ${{ defaults.app_name }}-minio-cm
+          configMap:
+            name: ${{ defaults.app_name }}-minio
   volumeClaimTemplates:
     - metadata:
         name: vn-data

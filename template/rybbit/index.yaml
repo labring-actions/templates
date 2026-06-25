@@ -169,6 +169,13 @@ spec:
               if ! psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='analytics'" | grep -q 1; then
                 psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE "analytics";'
               fi
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
       restartPolicy: Never
   ttlSecondsAfterFinished: 300
 ---
@@ -207,7 +214,7 @@ data:
       <latency_log remove="remove"/>
       <processors_profile_log remove="remove"/>
     </clickhouse>
-  vn-etcvn-clickhousevn-servervn-usersvn-dvn-uservn-l-87e45283: |-
+  vn-etcvn-clickhousevn-servervn-usersvn-dvn-uservn-loggingvn-xml: |-
     <clickhouse>
       <profiles>
         <default>
@@ -305,52 +312,25 @@ spec:
           volumeMounts:
             - name: vn-varvn-libvn-clickhouse
               mountPath: /var/lib/clickhouse
-            - name: vn-etcvn-clickhousevn-servervn-configvn-dvn-networkvn-xml
+            - name: ${{ defaults.app_name }}-clickhouse-cm
               mountPath: /etc/clickhouse-server/config.d/network.xml
-              subPath: network.xml
-            - name: vn-etcvn-clickhousevn-servervn-configvn-dvn-enablevn-jsonvn-xml
+              subPath: vn-etcvn-clickhousevn-servervn-configvn-dvn-networkvn-xml
+            - name: ${{ defaults.app_name }}-clickhouse-cm
               mountPath: /etc/clickhouse-server/config.d/enable_json.xml
-              subPath: enable_json.xml
-            - name: vn-etcvn-clickhousevn-servervn-configvn-dvn-loggingvn-77db84fe
+              subPath: vn-etcvn-clickhousevn-servervn-configvn-dvn-enablevn-jsonvn-xml
+            - name: ${{ defaults.app_name }}-clickhouse-cm
               mountPath: /etc/clickhouse-server/config.d/logging_rules.xml
-              subPath: logging_rules.xml
-            - name: vn-etcvn-clickhousevn-servervn-usersvn-dvn-uservn-l-87e45283
+              subPath: vn-etcvn-clickhousevn-servervn-configvn-dvn-loggingvn-77db84fe
+            - name: ${{ defaults.app_name }}-clickhouse-cm
               mountPath: /etc/clickhouse-server/users.d/user_logging.xml
-              subPath: user_logging.xml
-            - name: vn-etcvn-clickhousevn-servervn-usersvn-dvn-defaultvn-password
+              subPath: vn-etcvn-clickhousevn-servervn-usersvn-dvn-uservn-loggingvn-xml
+            - name: ${{ defaults.app_name }}-clickhouse-cm
               mountPath: /etc/clickhouse-server/users.d/default-password.xml
-              subPath: default-password.xml
+              subPath: vn-etcvn-clickhousevn-servervn-usersvn-dvn-defaultvn-password
       volumes:
-        - name: vn-etcvn-clickhousevn-servervn-configvn-dvn-networkvn-xml
+        - name: ${{ defaults.app_name }}-clickhouse-cm
           configMap:
             name: ${{ defaults.app_name }}-clickhouse
-            items:
-              - key: vn-etcvn-clickhousevn-servervn-configvn-dvn-networkvn-xml
-                path: network.xml
-        - name: vn-etcvn-clickhousevn-servervn-configvn-dvn-enablevn-jsonvn-xml
-          configMap:
-            name: ${{ defaults.app_name }}-clickhouse
-            items:
-              - key: vn-etcvn-clickhousevn-servervn-configvn-dvn-enablevn-jsonvn-xml
-                path: enable_json.xml
-        - name: vn-etcvn-clickhousevn-servervn-configvn-dvn-loggingvn-77db84fe
-          configMap:
-            name: ${{ defaults.app_name }}-clickhouse
-            items:
-              - key: vn-etcvn-clickhousevn-servervn-configvn-dvn-loggingvn-77db84fe
-                path: logging_rules.xml
-        - name: vn-etcvn-clickhousevn-servervn-usersvn-dvn-uservn-l-87e45283
-          configMap:
-            name: ${{ defaults.app_name }}-clickhouse
-            items:
-              - key: vn-etcvn-clickhousevn-servervn-usersvn-dvn-uservn-l-87e45283
-                path: user_logging.xml
-        - name: vn-etcvn-clickhousevn-servervn-usersvn-dvn-defaultvn-password
-          configMap:
-            name: ${{ defaults.app_name }}-clickhouse
-            items:
-              - key: vn-etcvn-clickhousevn-servervn-usersvn-dvn-defaultvn-password
-                path: default-password.xml
   volumeClaimTemplates:
     - metadata:
         name: vn-varvn-libvn-clickhouse
@@ -428,13 +408,21 @@ spec:
           env:
             - name: CLICKHOUSE_HOST
               value: ${{ defaults.app_name }}-clickhouse.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
         - name: wait-for-postgres
-          image: postgres:16.4-alpine
+          image: public.ecr.aws/docker/library/alpine:3.22.2
           imagePullPolicy: IfNotPresent
           command:
             - /bin/sh
             - -ec
             - |
+              apk add --no-cache postgresql-client
               until pg_isready -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d analytics >/dev/null 2>&1; do
                 sleep 2
               done
@@ -459,6 +447,13 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
       containers:
         - name: ${{ defaults.app_name }}-backend
           image: ghcr.io/rybbit-io/rybbit-backend:sha-aa404ba

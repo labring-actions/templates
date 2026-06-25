@@ -16,7 +16,6 @@ spec:
   locale: en
   i18n:
     zh:
-      title: 'Tolgee'
       description: 'Tolgee 是一个开源的本地化平台，专为开发者设计，支持上下文直接翻译、一键生成翻译截图、生产环境实时编辑，并集成多种机器翻译服务（如 DeepL、Google Translate），提供翻译记忆与自动化功能，简化多语言应用的开发流程。'
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/tolgee/README_zh.md'
   categories:
@@ -107,10 +106,10 @@ metadata:
   finalizers:
     - cluster.kubeblocks.io/finalizer
   labels:
+    kb.io/database: postgresql-14.8.0
     clusterdefinition.kubeblocks.io/name: postgresql
     clusterversion.kubeblocks.io/name: postgresql-14.8.0
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
-  annotations: {}
   name: ${{ defaults.app_name }}-pg
 spec:
   affinity:
@@ -193,19 +192,44 @@ spec:
       containers:
         - name: pgsql-init
           image: senzing/postgresql-client:2.2.4
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
           env:
             - name: PG_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
+            - name: PG_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: endpoint
             - name: DATABASE_URL
-              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
+              value: postgresql://postgres:$(PG_PASSWORD)@$(PG_ENDPOINT)
+            - name: PG_DATABASE
+              value: tolgee
           command:
             - /bin/sh
             - -c
             - |
-              until psql ${DATABASE_URL} -c 'CREATE DATABASE tolgee;' &>/dev/null; do sleep 1; done
+              set -eu
+              for i in $(seq 1 60); do
+                if pg_isready -h "${PG_ENDPOINT%:*}" -p "${PG_ENDPOINT##*:}" -U postgres -d postgres >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 2
+              done
+              pg_isready -h "${PG_ENDPOINT%:*}" -p "${PG_ENDPOINT##*:}" -U postgres -d postgres >/dev/null 2>&1
+              if ! psql "${DATABASE_URL}/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='tolgee'" | grep -q 1; then
+                psql "${DATABASE_URL}/postgres" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE "tolgee";'
+              fi
       restartPolicy: Never
   backoffLimit: 0
   ttlSecondsAfterFinished: 300
@@ -216,7 +240,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: tolgee/tolgee:v3.113.0
+    originImageName: tolgee/tolgee:v3.205.5
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -241,8 +265,13 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: tolgee/tolgee:v3.113.0
+          image: tolgee/tolgee:v3.205.5
           env:
+            - name: DATABASE_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
             - name: DATABASE_PORT
               valueFrom:
                 secretKeyRef:
@@ -259,7 +288,7 @@ spec:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
             - name: spring.datasource.url
-              value: "jdbc:postgresql://${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:$(DATABASE_PORT)/tolgee"
+              value: "jdbc:postgresql://$(DATABASE_HOST):$(DATABASE_PORT)/tolgee"
             - name: TOLGEE_AUTHENTICATION_ENABLED
               value: "true"
             - name: TOLGEE_AUTHENTICATION_INITIAL_PASSWORD
@@ -270,11 +299,23 @@ spec:
               value: "04613dcd4a41394b5804cb1eda64a976108c5bc82f58aa0c93adfcfa2c0a5c9fa7f7b5b18857364ceae980ac1dee620a418d8c38fe0dfb2aaf3040dd24b27ea9051c4003c8383d1fec130b2485e0c50eda4b2a08e3c81ca8930e6b1685706ad909c62213fb0164829a51c587531651ca08edf1dad6cb67015f72879ebff92d694e202998796b868f86a99e7ad2477673929f77ef7ea8e6564bab22cbb28e54022b40fdd67e91951046d60648f7362a1ae0f412011ea8f0a6107efa584544ecec9f7a420beac6661e4719906ee5dbf9ae069514385026a69852f5e19e3a2ad711cdd97943b516535925c4c8998fd2db831ec44db630cb3134b36667db991f33d6"
             - name: TOLGEE_FILE_STORAGE_S3_ENABLED
               value: "true"
-            - name: TOLGEE_FILE_STORAGE_S3_BUCKET_NAME
+            - name: S3_BUCKET
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-private
                   key: bucket
+            - name: TOLGEE_FILE_STORAGE_S3_BUCKET_NAME
+              value: $(S3_BUCKET)
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
             - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
               valueFrom:
                 secretKeyRef:
@@ -283,15 +324,9 @@ spec:
             - name: TOLGEE_FILE_STORAGE_S3_ENDPOINT
               value: "https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)"
             - name: TOLGEE_FILE_STORAGE_S3_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key
-                  key: accessKey
+              value: $(S3_ACCESS_KEY_ID)
             - name: TOLGEE_FILE_STORAGE_S3_SECRET_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key
-                  key: secretKey
+              value: $(S3_SECRET_ACCESS_KEY)
             - name: TOLGEE_FILE_STORAGE_S3_SIGNING_REGION
               value: us-west-1
             - name: TOLGEE_SMTP_AUTH
@@ -313,7 +348,7 @@ spec:
               cpu: 100m
               memory: 102Mi
             limits:
-              cpu: 1000m
+              cpu: 1
               memory: 1024Mi
           readinessProbe:
             failureThreshold: 30
@@ -333,6 +368,7 @@ metadata:
   name: ${{ defaults.app_name }}
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
 spec:
   ports:
     - name: http

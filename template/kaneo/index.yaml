@@ -23,11 +23,12 @@ spec:
     app_name:
       type: string
       value: kaneo-${{ random(8) }}
-    jwt_access:
+    auth_secret:
       type: string
-      value:  ${{ random(36) }}
+      value: ${{ random(64) }}
   i18n:
     zh:
+      description: Kaneo 是现代化的自托管项目管理平台，专注于简洁、快速和团队协作。
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/kaneo/README_zh.md'
 
 ---
@@ -37,10 +38,11 @@ metadata:
   finalizers:
     - cluster.kubeblocks.io/finalizer
   labels:
+    kb.io/database: postgresql-16.4.0
     clusterdefinition.kubeblocks.io/name: postgresql
-    clusterversion.kubeblocks.io/name: postgresql-14.8.0
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
-  annotations: {}
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
   name: ${{ defaults.app_name }}-pg
 spec:
   affinity:
@@ -49,10 +51,12 @@ spec:
     tenancy: SharedNode
     topologyKeys: []
   clusterDefinitionRef: postgresql
-  clusterVersionRef: postgresql-14.8.0
+  clusterVersionRef: postgresql-16.4.0
   componentSpecs:
     - componentDefRef: postgresql
-      monitor: true
+      disableExporter: true
+      enabledLogs:
+        - running
       name: postgresql
       replicas: 1
       resources:
@@ -129,22 +133,45 @@ spec:
     spec:
       containers:
         - name: pgsql-init
-          image: postgres:14-alpine
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
           env:
             - name: PG_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
-            - name: DATABASE_URL
-              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
+            - name: PG_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: endpoint
+            - name: PG_DATABASE
+              value: kaneo
           command:
             - /bin/sh
             - -c
             - |
-              until psql ${DATABASE_URL} -c 'CREATE DATABASE kaneo;' &>/dev/null; do sleep 1; done
-      restartPolicy: Never
-  backoffLimit: 0
+              set -eu
+              for i in $(seq 1 60); do
+                if pg_isready -h "${PG_ENDPOINT%:*}" -p "${PG_ENDPOINT##*:}" -U postgres -d postgres >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 2
+              done
+              pg_isready -h "${PG_ENDPOINT%:*}" -p "${PG_ENDPOINT##*:}" -U postgres -d postgres >/dev/null 2>&1
+              if ! psql "postgresql://postgres:$(PG_PASSWORD)@$(PG_ENDPOINT)/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='$(PG_DATABASE)'" | grep -q 1; then
+                psql "postgresql://postgres:$(PG_PASSWORD)@$(PG_ENDPOINT)/postgres" -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"$(PG_DATABASE)\";"
+              fi
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+      restartPolicy: OnFailure
+  backoffLimit: 3
   ttlSecondsAfterFinished: 300
 
 ---
@@ -153,21 +180,23 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-backend
   labels:
+    app: ${{ defaults.app_name }}-backend
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-backend
 spec:
   selector:
     app: ${{ defaults.app_name }}-backend
   ports:
-    - protocol: TCP
+    - name: http
+      protocol: TCP
       port: 1337
-      targetPort: 1337
+      targetPort: api
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-backend
   annotations:
-    originImageName: ghcr.io/usekaneo/api:1.1.8
+    originImageName: ghcr.io/usekaneo/api:2.7.7
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -187,35 +216,58 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}-backend
-          image: ghcr.io/usekaneo/api:1.1.8
+          image: ghcr.io/usekaneo/api:2.7.7
+          imagePullPolicy: IfNotPresent
           ports:
             - name: api
               containerPort: 1337
               protocol: TCP
           env:
-            - name: PG_PASSWORD
+            - name: KANEO_CLIENT_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: KANEO_API_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/api
+            - name: CORS_ORIGINS
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: AUTH_SECRET
+              value: ${{ defaults.auth_secret }}
+            - name: POSTGRES_USER
               valueFrom:
                 secretKeyRef:
-                  name: ${{ defaults.app_name}}-pg-conn-credential
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
-              value: ${{ inputs.DATABASE_URL }}
-            - name: DATABASE_URL
-              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432/kaneo
-            - name: JWT_ACCESS
-              value: ${{ defaults.jwt_access}}
+            - name: POSTGRES_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: POSTGRES_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: POSTGRES_DB
+              value: kaneo
             - name: DISABLE_REGISTRATION
+              value: "false"
+            - name: DISABLE_PASSWORD_REGISTRATION
               value: "false"
           livenessProbe:
             httpGet:
-              path: /me
+              path: /api/health
               port: api
-            initialDelaySeconds: 30
+            initialDelaySeconds: 60
             periodSeconds: 10
           readinessProbe:
             httpGet:
-              path: /me
+              path: /api/health
               port: api
-            initialDelaySeconds: 5
+            initialDelaySeconds: 30
             periodSeconds: 10
           resources:
             limits:
@@ -224,14 +276,13 @@ spec:
             requests:
               cpu: 20m
               memory: 25Mi
-          imagePullPolicy: IfNotPresent
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: ghcr.io/usekaneo/web:1.1.8
+    originImageName: ghcr.io/usekaneo/web:2.7.7
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -251,7 +302,8 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: ghcr.io/usekaneo/web:1.1.8
+          image: ghcr.io/usekaneo/web:2.7.7
+          imagePullPolicy: IfNotPresent
           ports:
             - name: web
               containerPort: 5173
@@ -259,6 +311,8 @@ spec:
           env:
             - name: KANEO_API_URL
               value: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/api"
+            - name: KANEO_CLIENT_URL
+              value: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
           livenessProbe:
             httpGet:
               path: /
@@ -278,27 +332,29 @@ spec:
             requests:
               cpu: 10m
               memory: 12Mi
-          imagePullPolicy: IfNotPresent
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   selector:
     app: ${{ defaults.app_name }}
   ports:
-    - protocol: TCP
+    - name: http
+      protocol: TCP
       port: 5173
-      targetPort: 5173
+      targetPort: web
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
@@ -308,11 +364,11 @@ metadata:
       client_header_buffer_size 64k;
       large_client_header_buffers 4 128k;
     nginx.ingress.kubernetes.io/ssl-redirect: 'true'
-    nginx.ingress.kubernetes.io/rewrite-target: /$1
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
-    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
     nginx.ingress.kubernetes.io/configuration-snippet: |
       if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
         expires 30d;
@@ -324,19 +380,12 @@ spec:
     http:
       paths:
         - pathType: Prefix
-          path: /?(.*)
+          path: /
           backend:
             service:
               name: ${{ defaults.app_name }}
               port:
                 number: 5173
-        - pathType: Prefix
-          path: /api/?(.*)
-          backend:
-            service:
-              name: ${{ defaults.app_name }}-backend
-              port:
-                number: 1337
   tls:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}

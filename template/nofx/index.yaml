@@ -85,6 +85,7 @@ metadata:
   name: ${{ defaults.app_name }}-pg
   labels:
     kb.io/database: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
     clusterdefinition.kubeblocks.io/name: postgresql
     clusterversion.kubeblocks.io/name: postgresql-16.4.0
 spec:
@@ -207,16 +208,12 @@ spec:
       automountServiceAccountToken: false
       initContainers:
         - name: generate-rsa-key
-          image: alpine/openssl:3.5.4
+          image: alpine/openssl:3.5.7
           imagePullPolicy: IfNotPresent
           command:
             - /bin/sh
             - -ec
-            - |
-              if [ ! -s /keys/rsa-private-key ]; then
-                openssl genrsa 2048 | awk '{printf "%s\\n", $0}' > /keys/rsa-private-key
-              fi
-              chmod 0400 /keys/rsa-private-key
+            - if [ -s /keys/rsa-private-key ]; then :; else openssl genrsa 2048 > /keys/rsa-private-key; fi; chmod 0400 /keys/rsa-private-key
           volumeMounts:
             - name: rsa-key
               mountPath: /keys
@@ -228,7 +225,7 @@ spec:
               cpu: 20m
               memory: 25Mi
         - name: wait-for-postgres
-          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          image: alpine:3.24.1
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_HOST
@@ -256,11 +253,7 @@ spec:
           command:
             - /bin/sh
             - -ec
-            - |
-              export PGPASSWORD="$PG_PASSWORD"
-              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DATABASE" >/dev/null 2>&1; do
-                sleep 2
-              done
+            - apk add --no-cache postgresql-client; export PGPASSWORD="$PG_PASSWORD"; until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DATABASE" >/dev/null 2>&1; do sleep 2; done
           resources:
             limits:
               cpu: 200m
@@ -275,9 +268,7 @@ spec:
           command:
             - /bin/sh
             - -ec
-            - |
-              export RSA_PRIVATE_KEY="$(cat /keys/rsa-private-key)"
-              exec /app/nofx
+            - export RSA_PRIVATE_KEY="$(cat /keys/rsa-private-key)"; exec /app/nofx
           ports:
             - name: http
               containerPort: 8080
@@ -378,12 +369,12 @@ spec:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: ${{ defaults.app_name }}-frontend-nginx
+  name: ${{ defaults.app_name }}-frontend
   labels:
-    app: ${{ defaults.app_name }}-frontend-nginx
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-frontend-nginx
+    app: ${{ defaults.app_name }}-frontend
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-frontend
 data:
-  default.conf: |
+  vn-etcvn-nginxvn-confvn-dvn-defaultvn-conf: |
     server {
       listen 80;
       server_name _;
@@ -451,9 +442,9 @@ spec:
             - name: http
               containerPort: 80
           volumeMounts:
-            - name: frontend-nginx
+            - name: ${{ defaults.app_name }}-frontend-cm
               mountPath: /etc/nginx/conf.d/default.conf
-              subPath: default.conf
+              subPath: vn-etcvn-nginxvn-confvn-dvn-defaultvn-conf
           resources:
             limits:
               cpu: 200m
@@ -482,9 +473,9 @@ spec:
             periodSeconds: 20
             timeoutSeconds: 5
       volumes:
-        - name: frontend-nginx
+        - name: ${{ defaults.app_name }}-frontend-cm
           configMap:
-            name: ${{ defaults.app_name }}-frontend-nginx
+            name: ${{ defaults.app_name }}-frontend
 
 ---
 apiVersion: v1

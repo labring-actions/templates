@@ -193,12 +193,33 @@ spec:
               memory: 256Mi
 
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+data:
+  vn-optvn-mlflowvn-startvn-startvn-sh: |
+    set -eu
+    pip install --no-cache-dir boto3==1.43.17 psycopg2-binary==2.9.12
+    exec mlflow server \
+      --backend-store-uri ${MLFLOW_BACKEND_STORE_URI} \
+      --default-artifact-root ${MLFLOW_DEFAULT_ARTIFACT_ROOT} \
+      --host ${MLFLOW_HOST} \
+      --port ${MLFLOW_PORT} \
+      --allowed-hosts ${MLFLOW_ALLOWED_HOSTS} \
+      --cors-allowed-origins ${MLFLOW_CORS_ALLOWED_ORIGINS} \
+      --uvicorn-opts "${MLFLOW_UVICORN_OPTS}"
+
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: ghcr.io/mlflow/mlflow:v3.12.0
+    originImageName: ghcr.io/mlflow/mlflow:v3.14.0
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
     docker-to-sealos.resource-override-source: 'Empirical Sealos deployment test for MLflow 3.12.0: 256Mi, 512Mi and 1024Mi memory failed cold-start readiness; 2 CPU / 2G with two Uvicorn workers reached Ready and served UI plus REST API with PostgreSQL 16.4 and S3 artifact storage. MLflow 3 security middleware also requires --allowed-hosts and --cors-allowed-origins for the generated public host.'
@@ -267,7 +288,7 @@ spec:
               memory: 256Mi
       containers:
         - name: ${{ defaults.app_name }}
-          image: ghcr.io/mlflow/mlflow:v3.12.0
+          image: ghcr.io/mlflow/mlflow:v3.14.0
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_HOST
@@ -335,18 +356,9 @@ spec:
             - name: MLFLOW_UVICORN_OPTS
               value: "--workers 2"
           command:
-            - /bin/bash
+            - /bin/sh
             - -c
-            - |
-              pip install --no-cache-dir boto3==1.43.17 psycopg2-binary==2.9.12
-              mlflow server \
-                --backend-store-uri ${MLFLOW_BACKEND_STORE_URI} \
-                --default-artifact-root ${MLFLOW_DEFAULT_ARTIFACT_ROOT} \
-                --host ${MLFLOW_HOST} \
-                --port ${MLFLOW_PORT} \
-                --allowed-hosts ${MLFLOW_ALLOWED_HOSTS} \
-                --cors-allowed-origins ${MLFLOW_CORS_ALLOWED_ORIGINS} \
-                --uvicorn-opts "${MLFLOW_UVICORN_OPTS}"
+            - exec /bin/sh /opt/mlflow-start/start.sh
           ports:
             - containerPort: 5000
               name: http
@@ -365,10 +377,18 @@ spec:
           resources:
             requests:
               cpu: 200m
-              memory: 200Mi
+              memory: 204Mi
             limits:
               cpu: 2
-              memory: 2G
+              memory: 2048Mi
+          volumeMounts:
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /opt/mlflow-start/start.sh
+              subPath: vn-optvn-mlflowvn-startvn-startvn-sh
+      volumes:
+        - name: ${{ defaults.app_name }}-cm
+          configMap:
+            name: ${{ defaults.app_name }}
 
 ---
 apiVersion: v1

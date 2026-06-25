@@ -1,0 +1,420 @@
+# Template Update Status
+
+- Updated templates: 110
+- Updated candidates: 149
+- Validation-needed templates: 5
+- Validation-needed candidates: 12
+- Blocked templates: 21
+- Blocked candidates: 90
+- Skipped templates: 1
+- Skipped candidates: 6
+
+## Updated Templates
+- `readeck`
+  - `codeberg.org/readeck/readeck:0.16.0` -> `codeberg.org/readeck/readeck:0.22.3`
+- `registry`
+  - `joxit/docker-registry-ui:2.5.6-debian` -> `joxit/docker-registry-ui:2.6.0-debian`
+  - `registry:2.8.3` -> `registry:3.1.1`
+- `affine`
+  - `ghcr.io/toeverything/affine:0.26.6` -> `ghcr.io/toeverything/affine:0.26.7`
+- `authentik`
+  - `ghcr.io/goauthentik/server:2025.12.3` -> `ghcr.io/goauthentik/server:2026.5.3`
+- `bunkerweb`
+  - `docker.io/library/busybox:1.36.1` -> `docker.io/library/busybox:1.38.0`
+- `casdoor`
+  - `casbin/casdoor:v1.702.0` -> `casbin/casdoor:v2.190.0`
+  - `casbin/casdoor:v2.32.0` -> `casbin/casdoor:v2.190.0`
+- `bytebase`
+  - `bytebase/bytebase:3.6.1` -> `bytebase/bytebase:3.19.1`
+- `changedetection`
+  - `ghcr.io/dgtlmoon/changedetection.io:0.50.43` -> `ghcr.io/dgtlmoon/changedetection.io:0.55.7`
+- `chatgpt-next-web`
+  - `yidadaa/chatgpt-next-web:v2.12.4` -> `yidadaa/chatgpt-next-web:v2.16.1`
+- `chatgpt-on-wechat`
+  - `zhayujie/chatgpt-on-wechat:1.6.8` -> `zhayujie/chatgpt-on-wechat:2.1.2`
+- `chatwoot`
+  - `chatwoot/chatwoot:v4.7.0` -> `chatwoot/chatwoot:v4.15.1`
+- `chatnio`
+  - `joseluisq/mysql-client:8.0.30` -> `joseluisq/mysql-client:8.0.44`
+- `cobalt`
+  - `ghcr.io/imputnet/cobalt:7.13.3` -> `ghcr.io/imputnet/cobalt:11.7.1`
+- `code-server`
+  - `codercom/code-server:4.90.3-39` -> `codercom/code-server:4.126.0-39`
+- `crmeb`
+  - `joseluisq/mysql-client:8.0.30` -> `joseluisq/mysql-client:8.0.44`
+- `cronicle`
+  - `soulteary/cronicle:0.9.46` -> `soulteary/cronicle:0.9.80`
+- `dataease`
+  - `busybox:1.36.1` -> `busybox:1.38.0`
+  - `registry.cn-qingdao.aliyuncs.com/dataease/dataease:v2.10.12` -> `registry.cn-qingdao.aliyuncs.com/dataease/dataease:v2.10.25`
+- `dbgate`
+  - `dbgate/dbgate:5.3.1-alpine` -> `dbgate/dbgate:7.2.1-alpine`
+- `deeplx`
+  - `ghcr.io/owo-network/deeplx:v0.9.5` -> `ghcr.io/owo-network/deeplx:v1.2.2`
+- `derper`
+  - `bitnamilegacy/kubectl:1.28.9` -> `bitnamilegacy/kubectl:1.33.4`
+  - `ghcr.io/yangchuansheng/derper:v1.99.0-pre` -> `ghcr.io/yangchuansheng/derper:v1.101.0-pre`
+- `directus`
+  - `directus/directus:11.17.4` -> `directus/directus:12.0.2`
+  - `public.ecr.aws/docker/library/busybox:1.36.1` -> `public.ecr.aws/docker/library/busybox:1.38.0`
+- `docuseal`
+  - `docuseal/docuseal:3.0.1` -> `docuseal/docuseal:3.1.1`
+- `dolibarr`
+  - `mysql:8.0.30` -> `mysql:9.7.1`
+- `drawdb`
+  - `ghcr.io/drawdb-io/drawdb:v1.5.0` -> `ghcr.io/drawdb-io/drawdb:v1.7.0`
+- `edgequake`
+  - `ghcr.io/raphaelmansuy/edgequake-frontend:0.12.2` -> `ghcr.io/raphaelmansuy/edgequake-frontend:0.12.11`
+  - `ghcr.io/raphaelmansuy/edgequake:0.12.2` -> `ghcr.io/raphaelmansuy/edgequake:0.12.11`
+- `elasticsearch`
+  - `busybox:1.37.0` -> `busybox:1.38.0`
+- `emqx`
+  - `emqx/emqx:5.8.9` -> `emqx/emqx:6.2.1`
+- `ever-gauzy`
+  - `busybox:1.36.1` -> `busybox:1.38.0`
+- `evolution-api`
+  - `public.ecr.aws/docker/library/busybox:1.36.1` -> `public.ecr.aws/docker/library/busybox:1.38.0`
+  - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`
+- `featbit-standard`
+  - `featbit/featbit-api-server:5.0.5` -> `featbit/featbit-api-server:5.4.2`
+  - `featbit/featbit-data-analytics-server:5.0.5` -> `featbit/featbit-data-analytics-server:5.4.2`
+  - `featbit/featbit-evaluation-server:5.0.5` -> `featbit/featbit-evaluation-server:5.4.2`
+  - `featbit/featbit-ui:5.0.5` -> `featbit/featbit-ui:5.4.2`
+- `flarum`
+  - `mysql:8.0.30` -> `mysql:9.7.1`
+- `flowise`
+  - `flowiseai/flowise:3.0.5` -> `flowiseai/flowise:3.1.2`
+- `formbricks`
+  - `ghcr.io/formbricks/formbricks:4.9.7` -> `ghcr.io/formbricks/formbricks:5.1.4`
+- `frp`
+  - `bitnamilegacy/kubectl:1.28.9` -> `bitnamilegacy/kubectl:1.33.4`
+- `ghost`
+  - `ghost:6.44.1-alpine` -> `ghost:6.47.0-alpine`
+  - `public.ecr.aws/docker/library/mysql:8.0.30` -> `public.ecr.aws/docker/library/mysql:9.7.1`
+- `gitea`
+  - `gitea/gitea:1.22.0-rootless` -> `gitea/gitea:1.26.4-rootless`
+- `halo`
+  - `halohub/halo:2.18.0` -> `halohub/halo:2.25.4`
+- `hasura`
+  - `hasura/graphql-data-connector:v2.48.11` -> `hasura/graphql-data-connector:v2.49.3`
+- `illa-builder`
+  - `illasoft/illa-builder:v4.8.2` -> `illasoft/illa-builder:v4.8.5`
+- `insforge`
+  - `apecloud/kubeblocks-tools:0.9.3` -> `apecloud/kubeblocks-tools:1.0.2`
+  - `ghcr.io/insforge/insforge-oss:v2.1.8` -> `ghcr.io/insforge/insforge-oss:v2.2.2`
+  - `postgrest/postgrest:v12.2.12` -> `postgrest/postgrest:v13.0.8`
+- `kanboard`
+  - `kanboard/kanboard:v1.2.50` -> `kanboard/kanboard:v1.2.52`
+- `kaneo`
+  - `ghcr.io/usekaneo/api:1.1.8` -> `ghcr.io/usekaneo/api:2.7.7`
+  - `ghcr.io/usekaneo/web:1.1.8` -> `ghcr.io/usekaneo/web:2.7.7`
+- `keycloak`
+  - `quay.io/keycloak/keycloak:26.3.2` -> `quay.io/keycloak/keycloak:26.6.3`
+- `keystone`
+  - `node:22.22.1-alpine` -> `node:26.3.1-alpine`
+- `kuvasz`
+  - `kuvaszmonitoring/kuvasz:3.11.0` -> `kuvaszmonitoring/kuvasz:4.0.1`
+- `langflow`
+  - `langflowai/langflow:1.9.5` -> `langflowai/langflow:1.10.1`
+- `librechat`
+  - `ghcr.io/danny-avila/librechat:v0.7.3` -> `ghcr.io/danny-avila/librechat:v0.8.7`
+- `listmonk`
+  - `busybox:1.37.0` -> `busybox:1.38.0`
+- `llmgateway`
+  - `ghcr.io/theopenco/llmgateway-api:v1.3.0` -> `ghcr.io/theopenco/llmgateway-api:v1.5.0`
+  - `ghcr.io/theopenco/llmgateway-docs:v1.3.0` -> `ghcr.io/theopenco/llmgateway-docs:v1.5.0`
+  - `ghcr.io/theopenco/llmgateway-gateway:v1.3.0` -> `ghcr.io/theopenco/llmgateway-gateway:v1.5.0`
+  - `ghcr.io/theopenco/llmgateway-ui:v1.3.0` -> `ghcr.io/theopenco/llmgateway-ui:v1.5.0`
+  - `ghcr.io/theopenco/llmgateway-worker:v1.3.0` -> `ghcr.io/theopenco/llmgateway-worker:v1.5.0`
+  - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`
+- `lobe-chat-db`
+  - `lobehub/lobe-chat-database:1.143.2` -> `lobehub/lobe-chat-database:1.143.3`
+- `loki`
+  - `busybox:1.37.0` -> `busybox:1.38.0`
+- `mastodon`
+  - `ghcr.io/mastodon/mastodon-streaming:v4.5.11` -> `ghcr.io/mastodon/mastodon-streaming:v4.6.2`
+  - `ghcr.io/mastodon/mastodon:v4.5.11` -> `ghcr.io/mastodon/mastodon:v4.6.2`
+- `matomo`
+  - `matomo:5.10.0-apache` -> `matomo:5.11.2-apache`
+  - `mysql:8.0.44` -> `mysql:9.7.1`
+- `mautic`
+  - `busybox:1.36.1` -> `busybox:1.38.0`
+  - `mysql:8.4.2` -> `mysql:9.7.1`
+- `meilisearch`
+  - `getmeili/meilisearch:v1.45.1` -> `getmeili/meilisearch:v1.48.2`
+- `metabase`
+  - `metabase/metabase:v0.61.3` -> `metabase/metabase:v0.62.3`
+- `minecraft`
+  - `alpine:3.22.4` -> `alpine:3.24.1`
+  - `itzg/minecraft-server:2026.5.3-java25` -> `itzg/minecraft-server:2026.6.1-java25`
+- `mlflow`
+  - `ghcr.io/mlflow/mlflow:v3.12.0` -> `ghcr.io/mlflow/mlflow:v3.14.0`
+- `n8n`
+  - `n8nio/n8n:2.22.4` -> `n8nio/n8n:2.28.1`
+  - `n8nio/runners:2.22.4` -> `n8nio/runners:2.28.1`
+- `nacos`
+  - `mysql:8.0.44` -> `mysql:9.7.1`
+- `netbird`
+  - `netbirdio/dashboard:v2.38.1` -> `netbirdio/dashboard:v2.80.0`
+  - `netbirdio/management:0.71.4` -> `netbirdio/management:0.73.2`
+  - `netbirdio/relay:0.71.4` -> `netbirdio/relay:0.73.2`
+  - `netbirdio/signal:0.71.4` -> `netbirdio/signal:0.73.2`
+- `nexus`
+  - `alpine:3.22.2` -> `alpine:3.24.1`
+  - `sonatype/nexus3:3.92.3` -> `sonatype/nexus3:3.93.1`
+- `nocodb`
+  - `nocodb/nocodb:2026.05.2` -> `nocodb/nocodb:2026.06.1`
+- `node-red`
+  - `nodered/node-red:4.1.10` -> `nodered/node-red:5.0.0`
+- `nofx`
+  - `alpine/openssl:3.5.4` -> `alpine/openssl:3.5.7`
+- `open-webui`
+  - `ghcr.io/open-webui/open-webui:v0.5.4` -> `ghcr.io/open-webui/open-webui:v0.9.6`
+- `openclaw`
+  - `ghcr.io/openclaw/openclaw:2026.3.8` -> `ghcr.io/openclaw/openclaw:2026.6.10`
+- `openlist`
+  - `openlistteam/openlist:v4.0.9-aria2` -> `openlistteam/openlist:v4.2.2-aria2`
+- `openobserve`
+  - `public.ecr.aws/zinclabs/openobserve:v0.90.3` -> `public.ecr.aws/zinclabs/openobserve:v0.91.0`
+- `outline`
+  - `outlinewiki/outline:1.8.0-1` -> `outlinewiki/outline:1.8.2-0`
+- `overleaf`
+  - `sharelatex/sharelatex:6.1.2` -> `sharelatex/sharelatex:6.2.0`
+- `pageplug`
+  - `cloudtogouser/pageplug-ce:v1.9.35` -> `cloudtogouser/pageplug-ce:v1.9.37`
+- `pangolin`
+  - `docker.io/fosrl/pangolin:1.15.2` -> `docker.io/fosrl/pangolin:1.19.2`
+- `paperclip`
+  - `public.ecr.aws/docker/library/busybox:1.36.1` -> `public.ecr.aws/docker/library/busybox:1.38.0`
+- `pdf2zh`
+  - `byaidu/pdf2zh:1.9.6` -> `byaidu/pdf2zh:1.9.11`
+- `perplexica`
+  - `itzcrazykns1337/perplexica:v1.10.2` -> `itzcrazykns1337/perplexica:v1.12.0`
+- `phpmyadmin`
+  - `phpmyadmin:5.2.1` -> `phpmyadmin:5.2.3`
+- `planka`
+  - `busybox:1.36.1` -> `busybox:1.38.0`
+- `postiz`
+  - `busybox:1.36.1` -> `busybox:1.38.0`
+  - `ghcr.io/gitroomhq/postiz-app:v2.21.8` -> `ghcr.io/gitroomhq/postiz-app:v2.21.10`
+- `pocket-id`
+  - `ghcr.io/pocket-id/pocket-id:v2.2.0` -> `ghcr.io/pocket-id/pocket-id:v2.9.0`
+- `pocketbase`
+  - `adrianmusante/pocketbase:0.29.3` -> `adrianmusante/pocketbase:0.39.4`
+- `presenton`
+  - `ghcr.io/presenton/presenton:v0.8.2-beta` -> `ghcr.io/presenton/presenton:v0.8.9-beta`
+- `prestashop`
+  - `mysql:8.0.30` -> `mysql:9.7.1`
+  - `prestashop/prestashop:9.1.3-apache` -> `prestashop/prestashop:9.1.4-apache`
+- `pterodactyl`
+  - `ghcr.io/pterodactyl/panel:v1.12.4` -> `ghcr.io/pterodactyl/panel:v1.14.0`
+  - `public.ecr.aws/docker/library/mysql:8.0.30` -> `public.ecr.aws/docker/library/mysql:9.7.1`
+- `privatebin`
+  - `ghcr.io/privatebin/fs:1.7.4` -> `ghcr.io/privatebin/fs:2.0.4`
+- `quay`
+  - `python:3.12.8-alpine3.20` -> `python:3.14.6-alpine3.24`
+  - `quay.io/projectquay/quay:v3.9.8` -> `quay.io/projectquay/quay:v3.17.3`
+- `rocketchat`
+  - `registry.rocket.chat/rocketchat/rocket.chat:7.9.0` -> `registry.rocket.chat/rocketchat/rocket.chat:8.5.1`
+- `rsshub`
+  - `diygod/rsshub:2024-07-06` -> `diygod/rsshub:2026-06-24`
+- `s-pdf`
+  - `ghcr.io/stirling-tools/stirling-pdf:1.2.0-fat` -> `ghcr.io/stirling-tools/stirling-pdf:2.13.2-fat`
+- `skardi`
+  - `ghcr.io/skardilabs/skardi/skardi-server:0.3.0` -> `ghcr.io/skardilabs/skardi/skardi-server:0.4.0`
+- `stalwart`
+  - `stalwartlabs/stalwart:v0.16.7` -> `stalwartlabs/stalwart:v0.16.10`
+- `strapi`
+  - `vshadbolt/strapi:5.33.0` -> `vshadbolt/strapi:5.49.0`
+- `sub2api`
+  - `weishaw/sub2api:0.1.104` -> `weishaw/sub2api:0.1.138`
+- `surveyking`
+  - `joseluisq/mysql-client:8.0.30` -> `joseluisq/mysql-client:8.0.44`
+  - `surveyking/surveyking:v1.9.0` -> `surveyking/surveyking:v1.12.0`
+- `tailchat`
+  - `moonrailgun/tailchat:1.11.5` -> `moonrailgun/tailchat:1.11.11`
+- `tianji`
+  - `moonrailgun/tianji:1.18.5` -> `moonrailgun/tianji:1.32.7`
+- `tolgee`
+  - `tolgee/tolgee:v3.113.0` -> `tolgee/tolgee:v3.205.5`
+- `tooljet`
+  - `postgrest/postgrest:v12.0.2` -> `postgrest/postgrest:v13.0.8`
+  - `tooljet/tooljet-ce:v3.20.170-lts` -> `tooljet/tooljet-ce:v3.20.186-lts`
+- `tududi`
+  - `chrisvel/tududi:1.1.0` -> `chrisvel/tududi:1.1.1`
+- `typebot`
+  - `axllent/mailpit:v1.30.1` -> `axllent/mailpit:v1.30.2`
+  - `baptistearno/typebot-builder:3.17.1` -> `baptistearno/typebot-builder:3.17.2`
+  - `baptistearno/typebot-viewer:3.17.1` -> `baptistearno/typebot-viewer:3.17.2`
+- `typo3`
+  - `mysql:8.0.30` -> `mysql:9.7.1`
+- `umami`
+  - `ghcr.io/umami-software/umami:3.0.2` -> `ghcr.io/umami-software/umami:3.2.0`
+- `uptime-kuma`
+  - `louislam/uptime-kuma:1.23.13` -> `louislam/uptime-kuma:2.4.0`
+- `webos`
+  - `fs185085781/webos:v1.4.1` -> `fs185085781/webos:v1.4.4`
+- `wewe-rss`
+  - `joseluisq/mysql-client:8.0.30` -> `joseluisq/mysql-client:8.0.44`
+- `woocommerce`
+  - `mysql:8.0.30` -> `mysql:9.7.1`
+  - `wordpress:6.9.1-php8.3-apache` -> `wordpress:7.0.0-php8.5-apache`
+- `wordpress`
+  - `wordpress:6.5.4` -> `wordpress:7.0.0`
+- `yourls`
+  - `mysql:8.0.30` -> `mysql:9.7.1`
+  - `yourls:1.10.1` -> `yourls:1.10.4`
+- `zitadel`
+  - `ghcr.io/zitadel/zitadel:v4.10.1` -> `ghcr.io/zitadel/zitadel:v4.15.3`
+- `zot`
+  - `ghcr.io/project-zot/zot:v2.1.14` -> `ghcr.io/project-zot/zot:v2.1.18`
+  - `httpd:2.4.63-alpine3.22` -> `httpd:2.4.68-alpine3.24`
+
+## Validation-Needed Templates
+- `appflowy`
+  - `appflowyinc/appflowy_cloud:0.15.22` -> `appflowyinc/appflowy_cloud:0.16.5`: updated the AppFlowy Cloud, Worker, Web, and GoTrue image bundle, normalized Sealos object storage boolean branching and approved object-storage env indirection, corrected Redis FQDN wiring; focused runtime validation is required for cloud/worker/web/GoTrue startup, database URLs, object storage uploads, and first-run login path
+  - `appflowyinc/appflowy_web:0.14.9` -> `appflowyinc/appflowy_web:0.15.4`: updated the AppFlowy Cloud, Worker, Web, and GoTrue image bundle, normalized Sealos object storage boolean branching and approved object-storage env indirection, corrected Redis FQDN wiring; focused runtime validation is required for cloud/worker/web/GoTrue startup, database URLs, object storage uploads, and first-run login path
+  - `appflowyinc/appflowy_worker:0.15.22` -> `appflowyinc/appflowy_worker:0.16.5`: updated the AppFlowy Cloud, Worker, Web, and GoTrue image bundle, normalized Sealos object storage boolean branching and approved object-storage env indirection, corrected Redis FQDN wiring; focused runtime validation is required for cloud/worker/web/GoTrue startup, database URLs, object storage uploads, and first-run login path
+  - `appflowyinc/gotrue:0.15.22` -> `appflowyinc/gotrue:0.16.5`: updated the AppFlowy Cloud, Worker, Web, and GoTrue image bundle, normalized Sealos object storage boolean branching and approved object-storage env indirection, corrected Redis FQDN wiring; focused runtime validation is required for cloud/worker/web/GoTrue startup, database URLs, object storage uploads, and first-run login path
+- `grafana-otel`
+  - `grafana/grafana:12.3.0` -> `grafana/grafana:13.1.0`: updated Grafana, Prometheus, and OpenTelemetry Collector images, normalized ConfigMap mounts and labels, added helper resources and Simplified Chinese metadata; focused runtime validation is required for the monitoring bundle public Grafana entry, collector ingest ports, and Prometheus scrape path
+  - `otel/opentelemetry-collector:0.99.0` -> `otel/opentelemetry-collector:0.155.0`: updated Grafana, Prometheus, and OpenTelemetry Collector images, normalized ConfigMap mounts and labels, added helper resources and Simplified Chinese metadata; focused runtime validation is required for the monitoring bundle public Grafana entry, collector ingest ports, and Prometheus scrape path
+  - `prom/prometheus:v3.8.0` -> `prom/prometheus:v3.12.0`: updated Grafana, Prometheus, and OpenTelemetry Collector images, normalized ConfigMap mounts and labels, added helper resources and Simplified Chinese metadata; focused runtime validation is required for the monitoring bundle public Grafana entry, collector ingest ports, and Prometheus scrape path
+- `glitchtip`
+  - `glitchtip/glitchtip:v4.1.5` -> `glitchtip/glitchtip:v6.0.3`: updated GlitchTip to v6.0.3, normalized PostgreSQL 16.4 metadata and pg-init, Redis/database/object-storage env wiring, Service/Ingress/App schema; focused runtime validation is required for v4 to v6 migrations, Redis/PostgreSQL startup, object storage uploads, and login path
+- `penpot`
+  - `penpotapp/backend:2.1.2` -> `penpotapp/backend:2.16.1`: updated the Penpot frontend, backend, and exporter image bundle, aligned PostgreSQL 16.4 metadata and idempotent pg-init, normalized Redis and PostgreSQL URL composition, approved object-storage env indirection, Service/Ingress/App schema; focused runtime validation is required for frontend/backend/exporter startup, database migration, S3 asset uploads, and first-run login path
+  - `penpotapp/exporter:2.1.2` -> `penpotapp/exporter:2.16.1`: updated the Penpot frontend, backend, and exporter image bundle, aligned PostgreSQL 16.4 metadata and idempotent pg-init, normalized Redis and PostgreSQL URL composition, approved object-storage env indirection, Service/Ingress/App schema; focused runtime validation is required for frontend/backend/exporter startup, database migration, S3 asset uploads, and first-run login path
+  - `penpotapp/frontend:2.1.2` -> `penpotapp/frontend:2.16.1`: updated the Penpot frontend, backend, and exporter image bundle, aligned PostgreSQL 16.4 metadata and idempotent pg-init, normalized Redis and PostgreSQL URL composition, approved object-storage env indirection, Service/Ingress/App schema; focused runtime validation is required for frontend/backend/exporter startup, database migration, S3 asset uploads, and first-run login path
+- `twenty`
+  - `twentycrm/twenty:v1.12.0` -> `twentycrm/twenty:v2.16.0`: updated to v2.16.0, aligned official v2 runtime envs, PostgreSQL 16.4.0 metadata, idempotent pg-init, Redis FQDN wiring, generated secrets, resource ladder values, Service/Ingress labels, and App schema; focused runtime validation is required for the v1 to v2 migration and first-run login path
+
+## Blocked Templates
+- `Reactive-Resume`
+  - `amruthpillai/reactive-resume:v4.1.2` -> `amruthpillai/reactive-resume:v5.1.9`: requires a major application upgrade, browserless Chromium runtime validation, and broad template contract cleanup before a safe automatic version update
+  - `ghcr.io/browserless/chromium:v2.11.0` -> `ghcr.io/browserless/chromium:v2.54.1`: requires a major application upgrade, browserless Chromium runtime validation, and broad template contract cleanup before a safe automatic version update
+- `airbyte`
+  - `airbyte/bootloader:0.63.11` -> `airbyte/bootloader:2.1.0`: requires coordinated Airbyte 0.x to 2.x multi-component upgrade validation across bootloader, worker, cron, connector builder, Temporal, migrations, and ConfigMap runtime semantics
+  - `airbyte/connector-builder-server:0.63.11` -> `airbyte/connector-builder-server:2.0.1`: requires coordinated Airbyte 0.x to 2.x multi-component upgrade validation across bootloader, worker, cron, connector builder, Temporal, migrations, and ConfigMap runtime semantics
+  - `airbyte/cron:0.63.11` -> `airbyte/cron:2.1.0`: requires coordinated Airbyte 0.x to 2.x multi-component upgrade validation across bootloader, worker, cron, connector builder, Temporal, migrations, and ConfigMap runtime semantics
+  - `airbyte/worker:0.63.11` -> `airbyte/worker:2.1.0`: requires coordinated Airbyte 0.x to 2.x multi-component upgrade validation across bootloader, worker, cron, connector builder, Temporal, migrations, and ConfigMap runtime semantics
+  - `temporalio/auto-setup:1.23.0` -> `temporalio/auto-setup:1.29.7`: requires coordinated Airbyte 0.x to 2.x multi-component upgrade validation across bootloader, worker, cron, connector builder, Temporal, migrations, and ConfigMap runtime semantics
+- `apitable`
+  - `busybox:1.36.1` -> `busybox:1.38.0`: requires coordinated APITable runtime validation for MySQL 8 to 9, RabbitMQ 3 to 4, object-storage branching, and multi-service resource/config updates
+  - `mysql:8.0.32` -> `mysql:9.7.1`: requires coordinated APITable runtime validation for MySQL 8 to 9, RabbitMQ 3 to 4, object-storage branching, and multi-service resource/config updates
+  - `nginx:1.27.5-alpine` -> `nginx:1.31.2-alpine`: requires coordinated APITable runtime validation for MySQL 8 to 9, RabbitMQ 3 to 4, object-storage branching, and multi-service resource/config updates
+  - `rabbitmq:3.11.9-management` -> `rabbitmq:4.3.2-management`: requires coordinated APITable runtime validation for MySQL 8 to 9, RabbitMQ 3 to 4, object-storage branching, and multi-service resource/config updates
+- `billionmail`
+  - `alpine/openssl:3.5.4` -> `alpine/openssl:3.5.7`: requires runtime validation for mail-stack component upgrades plus broad ConfigMap file-mount normalization across generated mail, webmail, supplier, and bootstrap configs
+  - `billionmail/core:4.9.3@sha256:b97c71b463e99368f0fb50a4f3088139c2f04a37171d3b660b92f946a3076692` -> `billionmail/core:4.9.5`: requires runtime validation for mail-stack component upgrades plus broad ConfigMap file-mount normalization across generated mail, webmail, supplier, and bootstrap configs
+  - `python:3.12.12-alpine` -> `python:3.14.6-alpine`: requires runtime validation for mail-stack component upgrades plus broad ConfigMap file-mount normalization across generated mail, webmail, supplier, and bootstrap configs
+  - `roundcube/roundcubemail:1.6.11-fpm-alpine` -> `roundcube/roundcubemail:1.7.1-fpm-alpine`: requires runtime validation for mail-stack component upgrades plus broad ConfigMap file-mount normalization across generated mail, webmail, supplier, and bootstrap configs
+- `budibase`
+  - `budibase/apps:3.15.0` -> `budibase/apps:3.39.22`: requires coordinated Budibase multi-service upgrade validation plus database/object-storage secret and ConfigMap normalization across apps, worker, proxy, CouchDB, and Redis surfaces
+  - `budibase/proxy:3.15.0` -> `budibase/proxy:3.39.22`: requires coordinated Budibase multi-service upgrade validation plus database/object-storage secret and ConfigMap normalization across apps, worker, proxy, CouchDB, and Redis surfaces
+  - `budibase/worker:3.15.0` -> `budibase/worker:3.39.22`: requires coordinated Budibase multi-service upgrade validation plus database/object-storage secret and ConfigMap normalization across apps, worker, proxy, CouchDB, and Redis surfaces
+  - `busybox:1.37.0` -> `busybox:1.38.0`: requires coordinated Budibase multi-service upgrade validation plus database/object-storage secret and ConfigMap normalization across apps, worker, proxy, CouchDB, and Redis surfaces
+- `coze-studio`
+  - `alpine/curl:8.12.1` -> `alpine/curl:8.20.0`: requires coordinated multi-component runtime validation across MySQL, Elasticsearch, NSQ, ConfigMap mounts, migrations, and service startup before automatic version changes
+  - `bitnamilegacy/elasticsearch:8.18.0` -> `bitnamilegacy/elasticsearch:9.1.2`: requires coordinated multi-component runtime validation across MySQL, Elasticsearch, NSQ, ConfigMap mounts, migrations, and service startup before automatic version changes
+  - `busybox:1.36.1` -> `busybox:1.38.0`: requires coordinated multi-component runtime validation across MySQL, Elasticsearch, NSQ, ConfigMap mounts, migrations, and service startup before automatic version changes
+  - `mysql:8.0.36` -> `mysql:9.7.1`: requires coordinated multi-component runtime validation across MySQL, Elasticsearch, NSQ, ConfigMap mounts, migrations, and service startup before automatic version changes
+  - `nsqio/nsq:v1.2.1` -> `nsqio/nsq:v1.3.0`: requires coordinated multi-component runtime validation across MySQL, Elasticsearch, NSQ, ConfigMap mounts, migrations, and service startup before automatic version changes
+- `dify`
+  - `busybox:1.37.0` -> `busybox:1.38.0`: requires coordinated Dify runtime validation across API, worker, web, sandbox, plugin-daemon, PostgreSQL, Redis, and Weaviate before automatic version changes
+  - `langgenius/dify-plugin-daemon:0.5.2-local` -> `langgenius/dify-plugin-daemon:0.6.3-local`: requires coordinated Dify runtime validation across API, worker, web, sandbox, plugin-daemon, PostgreSQL, Redis, and Weaviate before automatic version changes
+  - `langgenius/dify-sandbox:0.2.12` -> `langgenius/dify-sandbox:0.2.15`: requires coordinated Dify runtime validation across API, worker, web, sandbox, plugin-daemon, PostgreSQL, Redis, and Weaviate before automatic version changes
+- `erpnext`
+  - `frappe/erpnext:v16.21.1` -> `frappe/erpnext:v16.25.0`: requires Frappe/ERPNext runtime validation across MariaDB, Redis, bench site bootstrap, workers, and scheduler before automatic version changes
+  - `mariadb:11.4.7` -> `mariadb:12.3.2`: requires Frappe/ERPNext runtime validation across MariaDB, Redis, bench site bootstrap, workers, and scheduler before automatic version changes
+  - `public.ecr.aws/docker/library/busybox:1.36.1` -> `public.ecr.aws/docker/library/busybox:1.38.0`: requires Frappe/ERPNext runtime validation across MariaDB, Redis, bench site bootstrap, workers, and scheduler before automatic version changes
+  - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`: requires Frappe/ERPNext runtime validation across MariaDB, Redis, bench site bootstrap, workers, and scheduler before automatic version changes
+- `fastgpt`
+  - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-code-sandbox:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-code-sandbox:v4.14.23`: requires coordinated FastGPT runtime validation across MongoDB, PostgreSQL, Redis, plugin, code sandbox, MCP server, AI proxy, ConfigMap mounts, and object storage secrets before automatic version changes
+  - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-mcp_server:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-mcp_server:v4.14.23`: requires coordinated FastGPT runtime validation across MongoDB, PostgreSQL, Redis, plugin, code sandbox, MCP server, AI proxy, ConfigMap mounts, and object storage secrets before automatic version changes
+  - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-plugin:v0.6.2` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-plugin:v0.6.3`: requires coordinated FastGPT runtime validation across MongoDB, PostgreSQL, Redis, plugin, code sandbox, MCP server, AI proxy, ConfigMap mounts, and object storage secrets before automatic version changes
+  - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.14.26`: requires coordinated FastGPT runtime validation across MongoDB, PostgreSQL, Redis, plugin, code sandbox, MCP server, AI proxy, ConfigMap mounts, and object storage secrets before automatic version changes
+  - `registry.cn-hangzhou.aliyuncs.com/labring/aiproxy:v0.5.8` -> `registry.cn-hangzhou.aliyuncs.com/labring/aiproxy:v0.6.3`: requires coordinated FastGPT runtime validation across MongoDB, PostgreSQL, Redis, plugin, code sandbox, MCP server, AI proxy, ConfigMap mounts, and object storage secrets before automatic version changes
+- `fastgpt-milvus`
+  - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-code-sandbox:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-code-sandbox:v4.14.23`: requires coordinated FastGPT Milvus runtime validation across MongoDB, PostgreSQL, Redis, Milvus storage, plugin, AI proxy, ConfigMap mounts, and object storage secrets before automatic version changes
+  - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-mcp_server:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-mcp_server:v4.14.23`: requires coordinated FastGPT Milvus runtime validation across MongoDB, PostgreSQL, Redis, Milvus storage, plugin, AI proxy, ConfigMap mounts, and object storage secrets before automatic version changes
+  - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-plugin:v0.6.2` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-plugin:v0.6.3`: requires coordinated FastGPT Milvus runtime validation across MongoDB, PostgreSQL, Redis, Milvus storage, plugin, AI proxy, ConfigMap mounts, and object storage secrets before automatic version changes
+  - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.14.26`: requires coordinated FastGPT Milvus runtime validation across MongoDB, PostgreSQL, Redis, Milvus storage, plugin, AI proxy, ConfigMap mounts, and object storage secrets before automatic version changes
+  - `registry.cn-hangzhou.aliyuncs.com/labring/aiproxy:v0.5.8` -> `registry.cn-hangzhou.aliyuncs.com/labring/aiproxy:v0.6.3`: requires coordinated FastGPT Milvus runtime validation across MongoDB, PostgreSQL, Redis, Milvus storage, plugin, AI proxy, ConfigMap mounts, and object storage secrets before automatic version changes
+- `fastgpt-pro`
+  - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-code-sandbox:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-code-sandbox:v4.14.23`: requires coordinated FastGPT Pro runtime validation across MongoDB, PostgreSQL, Redis, pro/plugin/code-sandbox/MCP/AI proxy components, ConfigMap mounts, and object storage secrets before automatic version changes
+  - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-mcp_server:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-mcp_server:v4.14.23`: requires coordinated FastGPT Pro runtime validation across MongoDB, PostgreSQL, Redis, pro/plugin/code-sandbox/MCP/AI proxy components, ConfigMap mounts, and object storage secrets before automatic version changes
+  - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-plugin:v0.6.2` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-plugin:v0.6.3`: requires coordinated FastGPT Pro runtime validation across MongoDB, PostgreSQL, Redis, pro/plugin/code-sandbox/MCP/AI proxy components, ConfigMap mounts, and object storage secrets before automatic version changes
+  - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-pro:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-pro:v4.14.26`: requires coordinated FastGPT Pro runtime validation across MongoDB, PostgreSQL, Redis, pro/plugin/code-sandbox/MCP/AI proxy components, ConfigMap mounts, and object storage secrets before automatic version changes
+  - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.14.26`: requires coordinated FastGPT Pro runtime validation across MongoDB, PostgreSQL, Redis, pro/plugin/code-sandbox/MCP/AI proxy components, ConfigMap mounts, and object storage secrets before automatic version changes
+  - `registry.cn-hangzhou.aliyuncs.com/labring/aiproxy:v0.5.8` -> `registry.cn-hangzhou.aliyuncs.com/labring/aiproxy:v0.6.3`: requires coordinated FastGPT Pro runtime validation across MongoDB, PostgreSQL, Redis, pro/plugin/code-sandbox/MCP/AI proxy components, ConfigMap mounts, and object storage secrets before automatic version changes
+- `harbor`
+  - `goharbor/harbor-core:v2.14.4` -> `goharbor/harbor-core:v2.15.1`: requires coordinated Harbor multi-component runtime validation and broad ConfigMap/database contract normalization before automatic version changes
+  - `goharbor/harbor-jobservice:v2.14.4` -> `goharbor/harbor-jobservice:v2.15.1`: requires coordinated Harbor multi-component runtime validation and broad ConfigMap/database contract normalization before automatic version changes
+  - `goharbor/harbor-portal:v2.14.4` -> `goharbor/harbor-portal:v2.15.1`: requires coordinated Harbor multi-component runtime validation and broad ConfigMap/database contract normalization before automatic version changes
+  - `goharbor/harbor-registryctl:v2.14.4` -> `goharbor/harbor-registryctl:v2.15.1`: requires coordinated Harbor multi-component runtime validation and broad ConfigMap/database contract normalization before automatic version changes
+  - `goharbor/registry-photon:v2.14.4` -> `goharbor/registry-photon:v2.15.1`: requires coordinated Harbor multi-component runtime validation and broad ConfigMap/database contract normalization before automatic version changes
+  - `goharbor/trivy-adapter-photon:v2.14.4` -> `goharbor/trivy-adapter-photon:v2.15.1`: requires coordinated Harbor multi-component runtime validation and broad ConfigMap/database contract normalization before automatic version changes
+- `laf`
+  - `quay.io/prometheus/prometheus:v2.45.0` -> `quay.io/prometheus/prometheus:v3.12.0`: requires LAF runtime validation across MongoDB, MinIO, web, server, runtime nodes, Prometheus, and broad template contract cleanup before automatic version changes
+- `langfuse`
+  - `clickhouse/clickhouse-server:25.4.2` -> `clickhouse/clickhouse-server:26.5.3`: requires Langfuse runtime validation across PostgreSQL init, ClickHouse, Redis, S3 storage, worker/web startup, and secret handling before automatic version changes
+  - `docker.io/langfuse/langfuse-worker:3.180.0` -> `docker.io/langfuse/langfuse-worker:3.197.1`: requires Langfuse runtime validation across PostgreSQL init, ClickHouse, Redis, S3 storage, worker/web startup, and secret handling before automatic version changes
+  - `docker.io/langfuse/langfuse:3.180.0` -> `docker.io/langfuse/langfuse:3.197.1`: requires Langfuse runtime validation across PostgreSQL init, ClickHouse, Redis, S3 storage, worker/web startup, and secret handling before automatic version changes
+  - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`: requires Langfuse runtime validation across PostgreSQL init, ClickHouse, Redis, S3 storage, worker/web startup, and secret handling before automatic version changes
+- `liebianbao`
+  - `busybox:1.36.1` -> `busybox:1.38.0`: requires LieBianBao runtime validation across PHP, Nginx, MongoDB, Redis, MySQL init, ConfigMap mounts, and startup behavior before automatic version changes
+  - `nginx:1.25.2` -> `nginx:1.31.2`: requires LieBianBao runtime validation across PHP, Nginx, MongoDB, Redis, MySQL init, ConfigMap mounts, and startup behavior before automatic version changes
+- `posthog`
+  - `docker.redpanda.com/redpandadata/redpanda:v25.1.9` -> `docker.redpanda.com/redpandadata/redpanda:v26.1.10`: requires PostHog runtime validation across Redpanda, Zookeeper, ConfigMaps, services, and startup commands before automatic version changes
+  - `zookeeper:3.9.3` -> `zookeeper:3.9.5`: requires PostHog runtime validation across Redpanda, Zookeeper, ConfigMaps, services, and startup commands before automatic version changes
+- `rocketchat-micro`
+  - `natsio/nats-server-config-reloader:0.6.3` -> `natsio/nats-server-config-reloader:0.23.0`: requires Rocket.Chat microservices runtime validation across NATS config reload, service family upgrades, database labels, ConfigMaps, and image policies before automatic version changes
+  - `rocketchat/account-service:7.9.0` -> `rocketchat/account-service:8.5.1`: requires Rocket.Chat microservices runtime validation across NATS config reload, service family upgrades, database labels, ConfigMaps, and image policies before automatic version changes
+  - `rocketchat/authorization-service:7.9.0` -> `rocketchat/authorization-service:8.5.1`: requires Rocket.Chat microservices runtime validation across NATS config reload, service family upgrades, database labels, ConfigMaps, and image policies before automatic version changes
+  - `rocketchat/ddp-streamer-service:7.9.0` -> `rocketchat/ddp-streamer-service:8.5.1`: requires Rocket.Chat microservices runtime validation across NATS config reload, service family upgrades, database labels, ConfigMaps, and image policies before automatic version changes
+  - `rocketchat/presence-service:7.9.0` -> `rocketchat/presence-service:8.5.1`: requires Rocket.Chat microservices runtime validation across NATS config reload, service family upgrades, database labels, ConfigMaps, and image policies before automatic version changes
+  - `rocketchat/rocket.chat:7.9.0` -> `rocketchat/rocket.chat:8.5.1`: requires Rocket.Chat microservices runtime validation across NATS config reload, service family upgrades, database labels, ConfigMaps, and image policies before automatic version changes
+  - `rocketchat/stream-hub-service:7.9.0` -> `rocketchat/stream-hub-service:7.13.9`: requires Rocket.Chat microservices runtime validation across NATS config reload, service family upgrades, database labels, ConfigMaps, and image policies before automatic version changes
+- `rybbit`
+  - `clickhouse/clickhouse-server:25.4.2` -> `clickhouse/clickhouse-server:26.5.3`: blocked because the ClickHouse 25.x to 26.x update requires database runtime validation and the template still needs ClickHouse storage and ConfigMap contract work before a safe image refresh
+- `signoz`
+  - `clickhouse/clickhouse-server:25.5.6` -> `clickhouse/clickhouse-server:26.5.3`: blocked because the Signoz bundle updates ClickHouse, collector, Signoz, and Zookeeper together and requires multi-component runtime validation plus database/storage contract work
+  - `signoz/signoz-otel-collector:v0.144.2` -> `signoz/signoz-otel-collector:v0.144.5`: blocked because the Signoz bundle updates ClickHouse, collector, Signoz, and Zookeeper together and requires multi-component runtime validation plus database/storage contract work
+  - `signoz/signoz:v0.117.0` -> `signoz/signoz:v0.130.1`: blocked because the Signoz bundle updates ClickHouse, collector, Signoz, and Zookeeper together and requires multi-component runtime validation plus database/storage contract work
+  - `signoz/zookeeper:3.7.1` -> `signoz/zookeeper:3.9.3`: blocked because the Signoz bundle updates ClickHouse, collector, Signoz, and Zookeeper together and requires multi-component runtime validation plus database/storage contract work
+- `supabase`
+  - `darthsim/imgproxy:v3.30.1` -> `darthsim/imgproxy:v4.0.6`: blocked because the Supabase bundle spans eleven images, includes major Kong/imgproxy/storage/realtime changes, and requires official bundle alignment plus runtime validation
+  - `kong:2.8.1` -> `kong:3.9.3`: blocked because the Supabase bundle spans eleven images, includes major Kong/imgproxy/storage/realtime changes, and requires official bundle alignment plus runtime validation
+  - `supabase/edge-runtime:v1.70.3` -> `supabase/edge-runtime:v1.74.2`: blocked because the Supabase bundle spans eleven images, includes major Kong/imgproxy/storage/realtime changes, and requires official bundle alignment plus runtime validation
+  - `supabase/gotrue:v2.186.0` -> `supabase/gotrue:v2.191.0`: blocked because the Supabase bundle spans eleven images, includes major Kong/imgproxy/storage/realtime changes, and requires official bundle alignment plus runtime validation
+  - `supabase/logflare:1.31.2` -> `supabase/logflare:1.45.4`: blocked because the Supabase bundle spans eleven images, includes major Kong/imgproxy/storage/realtime changes, and requires official bundle alignment plus runtime validation
+  - `supabase/postgres-meta:v0.95.2` -> `supabase/postgres-meta:v0.96.6`: blocked because the Supabase bundle spans eleven images, includes major Kong/imgproxy/storage/realtime changes, and requires official bundle alignment plus runtime validation
+  - `supabase/realtime:v2.76.5` -> `supabase/realtime:v2.111.7`: blocked because the Supabase bundle spans eleven images, includes major Kong/imgproxy/storage/realtime changes, and requires official bundle alignment plus runtime validation
+  - `supabase/storage-api:v1.37.8` -> `supabase/storage-api:v1.61.3`: blocked because the Supabase bundle spans eleven images, includes major Kong/imgproxy/storage/realtime changes, and requires official bundle alignment plus runtime validation
+  - `supabase/studio:2026.02.16-sha-26c615c` -> `supabase/studio:2026.06.22-sha-2207d7f`: blocked because the Supabase bundle spans eleven images, includes major Kong/imgproxy/storage/realtime changes, and requires official bundle alignment plus runtime validation
+  - `supabase/supavisor:2.7.4` -> `supabase/supavisor:2.9.7`: blocked because the Supabase bundle spans eleven images, includes major Kong/imgproxy/storage/realtime changes, and requires official bundle alignment plus runtime validation
+  - `timberio/vector:0.53.0-alpine` -> `timberio/vector:0.56.0-alpine`: blocked because the Supabase bundle spans eleven images, includes major Kong/imgproxy/storage/realtime changes, and requires official bundle alignment plus runtime validation
+- `wrenai`
+  - `ghcr.io/canner/wren-ai-service:0.15.17` -> `ghcr.io/canner/wren-ai-service:0.29.3`: blocked because the WrenAI update spans five runtime components, Qdrant, and multiple major version jumps that require official bundle alignment and live runtime validation
+  - `ghcr.io/canner/wren-engine-ibis:0.14.3` -> `ghcr.io/canner/wren-engine-ibis:0.25.0`: blocked because the WrenAI update spans five runtime components, Qdrant, and multiple major version jumps that require official bundle alignment and live runtime validation
+  - `ghcr.io/canner/wren-engine:0.14.3` -> `ghcr.io/canner/wren-engine:0.24.6`: blocked because the WrenAI update spans five runtime components, Qdrant, and multiple major version jumps that require official bundle alignment and live runtime validation
+  - `ghcr.io/canner/wren-ui:0.20.1` -> `ghcr.io/canner/wren-ui:0.32.2`: blocked because the WrenAI update spans five runtime components, Qdrant, and multiple major version jumps that require official bundle alignment and live runtime validation
+  - `qdrant/qdrant:v1.13.4` -> `qdrant/qdrant:v1.18.2`: blocked because the WrenAI update spans five runtime components, Qdrant, and multiple major version jumps that require official bundle alignment and live runtime validation
+
+## Skipped Templates
+- `refly`
+  - `mautic/mautic:5.2.3-fpm` -> `mautic/mautic:7.1.2-fpm`: skipped because mautic/mautic is used only as an Elasticsearch data ownership helper in the Refly template and is not part of the Refly application release surface
+
+## Skipped Candidates
+- `directus`
+  - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`: removed the raw Redis helper image from the app StatefulSet and replaced Redis readiness with a busybox TCP check under the docker-to-sealos database-service rule
+- `typebot`
+  - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`: removed the raw Redis helper image from Typebot app initContainers and replaced Redis readiness with busybox TCP checks under the docker-to-sealos database-service rule
+- `postiz`
+  - `elasticsearch:7.17.27` -> `elasticsearch:9.4.2`: kept Elasticsearch 7.17.27 because the 9.4.2 visibility-store major upgrade requires dedicated data compatibility and runtime validation
+  - `temporalio/auto-setup:1.28.1` -> `temporalio/auto-setup:1.29.7`: kept Temporal auto-setup 1.28.1 because the 1.29.7 workflow service update requires dedicated Postiz workflow validation
+- `pterodactyl`
+  - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`: removed raw Redis helper images from init containers and replaced Redis readiness with busybox TCP checks under the docker-to-sealos database-service rule
+- `refly`
+  - `mautic/mautic:5.2.3-fpm` -> `mautic/mautic:7.1.2-fpm`: skipped because mautic/mautic is used only as an Elasticsearch data ownership helper in the Refly template and is not part of the Refly application release surface

@@ -13,6 +13,7 @@ spec:
   screenshots:
     - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/uptime-kuma/website-screenshot.webp'
   templateType: inline
+  locale: en
   categories:
     - monitor
     - tool
@@ -28,6 +29,7 @@ spec:
 
   i18n:
     zh:
+      description: '易用的自托管监控工具，用于监控网站、服务和应用可用性。'
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/uptime-kuma/README_zh.md'
 ---
 apiVersion: apps/v1
@@ -35,7 +37,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: louislam/uptime-kuma:1.23.13
+    originImageName: louislam/uptime-kuma:2.4.0
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -58,14 +60,14 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: louislam/uptime-kuma:1.23.13
+          image: louislam/uptime-kuma:2.4.0
           env: []
           resources:
             requests:
               cpu: 100m
               memory: 102Mi
             limits:
-              cpu: 1000m
+              cpu: 1
               memory: 1024Mi
           command: []
           args: []
@@ -95,10 +97,12 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 3001
+    - name: http
+      port: 3001
   selector:
     app: ${{ defaults.app_name }}
 
@@ -116,11 +120,13 @@ metadata:
     nginx.ingress.kubernetes.io/server-snippet: |
       client_header_buffer_size 64k;
       large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
     nginx.ingress.kubernetes.io/rewrite-target: /$2
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
     nginx.ingress.kubernetes.io/configuration-snippet: |
       if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
         expires 30d;

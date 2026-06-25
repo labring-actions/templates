@@ -98,6 +98,7 @@ kind: Cluster
 metadata:
   name: ${{ defaults.app_name }}-pg
   labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
     kb.io/database: postgresql-16.4.0
     clusterdefinition.kubeblocks.io/name: postgresql
     clusterversion.kubeblocks.io/name: postgresql-16.4.0
@@ -149,6 +150,13 @@ spec:
       - name: ${{ defaults.app_name }}-pg-init
         image: postgres:16.4
         imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 10m
+            memory: 12Mi
         env:
         - name: PG_HOST
           valueFrom:
@@ -230,6 +238,7 @@ kind: Cluster
 metadata:
   name: ${{ defaults.app_name }}-redis
   labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
     kb.io/database: redis-7.2.7
     app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
     app.kubernetes.io/version: 7.2.7
@@ -293,12 +302,76 @@ spec:
   terminationPolicy: Delete
   topology: replication
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-tmpvn-quayvn-startvn-sh: |
+    set -euo pipefail
+    rm -rf /tmp/quay-conf
+    mkdir -p /tmp/quay-conf
+    for p in /quay-registry/conf/*; do
+      if [ "$(basename "$p")" = "stack" ]; then
+        continue
+      fi
+      cp -a "$p" /tmp/quay-conf/
+    done
+    mkdir -p /tmp/quay-conf/stack
+    cat > /tmp/quay-conf/stack/config.yaml <<EOF
+    AUTHENTICATION_TYPE: Database
+    BUILDLOGS_REDIS:
+      host: "${REDIS_HOST}"
+      port: ${REDIS_PORT}
+      password: "${REDIS_PASSWORD}"
+    USER_EVENTS_REDIS:
+      host: "${REDIS_HOST}"
+      port: ${REDIS_PORT}
+      password: "${REDIS_PASSWORD}"
+    PULL_METRICS_REDIS:
+      host: "${REDIS_HOST}"
+      port: ${REDIS_PORT}
+      password: "${REDIS_PASSWORD}"
+      db: 1
+    DB_URI: "postgresql://${PG_USERNAME}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/postgres"
+    DATABASE_SECRET_KEY: "${DATABASE_SECRET_KEY}"
+    SECRET_KEY: "${SECRET_KEY}"
+    DISTRIBUTED_STORAGE_CONFIG:
+      default:
+        - LocalStorage
+        - storage_path: /datastorage/registry
+    DISTRIBUTED_STORAGE_DEFAULT_LOCATIONS: []
+    DISTRIBUTED_STORAGE_PREFERENCE:
+      - default
+    FEATURE_USER_CREATION: true
+    FEATURE_USER_INITIALIZE: true
+    FEATURE_MAILING: false
+    SUPER_USERS:
+      - "${INITIAL_ADMIN_USERNAME}"
+    DEFAULT_TAG_EXPIRATION: 2w
+    TAG_EXPIRATION_OPTIONS:
+      - 0s
+      - 1d
+      - 1w
+      - 2w
+      - 4w
+    EXTERNAL_TLS_TERMINATION: true
+    PREFERRED_URL_SCHEME: https
+    SERVER_HOSTNAME: "${SERVER_HOSTNAME}"
+    SETUP_COMPLETE: true
+    EOF
+    export QUAYCONF=/tmp/quay-conf
+    exec /quay-registry/quay-entrypoint.sh registry
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: quay.io/projectquay/quay:v3.9.8
+    originImageName: quay.io/projectquay/quay:v3.17.3
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -327,69 +400,21 @@ spec:
               path: token
               expirationSeconds: 3600
               audience: api
+      - name: ${{ defaults.app_name }}-cm
+        configMap:
+          name: ${{ defaults.app_name }}
+          items:
+          - key: vn-tmpvn-quayvn-startvn-sh
+            path: vn-tmpvn-quayvn-startvn-sh
       containers:
       - name: ${{ defaults.app_name }}
-        image: quay.io/projectquay/quay:v3.9.8
+        image: quay.io/projectquay/quay:v3.17.3
         imagePullPolicy: IfNotPresent
         command:
         - /bin/bash
         - -ec
         args:
-        - |
-          set -euo pipefail
-          rm -rf /tmp/quay-conf
-          mkdir -p /tmp/quay-conf
-          for p in /quay-registry/conf/*; do
-            if [ "$(basename "$p")" = "stack" ]; then
-              continue
-            fi
-            cp -a "$p" /tmp/quay-conf/
-          done
-          mkdir -p /tmp/quay-conf/stack
-          cat > /tmp/quay-conf/stack/config.yaml <<EOF
-          AUTHENTICATION_TYPE: Database
-          BUILDLOGS_REDIS:
-            host: "${REDIS_HOST}"
-            port: ${REDIS_PORT}
-            password: "${REDIS_PASSWORD}"
-          USER_EVENTS_REDIS:
-            host: "${REDIS_HOST}"
-            port: ${REDIS_PORT}
-            password: "${REDIS_PASSWORD}"
-          PULL_METRICS_REDIS:
-            host: "${REDIS_HOST}"
-            port: ${REDIS_PORT}
-            password: "${REDIS_PASSWORD}"
-            db: 1
-          DB_URI: "postgresql://${PG_USERNAME}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/postgres"
-          DATABASE_SECRET_KEY: "${DATABASE_SECRET_KEY}"
-          SECRET_KEY: "${SECRET_KEY}"
-          DISTRIBUTED_STORAGE_CONFIG:
-            default:
-              - LocalStorage
-              - storage_path: /datastorage/registry
-          DISTRIBUTED_STORAGE_DEFAULT_LOCATIONS: []
-          DISTRIBUTED_STORAGE_PREFERENCE:
-            - default
-          FEATURE_USER_CREATION: true
-          FEATURE_USER_INITIALIZE: true
-          FEATURE_MAILING: false
-          SUPER_USERS:
-            - "${INITIAL_ADMIN_USERNAME}"
-          DEFAULT_TAG_EXPIRATION: 2w
-          TAG_EXPIRATION_OPTIONS:
-            - 0s
-            - 1d
-            - 1w
-            - 2w
-            - 4w
-          EXTERNAL_TLS_TERMINATION: true
-          PREFERRED_URL_SCHEME: https
-          SERVER_HOSTNAME: "${SERVER_HOSTNAME}"
-          SETUP_COMPLETE: true
-          EOF
-          export QUAYCONF=/tmp/quay-conf
-          exec /quay-registry/quay-entrypoint.sh registry
+        - exec /bin/bash /tmp/quay-start.sh
         resources:
           limits:
             cpu: 200m
@@ -402,7 +427,7 @@ spec:
         - containerPort: 8443
         env:
         - name: QUAY_VERSION
-          value: v3.9.8
+          value: v3.17.3
         - name: DEBUGLOG
           value: 'true'
         - name: QUAYRUN
@@ -489,6 +514,9 @@ spec:
         volumeMounts:
         - name: vn-quayvn-registryvn-data
           mountPath: /datastorage
+        - name: ${{ defaults.app_name }}-cm
+          mountPath: /tmp/quay-start.sh
+          subPath: vn-tmpvn-quayvn-startvn-sh
         - name: k8s-sa-token
           mountPath: /var/run/secrets/kubernetes.io/serviceaccount
           readOnly: true
@@ -538,8 +566,15 @@ spec:
       restartPolicy: OnFailure
       containers:
       - name: ${{ defaults.app_name }}-init-admin
-        image: python:3.12.8-alpine3.20
+        image: python:3.14.6-alpine3.24
         imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 10m
+            memory: 12Mi
         env:
         - name: QUAY_BASE_URL
           value: http://${{ defaults.app_name }}:8080

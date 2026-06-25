@@ -27,6 +27,9 @@ spec:
     app_name:
       type: string
       value: twenty-${{ random(8) }}
+    encryption_key:
+      type: string
+      value: ${{ random(32) }}
     app_secret:
       type: string
       value: ${{ random(32) }}
@@ -38,6 +41,8 @@ metadata:
   name: ${{ defaults.app_name }}-pg
   labels:
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -46,47 +51,15 @@ metadata:
   name: ${{ defaults.app_name }}-pg
   labels:
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
 rules:
   - apiGroups:
-      - ""
+      - "*"
     resources:
-      - events
+      - "*"
     verbs:
-      - create
-  - apiGroups:
-      - ""
-    resources:
-      - configmaps
-    verbs:
-      - create
-      - get
-      - list
-      - patch
-      - update
-      - watch
-      - delete
-  - apiGroups:
-      - ""
-    resources:
-      - endpoints
-    verbs:
-      - create
-      - get
-      - list
-      - patch
-      - update
-      - watch
-      - delete
-  - apiGroups:
-      - ""
-    resources:
-      - pods
-    verbs:
-      - get
-      - list
-      - patch
-      - update
-      - watch
+      - "*"
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -95,6 +68,8 @@ metadata:
   name: ${{ defaults.app_name }}-pg
   labels:
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -109,28 +84,34 @@ kind: Cluster
 metadata:
   name: ${{ defaults.app_name }}-pg
   labels:
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
 spec:
   affinity:
-    nodeLabels: {}
     podAntiAffinity: Preferred
     tenancy: SharedNode
-    topologyKeys: []
   clusterDefinitionRef: postgresql
-  clusterVersionRef: postgresql-14.8.0
+  clusterVersionRef: postgresql-16.4.0
   componentSpecs:
     - componentDefRef: postgresql
-      monitor: true
+      disableExporter: true
+      enabledLogs:
+        - running
       name: postgresql
       replicas: 1
       resources:
         limits:
-          cpu: 1000m
-          memory: 1024Mi
+          cpu: 500m
+          memory: 512Mi
         requests:
-          cpu: 100m
-          memory: 102Mi
+          cpu: 50m
+          memory: 51Mi
       serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
       volumeClaimTemplates:
         - name: data
           spec:
@@ -138,7 +119,7 @@ spec:
               - ReadWriteOnce
             resources:
               requests:
-                storage: 5Gi
+                storage: 1Gi
   terminationPolicy: Delete
 
 ---
@@ -152,7 +133,7 @@ spec:
     spec:
       containers:
         - name: pgsql-init
-          image: postgres:14-alpine
+          image: postgres:16-alpine
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_PASSWORD
@@ -175,15 +156,34 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: username
+            - name: PG_DATABASE
+              value: twenty
             - name: DATABASE_URL
               value: postgresql://$(PG_USERNAME):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/postgres
           command:
             - /bin/sh
             - -c
             - |
-              until psql ${DATABASE_URL} -c 'CREATE DATABASE twenty;' &>/dev/null; do sleep 1; done
-      restartPolicy: Never
-  backoffLimit: 0
+              set -eu
+              for i in $(seq 1 60); do
+                if pg_isready -h "${PG_HOST}" -p "${PG_PORT}" -U "${PG_USERNAME}" -d postgres >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 2
+              done
+              pg_isready -h "${PG_HOST}" -p "${PG_PORT}" -U "${PG_USERNAME}" -d postgres >/dev/null 2>&1
+              if ! psql "${DATABASE_URL}" -tAc "SELECT 1 FROM pg_database WHERE datname='twenty'" | grep -q 1; then
+                psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE "twenty";'
+              fi
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 50m
+              memory: 51Mi
+      restartPolicy: OnFailure
+  backoffLimit: 3
   ttlSecondsAfterFinished: 300
 
 ---
@@ -193,6 +193,8 @@ metadata:
   name: ${{ defaults.app_name }}-redis
   labels:
     sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -201,13 +203,15 @@ metadata:
   name: ${{ defaults.app_name }}-redis
   labels:
     sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
 rules:
   - apiGroups:
-      - ""
+      - "*"
     resources:
-      - events
+      - "*"
     verbs:
-      - create
+      - "*"
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -216,6 +220,8 @@ metadata:
   name: ${{ defaults.app_name }}-redis
   labels:
     sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -234,7 +240,7 @@ metadata:
   labels:
     clusterdefinition.kubeblocks.io/name: redis
     kb.io/database: redis-7.2.7
-    app.kubernetes.io/instance: ${{ defaults.app_name }}
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
     app.kubernetes.io/version: 7.2.7
     helm.sh/chart: redis-cluster-0.9.0
     sealos-db-provider-cr: ${{ defaults.app_name }}-redis
@@ -279,11 +285,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 100m
-          memory: 100Mi
+          cpu: 500m
+          memory: 512Mi
         requests:
-          cpu: 10m
-          memory: 10Mi
+          cpu: 50m
+          memory: 51Mi
       serviceVersion: 7.2.7
       volumeClaimTemplates:
         - name: data
@@ -296,24 +302,12 @@ spec:
   terminationPolicy: Delete
   topology: replication
 
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: ${{ defaults.app_name }}-secret
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-type: Opaque
-stringData:
-  APP_SECRET: ${{ defaults.app_secret }}
-
----
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: twentycrm/twenty:v1.12.0
+    originImageName: twentycrm/twenty:v2.16.0
     deploy.cloud.sealos.io/minReplicas: "1"
     deploy.cloud.sealos.io/maxReplicas: "1"
   labels:
@@ -334,7 +328,7 @@ spec:
       automountServiceAccountToken: false
       initContainers:
         - name: fix-permissions
-          image: busybox:latest
+          image: busybox:1.38.0
           imagePullPolicy: IfNotPresent
           command:
             - sh
@@ -344,9 +338,16 @@ spec:
           volumeMounts:
             - name: vn-appvn-packagesvn-twentyvn-servervn-vn-localvn-storage
               mountPath: /app/packages/twenty-server/.local-storage
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
       containers:
         - name: ${{ defaults.app_name }}
-          image: twentycrm/twenty:v1.12.0
+          image: twentycrm/twenty:v2.16.0
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_PASSWORD
@@ -377,28 +378,31 @@ spec:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
             - name: REDIS_HOST
-              value: ${{ defaults.app_name }}-redis-redis-redis
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
             - name: REDIS_PORT
-              value: '6379'
+              value: "6379"
             - name: REDIS_URL
               value: redis://:$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)
             - name: NODE_PORT
               value: "3000"
             - name: SERVER_URL
               value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: DISABLE_DB_MIGRATIONS
+              value: "false"
+            - name: DISABLE_CRON_JOBS_REGISTRATION
+              value: "false"
             - name: SIGN_IN_PREFILLED
               value: "false"
             - name: STORAGE_TYPE
               value: local
+            - name: ENCRYPTION_KEY
+              value: ${{ defaults.encryption_key }}
             - name: ACCESS_TOKEN_EXPIRES_IN
               value: 7d
             - name: LOGIN_TOKEN_EXPIRES_IN
               value: 1h
             - name: APP_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-secret
-                  key: APP_SECRET
+              value: ${{ defaults.app_secret }}
           ports:
             - containerPort: 3000
               name: http
@@ -425,7 +429,7 @@ spec:
               cpu: 100m
               memory: 102Mi
             limits:
-              cpu: 1000m
+              cpu: 1
               memory: 1024Mi
           volumeMounts:
             - name: vn-appvn-packagesvn-twentyvn-servervn-vn-localvn-storage
@@ -449,7 +453,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-worker
   annotations:
-    originImageName: twentycrm/twenty:v1.12.0
+    originImageName: twentycrm/twenty:v2.16.0
     deploy.cloud.sealos.io/minReplicas: "1"
     deploy.cloud.sealos.io/maxReplicas: "1"
   labels:
@@ -469,7 +473,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}-worker
-          image: twentycrm/twenty:v1.12.0
+          image: twentycrm/twenty:v2.16.0
           imagePullPolicy: IfNotPresent
           command:
             - yarn
@@ -503,28 +507,29 @@ spec:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
             - name: REDIS_HOST
-              value: ${{ defaults.app_name }}-redis-redis-redis
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
             - name: REDIS_PORT
-              value: '6379'
+              value: "6379"
             - name: REDIS_URL
               value: redis://:$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)
             - name: SERVER_URL
               value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: DISABLE_DB_MIGRATIONS
-              value: "false"
+              value: "true"
+            - name: DISABLE_CRON_JOBS_REGISTRATION
+              value: "true"
             - name: STORAGE_TYPE
               value: local
+            - name: ENCRYPTION_KEY
+              value: ${{ defaults.encryption_key }}
             - name: APP_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-secret
-                  key: APP_SECRET
+              value: ${{ defaults.app_secret }}
           resources:
             requests:
-              cpu: 250m
-              memory: 1024Mi
+              cpu: 100m
+              memory: 204Mi
             limits:
-              cpu: 1000m
+              cpu: 1
               memory: 2048Mi
 
 ---
@@ -533,11 +538,14 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 3000
-      targetPort: 3000
+    - name: http
+      port: 3000
+      targetPort: http
+      protocol: TCP
   selector:
     app: ${{ defaults.app_name }}
 
@@ -547,6 +555,7 @@ kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
@@ -566,7 +575,6 @@ metadata:
         expires 30d;
         add_header Cache-Control "public";
       }
-      more_set_headers "X-Forwarded-For $http_x_forwarded_for";
 spec:
   rules:
     - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
@@ -596,5 +604,5 @@ spec:
     url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
   displayType: normal
   icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/twenty/logo.svg"
-  name: ${{ defaults.app_name }}
-  type: iframe
+  name: "Twenty"
+  type: link

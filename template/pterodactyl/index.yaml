@@ -128,6 +128,7 @@ kind: Cluster
 metadata:
   labels:
     kb.io/database: ac-mysql-8.0.30-1
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
     clusterdefinition.kubeblocks.io/name: apecloud-mysql
     clusterversion.kubeblocks.io/name: ac-mysql-8.0.30-1
   name: ${{ defaults.app_name }}-mysql
@@ -180,7 +181,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: mysql-init
-          image: public.ecr.aws/docker/library/mysql:8.0.30
+          image: public.ecr.aws/docker/library/mysql:9.7.1
           imagePullPolicy: IfNotPresent
           env:
             - name: MYSQL_HOST
@@ -275,6 +276,7 @@ metadata:
   name: ${{ defaults.app_name }}-redis
   labels:
     kb.io/database: redis-7.2.7
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
     app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
     app.kubernetes.io/version: 7.2.7
     clusterversion.kubeblocks.io/name: redis-7.2.7
@@ -347,7 +349,7 @@ metadata:
     app: ${{ defaults.app_name }}-mysql-client
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-mysql-client
 data:
-  sealos-client.cnf: |
+  vn-etcvn-myvn-cnfvn-dvn-sealosvn-clientvn-cnf: |
     [client]
     skip-ssl
     ssl-verify-server-cert=0
@@ -365,7 +367,7 @@ spec:
       restartPolicy: OnFailure
       initContainers:
         - name: wait-for-redis
-          image: public.ecr.aws/docker/library/redis:7.2.7-alpine
+          image: busybox:1.38.0
           imagePullPolicy: IfNotPresent
           env:
             - name: REDIS_HOST
@@ -376,17 +378,9 @@ spec:
             - /bin/sh
             - -ec
             - |
-              until [ -s /redis-secret/password ]; do
+              until nc -z "$REDIS_HOST" "$REDIS_PORT"; do
                 sleep 2
               done
-              REDIS_PASSWORD="$(cat /redis-secret/password)"
-              until redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" ping >/dev/null 2>&1; do
-                sleep 2
-              done
-          volumeMounts:
-            - name: redis-credentials
-              mountPath: /redis-secret
-              readOnly: true
           resources:
             limits:
               cpu: 200m
@@ -396,7 +390,7 @@ spec:
               memory: 25Mi
       containers:
         - name: pterodactyl-bootstrap
-          image: ghcr.io/pterodactyl/panel:v1.12.4
+          image: ghcr.io/pterodactyl/panel:v1.14.0
           imagePullPolicy: IfNotPresent
           env:
             - name: APP_ENV
@@ -465,26 +459,34 @@ spec:
               value: s3
             - name: AWS_DEFAULT_REGION
               value: us-east-1
-            - name: AWS_ACCESS_KEY_ID
+            - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: accessKey
-            - name: AWS_SECRET_ACCESS_KEY
+            - name: AWS_ACCESS_KEY_ID
+              value: $(S3_ACCESS_KEY_ID)
+            - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: secretKey
-            - name: AWS_BACKUPS_BUCKET
+            - name: AWS_SECRET_ACCESS_KEY
+              value: $(S3_SECRET_ACCESS_KEY)
+            - name: S3_BUCKET
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
                   key: bucket
-            - name: AWS_ENDPOINT
+            - name: AWS_BACKUPS_BUCKET
+              value: $(S3_BUCKET)
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
-                  key: internal
+                  key: external
+            - name: AWS_ENDPOINT
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
             - name: AWS_USE_PATH_STYLE_ENDPOINT
               value: 'true'
             ${{ endif() }}
@@ -516,23 +518,19 @@ spec:
               memory: 512Mi
             requests:
               cpu: 20m
-              memory: 128Mi
+              memory: 51Mi
           volumeMounts:
             - name: vn-etcvn-myvn-cnfvn-dvn-sealosvn-clientvn-cnf
               mountPath: /etc/my.cnf.d/sealos-client.cnf
-              subPath: sealos-client.cnf
+              subPath: vn-etcvn-myvn-cnfvn-dvn-sealosvn-clientvn-cnf
               readOnly: true
       volumes:
         - name: vn-etcvn-myvn-cnfvn-dvn-sealosvn-clientvn-cnf
           configMap:
             name: ${{ defaults.app_name }}-mysql-client
             items:
-              - key: sealos-client.cnf
-                path: sealos-client.cnf
-        - name: redis-credentials
-          secret:
-            secretName: ${{ defaults.app_name }}-redis-redis-account-default
-            optional: true
+              - key: vn-etcvn-myvn-cnfvn-dvn-sealosvn-clientvn-cnf
+                path: vn-etcvn-myvn-cnfvn-dvn-sealosvn-clientvn-cnf
   backoffLimit: 5
   ttlSecondsAfterFinished: 300
 
@@ -542,10 +540,10 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: ghcr.io/pterodactyl/panel:v1.12.4
+    originImageName: ghcr.io/pterodactyl/panel:v1.14.0
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
-    docker-to-sealos.resource-override-source: https://github.com/pterodactyl/panel/blob/v1.12.4/Dockerfile
+    docker-to-sealos.resource-override-source: https://github.com/pterodactyl/panel/blob/v1.14.0/Dockerfile
   labels:
     app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
@@ -565,7 +563,7 @@ spec:
       automountServiceAccountToken: false
       initContainers:
         - name: wait-for-mysql
-          image: public.ecr.aws/docker/library/mysql:8.0.30
+          image: busybox:1.38.0
           imagePullPolicy: IfNotPresent
           env:
             - name: MYSQL_HOST
@@ -592,7 +590,7 @@ spec:
             - /bin/sh
             - -ec
             - |
-              until mysqladmin ping -h"$MYSQL_HOST" -P"$MYSQL_PORT" -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" --silent; do
+              until nc -z "$MYSQL_HOST" "$MYSQL_PORT"; do
                 sleep 2
               done
           resources:
@@ -603,7 +601,7 @@ spec:
               cpu: 20m
               memory: 25Mi
         - name: wait-for-redis
-          image: public.ecr.aws/docker/library/redis:7.2.7-alpine
+          image: busybox:1.38.0
           imagePullPolicy: IfNotPresent
           env:
             - name: REDIS_HOST
@@ -614,17 +612,9 @@ spec:
             - /bin/sh
             - -ec
             - |
-              until [ -s /redis-secret/password ]; do
+              until nc -z "$REDIS_HOST" "$REDIS_PORT"; do
                 sleep 2
               done
-              REDIS_PASSWORD="$(cat /redis-secret/password)"
-              until redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" ping >/dev/null 2>&1; do
-                sleep 2
-              done
-          volumeMounts:
-            - name: redis-credentials
-              mountPath: /redis-secret
-              readOnly: true
           resources:
             limits:
               cpu: 200m
@@ -633,7 +623,7 @@ spec:
               cpu: 20m
               memory: 25Mi
         - name: wait-for-bootstrap-database
-          image: public.ecr.aws/docker/library/mysql:8.0.30
+          image: ghcr.io/pterodactyl/panel:v1.14.0
           imagePullPolicy: IfNotPresent
           env:
             - name: MYSQL_HOST
@@ -674,7 +664,7 @@ spec:
               memory: 25Mi
       containers:
         - name: ${{ defaults.app_name }}
-          image: ghcr.io/pterodactyl/panel:v1.12.4
+          image: ghcr.io/pterodactyl/panel:v1.14.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -746,26 +736,34 @@ spec:
               value: s3
             - name: AWS_DEFAULT_REGION
               value: us-east-1
-            - name: AWS_ACCESS_KEY_ID
+            - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: accessKey
-            - name: AWS_SECRET_ACCESS_KEY
+            - name: AWS_ACCESS_KEY_ID
+              value: $(S3_ACCESS_KEY_ID)
+            - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: secretKey
-            - name: AWS_BACKUPS_BUCKET
+            - name: AWS_SECRET_ACCESS_KEY
+              value: $(S3_SECRET_ACCESS_KEY)
+            - name: S3_BUCKET
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
                   key: bucket
-            - name: AWS_ENDPOINT
+            - name: AWS_BACKUPS_BUCKET
+              value: $(S3_BUCKET)
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
-                  key: internal
+                  key: external
+            - name: AWS_ENDPOINT
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
             - name: AWS_USE_PATH_STYLE_ENDPOINT
               value: 'true'
             ${{ endif() }}
@@ -775,7 +773,7 @@ spec:
               memory: 512Mi
             requests:
               cpu: 20m
-              memory: 128Mi
+              memory: 51Mi
           startupProbe:
             httpGet:
               path: /
@@ -797,25 +795,10 @@ spec:
             periodSeconds: 20
             timeoutSeconds: 5
           volumeMounts:
-            - name: vn-etcvn-myvn-cnfvn-dvn-sealosvn-clientvn-cnf
-              mountPath: /etc/my.cnf.d/sealos-client.cnf
-              subPath: sealos-client.cnf
-              readOnly: true
             - name: vn-appvn-var
               mountPath: /app/var
             - name: vn-appvn-storagevn-logs
               mountPath: /app/storage/logs
-      volumes:
-        - name: vn-etcvn-myvn-cnfvn-dvn-sealosvn-clientvn-cnf
-          configMap:
-            name: ${{ defaults.app_name }}-mysql-client
-            items:
-              - key: sealos-client.cnf
-                path: sealos-client.cnf
-        - name: redis-credentials
-          secret:
-            secretName: ${{ defaults.app_name }}-redis-redis-account-default
-            optional: true
   volumeClaimTemplates:
     - metadata:
         annotations:

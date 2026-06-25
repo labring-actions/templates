@@ -215,6 +215,7 @@ metadata:
   name: ${{ defaults.app_name }}-pg
   labels:
     kb.io/database: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
     clusterdefinition.kubeblocks.io/name: postgresql
     clusterversion.kubeblocks.io/name: postgresql-16.4.0
 spec:
@@ -376,12 +377,12 @@ spec:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: ${{ defaults.app_name }}-kong-config
+  name: ${{ defaults.app_name }}-kong
   labels:
-    app: ${{ defaults.app_name }}-kong-config
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-kong-config
+    app: ${{ defaults.app_name }}-kong
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-kong
 data:
-  kong.yml.tpl: |
+  vn-etcvn-kongvn-templatevn-kongvn-ymlvn-tpl: |
     _format_version: '2.1'
     _transform: true
 
@@ -613,16 +614,25 @@ data:
           - name: basic-auth
             config:
               hide_credentials: true
+  vn-etcvn-kongvn-templatevn-kongvn-entrypointvn-sh: |
+    sed \
+      -e "s|__APP_NAME__|${APP_NAME}|g" \
+      -e "s|__ANON_KEY__|${SUPABASE_ANON_KEY}|g" \
+      -e "s|__SERVICE_ROLE_KEY__|${SUPABASE_SERVICE_KEY}|g" \
+      -e "s|__DASHBOARD_USERNAME__|${DASHBOARD_USERNAME}|g" \
+      -e "s|__DASHBOARD_PASSWORD__|${DASHBOARD_PASSWORD}|g" \
+      /etc/kong-template/kong.yml.tpl > /tmp/kong.yml
+    exec /docker-entrypoint.sh kong docker-start
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: ${{ defaults.app_name }}-supavisor-config
+  name: ${{ defaults.app_name }}-supavisor
   labels:
-    app: ${{ defaults.app_name }}-supavisor-config
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-supavisor-config
+    app: ${{ defaults.app_name }}-supavisor
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-supavisor
 data:
-  pooler.exs: "{:ok, _} = Application.ensure_all_started(:supavisor)\n\n{:ok, version}\
+  vn-etcvn-poolervn-poolervn-exs: "{:ok, _} = Application.ensure_all_started(:supavisor)\n\n{:ok, version}\
     \ =\n  case Supavisor.Repo.query!(\"select version()\") do\n    %{rows: [[ver]]}\
     \ -> Supavisor.Helpers.parse_pg_version(ver)\n    _ -> nil\n  end\n\nparams =\
     \ %{\n  \"external_id\" => System.get_env(\"POOLER_TENANT_ID\"),\n  \"db_host\"\
@@ -641,24 +651,24 @@ data:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: ${{ defaults.app_name }}-vector-config
+  name: ${{ defaults.app_name }}-vector
   labels:
-    app: ${{ defaults.app_name }}-vector-config
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-vector-config
+    app: ${{ defaults.app_name }}-vector
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-vector
 data:
-  vector.yml: "api:\n  enabled: true\n  address: 0.0.0.0:9001\n\nsources:\n  internal_metrics:\n\
+  vn-etcvn-vectorvn-vectorvn-yml: "api:\n  enabled: true\n  address: 0.0.0.0:9001\n\nsources:\n  internal_metrics:\n\
     \    type: internal_metrics\n\nsinks:\n  blackhole:\n    type: blackhole\n   \
     \ inputs:\n      - internal_metrics\n"
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: ${{ defaults.app_name }}-functions-code
+  name: ${{ defaults.app_name }}-functions
   labels:
-    app: ${{ defaults.app_name }}-functions-code
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-functions-code
+    app: ${{ defaults.app_name }}-functions
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-functions
 data:
-  main-index.ts: "import * as jose from 'https://deno.land/x/jose@v4.14.4/index.ts'\n\
+  vn-homevn-denovn-functionsvn-mainvn-indexvn-ts: "import * as jose from 'https://deno.land/x/jose@v4.14.4/index.ts'\n\
     \nconsole.log('main function started')\n\nconst JWT_SECRET = Deno.env.get('JWT_SECRET')\n\
     const VERIFY_JWT = Deno.env.get('VERIFY_JWT') === 'true'\n\nfunction getAuthToken(req:\
     \ Request) {\n  const authHeader = req.headers.get('authorization')\n  if (!authHeader)\
@@ -691,7 +701,7 @@ data:
     \  } catch (e) {\n    const error = { msg: e.toString() }\n    return new Response(JSON.stringify(error),\
     \ {\n      status: 500,\n      headers: { 'Content-Type': 'application/json' },\n\
     \    })\n  }\n})\n"
-  hello-index.ts: "// Follow this setup guide to integrate the Deno language server\
+  vn-homevn-denovn-functionsvn-hellovn-indexvn-ts: "// Follow this setup guide to integrate the Deno language server\
     \ with your editor:\n// https://deno.land/manual/getting_started/setup_your_environment\n\
     // This enables autocomplete, go to definition, etc.\n\nDeno.serve(async () =>\
     \ {\n  return new Response(\n    `\"Hello from Edge Functions!\"`,\n    { headers:\
@@ -906,24 +916,20 @@ spec:
         - /bin/sh
         - -ec
         args:
-        - |
-          sed \
-            -e "s|__APP_NAME__|${APP_NAME}|g" \
-            -e "s|__ANON_KEY__|${SUPABASE_ANON_KEY}|g" \
-            -e "s|__SERVICE_ROLE_KEY__|${SUPABASE_SERVICE_KEY}|g" \
-            -e "s|__DASHBOARD_USERNAME__|${DASHBOARD_USERNAME}|g" \
-            -e "s|__DASHBOARD_PASSWORD__|${DASHBOARD_PASSWORD}|g" \
-            /etc/kong-template/kong.yml.tpl > /tmp/kong.yml
-          exec /docker-entrypoint.sh kong docker-start
+        - exec /bin/sh /etc/kong-template/kong-entrypoint.sh
         volumeMounts:
-        - name: kong-config
+        - name: ${{ defaults.app_name }}-kong-cm
           mountPath: /etc/kong-template/kong.yml.tpl
-          subPath: kong.yml.tpl
+          subPath: vn-etcvn-kongvn-templatevn-kongvn-ymlvn-tpl
+          readOnly: true
+        - name: ${{ defaults.app_name }}-kong-cm
+          mountPath: /etc/kong-template/kong-entrypoint.sh
+          subPath: vn-etcvn-kongvn-templatevn-kongvn-entrypointvn-sh
           readOnly: true
       volumes:
-      - name: kong-config
+      - name: ${{ defaults.app_name }}-kong-cm
         configMap:
-          name: ${{ defaults.app_name }}-kong-config
+          name: ${{ defaults.app_name }}-kong
   serviceName: ${{ defaults.app_name }}-kong
 ---
 apiVersion: apps/v1
@@ -1558,20 +1564,20 @@ spec:
         - --main-service
         - /home/deno/functions/main
         volumeMounts:
-        - name: functions-code
+        - name: ${{ defaults.app_name }}-functions-cm
           mountPath: /home/deno/functions/main/index.ts
-          subPath: main-index.ts
+          subPath: vn-homevn-denovn-functionsvn-mainvn-indexvn-ts
           readOnly: true
-        - name: functions-code
+        - name: ${{ defaults.app_name }}-functions-cm
           mountPath: /home/deno/functions/hello/index.ts
-          subPath: hello-index.ts
+          subPath: vn-homevn-denovn-functionsvn-hellovn-indexvn-ts
           readOnly: true
         - name: vn-rootvn-cachevn-deno
           mountPath: /root/.cache/deno
       volumes:
-      - name: functions-code
+      - name: ${{ defaults.app_name }}-functions-cm
         configMap:
-          name: ${{ defaults.app_name }}-functions-code
+          name: ${{ defaults.app_name }}-functions
   serviceName: ${{ defaults.app_name }}-functions
   volumeClaimTemplates:
   - metadata:
@@ -1748,14 +1754,14 @@ spec:
           timeoutSeconds: 5
           failureThreshold: 3
         volumeMounts:
-        - name: vector-config
+        - name: ${{ defaults.app_name }}-vector-cm
           mountPath: /etc/vector/vector.yml
-          subPath: vector.yml
+          subPath: vn-etcvn-vectorvn-vectorvn-yml
           readOnly: true
       volumes:
-      - name: vector-config
+      - name: ${{ defaults.app_name }}-vector-cm
         configMap:
-          name: ${{ defaults.app_name }}-vector-config
+          name: ${{ defaults.app_name }}-vector
   serviceName: ${{ defaults.app_name }}-vector
 ---
 apiVersion: apps/v1
@@ -1882,14 +1888,14 @@ spec:
           timeoutSeconds: 5
           failureThreshold: 5
         volumeMounts:
-        - name: supavisor-config
+        - name: ${{ defaults.app_name }}-supavisor-cm
           mountPath: /etc/pooler/pooler.exs
-          subPath: pooler.exs
+          subPath: vn-etcvn-poolervn-poolervn-exs
           readOnly: true
       volumes:
-      - name: supavisor-config
+      - name: ${{ defaults.app_name }}-supavisor-cm
         configMap:
-          name: ${{ defaults.app_name }}-supavisor-config
+          name: ${{ defaults.app_name }}-supavisor
   serviceName: ${{ defaults.app_name }}-supavisor
 ---
 apiVersion: v1

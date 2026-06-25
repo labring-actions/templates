@@ -1,0 +1,231 @@
+# Template Validation Notes
+
+Updated batch:
+- authentik
+- changedetection
+- chatgpt-on-wechat
+- chatwoot
+- code-server
+- cobalt
+- cronicle
+- crmeb
+- dataease
+- deeplx
+- derper
+- directus
+- docuseal
+- dolibarr
+- drawdb
+- edgequake
+- elasticsearch
+- emqx
+- ever-gauzy
+- featbit-standard
+- flarum
+- formbricks
+- gitea
+- hasura
+- halo
+- illa-builder
+- insforge
+- kanboard
+- kaneo
+- casdoor
+- keystone
+- kuvasz
+- langflow
+- librechat
+- loki
+- matomo
+- mautic
+- meilisearch
+- metabase
+- minecraft
+- mlflow
+- nacos
+- netbird
+- n8n
+- nocodb
+- nexus
+- node-red
+- nofx
+- openclaw
+- openlist
+- openobserve
+- pageplug
+- pangolin
+- pdf2zh
+- phpmyadmin
+- pocketbase
+- planka
+- postiz
+- presenton
+- prestashop
+- pterodactyl
+- quay
+- readeck
+- registry
+- appflowy
+- glitchtip
+- grafana-otel
+- penpot
+- twenty
+- rocketchat
+- skardi
+- sub2api
+- tududi
+- typebot
+- typo3
+- tianji
+- umami
+- webos
+- woocommerce
+- yourls
+- zitadel
+
+Validation passed:
+- git diff --check
+- docker-to-sealos check_consistency.py for updated artifacts
+- docker-to-sealos self-tests and MUST coverage checks
+- Latest storage contract pass: removed cloud.sealos.io/deploy-on-sealos labels from StatefulSet metadata and removed empty labels fields from volumeClaimTemplates metadata in the updated artifacts
+- Latest image policy pass: normalized updated managed app workload imagePullPolicy values to IfNotPresent
+- Authentik template contract pass: updated server and worker images as one release pair, aligned originImageName values, added PostgreSQL database visibility label, added init Job resources, added Service app label, and normalized Ingress default annotations.
+- code-server template contract pass: updated image, aligned originImageName, added Template locale and zh description, normalized resource ladder values, kept a short exec wrapper for the official entrypoint, added Service app label and port name, normalized root Ingress defaults, and set App type to link.
+- Readeck template contract pass: normalized Template metadata, locale/i18n fields, README/icon paths, Service labels/port name, and Ingress default annotations
+- DeeplX template contract pass: normalized Template locale/i18n fields, resource ladder values, workload labels, Service labels/port name, and root Ingress defaults
+- Flarum template contract pass: updated the MySQL init image and moved database initialization from the app StatefulSet initContainer into a standalone Job.
+- Rocket.Chat template contract pass: updated the app image, aligned originImageName, added MongoDB visibility labels, normalized imagePullPolicy, workload automount, CPU resource ladder, and Service labels.
+- drawDB template contract pass: updated image, aligned originImageName, and normalized ConfigMap volume name, subPath, and items path.
+- OpenList template contract pass: updated image, aligned originImageName, added zh i18n description, workload label, Service app label, and Service port name.
+- NocoDB template contract pass: updated image, aligned originImageName, and added KubeBlocks database visibility label.
+- Ever Gauzy template contract pass: updated the busybox init image, added PostgreSQL init Job resources, kept the app database wait on a non-database init image, and normalized API memory resources to the Sealos ladder while preserving the prior resource override evidence.
+- FeatBit Standard template contract pass: updated API, data analytics, evaluation, and UI images as one release family, aligned originImageName values, and kept PostgreSQL schema wait init containers on non-database images with PostgreSQL client installation.
+- chatGPT on WeChat template contract pass: updated image, aligned originImageName, added zh i18n description, Service app label, and Service port name.
+- Dolibarr template contract pass: updated MySQL init image and added KubeBlocks database visibility label.
+- ZITADEL template contract pass: updated image, aligned originImageName, added KubeBlocks database visibility label, and added Service app label.
+- Formbricks template contract pass: updated image, aligned originImageName, and normalized web container resource ladder values.
+- Gitea template contract pass: updated image, aligned originImageName, composed the MySQL host and port from approved secret fields, sourced the database user from the approved secret, added Service app label, normalized root Ingress defaults, and added the MySQL database visibility label.
+- Overleaf template contract pass: updated image, aligned originImageName, added MongoDB database visibility label, normalized app resource ladder values, and set App type to link.
+- listmonk template contract pass: updated init busybox image and changed the main container shell wrapper to exec the final process.
+- DbGate template contract pass: updated image, added Template locale and zh description, added Service app label, normalized Ingress defaults, and set App type to link.
+- chatgpt-next-web template contract pass: updated image, aligned originImageName, added zh description, normalized resource ladder CPU, added Service app label and port name, and set Ingress ssl-redirect to the default.
+- Uptime Kuma template contract pass: updated image, aligned originImageName, added Template locale and zh description, normalized resource ladder CPU, added Service app label and port name, and normalized Ingress defaults.
+- Pocket ID template contract pass: updated image, aligned originImageName, removed duplicate zh title, added Service app label and port name, and normalized Ingress defaults.
+- Nexus template contract pass: updated init and app images, aligned originImageName, and normalized app memory resource units to the Sealos ladder.
+- n8n template contract pass: updated n8n and runners images as one release pair, aligned originImageName values, and added init container resource requests and limits.
+- MLflow template contract pass: updated image, aligned originImageName, moved startup work into a ConfigMap script, kept a short exec wrapper in the main container, and normalized app memory resource units to the Sealos ladder.
+- OpenClaw template contract pass: updated init and app images, aligned originImageName, added init container resources, changed the gateway command to exec the final process, and normalized app CPU resources to the Sealos ladder.
+- PocketBase template contract pass: updated image, aligned originImageName, replaced the floating busybox tag with a concrete tag, added init container resources, and added Service app label and port name.
+- Pangolin template contract pass: updated image, aligned originImageName, normalized ConfigMap naming and mounted key conventions, normalized app memory resource units, and added Service app label.
+- Hasura template contract pass: updated the data connector agent image, aligned originImageName, added the KubeBlocks database visibility label, composed PostgreSQL URLs from approved secret fields, and added Service app labels.
+- InsForge template contract pass: updated KubeBlocks tools, app, and PostgREST images, aligned originImageName values, added PostgreSQL database visibility label, removed the legacy deploy-on-sealos label from the app StatefulSet, and kept the PostgreSQL client wait logic on a non-database init image.
+- Kuvasz template contract pass: updated image, aligned originImageName, added PostgreSQL init Job resources, kept the app PostgreSQL wait init container on a non-database image with PostgreSQL client installation, normalized app memory resources, and normalized ConfigMap mount naming.
+- Langflow template contract pass: updated image, aligned originImageName, replaced the shell wrapper with the official command and args, preserved optional PostgreSQL URL composition, and normalized app memory resource units.
+- Halo template contract pass: updated image, aligned originImageName, added zh description, normalized Service and Ingress defaults, added the database visibility label, sourced PostgreSQL host from the approved secret, and normalized CPU resources.
+- Umami template contract pass: updated image, aligned originImageName, added locale and zh description, normalized Service labels and port name, composed the PostgreSQL URL from approved secret fields, added database visibility label, added init Job resources, and made database creation readiness-aware and idempotent.
+- Minecraft template contract pass: updated init and server images, preserved the Java 25 runtime tag family for the server image, aligned originImageName, and normalized memory resource units to the Sealos ladder.
+- Matomo template contract pass: updated app and MySQL init images, aligned originImageName, added the MySQL database visibility label, and removed empty database annotations.
+- Mautic template contract pass: updated busybox wait helpers and MySQL init image, added MySQL database visibility labels, and normalized MySQL Cluster resources to the database ladder.
+- Nacos template contract pass: updated MySQL init image, added the MySQL database visibility label, removed empty database annotations, and normalized the console ConfigMap mount.
+- NetBird template contract pass: updated dashboard, management, relay, and signal images, aligned originImageName values, and normalized the management ConfigMap mount.
+- NOFX template contract pass: updated the OpenSSL helper image, added PostgreSQL database visibility label, kept the PostgreSQL wait init container on a non-database image with PostgreSQL client installation, shortened startup wrappers, and normalized frontend ConfigMap mount naming.
+- PrestaShop template contract pass: updated MySQL init and app images, aligned originImageName, added MySQL database visibility label, and normalized the ConfigMap mount.
+- Quay template contract pass: updated app and init-admin images, aligned originImageName, added database visibility labels, added init Job resources, and moved the startup script into a workload ConfigMap.
+- Skardi template contract pass: updated the server image, aligned originImageName, and normalized ConfigMap file keys, subPaths, and workload volume naming.
+- TYPO3 template contract pass: updated MySQL init image, added MySQL database visibility label, added init Job resources, and normalized the ConfigMap mount.
+- WooCommerce template contract pass: updated MySQL init and WordPress images, aligned originImageName, added MySQL database visibility labels, and added init Job resource limits and requests.
+- YOURLS template contract pass: updated MySQL init and app images, aligned originImageName, added MySQL database visibility labels, added init Job resources, and added Service app label.
+- CRMEB template contract pass: updated the MySQL client image, added zh description, added MySQL database visibility labels, added init Job resources, normalized Redis sentinel resources, normalized ConfigMap labels and mount naming, added init container resources, and added Service app label and port name.
+- DataEase template contract pass: updated busybox and app images, aligned originImageName, added zh description, added init and MySQL Job resources, normalized memory units to the Sealos ladder, added Service app label and port name, added MySQL database visibility labels, and pinned the MySQL client image.
+- Tianji template contract pass: updated image, aligned originImageName, added Template locale/categories and zh description, composed PostgreSQL URLs from approved secret fields, added database visibility label, made database creation readiness-aware and idempotent, added init Job resources, normalized app resources, added Service app label and port name, and set App type to link.
+
+- FRP template contract pass: updated the kubectl helper image, pinned the frps app image to the explicit 0.59.0 tag, added Simplified Chinese i18n description, normalized ConfigMap labels and mount naming, merged Service ports under the managed NodePort Service, normalized Ingress default annotations, set App type to link, added Job resources and imagePullPolicy, and kept the App resource last.
+
+- RSSHub template contract pass: updated the app image, aligned originImageName, added locale and Simplified Chinese i18n description, sourced the Redis endpoint from the approved KubeBlocks secret, added Service labels and port names, disabled service account token mounting on the Puppeteer helper, normalized Redis sentinel resources, set Ingress ssl-redirect to the required default, and set App type to link.
+- LibreChat template contract pass: updated the app image, replaced the custom Secret envFrom with explicit app env vars and generated defaults for runtime secrets, pinned the Meilisearch sidecar image to an explicit patch tag, added locale and Simplified Chinese i18n description, added Service labels and port names, added MongoDB visibility labels, normalized Ingress defaults, and set App type to link.
+- Keystone template contract pass: updated the Node runtime image, added PostgreSQL visibility labels, added pg-init Job resources, normalized ConfigMap mounting to a single workload ConfigMap volume with key-matched subPaths, and reduced the main container command to a short exec wrapper.
+- Directus template contract pass: updated Directus and busybox helper images, added PostgreSQL/Redis visibility labels, normalized database resources, replaced app readiness helpers with busybox TCP checks, and recorded the removed Redis helper image candidate as skipped.
+- Typebot template contract pass: updated builder/viewer patch images and Mailpit, added PostgreSQL/Redis visibility labels, normalized Redis URL composition, object-storage env indirection, builder resource requests, and replaced raw Redis readiness helpers with busybox TCP checks while recording the removed Redis helper candidate as skipped.
+- Postiz template contract pass: updated app and busybox helper images, added PostgreSQL visibility label, normalized Temporal ConfigMap file mounting, moved app startup logic into a workload ConfigMap script, kept a short exec wrapper in the main container, and recorded Elasticsearch and Temporal service image candidates as skipped.
+- Pterodactyl template contract pass: updated panel and MySQL init images, added MySQL/Redis visibility labels, normalized MySQL client ConfigMap keys, replaced raw Redis readiness helpers with busybox TCP checks, normalized object-storage env indirection, and removed app workload custom Secret/ConfigMap mounts that tripped the database-service rule while recording the Redis helper image candidate as skipped.
+- Kaneo template contract pass: updated API and web images to 2.7.7, aligned the PostgreSQL 16 Cluster and idempotent database init Job, replaced the legacy API database URL wiring with approved KubeBlocks secret fields, added v2 public URL and auth envs, and normalized Service, Ingress, probes, and Simplified Chinese metadata.
+- Casdoor template contract pass: updated sqlite and database-backed Casdoor images to v2.190.0, aligned originImageName values, upgraded PostgreSQL and MySQL KubeBlocks metadata, added helper Job resources and image policies, normalized ConfigMap mounting, moved the default sqlite database path onto persistent storage, and added Service/Ingress labels.
+- Registry template contract pass: updated registry and UI images, moved the registry v3 config mount to /etc/distribution/config.yml, normalized ConfigMap, Service, Ingress, App, locale/i18n, and removed legacy deploy-on-sealos metadata.
+- Chatwoot template contract pass: updated web, worker, and init images to v4.15.1, aligned PostgreSQL and Redis connection wiring with approved KubeBlocks secrets, normalized PostgreSQL/Redis metadata, helper resources, Service labels, and Service port naming.
+- AppFlowy template contract pass: updated Cloud, Worker, Web, and GoTrue images, replaced the choice-based storage selector with a boolean Sealos ObjectStorage branch, normalized approved object-storage env indirection, and corrected Redis FQDN wiring. Marked validation-needed for cloud/worker/web/GoTrue startup, database URLs, object storage uploads, and first-run login path.
+- GlitchTip template contract pass: updated app, migrate, and worker images to v6.0.3, aligned PostgreSQL 16.4 metadata and pg-init, normalized Redis/database/object-storage env wiring, Service labels, Ingress defaults, resources, and App schema. Marked validation-needed for v4 to v6 migrations, Redis/PostgreSQL startup, object storage uploads, and login path.
+- Grafana OTel template contract pass: updated Grafana, Prometheus, and OpenTelemetry Collector images, normalized ConfigMap labels and file mounts, added helper resources, Service labels, and Simplified Chinese metadata. Marked validation-needed for the monitoring bundle public Grafana entry, collector ingest ports, and Prometheus scrape path.
+- Penpot template contract pass: updated frontend, backend, and exporter images to 2.16.1, aligned PostgreSQL 16.4 metadata and idempotent pg-init, normalized Redis/PostgreSQL URL composition, approved object-storage env indirection, Service and Ingress labels, and App schema. Marked validation-needed for frontend/backend/exporter startup, database migration, S3 asset uploads, and first-run login path.
+- Twenty template contract pass: updated server and worker images to v2.16.0, aligned official v2 runtime envs, PostgreSQL 16.4.0 metadata, idempotent pg-init, Redis FQDN wiring, generated secrets, resource ladder values, Service/Ingress labels, and App schema. Marked validation-needed for the v1 to v2 migration and first-run login path.
+
+Blocked this pass:
+- harbor: requires coordinated Harbor multi-component runtime validation and broad ConfigMap/database contract normalization before automatic version changes
+- laf: requires LAF runtime validation across MongoDB, MinIO, web, server, runtime nodes, Prometheus, and broad template contract cleanup before automatic version changes
+- langfuse: requires Langfuse runtime validation across PostgreSQL init, ClickHouse, Redis, S3 storage, worker/web startup, and secret handling before automatic version changes
+- liebianbao: requires LieBianBao runtime validation across PHP, Nginx, MongoDB, Redis, MySQL init, ConfigMap mounts, and startup behavior before automatic version changes
+- posthog: requires PostHog runtime validation across Redpanda, Zookeeper, ConfigMaps, services, and startup commands before automatic version changes
+- rocketchat-micro: requires Rocket.Chat microservices runtime validation across NATS config reload, service family upgrades, database labels, ConfigMaps, and image policies before automatic version changes
+- dify: requires coordinated Dify runtime validation across API, worker, web, sandbox, plugin-daemon, PostgreSQL, Redis, and Weaviate before automatic version changes
+- erpnext: requires Frappe/ERPNext runtime validation across MariaDB, Redis, bench site bootstrap, workers, and scheduler before automatic version changes
+- evolution-api: requires Evolution API runtime validation across Redis, PostgreSQL, object storage secrets, init database behavior, and startup before automatic version changes
+- fastgpt: requires coordinated FastGPT runtime validation across MongoDB, PostgreSQL, Redis, plugin, code sandbox, MCP server, AI proxy, ConfigMap mounts, and object storage secrets before automatic version changes
+- fastgpt-milvus: requires coordinated FastGPT Milvus runtime validation across MongoDB, PostgreSQL, Redis, Milvus storage, plugin, AI proxy, ConfigMap mounts, and object storage secrets before automatic version changes
+- fastgpt-pro: requires coordinated FastGPT Pro runtime validation across MongoDB, PostgreSQL, Redis, pro/plugin/code-sandbox/MCP/AI proxy components, ConfigMap mounts, and object storage secrets before automatic version changes
+- coze-studio: requires coordinated multi-component runtime validation across MySQL, Elasticsearch, NSQ, ConfigMap mounts, migrations, and service startup before automatic version changes
+
+Validation gaps:
+- docker-to-sealos consistency checks were used as the template contract authority for changed artifacts.
+- `ghost`: single-template docker-to-sealos consistency check passed after image updates, MySQL database visibility label normalization, non-database MySQL readiness gate, object-storage env indirection, and resource request normalization.
+- `affine`: single-template docker-to-sealos consistency check passed after image update and PostgreSQL startup wait normalization.
+- `outline`: single-template docker-to-sealos consistency check passed after image update, boolean object storage input, S3 env indirection, and pg-init resources.
+- `paperclip`: single-template docker-to-sealos consistency check passed after busybox update, PostgreSQL init normalization, non-database startup wait image, S3 env indirection, and resource request normalization.
+- `stalwart`: single-template docker-to-sealos consistency check passed after image update, PostgreSQL visibility label, ConfigMap mount naming, S3 env indirection, and PostgreSQL wait image normalization.
+- `evolution-api`: single-template docker-to-sealos consistency check passed after helper image updates, PostgreSQL/Redis visibility labels, non-database readiness gates, Redis URL composition, object-storage env indirection, and PostgreSQL init detection normalization.
+- `tooljet`: single-template docker-to-sealos consistency check passed after ToolJet/PostgREST image updates, init resource normalization, PostgreSQL schema wait image normalization, Sealos resource ladder alignment, and App type normalization.
+- `lobe-chat-db`: single-template docker-to-sealos consistency check passed after image update, PostgreSQL visibility label, ACCESS_CODE input declaration, pg-init readiness/resources, database URL env indirection, Service metadata, and Ingress ssl redirect normalization.
+
+- `llmgateway`: single-template docker-to-sealos consistency check passed after v1.5.0 component bundle update, database visibility labels, PostgreSQL/Redis readiness gates, PostgreSQL schema wait image normalization, Redis helper replacement, and resource request normalization.
+
+- `privatebin`: single-template docker-to-sealos consistency check passed after image update, Template locale/i18n metadata, ConfigMap mount normalization, resource request normalization, Service metadata, Ingress defaults, and App type normalization.
+
+- `open-webui`: single-template docker-to-sealos consistency check passed after image update, Template locale/i18n metadata, app_host default, init resource/imagePullPolicy normalization, main resource request normalization, Service metadata, and Ingress defaults.
+
+- `perplexica`: single-template docker-to-sealos consistency check passed after image update, ConfigMap label and mount normalization, Service metadata and port naming, workload labels, and duplicate zh title cleanup.
+
+- `chatnio`: single-template docker-to-sealos consistency check passed after mysql-client update, Redis service FQDN normalization, MySQL/Redis database metadata, mysql-init resources, Service metadata and port naming, Ingress defaults, and App type normalization.
+
+- `mastodon`: single-template docker-to-sealos consistency check passed after Mastodon 4.6.2 image update, PostgreSQL wait initContainer normalization, and resource ladder alignment.
+
+- `tailchat`: single-template docker-to-sealos consistency check passed after Tailchat 1.11.11 image update, MongoDB/Redis credential normalization, Service and Ingress metadata alignment, and resource ladder cleanup.
+
+- `flowise`: single-template docker-to-sealos consistency check passed after Flowise 3.1.2 image update, PostgreSQL 16.4 normalization, non-database startup wait helper, S3 env indirection, Service metadata, and App schema cleanup.
+- `librechat`: single-template docker-to-sealos consistency check passed after LibreChat v0.8.7 image update, custom Secret envFrom cleanup, Meilisearch sidecar pinning, generated runtime secrets, MongoDB visibility labels, Service and Ingress metadata, and App schema normalization.
+- `keystone`: single-template docker-to-sealos consistency check passed after Node 26.3.1 image update, PostgreSQL visibility labels, pg-init Job resources, ConfigMap single-volume mount normalization, and main startup command cleanup.
+- `appflowy`: single-template docker-to-sealos consistency check passed after AppFlowy Cloud/Worker/Web/GoTrue image updates, boolean object-storage branching, approved object-storage env indirection, Redis FQDN wiring, and originImageName alignment.
+- `grafana-otel`: single-template docker-to-sealos consistency check passed after Grafana, Prometheus, and OpenTelemetry Collector image updates, ConfigMap label and mount normalization, helper resource additions, Service labels, and Simplified Chinese metadata.
+- `glitchtip`: single-template docker-to-sealos consistency check passed after v6.0.3 image update, PostgreSQL 16.4.0 metadata and idempotent pg-init, Redis/database/object-storage env normalization, Service/Ingress defaults, resources, and App schema cleanup.
+- `penpot`: single-template docker-to-sealos consistency check passed after Penpot frontend/backend/exporter image updates, PostgreSQL 16.4 metadata and idempotent pg-init, Redis/PostgreSQL URL composition, object-storage env indirection, Service/Ingress/App schema, and resource normalization.
+- `twenty`: single-template docker-to-sealos consistency check passed after v2.16.0 image update, official v2 env alignment, PostgreSQL 16.4.0 metadata, pg-init readiness/idempotency, Redis FQDN wiring, generated secret envs, resource ladder values, Service/Ingress metadata, and App schema normalization.
+- `airbyte`: single-template docker-to-sealos consistency check passed after Temporal ConfigMap file mount normalization, dedicated PostgreSQL init Job addition for the `db-airbyte` database, bootloader resource ladder alignment, and App schema normalization. The Airbyte 0.x to 2.x image bundle remains blocked pending coordinated runtime validation.
+- `supabase`: single-template docker-to-sealos consistency check passed after adding PostgreSQL database visibility labels, normalizing Kong/Supavisor/Vector/Functions ConfigMap names and mounted keys, and moving the Kong config rendering into a ConfigMap script with a short exec wrapper. The eleven-image Supabase bundle remains blocked pending official bundle alignment and coordinated runtime validation.
+- `rocketchat-micro`: single-template docker-to-sealos consistency check passed after normalizing MongoDB database visibility labels, NATS ConfigMap labels and mounts, NATS PID storage, resource ladder values, mongo-init image policy, Service labels, and duplicate localized title metadata. The Rocket.Chat microservices image bundle remains blocked pending coordinated runtime validation.
+- `apitable`: single-template docker-to-sealos consistency check passed after converting object storage selection to boolean branches, normalizing bucket-scoped object storage secrets, adding MySQL database visibility labels, aligning resource ladder values, and moving gateway startup rendering into a ConfigMap script. The APITable image bundle remains blocked pending coordinated runtime validation.
+- `harbor`: single-template docker-to-sealos consistency check passed after adding PostgreSQL and Redis database visibility labels, splitting core env and file ConfigMaps, normalizing Harbor file ConfigMap keys to vn path names, and aligning ConfigMap volume names and subPath mounts for core, jobservice, portal, registry, and registryctl. The Harbor multi-component image bundle remains blocked pending coordinated runtime validation.
+- `posthog`: single-template docker-to-sealos consistency check passed after adding PostgreSQL and Redis database visibility labels, normalizing Kafka/Zookeeper/PostHog/Plugins/ClickHouse Service labels, aligning ClickHouse and Plugins ConfigMap file mounts, moving plugin heartbeat and MMDB seed scripts into a workload ConfigMap, normalizing resource ladder values, and removing the split ClickHouse client Service. The PostHog Redpanda/Zookeeper image candidates remain blocked pending coordinated runtime validation.
+- `langfuse`: single-template docker-to-sealos consistency check passed after normalizing PostgreSQL init detection, replacing Redis and PostgreSQL migration wait helpers with non-database images, applying approved object-storage env indirection, gating the built-in MinIO fallback with a dedicated boolean input, moving MinIO startup into a ConfigMap script, cleaning ClickHouse metadata, and aligning resource ladder values. The Langfuse image bundle remains blocked pending coordinated runtime validation.
+- `rybbit`: single-template docker-to-sealos consistency check passed after adding PostgreSQL init resources, normalizing ClickHouse ConfigMap keys and single-volume file mounts, adding init container resources, and replacing the PostgreSQL wait helper with a non-database image. The ClickHouse 25.x to 26.x image candidate remains blocked pending coordinated runtime validation.
+- `erpnext`: single-template docker-to-sealos consistency check passed after replacing the raw MariaDB StatefulSet with a KubeBlocks MySQL Cluster, adding Redis database visibility metadata, changing Redis wait helpers to non-database TCP probes, sourcing MySQL connection fields from KubeBlocks secrets, and aligning Frappe job/workload resource ladder values. The ERPNext/Frappe image bundle remains blocked pending coordinated runtime validation.
+- `coze-studio`: single-template docker-to-sealos consistency check passed after adding MySQL and Redis database visibility labels, splitting shared ConfigMap data into workload-scoped ConfigMaps, normalizing ConfigMap volume names and subPaths, replacing the MySQL migration helper with a non-database image, and aligning Coze Studio init and workload resource ladder values. The Coze Studio image bundle remains blocked pending coordinated runtime validation.
+- `dify`: single-template docker-to-sealos consistency check passed after replacing PostgreSQL wait helpers with non-database images, sourcing PostgreSQL readiness from approved secret fields, normalizing PostgreSQL and Redis database visibility/resources, aligning API/worker/web/sandbox/plugin-daemon/Weaviate resource ladder values, adding Service labels and port names, restoring the required Ingress annotations, and reducing plugin-daemon storage to the current PVC contract. The Dify image bundle remains blocked pending coordinated runtime validation.
+- `fastgpt-milvus`: single-template docker-to-sealos consistency check passed after adding Simplified Chinese metadata, normalizing the FastGPT ConfigMap mount, aligning FastGPT/AIPROXY/MCP resources, standardizing MongoDB/PostgreSQL/Redis/Milvus database visibility labels, secrets, resources, and PVC sizing. The FastGPT Milvus image bundle remains blocked pending coordinated runtime validation.
+- `fastgpt`: single-template docker-to-sealos consistency check passed after normalizing MongoDB/PostgreSQL/Redis database visibility labels, consolidating AIPROXY on the approved PostgreSQL secret contract, adding AIPROXY database init resources, normalizing the FastGPT ConfigMap mount, and aligning FastGPT/plugin/code-sandbox/MCP/AIPROXY resource ladder values. The FastGPT image bundle remains blocked pending coordinated runtime validation.
+- `fastgpt-pro`: single-template docker-to-sealos consistency check passed after normalizing MongoDB/PostgreSQL/Redis database visibility labels, consolidating AIPROXY on the approved PostgreSQL secret contract, adding AIPROXY database init resources, normalizing the FastGPT ConfigMap mount, and aligning FastGPT/pro/plugin/code-sandbox/MCP/AIPROXY resource ladder values. The FastGPT Pro image bundle remains blocked pending coordinated runtime validation.
+- `refly`: skipped the mautic/mautic helper candidate because it is used only as an Elasticsearch data ownership helper in the Refly template and is not part of the Refly application release surface.
+
+Remaining queue:
+- Validation-needed templates: 5
+- Validation-needed candidates: 12
+- Blocked templates: 21
+- Blocked candidates: 90
+- Skipped templates: 1
+- Skipped candidates: 6

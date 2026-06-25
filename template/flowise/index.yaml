@@ -19,7 +19,6 @@ spec:
     - ai
   i18n:
     zh:
-      title: 'Flowise'
       description: '拖放式 UI 构建您的自定义 LLM 流程'
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/flowise/README_zh.md'
   defaults:
@@ -101,24 +100,23 @@ subjects:
 apiVersion: apps.kubeblocks.io/v1alpha1
 kind: Cluster
 metadata:
-  finalizers:
-    - cluster.kubeblocks.io/finalizer
   labels:
+    kb.io/database: postgresql-16.4.0
     clusterdefinition.kubeblocks.io/name: postgresql
-    clusterversion.kubeblocks.io/name: postgresql-14.8.0
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
   name: ${{ defaults.app_name }}-pg
 spec:
   affinity:
-    nodeLabels: {}
     podAntiAffinity: Preferred
     tenancy: SharedNode
-    topologyKeys: []
   clusterDefinitionRef: postgresql
-  clusterVersionRef: postgresql-14.8.0
+  clusterVersionRef: postgresql-16.4.0
   componentSpecs:
     - componentDefRef: postgresql
-      monitor: true
+      disableExporter: true
+      enabledLogs:
+        - running
       name: postgresql
       replicas: 1
       resources:
@@ -141,7 +139,6 @@ spec:
                 storage: 1Gi
             storageClassName: openebs-backup
   terminationPolicy: Delete
-  tolerations: []
 
 ---
 apiVersion: batch/v1
@@ -150,39 +147,56 @@ metadata:
   name: ${{ defaults.app_name }}-pg-init
 spec:
   completions: 1
+  backoffLimit: 3
   template:
     spec:
+      automountServiceAccountToken: false
       containers:
         - name: pgsql-init
-          image: postgres:14-alpine
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
           env:
-            - name: PGHOST
+            - name: PG_HOST
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: host
-            - name: PGPORT
+            - name: PG_PORT
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: port
-            - name: PGUSER
+            - name: PG_USER
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: username
-            - name: PGPASSWORD
+            - name: PG_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
+            - name: PG_DATABASE
+              value: flowise
           command:
             - /bin/sh
-            - -c
+            - -ec
             - |
-              until psql -c 'CREATE DATABASE flowise;' &>/dev/null; do sleep 1; done
-      restartPolicy: Never
-  backoffLimit: 0
+              export PGPASSWORD="$PG_PASSWORD"
+              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; do
+                sleep 2
+              done
+              if ! psql "postgresql://$PG_USER:$PG_PASSWORD@$PG_HOST:$PG_PORT/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='$PG_DATABASE'" | grep -q 1; then
+                psql "postgresql://$PG_USER:$PG_PASSWORD@$PG_HOST:$PG_PORT/postgres" -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"$PG_DATABASE\";"
+              fi
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+      restartPolicy: OnFailure
   ttlSecondsAfterFinished: 300
 ---
 ${{ endif() }}
@@ -192,7 +206,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: flowiseai/flowise:3.0.5
+    originImageName: flowiseai/flowise:3.1.2
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -214,47 +228,37 @@ spec:
       ${{ if(inputs.USE_POSTGRESQL === 'true') }}
       initContainers:
         - name: wait-for-db
-          image: postgres:14-alpine
+          image: public.ecr.aws/docker/library/busybox:1.38.0
+          imagePullPolicy: IfNotPresent
           env:
-            - name: PGHOST
+            - name: PG_HOST
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: host
-            - name: PGPORT
+            - name: PG_PORT
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: port
-            - name: PGUSER
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: username
-            - name: PGPASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: password
           command:
             - /bin/sh
-            - -c
+            - -ec
             - |
-              echo "Waiting for PostgreSQL to be ready..."
-              until pg_isready -h ${PGHOST} -p ${PGPORT}; do
-                echo "PostgreSQL is not ready yet. Waiting..."
+              until nc -z "$PG_HOST" "$PG_PORT"; do
                 sleep 2
               done
-              echo "PostgreSQL is ready. Checking if database 'flowise' exists..."
-              until psql -tc "SELECT 1 FROM pg_database WHERE datname = 'flowise'" | grep -q 1; do
-                echo "Database 'flowise' does not exist yet. Waiting..."
-                sleep 2
-              done
-              echo "Database 'flowise' exists. Proceeding with application startup."
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
       ${{ endif() }}
       containers:
         - name: ${{ defaults.app_name }}
-          image: flowiseai/flowise:3.0.5
+          image: flowiseai/flowise:3.1.2
           env:
             - name: PORT
               value: '3000'
@@ -308,21 +312,27 @@ spec:
             ${{ if(inputs.USE_S3_STORAGE === 'true') }}
             - name: STORAGE_TYPE
               value: 's3'
-            - name: S3_STORAGE_ACCESS_KEY_ID
+            - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: accessKey
-            - name: S3_STORAGE_SECRET_ACCESS_KEY
+            - name: S3_STORAGE_ACCESS_KEY_ID
+              value: $(S3_ACCESS_KEY_ID)
+            - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: secretKey
-            - name: S3_STORAGE_BUCKET_NAME
+            - name: S3_STORAGE_SECRET_ACCESS_KEY
+              value: $(S3_SECRET_ACCESS_KEY)
+            - name: S3_BUCKET
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
                   key: bucket
+            - name: S3_STORAGE_BUCKET_NAME
+              value: $(S3_BUCKET)
             - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
               valueFrom:
                 secretKeyRef:
@@ -349,7 +359,7 @@ spec:
             - /bin/sh
             - '-c'
           args:
-            - flowise start
+            - exec flowise start
           ports:
             - name: http
               containerPort: 3000
@@ -398,10 +408,13 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 3000
+    - name: http
+      port: 3000
+      targetPort: 3000
   selector:
     app: ${{ defaults.app_name }}
 
@@ -460,6 +473,5 @@ spec:
   displayType: normal
   type: link
   icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/flowise/logo.png"
-  url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
   data:
     url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}

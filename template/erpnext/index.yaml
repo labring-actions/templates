@@ -29,9 +29,6 @@ spec:
     app_host:
       type: string
       value: erpnext-${{ random(8) }}
-    mariadb_root_password:
-      type: string
-      value: ${{ random(32) }}
   inputs:
     admin_username:
       description: Initial ERPNext administrator login username. Use letters, numbers, dots, underscores, or hyphens.
@@ -45,128 +42,91 @@ spec:
       required: true
 ---
 apiVersion: v1
-kind: PersistentVolumeClaim
+kind: ServiceAccount
 metadata:
   name: ${{ defaults.app_name }}-mysql
   labels:
-    app: ${{ defaults.app_name }}-mysql
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-mysql
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 1Gi
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
 ---
-apiVersion: apps/v1
-kind: StatefulSet
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
 metadata:
   name: ${{ defaults.app_name }}-mysql
-  annotations:
-    originImageName: mariadb:11.4.7
-    docker-to-sealos.resource-override-source: https://github.com/frappe/frappe_docker/blob/main/pwd.yml uses MariaDB as the ERPNext/Frappe SQL database in the official Docker topology.
-    deploy.cloud.sealos.io/minReplicas: '1'
-    deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
-    app: ${{ defaults.app_name }}-mysql
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-mysql
-spec:
-  replicas: 1
-  revisionHistoryLimit: 1
-  serviceName: ${{ defaults.app_name }}-mysql
-  selector:
-    matchLabels:
-      app: ${{ defaults.app_name }}-mysql
-  template:
-    metadata:
-      labels:
-        app: ${{ defaults.app_name }}-mysql
-        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-mysql
-    spec:
-      automountServiceAccountToken: false
-      containers:
-        - name: ${{ defaults.app_name }}-mysql
-          image: mariadb:11.4.7
-          imagePullPolicy: IfNotPresent
-          command:
-            - /bin/bash
-            - -ec
-            - |
-              export MARIADB_ROOT_PASSWORD="$FRAPPE_SQL_ROOT_SECRET"
-              export MARIADB_ROOT_HOST='%'
-              exec docker-entrypoint.sh mariadbd \
-                --character-set-server=utf8mb4 \
-                --collation-server=utf8mb4_unicode_ci \
-                --innodb-buffer-pool-size=128M \
-                --max-connections=200
-          env:
-            - name: FRAPPE_SQL_ROOT_SECRET
-              value: ${{ defaults.mariadb_root_password }}
-            - name: MARIADB_AUTO_UPGRADE
-              value: '1'
-          ports:
-            - name: mysql
-              containerPort: 3306
-              protocol: TCP
-          startupProbe:
-            exec:
-              command:
-                - /bin/sh
-                - -ec
-                - mariadb-admin ping -h 127.0.0.1 -uroot -p"$FRAPPE_SQL_ROOT_SECRET"
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 30
-          livenessProbe:
-            exec:
-              command:
-                - /bin/sh
-                - -ec
-                - mariadb-admin ping -h 127.0.0.1 -uroot -p"$FRAPPE_SQL_ROOT_SECRET"
-            periodSeconds: 30
-            timeoutSeconds: 5
-            failureThreshold: 6
-          readinessProbe:
-            exec:
-              command:
-                - /bin/sh
-                - -ec
-                - mariadb-admin ping -h 127.0.0.1 -uroot -p"$FRAPPE_SQL_ROOT_SECRET"
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 6
-          resources:
-            requests:
-              cpu: 50m
-              memory: 256Mi
-            limits:
-              cpu: 500m
-              memory: 768Mi
-          volumeMounts:
-            - name: data
-              mountPath: /var/lib/mysql
-              subPath: mysql
-      volumes:
-        - name: data
-          persistentVolumeClaim:
-            claimName: ${{ defaults.app_name }}-mysql
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
 ---
-apiVersion: v1
-kind: Service
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
 metadata:
   name: ${{ defaults.app_name }}-mysql
   labels:
-    app: ${{ defaults.app_name }}-mysql
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-mysql
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-mysql
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-mysql
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-mysql
+  labels:
+    kb.io/database: ac-mysql-8.0.30-1
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    clusterdefinition.kubeblocks.io/name: apecloud-mysql
+    clusterversion.kubeblocks.io/name: ac-mysql-8.0.30-1
 spec:
-  type: ClusterIP
-  ports:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys:
+      - kubernetes.io/hostname
+  clusterDefinitionRef: apecloud-mysql
+  clusterVersionRef: ac-mysql-8.0.30-1
+  componentSpecs:
     - name: mysql
-      port: 3306
-      targetPort: 3306
-      protocol: TCP
-  selector:
-    app: ${{ defaults.app_name }}-mysql
+      componentDefRef: mysql
+      monitor: true
+      noCreatePDB: false
+      replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-mysql
+      switchPolicy:
+        type: Noop
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+  tolerations: []
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -215,6 +175,7 @@ metadata:
   name: ${{ defaults.app_name }}-redis
   labels:
     kb.io/database: redis-7.2.7
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
     app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
     app.kubernetes.io/version: 7.2.7
     clusterversion.kubeblocks.io/name: redis-7.2.7
@@ -339,7 +300,7 @@ spec:
             - name: logs
               mountPath: /logs
         - name: wait-for-redis
-          image: public.ecr.aws/docker/library/redis:7.2.7-alpine
+          image: public.ecr.aws/docker/library/busybox:1.36.1
           imagePullPolicy: IfNotPresent
           env:
             - name: REDIS_HOST
@@ -350,18 +311,9 @@ spec:
             - /bin/sh
             - -ec
             - |
-              until [ -s /redis-secret/password ] && [ -s /redis-secret/username ]; do
+              until nc -z "$REDIS_HOST" "$REDIS_PORT"; do
                 sleep 2
               done
-              REDIS_USERNAME="$(cat /redis-secret/username)"
-              REDIS_PASSWORD="$(cat /redis-secret/password)"
-              until redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" --user "$REDIS_USERNAME" -a "$REDIS_PASSWORD" ping >/dev/null 2>&1; do
-                sleep 2
-              done
-          volumeMounts:
-            - name: redis-credentials
-              mountPath: /redis-secret
-              readOnly: true
           resources:
             limits:
               cpu: 200m
@@ -375,9 +327,15 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: FRAPPE_SQL_SERVICE
-              value: ${{ defaults.app_name }}-mysql.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: host
             - name: FRAPPE_SQL_LISTENER
-              value: '3306'
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: port
             - name: REDIS_CACHE
               value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local:6379
             - name: REDIS_QUEUE
@@ -443,7 +401,7 @@ spec:
           resources:
             requests:
               cpu: 50m
-              memory: 128Mi
+              memory: 51Mi
             limits:
               cpu: 500m
               memory: 512Mi
@@ -455,10 +413,6 @@ spec:
         - name: logs
           persistentVolumeClaim:
             claimName: ${{ defaults.app_name }}-logs
-        - name: redis-credentials
-          secret:
-            secretName: ${{ defaults.app_name }}-redis-redis-account-default
-            optional: true
   ttlSecondsAfterFinished: 300
 ---
 apiVersion: batch/v1
@@ -495,7 +449,7 @@ spec:
             - name: logs
               mountPath: /logs
         - name: wait-for-redis
-          image: public.ecr.aws/docker/library/redis:7.2.7-alpine
+          image: public.ecr.aws/docker/library/busybox:1.36.1
           imagePullPolicy: IfNotPresent
           env:
             - name: REDIS_HOST
@@ -506,18 +460,9 @@ spec:
             - /bin/sh
             - -ec
             - |
-              until [ -s /redis-secret/password ] && [ -s /redis-secret/username ]; do
+              until nc -z "$REDIS_HOST" "$REDIS_PORT"; do
                 sleep 2
               done
-              REDIS_USERNAME="$(cat /redis-secret/username)"
-              REDIS_PASSWORD="$(cat /redis-secret/password)"
-              until redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" --user "$REDIS_USERNAME" -a "$REDIS_PASSWORD" ping >/dev/null 2>&1; do
-                sleep 2
-              done
-          volumeMounts:
-            - name: redis-credentials
-              mountPath: /redis-secret
-              readOnly: true
           resources:
             limits:
               cpu: 200m
@@ -531,11 +476,25 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: FRAPPE_SQL_SERVICE
-              value: ${{ defaults.app_name }}-mysql.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: host
             - name: FRAPPE_SQL_LISTENER
-              value: '3306'
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: port
+            - name: FRAPPE_SQL_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: username
             - name: FRAPPE_SQL_ROOT_SECRET
-              value: ${{ defaults.mariadb_root_password }}
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: password
             - name: REDIS_CACHE
               value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local:6379
             - name: REDIS_QUEUE
@@ -575,7 +534,7 @@ spec:
               wait-for-it -t 180 "$FRAPPE_SQL_SERVICE:$FRAPPE_SQL_LISTENER"
               wait-for-it -t 180 "$REDIS_CACHE"
               wait-for-it -t 180 "$REDIS_QUEUE"
-              until mysqladmin ping -h"$FRAPPE_SQL_SERVICE" -P"$FRAPPE_SQL_LISTENER" -uroot -p"$FRAPPE_SQL_ROOT_SECRET" --silent; do
+              until mysqladmin ping -h"$FRAPPE_SQL_SERVICE" -P"$FRAPPE_SQL_LISTENER" -u"$FRAPPE_SQL_ROOT_USER" -p"$FRAPPE_SQL_ROOT_SECRET" --silent; do
                 sleep 5
               done
               start=$(date +%s)
@@ -590,7 +549,7 @@ spec:
                 bench use frontend
               else
                 rm -rf sites/frontend
-                bench new-site --mariadb-user-host-login-scope='%' --admin-password="$ADMIN_PASSWORD" --db-root-username=root --db-root-password="$FRAPPE_SQL_ROOT_SECRET" --install-app erpnext --set-default frontend
+                bench new-site --mariadb-user-host-login-scope='%' --admin-password="$ADMIN_PASSWORD" --db-root-username="$FRAPPE_SQL_ROOT_USER" --db-root-password="$FRAPPE_SQL_ROOT_SECRET" --install-app erpnext --set-default frontend
                 bench --site frontend migrate
               fi
               bench --site frontend set-admin-password "$ADMIN_PASSWORD"
@@ -640,10 +599,10 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 256Mi
+              memory: 204Mi
             limits:
-              cpu: 1000m
-              memory: 1536Mi
+              cpu: '1'
+              memory: 2048Mi
       restartPolicy: OnFailure
       volumes:
         - name: sites
@@ -652,10 +611,6 @@ spec:
         - name: logs
           persistentVolumeClaim:
             claimName: ${{ defaults.app_name }}-logs
-        - name: redis-credentials
-          secret:
-            secretName: ${{ defaults.app_name }}-redis-redis-account-default
-            optional: true
   ttlSecondsAfterFinished: 300
 ---
 apiVersion: apps/v1
@@ -732,11 +687,20 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: FRAPPE_SQL_SERVICE
-              value: ${{ defaults.app_name }}-mysql.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: host
             - name: FRAPPE_SQL_LISTENER
-              value: '3306'
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: port
             - name: FRAPPE_SQL_ROOT_SECRET
-              value: ${{ defaults.mariadb_root_password }}
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: password
           ports:
             - name: http
               containerPort: 8000
@@ -744,9 +708,9 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 256Mi
+              memory: 102Mi
             limits:
-              cpu: 1000m
+              cpu: '1'
               memory: 1024Mi
           volumeMounts:
             - name: sites
@@ -827,7 +791,7 @@ spec:
             - name: logs
               mountPath: /logs
         - name: wait-for-redis
-          image: public.ecr.aws/docker/library/redis:7.2.7-alpine
+          image: public.ecr.aws/docker/library/busybox:1.36.1
           imagePullPolicy: IfNotPresent
           env:
             - name: REDIS_HOST
@@ -838,18 +802,9 @@ spec:
             - /bin/sh
             - -ec
             - |
-              until [ -s /redis-secret/password ] && [ -s /redis-secret/username ]; do
+              until nc -z "$REDIS_HOST" "$REDIS_PORT"; do
                 sleep 2
               done
-              REDIS_USERNAME="$(cat /redis-secret/username)"
-              REDIS_PASSWORD="$(cat /redis-secret/password)"
-              until redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" --user "$REDIS_USERNAME" -a "$REDIS_PASSWORD" ping >/dev/null 2>&1; do
-                sleep 2
-              done
-          volumeMounts:
-            - name: redis-credentials
-              mountPath: /redis-secret
-              readOnly: true
           resources:
             limits:
               cpu: 200m
@@ -916,7 +871,7 @@ spec:
           resources:
             requests:
               cpu: 50m
-              memory: 128Mi
+              memory: 51Mi
             limits:
               cpu: 500m
               memory: 512Mi
@@ -932,10 +887,6 @@ spec:
         - name: logs
           persistentVolumeClaim:
             claimName: ${{ defaults.app_name }}-logs
-        - name: redis-credentials
-          secret:
-            secretName: ${{ defaults.app_name }}-redis-redis-account-default
-            optional: true
 ---
 apiVersion: v1
 kind: Service
@@ -1052,9 +1003,9 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 256Mi
+              memory: 102Mi
             limits:
-              cpu: 1000m
+              cpu: '1'
               memory: 1024Mi
           startupProbe:
             httpGet:
@@ -1159,7 +1110,7 @@ spec:
             - name: logs
               mountPath: /logs
         - name: wait-for-redis
-          image: public.ecr.aws/docker/library/redis:7.2.7-alpine
+          image: public.ecr.aws/docker/library/busybox:1.36.1
           imagePullPolicy: IfNotPresent
           env:
             - name: REDIS_HOST
@@ -1170,18 +1121,9 @@ spec:
             - /bin/sh
             - -ec
             - |
-              until [ -s /redis-secret/password ] && [ -s /redis-secret/username ]; do
+              until nc -z "$REDIS_HOST" "$REDIS_PORT"; do
                 sleep 2
               done
-              REDIS_USERNAME="$(cat /redis-secret/username)"
-              REDIS_PASSWORD="$(cat /redis-secret/password)"
-              until redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" --user "$REDIS_USERNAME" -a "$REDIS_PASSWORD" ping >/dev/null 2>&1; do
-                sleep 2
-              done
-          volumeMounts:
-            - name: redis-credentials
-              mountPath: /redis-secret
-              readOnly: true
           resources:
             limits:
               cpu: 200m
@@ -1246,9 +1188,9 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 256Mi
+              memory: 102Mi
             limits:
-              cpu: 1000m
+              cpu: '1'
               memory: 1024Mi
           volumeMounts:
             - name: sites
@@ -1262,10 +1204,6 @@ spec:
         - name: logs
           persistentVolumeClaim:
             claimName: ${{ defaults.app_name }}-logs
-        - name: redis-credentials
-          secret:
-            secretName: ${{ defaults.app_name }}-redis-redis-account-default
-            optional: true
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -1316,7 +1254,7 @@ spec:
             - name: logs
               mountPath: /logs
         - name: wait-for-redis
-          image: public.ecr.aws/docker/library/redis:7.2.7-alpine
+          image: public.ecr.aws/docker/library/busybox:1.36.1
           imagePullPolicy: IfNotPresent
           env:
             - name: REDIS_HOST
@@ -1327,18 +1265,9 @@ spec:
             - /bin/sh
             - -ec
             - |
-              until [ -s /redis-secret/password ] && [ -s /redis-secret/username ]; do
+              until nc -z "$REDIS_HOST" "$REDIS_PORT"; do
                 sleep 2
               done
-              REDIS_USERNAME="$(cat /redis-secret/username)"
-              REDIS_PASSWORD="$(cat /redis-secret/password)"
-              until redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" --user "$REDIS_USERNAME" -a "$REDIS_PASSWORD" ping >/dev/null 2>&1; do
-                sleep 2
-              done
-          volumeMounts:
-            - name: redis-credentials
-              mountPath: /redis-secret
-              readOnly: true
           resources:
             limits:
               cpu: 200m
@@ -1403,9 +1332,9 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 256Mi
+              memory: 102Mi
             limits:
-              cpu: 1000m
+              cpu: '1'
               memory: 1024Mi
           volumeMounts:
             - name: sites
@@ -1419,10 +1348,6 @@ spec:
         - name: logs
           persistentVolumeClaim:
             claimName: ${{ defaults.app_name }}-logs
-        - name: redis-credentials
-          secret:
-            secretName: ${{ defaults.app_name }}-redis-redis-account-default
-            optional: true
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -1501,8 +1426,8 @@ spec:
             - schedule
           resources:
             requests:
-              cpu: 100m
-              memory: 256Mi
+              cpu: 50m
+              memory: 51Mi
             limits:
               cpu: 500m
               memory: 512Mi

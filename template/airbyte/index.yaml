@@ -274,7 +274,7 @@ metadata:
     app: ${{ defaults.app_name }}-temporal
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-temporal
 data:
-  development.yaml: |
+  vn-etcvn-temporalvn-configvn-dynamicconfigvn-developmentvn-yaml: |
     frontend.enableClientVersionCheck:
       - value: true
         constraints: {}
@@ -308,6 +308,63 @@ data:
           MaximumIntervalCoefficient: 100.0
           BackoffCoefficient: 2.0
           MaximumAttempts: 0
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+spec:
+  backoffLimit: 5
+  template:
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: pg-init
+          image: postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PGPASSWORD
+              value: $(PG_PASSWORD)
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; do
+                sleep 2
+              done
+              if ! psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='db-airbyte'" | grep -q 1; then
+                psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE "db-airbyte";'
+              fi
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+      restartPolicy: Never
+  ttlSecondsAfterFinished: 300
 
 ---
 apiVersion: batch/v1
@@ -408,10 +465,10 @@ spec:
           resources:
             limits:
               cpu: "1"
-              memory: 1536Mi
+              memory: 2048Mi
             requests:
-              cpu: 200m
-              memory: 512Mi
+              cpu: 100m
+              memory: 204Mi
 
 ---
 apiVersion: apps/v1
@@ -1286,7 +1343,7 @@ spec:
             - name: DB
               value: "postgresql"
             - name: DYNAMIC_CONFIG_FILE_PATH
-              value: "config/dynamicconfig/development.yaml"
+              value: "/etc/temporal/config/dynamicconfig/development.yaml"
             - name: DATABASE_HOST
               valueFrom:
                 secretKeyRef:
@@ -1333,8 +1390,9 @@ spec:
             timeoutSeconds: 5
             failureThreshold: 30
           volumeMounts:
-            - name: dynamic-config
-              mountPath: /etc/temporal/config/dynamicconfig
+            - name: ${{ defaults.app_name }}-temporal-cm
+              mountPath: /etc/temporal/config/dynamicconfig/development.yaml
+              subPath: vn-etcvn-temporalvn-configvn-dynamicconfigvn-developmentvn-yaml
           resources:
             limits:
               cpu: 200m
@@ -1343,12 +1401,12 @@ spec:
               cpu: 20m
               memory: 25Mi
       volumes:
-        - name: dynamic-config
+        - name: ${{ defaults.app_name }}-temporal-cm
           configMap:
             name: ${{ defaults.app_name }}-temporal
             items:
-              - key: development.yaml
-                path: development.yaml
+              - key: vn-etcvn-temporalvn-configvn-dynamicconfigvn-developmentvn-yaml
+                path: vn-etcvn-temporalvn-configvn-dynamicconfigvn-developmentvn-yaml
 
 ---
 apiVersion: apps/v1
@@ -1566,3 +1624,7 @@ metadata:
 spec:
   data:
     url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/airbyte/logo.svg"
+  name: ${{ defaults.app_name }}
+  type: link

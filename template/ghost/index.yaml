@@ -102,6 +102,7 @@ metadata:
     kb.io/database: ac-mysql-8.0.30-1
     clusterdefinition.kubeblocks.io/name: apecloud-mysql
     clusterversion.kubeblocks.io/name: ac-mysql-8.0.30-1
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
   name: ${{ defaults.app_name }}-mysql
 spec:
   affinity:
@@ -152,7 +153,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: mysql-init
-          image: public.ecr.aws/docker/library/mysql:8.0.30
+          image: public.ecr.aws/docker/library/mysql:9.7.1
           imagePullPolicy: IfNotPresent
           env:
             - name: MYSQL_HOST
@@ -247,7 +248,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: ghost:6.44.1-alpine
+    originImageName: ghost:6.47.0-alpine
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
     docker-to-sealos.resource-override-source: https://github.com/docker-library/docs/blob/master/ghost/README.md#production-mode
@@ -291,13 +292,13 @@ spec:
               memory: 512Mi
             requests:
               cpu: 50m
-              memory: 128Mi
+              memory: 51Mi
           volumeMounts:
             - name: vn-varvn-libvn-ghostvn-content
               mountPath: /var/lib/ghost/content
         ${{ endif() }}
         - name: wait-for-mysql
-          image: public.ecr.aws/docker/library/mysql:8.0.30
+          image: public.ecr.aws/docker/library/busybox:1.38.0
           imagePullPolicy: IfNotPresent
           env:
             - name: MYSQL_HOST
@@ -310,21 +311,11 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-mysql-conn-credential
                   key: port
-            - name: MYSQL_USER
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-mysql-conn-credential
-                  key: username
-            - name: MYSQL_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-mysql-conn-credential
-                  key: password
           command:
             - /bin/sh
             - -ec
             - |
-              until mysqladmin ping -h"$MYSQL_HOST" -P"$MYSQL_PORT" -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" --silent; do
+              until nc -z "$MYSQL_HOST" "$MYSQL_PORT"; do
                 sleep 2
               done
           resources:
@@ -336,7 +327,7 @@ spec:
               memory: 25Mi
       containers:
         - name: ${{ defaults.app_name }}
-          image: ghost:6.44.1-alpine
+          image: ghost:6.47.0-alpine
           imagePullPolicy: IfNotPresent
           command:
             - /usr/local/bin/ghost-sealos-entrypoint.sh
@@ -381,30 +372,36 @@ spec:
             ${{ if(inputs.use_s3_storage === 'true') }}
             - name: storage__active
               value: s3
-            - name: storage__s3__accessKeyId
+            - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: accessKey
-            - name: storage__s3__secretAccessKey
+            - name: storage__s3__accessKeyId
+              value: $(S3_ACCESS_KEY_ID)
+            - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: secretKey
-            - name: BACKEND_STORAGE_MINIO_INTERNAL_ENDPOINT
+            - name: storage__s3__secretAccessKey
+              value: $(S3_SECRET_ACCESS_KEY)
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
-                  key: internal
+                  key: external
             - name: storage__s3__region
               value: us-east-1
-            - name: storage__s3__bucket
+            - name: S3_BUCKET
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
                   key: bucket
+            - name: storage__s3__bucket
+              value: $(S3_BUCKET)
             - name: storage__s3__endpoint
-              value: http://$(BACKEND_STORAGE_MINIO_INTERNAL_ENDPOINT)
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
             - name: storage__s3__forcePathStyle
               value: 'true'
             - name: storage__s3__acl

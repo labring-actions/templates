@@ -177,6 +177,13 @@ spec:
                 psql "postgresql://postgres:$(PG_PASSWORD)@$(PG_ENDPOINT)/postgres" -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"$(PG_DATABASE)\";"
               fi
               psql "postgresql://postgres:$(PG_PASSWORD)@$(PG_ENDPOINT)/$(PG_DATABASE)" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS "uuid-ossp"; CREATE EXTENSION IF NOT EXISTS pgcrypto;'
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -186,7 +193,7 @@ metadata:
     originImageName: ghcr.io/ever-co/gauzy-api-demo@sha256:9c7efab08c8f48892486099e0cd6edda4eddfa27743b09dd953145d8ff5a5cc4
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
-    docker-to-sealos.resource-override-source: Live Sealos cold-start validation on 2026-06-02 required 500m CPU and 768Mi memory for API migrations and demo seed startup.
+    docker-to-sealos.resource-override-source: Live Sealos cold-start validation on 2026-06-02 required elevated API memory for migrations and demo seed startup; 1024Mi is the nearest Sealos ladder value above the validated 768Mi floor.
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-api
     app: ${{ defaults.app_name }}-api
@@ -205,7 +212,7 @@ spec:
       automountServiceAccountToken: false
       initContainers:
         - name: prepare-public-dir
-          image: busybox:1.36.1
+          image: busybox:1.38.0
           imagePullPolicy: IfNotPresent
           command:
             - /bin/sh
@@ -224,8 +231,8 @@ spec:
           volumeMounts:
             - name: vn-srvvn-gauzyvn-appsvn-apivn-public
               mountPath: /srv/gauzy/apps/api/public
-        - name: wait-for-postgres
-          image: postgres:16.4-alpine
+        - name: wait-for-gauzy-database
+          image: alpine:3.24.1
           imagePullPolicy: IfNotPresent
           env:
             - name: DB_HOST
@@ -255,6 +262,7 @@ spec:
             - -c
             - |
               set -eu
+              apk add --no-cache postgresql-client
               until psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" -tAc 'SELECT 1' >/dev/null 2>&1; do
                 echo "waiting for Gauzy PostgreSQL database"
                 sleep 2
@@ -434,10 +442,10 @@ spec:
           resources:
             limits:
               cpu: 500m
-              memory: 768Mi
+              memory: 1024Mi
             requests:
               cpu: 50m
-              memory: 76Mi
+              memory: 102Mi
   volumeClaimTemplates:
     - metadata:
         name: vn-srvvn-gauzyvn-appsvn-apivn-public

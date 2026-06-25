@@ -13,6 +13,7 @@ spec:
   screenshots:
     - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/rsshub/website-screenshot.webp'
   templateType: inline
+  locale: en
   categories:
     - tool
   defaults:
@@ -26,6 +27,7 @@ spec:
 
   i18n:
     zh:
+      description: 'RSSHub 是一个开源 RSS 聚合工具，可为多种网站和服务生成订阅源。'
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/rsshub/README_zh.md'
 ---
 apiVersion: v1
@@ -43,7 +45,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: diygod/rsshub:2024-07-06
+    originImageName: diygod/rsshub:2026-06-24
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -68,10 +70,13 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: diygod/rsshub:2024-07-06
+          image: diygod/rsshub:2026-06-24
           env:
             - name: REDIS_ENDPOINT
-              value: ${{ defaults.app_name }}-redis-redis-redis:6379
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: endpoint
             - name: REDIS_USERNAME
               valueFrom:
                 secretKeyRef:
@@ -117,10 +122,13 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
     - port: 1200
+      targetPort: 1200
+      name: http
   selector:
     app: ${{ defaults.app_name }}
 
@@ -152,6 +160,7 @@ spec:
       labels:
         app: ${{ defaults.app_name }}-puppeteer
     spec:
+      automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}-puppeteer
           image: browserless/chrome:1.61.1-chrome-stable
@@ -174,10 +183,13 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-puppeteer
   labels:
+    app: ${{ defaults.app_name }}-puppeteer
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-puppeteer
 spec:
   ports:
     - port: 3000
+      targetPort: 3000
+      name: http
   selector:
     app: ${{ defaults.app_name }}-puppeteer
 
@@ -236,11 +248,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 100m
-          memory: 100Mi
+          cpu: 500m
+          memory: 512Mi
         requests:
-          cpu: 10m
-          memory: 10Mi
+          cpu: 50m
+          memory: 51Mi
       serviceVersion: 7.2.7
       volumeClaimTemplates:
         - name: data
@@ -301,7 +313,7 @@ metadata:
     nginx.ingress.kubernetes.io/server-snippet: |
       client_header_buffer_size 64k;
       large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
     nginx.ingress.kubernetes.io/rewrite-target: /$2
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
@@ -343,4 +355,4 @@ spec:
   displayType: normal
   icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/rsshub/logo.png"
   name: ${{ defaults.app_name }}
-  type: iframe
+  type: link

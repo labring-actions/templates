@@ -28,14 +28,11 @@ spec:
       type: string
       value: zot-${{ random(8) }}
   inputs:
-    zot_storage_backend:
-      description: Storage backend for image layers and manifests.
-      type: choice
-      default: filesystem
+    use_object_storage:
+      description: Use Sealos S3-compatible object storage for image layers and manifests.
+      type: boolean
+      default: 'false'
       required: true
-      options:
-      - filesystem
-      - objectstorage
     zot_admin_user:
       description: Zot basic auth admin username.
       type: string
@@ -46,21 +43,21 @@ spec:
       type: string
       default: ''
       required: true
-      if: inputs.zot_storage_backend === 'filesystem'
+      if: inputs.use_object_storage !== 'true'
     zot_admin_htpasswd_hash:
       description: Admin htpasswd hash for object storage mode (bcrypt or SHA-crypt hash, not plain password).
       type: string
       default: ''
       required: true
-      if: inputs.zot_storage_backend === 'objectstorage'
+      if: inputs.use_object_storage === 'true'
     zot_s3_region:
       description: Region for S3-compatible object storage backend.
       type: string
       default: us-east-1
       required: true
-      if: inputs.zot_storage_backend === 'objectstorage'
+      if: inputs.use_object_storage === 'true'
 ---
-${{ if(inputs.zot_storage_backend === 'objectstorage') }}
+${{ if(inputs.use_object_storage === 'true') }}
 apiVersion: objectstorage.sealos.io/v1
 kind: ObjectStorageBucket
 metadata:
@@ -72,14 +69,14 @@ spec:
 ---
 ${{ endif() }}
 ---
-${{ if(inputs.zot_storage_backend === 'objectstorage') }}
+${{ if(inputs.use_object_storage === 'true') }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: ${{ defaults.app_name }}-config
+  name: ${{ defaults.app_name }}
   labels:
-    app: ${{ defaults.app_name }}-config
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-config
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 data:
   vn-etcvn-zotvn-configvn-json: |-
     {
@@ -135,13 +132,13 @@ data:
 ---
 ${{ endif() }}
 ---
-${{ if(inputs.zot_storage_backend === 'filesystem') }}
+${{ if(inputs.use_object_storage !== 'true') }}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: ghcr.io/project-zot/zot:v2.1.14
+    originImageName: ghcr.io/project-zot/zot:v2.1.18
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -161,7 +158,7 @@ spec:
       automountServiceAccountToken: false
       initContainers:
       - name: init-auth
-        image: httpd:2.4.63-alpine3.22
+        image: httpd:2.4.68-alpine3.24
         imagePullPolicy: IfNotPresent
         command:
         - /bin/sh
@@ -231,7 +228,7 @@ spec:
           mountPath: /work
       containers:
       - name: ${{ defaults.app_name }}
-        image: ghcr.io/project-zot/zot:v2.1.14
+        image: ghcr.io/project-zot/zot:v2.1.18
         imagePullPolicy: IfNotPresent
         resources:
           limits:
@@ -287,13 +284,13 @@ spec:
 ---
 ${{ endif() }}
 ---
-${{ if(inputs.zot_storage_backend === 'objectstorage') }}
+${{ if(inputs.use_object_storage === 'true') }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: ghcr.io/project-zot/zot:v2.1.14
+    originImageName: ghcr.io/project-zot/zot:v2.1.18
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -313,19 +310,23 @@ spec:
       automountServiceAccountToken: false
       containers:
       - name: ${{ defaults.app_name }}
-        image: ghcr.io/project-zot/zot:v2.1.14
+        image: ghcr.io/project-zot/zot:v2.1.18
         imagePullPolicy: IfNotPresent
         env:
-        - name: AWS_ACCESS_KEY_ID
+        - name: S3_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
-              name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+              name: object-storage-key
               key: accessKey
-        - name: AWS_SECRET_ACCESS_KEY
+        - name: S3_SECRET_ACCESS_KEY
           valueFrom:
             secretKeyRef:
-              name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+              name: object-storage-key
               key: secretKey
+        - name: AWS_ACCESS_KEY_ID
+          value: $(S3_ACCESS_KEY_ID)
+        - name: AWS_SECRET_ACCESS_KEY
+          value: $(S3_SECRET_ACCESS_KEY)
         resources:
           limits:
             cpu: 200m
@@ -356,25 +357,21 @@ spec:
             port: 5000
             scheme: HTTP
         volumeMounts:
-        - name: vn-etcvn-zotvn-configvn-json
+        - name: ${{ defaults.app_name }}-cm
           mountPath: /etc/zot/config.json
-          subPath: ./etc/zot/config.json
-        - name: vn-etcvn-zotvn-htpasswd
+          subPath: vn-etcvn-zotvn-configvn-json
+        - name: ${{ defaults.app_name }}-cm
           mountPath: /etc/zot/htpasswd
-          subPath: ./etc/zot/htpasswd
+          subPath: vn-etcvn-zotvn-htpasswd
       volumes:
-      - name: vn-etcvn-zotvn-configvn-json
+      - name: ${{ defaults.app_name }}-cm
         configMap:
-          name: ${{ defaults.app_name }}-config
+          name: ${{ defaults.app_name }}
           items:
           - key: vn-etcvn-zotvn-configvn-json
-            path: ./etc/zot/config.json
-      - name: vn-etcvn-zotvn-htpasswd
-        configMap:
-          name: ${{ defaults.app_name }}-config
-          items:
+            path: vn-etcvn-zotvn-configvn-json
           - key: vn-etcvn-zotvn-htpasswd
-            path: ./etc/zot/htpasswd
+            path: vn-etcvn-zotvn-htpasswd
 ---
 ${{ endif() }}
 ---

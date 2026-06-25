@@ -452,7 +452,7 @@ spec:
               memory: 12Mi
       containers:
         - name: mastodon-setup
-          image: ghcr.io/mastodon/mastodon:v4.5.11
+          image: ghcr.io/mastodon/mastodon:v4.6.2
           imagePullPolicy: IfNotPresent
           command:
             - /bin/bash
@@ -558,18 +558,18 @@ spec:
               value: ${{ inputs.smtp_password }}
           resources:
             limits:
-              cpu: 1000m
+              cpu: 1
               memory: 1024Mi
             requests:
               cpu: 100m
-              memory: 128Mi
+              memory: 102Mi
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-web
   annotations:
-    originImageName: ghcr.io/mastodon/mastodon:v4.5.11
+    originImageName: ghcr.io/mastodon/mastodon:v4.6.2
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
     docker-to-sealos.resource-override-source: https://github.com/mastodon/chart/blob/main/values.yaml#masto-web-resources
@@ -594,37 +594,25 @@ spec:
     spec:
       automountServiceAccountToken: false
       initContainers:
-        - name: wait-for-mastodon-schema
-          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+        - name: wait-for-postgres
+          image: public.ecr.aws/docker/library/busybox:1.38.0
           imagePullPolicy: IfNotPresent
           env:
-            - name: PGHOST
+            - name: PG_HOST
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: host
-            - name: PGPORT
+            - name: PG_PORT
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: port
-            - name: PGUSER
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: username
-            - name: PGPASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: password
-            - name: PGDATABASE
-              value: mastodon_production
           command:
             - /bin/sh
             - -ec
             - |
-              until psql -tAc "SELECT to_regclass('public.users') IS NOT NULL" | grep -q t; do
+              until nc -z "$PG_HOST" "$PG_PORT"; do
                 sleep 5
               done
           resources:
@@ -636,7 +624,7 @@ spec:
               memory: 12Mi
       containers:
         - name: ${{ defaults.app_name }}-web
-          image: ghcr.io/mastodon/mastodon:v4.5.11
+          image: ghcr.io/mastodon/mastodon:v4.6.2
           imagePullPolicy: IfNotPresent
           command:
             - bundle
@@ -739,18 +727,18 @@ spec:
             failureThreshold: 60
           resources:
             limits:
-              cpu: 1000m
+              cpu: 1
               memory: 1024Mi
             requests:
               cpu: 100m
-              memory: 128Mi
+              memory: 102Mi
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-sidekiq
   annotations:
-    originImageName: ghcr.io/mastodon/mastodon:v4.5.11
+    originImageName: ghcr.io/mastodon/mastodon:v4.6.2
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
     docker-to-sealos.resource-override-source: https://github.com/mastodon/chart/blob/main/values.yaml#masto-sidekiq-resources
@@ -772,37 +760,25 @@ spec:
     spec:
       automountServiceAccountToken: false
       initContainers:
-        - name: wait-for-mastodon-schema
-          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+        - name: wait-for-postgres
+          image: public.ecr.aws/docker/library/busybox:1.38.0
           imagePullPolicy: IfNotPresent
           env:
-            - name: PGHOST
+            - name: PG_HOST
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: host
-            - name: PGPORT
+            - name: PG_PORT
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: port
-            - name: PGUSER
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: username
-            - name: PGPASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: password
-            - name: PGDATABASE
-              value: mastodon_production
           command:
             - /bin/sh
             - -ec
             - |
-              until psql -tAc "SELECT to_regclass('public.users') IS NOT NULL" | grep -q t; do
+              until nc -z "$PG_HOST" "$PG_PORT"; do
                 sleep 5
               done
           resources:
@@ -814,7 +790,7 @@ spec:
               memory: 12Mi
       containers:
         - name: ${{ defaults.app_name }}-sidekiq
-          image: ghcr.io/mastodon/mastodon:v4.5.11
+          image: ghcr.io/mastodon/mastodon:v4.6.2
           imagePullPolicy: IfNotPresent
           command:
             - bundle
@@ -923,18 +899,18 @@ spec:
             failureThreshold: 24
           resources:
             limits:
-              cpu: 1000m
-              memory: 768Mi
+              cpu: 1
+              memory: 1024Mi
             requests:
               cpu: 100m
-              memory: 128Mi
+              memory: 102Mi
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-streaming
   annotations:
-    originImageName: ghcr.io/mastodon/mastodon-streaming:v4.5.11
+    originImageName: ghcr.io/mastodon/mastodon-streaming:v4.6.2
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
     docker-to-sealos.resource-override-source: https://github.com/mastodon/chart/blob/main/values.yaml#masto-streaming-resources
@@ -959,37 +935,25 @@ spec:
     spec:
       automountServiceAccountToken: false
       initContainers:
-        - name: wait-for-mastodon-schema
-          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+        - name: wait-for-postgres
+          image: public.ecr.aws/docker/library/busybox:1.38.0
           imagePullPolicy: IfNotPresent
           env:
-            - name: PGHOST
+            - name: PG_HOST
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: host
-            - name: PGPORT
+            - name: PG_PORT
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: port
-            - name: PGUSER
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: username
-            - name: PGPASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: password
-            - name: PGDATABASE
-              value: mastodon_production
           command:
             - /bin/sh
             - -ec
             - |
-              until psql -tAc "SELECT to_regclass('public.users') IS NOT NULL" | grep -q t; do
+              until nc -z "$PG_HOST" "$PG_PORT"; do
                 sleep 5
               done
           resources:
@@ -1001,7 +965,7 @@ spec:
               memory: 12Mi
       containers:
         - name: ${{ defaults.app_name }}-streaming
-          image: ghcr.io/mastodon/mastodon-streaming:v4.5.11
+          image: ghcr.io/mastodon/mastodon-streaming:v4.6.2
           imagePullPolicy: IfNotPresent
           command:
             - node
@@ -1075,7 +1039,7 @@ spec:
               memory: 512Mi
             requests:
               cpu: 50m
-              memory: 64Mi
+              memory: 51Mi
 ---
 apiVersion: v1
 kind: Service

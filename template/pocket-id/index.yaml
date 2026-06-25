@@ -16,7 +16,6 @@ spec:
   locale: en
   i18n:
     zh:
-      title: Pocket ID
       description: Pocket ID 是一个简洁的 OIDC 提供商，支持使用 Passkey 进行身份认证。
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/pocket-id/README_zh.md'
   categories:
@@ -37,7 +36,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: ghcr.io/pocket-id/pocket-id:v2.2.0
+    originImageName: ghcr.io/pocket-id/pocket-id:v2.9.0
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -57,7 +56,7 @@ spec:
       automountServiceAccountToken: false
       containers:
       - name: ${{ defaults.app_name }}
-        image: ghcr.io/pocket-id/pocket-id:v2.2.0
+        image: ghcr.io/pocket-id/pocket-id:v2.9.0
         imagePullPolicy: IfNotPresent
         env:
         - name: APP_URL
@@ -97,10 +96,12 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
-  - port: 1411
+  - name: http
+    port: 1411
     targetPort: 1411
     protocol: TCP
   selector:
@@ -115,7 +116,21 @@ metadata:
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
     kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
     nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
 spec:
   rules:
   - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}

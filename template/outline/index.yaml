@@ -28,14 +28,11 @@ spec:
       type: string
       value: outline-${{ random(8) }}
   inputs:
-    storage_type:
-      description: 'Storage type for attachments'
-      type: choice
-      default: 's3'
-      required: true
-      options:
-        - s3
-        - local
+    use_s3_storage:
+      description: 'Use S3-compatible object storage for attachments'
+      type: boolean
+      default: 'true'
+      required: false
     auth_provider:
       description: 'Authentication provider'
       type: choice
@@ -146,7 +143,7 @@ spec:
       required: true
       if: inputs.smtp_enabled === 'true' || inputs.auth_provider === 'email'
 ---
-${{ if(inputs.storage_type === 's3') }}
+${{ if(inputs.use_s3_storage === 'true') }}
 apiVersion: objectstorage.sealos.io/v1
 kind: ObjectStorageBucket
 metadata:
@@ -414,6 +411,13 @@ spec:
               if ! psql "${DATABASE_URL}" -tAc "SELECT 1 FROM pg_database WHERE datname='outline'" | grep -q 1; then
                 psql "${DATABASE_URL}" -c 'CREATE DATABASE outline;'
               fi
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
       restartPolicy: Never
   backoffLimit: 0
   ttlSecondsAfterFinished: 300
@@ -424,7 +428,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: outlinewiki/outline:1.8.0-1
+    originImageName: outlinewiki/outline:1.8.2-0
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -445,7 +449,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: outlinewiki/outline:1.8.0-1
+          image: outlinewiki/outline:1.8.2-0
           imagePullPolicy: IfNotPresent
           env:
             - name: NODE_ENV
@@ -505,13 +509,13 @@ spec:
               value: '6379'
             - name: REDIS_URL
               value: redis://default:$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)
-            ${{ if(inputs.storage_type === 'local') }}
+            ${{ if(inputs.use_s3_storage === 'false') }}
             - name: FILE_STORAGE
               value: local
             - name: FILE_STORAGE_LOCAL_ROOT_DIR
               value: /var/lib/outline/data
             ${{ endif() }}
-            ${{ if(inputs.storage_type === 's3') }}
+            ${{ if(inputs.use_s3_storage === 'true') }}
             - name: FILE_STORAGE
               value: s3
             - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
@@ -519,21 +523,27 @@ spec:
                 secretKeyRef:
                   name: object-storage-key
                   key: external
-            - name: AWS_ACCESS_KEY_ID
+            - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: accessKey
-            - name: AWS_SECRET_ACCESS_KEY
+            - name: AWS_ACCESS_KEY_ID
+              value: $(S3_ACCESS_KEY_ID)
+            - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: secretKey
-            - name: AWS_S3_UPLOAD_BUCKET_NAME
+            - name: AWS_SECRET_ACCESS_KEY
+              value: $(S3_SECRET_ACCESS_KEY)
+            - name: S3_BUCKET
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
                   key: bucket
+            - name: AWS_S3_UPLOAD_BUCKET_NAME
+              value: $(S3_BUCKET)
             - name: AWS_S3_UPLOAD_BUCKET_URL
               value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
             - name: AWS_S3_FORCE_PATH_STYLE
@@ -622,12 +632,12 @@ spec:
             initialDelaySeconds: 30
             periodSeconds: 10
             timeoutSeconds: 5
-          ${{ if(inputs.storage_type === 'local') }}
+          ${{ if(inputs.use_s3_storage === 'false') }}
           volumeMounts:
             - name: vn-varvn-libvn-outlinevn-data
               mountPath: /var/lib/outline/data
           ${{ endif() }}
-  ${{ if(inputs.storage_type === 'local') }}
+  ${{ if(inputs.use_s3_storage === 'false') }}
   volumeClaimTemplates:
     - metadata:
         annotations:

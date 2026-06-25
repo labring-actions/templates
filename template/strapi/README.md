@@ -42,19 +42,19 @@ This template deploys two interconnected services:
   - Connection credentials managed via Kubernetes secrets
 
 - **Strapi Application**: Headless CMS server with admin panel
-  - Version: Strapi 5.33.0
+  - Version: Strapi 5.49.0
   - Web UI: Port 1337 (exposed via Ingress with SSL)
   - Admin panel: `/admin` path
   - API endpoints: `/api` path
-  - Persistent storage: 2Gi for application data, 1Gi for npm cache
+  - Persistent storage: 1Gi for application data, 1Gi for npm cache
   - Init container for automatic build process
 
 **Resource Allocation:**
 
 | Component | CPU Request | CPU Limit | Memory Request | Memory Limit |
 |-----------|-------------|-----------|----------------|--------------|
-| Strapi (Runtime) | 100m | 1000m | 25Mi | 256Mi |
-| Strapi (Init Build) | 200m | 2000m | 307Mi | 3072Mi |
+| Strapi (Runtime) | 100m | 1 | 102Mi | 1024Mi |
+| Strapi (Init Build) | 200m | 2 | 409Mi | 4096Mi |
 | PostgreSQL | 50m | 500m | 51Mi | 512Mi |
 
 ### Environment Configuration
@@ -162,7 +162,7 @@ Strapi provides both REST and GraphQL APIs:
 
 **Issue 3: Media Upload Failures**
 - Cause: Storage full or permission issues
-- Solution: Increase the application storage allocation in the canvas. Default is 2Gi for application data.
+- Solution: Increase the application storage allocation in the canvas. Default is 1Gi for application data.
 
 **Issue 4: API Endpoints Return 403 Forbidden**
 - Cause: Permissions not configured for public access
@@ -170,7 +170,7 @@ Strapi provides both REST and GraphQL APIs:
 
 **Issue 5: Slow Performance**
 - Cause: Insufficient resources for your content volume
-- Solution: Increase CPU and memory allocation in the canvas. Consider upgrading from the default 1000m CPU / 256Mi memory limits.
+- Solution: Increase CPU and memory allocation in the canvas. Consider upgrading from the default 1 CPU / 1024Mi memory limits.
 
 ### Getting Help
 

@@ -443,8 +443,17 @@ spec:
           type: RuntimeDefault
       initContainers:
         - name: wait-for-postgres
-          image: docker.io/library/postgres:16.4-alpine
+          image: docker.io/library/alpine:3.24.1
           imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              apk add --no-cache postgresql-client
+              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d "$PG_DATABASE" >/dev/null 2>&1; do
+                sleep 2
+              done
+              sleep 5
           env:
             - name: PG_HOST
               valueFrom:
@@ -463,14 +472,6 @@ spec:
                   key: username
             - name: PG_DATABASE
               value: bunkerweb
-          command:
-            - /bin/sh
-            - -ec
-            - |
-              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d "$PG_DATABASE" >/dev/null 2>&1; do
-                sleep 2
-              done
-              sleep 5
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -484,7 +485,7 @@ spec:
               cpu: 20m
               memory: 25Mi
         - name: wait-for-redis
-          image: docker.io/library/busybox:1.36.1
+          image: docker.io/library/busybox:1.38.0
           imagePullPolicy: IfNotPresent
           command:
             - /bin/sh
@@ -574,10 +575,10 @@ spec:
           resources:
             limits:
               cpu: 500m
-              memory: 768Mi
+              memory: 1024Mi
             requests:
               cpu: 50m
-              memory: 128Mi
+              memory: 102Mi
 ---
 apiVersion: v1
 kind: Service
@@ -630,7 +631,7 @@ spec:
           type: RuntimeDefault
       initContainers:
         - name: wait-for-redis
-          image: docker.io/library/busybox:1.36.1
+          image: docker.io/library/busybox:1.38.0
           imagePullPolicy: IfNotPresent
           command:
             - /bin/sh
@@ -653,7 +654,7 @@ spec:
               cpu: 20m
               memory: 25Mi
         - name: wait-for-bunkerweb-api
-          image: docker.io/library/busybox:1.36.1
+          image: docker.io/library/busybox:1.38.0
           imagePullPolicy: IfNotPresent
           command:
             - /bin/sh
@@ -765,25 +766,31 @@ spec:
                 secretKeyRef:
                   name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
                   key: bucket
-            - name: BACKUP_S3_ENDPOINT
-              value: https://$(BACKUP_S3_EXTERNAL_ENDPOINT)
-            - name: BACKUP_S3_EXTERNAL_ENDPOINT
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: external
+            - name: BACKUP_S3_EXTERNAL_ENDPOINT
+              value: $(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+            - name: BACKUP_S3_ENDPOINT
+              value: https://$(BACKUP_S3_EXTERNAL_ENDPOINT)
             - name: BACKUP_S3_REGION
               value: us-east-1
-            - name: BACKUP_S3_ACCESS_KEY_ID
+            - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: accessKey
-            - name: BACKUP_S3_ACCESS_KEY_SECRET
+            - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: secretKey
+            - name: BACKUP_S3_ACCESS_KEY_ID
+              value: $(S3_ACCESS_KEY_ID)
+            - name: BACKUP_S3_ACCESS_KEY_SECRET
+              value: $(S3_SECRET_ACCESS_KEY)
             ${{ endif() }}
           startupProbe:
             exec:
@@ -814,7 +821,7 @@ spec:
               memory: 512Mi
             requests:
               cpu: 50m
-              memory: 128Mi
+              memory: 51Mi
           volumeMounts:
             - name: vn-data
               mountPath: /data
@@ -878,8 +885,24 @@ spec:
           type: RuntimeDefault
       initContainers:
         - name: wait-for-database
-          image: docker.io/library/postgres:16.4-alpine
+          image: docker.io/library/alpine:3.24.1
           imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              apk add --no-cache postgresql-client
+              for i in $(seq 1 180); do
+                if psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d "$PG_DATABASE" -tAc "SELECT 1 FROM bw_metadata WHERE id = 1 AND is_initialized IS TRUE;" 2>/dev/null | grep -q 1 && \
+                   psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d "$PG_DATABASE" -tAc "SELECT to_regclass('public.bw_ui_roles') IS NOT NULL;" 2>/dev/null | grep -q t; then
+                  exit 0
+                fi
+                if [ "$i" -eq 180 ]; then
+                  echo "BunkerWeb database metadata is not ready" >&2
+                  exit 1
+                fi
+                sleep 2
+              done
           env:
             - name: PG_HOST
               valueFrom:
@@ -905,21 +928,6 @@ spec:
               value: bunkerweb
             - name: PGPASSWORD
               value: $(PG_PASSWORD)
-          command:
-            - /bin/sh
-            - -ec
-            - |
-              for i in $(seq 1 180); do
-                if psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d "$PG_DATABASE" -tAc "SELECT 1 FROM bw_metadata WHERE id = 1 AND is_initialized IS TRUE;" 2>/dev/null | grep -q 1 && \
-                   psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d "$PG_DATABASE" -tAc "SELECT to_regclass('public.bw_ui_roles') IS NOT NULL;" 2>/dev/null | grep -q t; then
-                  exit 0
-                fi
-                if [ "$i" -eq 180 ]; then
-                  echo "BunkerWeb database metadata is not ready" >&2
-                  exit 1
-                fi
-                sleep 2
-              done
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -1015,7 +1023,7 @@ spec:
               memory: 512Mi
             requests:
               cpu: 50m
-              memory: 128Mi
+              memory: 51Mi
           volumeMounts:
             - name: vn-varvn-libvn-bunkerweb
               mountPath: /var/lib/bunkerweb

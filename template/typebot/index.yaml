@@ -213,6 +213,8 @@ kind: Cluster
 metadata:
   name: ${{ defaults.app_name }}-pg
   labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
     kb.io/database: postgresql-16.4.0
     clusterdefinition.kubeblocks.io/name: postgresql
     clusterversion.kubeblocks.io/name: postgresql-16.4.0
@@ -285,8 +287,6 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
-            - name: PG_DATABASE
-              value: typebot
           command:
             - /bin/sh
             - -ec
@@ -295,8 +295,8 @@ spec:
               until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; do
                 sleep 2
               done
-              if ! psql "postgresql://$PG_USER:$PG_PASSWORD@$PG_HOST:$PG_PORT/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='$PG_DATABASE'" | grep -q 1; then
-                createdb -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" "$PG_DATABASE"
+              if ! psql "postgresql://$PG_USER:$PG_PASSWORD@$PG_HOST:$PG_PORT/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='typebot'" | grep -q 1; then
+                createdb -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" typebot
               fi
           resources:
             limits:
@@ -359,6 +359,7 @@ kind: Cluster
 metadata:
   name: ${{ defaults.app_name }}-redis
   labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
     kb.io/database: redis-7.2.7
     app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
     app.kubernetes.io/version: 7.2.7
@@ -428,7 +429,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-builder
   annotations:
-    originImageName: baptistearno/typebot-builder:3.17.1
+    originImageName: baptistearno/typebot-builder:3.17.2
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
     docker-to-sealos.resource-override-source: https://github.com/baptisteArno/typebot.io/blob/v3.17.1/docker-compose.yml runs a Next.js builder service backed by PostgreSQL and Redis.
@@ -450,7 +451,7 @@ spec:
       automountServiceAccountToken: false
       initContainers:
         - name: wait-for-redis
-          image: public.ecr.aws/docker/library/redis:7.2.7-alpine
+          image: public.ecr.aws/docker/library/busybox:1.38.0
           imagePullPolicy: IfNotPresent
           env:
             - name: REDIS_HOST
@@ -461,17 +462,9 @@ spec:
             - /bin/sh
             - -ec
             - |
-              until [ -s /redis-secret/password ]; do
+              until nc -z "$REDIS_HOST" "$REDIS_PORT"; do
                 sleep 2
               done
-              REDIS_PASSWORD="$(cat /redis-secret/password)"
-              until redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" ping >/dev/null 2>&1; do
-                sleep 2
-              done
-          volumeMounts:
-            - name: redis-credentials
-              mountPath: /redis-secret
-              readOnly: true
           resources:
             limits:
               cpu: 200m
@@ -481,7 +474,7 @@ spec:
               memory: 25Mi
       containers:
         - name: ${{ defaults.app_name }}-builder
-          image: baptistearno/typebot-builder:3.17.1
+          image: baptistearno/typebot-builder:3.17.2
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_HOST
@@ -516,8 +509,12 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
             - name: REDIS_URL
-              value: redis://$(REDIS_USERNAME):$(REDIS_PASSWORD)@${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local:6379
+              value: redis://$(REDIS_USERNAME):$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)
             - name: ENCRYPTION_SECRET
               value: ${{ defaults.encryption_secret }}
             - name: NEXTAUTH_URL
@@ -585,32 +582,38 @@ spec:
               value: ${{ inputs.custom_oauth_well_known_url }}
             ${{ endif() }}
             ${{ if(inputs.use_object_storage === 'true') }}
-            - name: S3_ACCESS_KEY
+            - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: accessKey
-            - name: S3_SECRET_KEY
+            - name: S3_ACCESS_KEY
+              value: $(S3_ACCESS_KEY_ID)
+            - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: secretKey
+            - name: S3_SECRET_KEY
+              value: $(S3_SECRET_ACCESS_KEY)
             - name: S3_BUCKET
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
                   key: bucket
-            - name: S3_ENDPOINT
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: external
+            - name: S3_ENDPOINT
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
             - name: S3_SSL
               value: 'true'
             - name: S3_REGION
               value: us-east-1
             - name: S3_PUBLIC_CUSTOM_DOMAIN
-              value: https://$(S3_ENDPOINT)/$(S3_BUCKET)
+              value: $(S3_ENDPOINT)/$(S3_BUCKET)
             ${{ endif() }}
           ports:
             - name: http
@@ -618,7 +621,7 @@ spec:
               protocol: TCP
           resources:
             requests:
-              cpu: 100m
+              cpu: 50m
               memory: 102Mi
             limits:
               cpu: 500m
@@ -641,19 +644,13 @@ spec:
             initialDelaySeconds: 60
             periodSeconds: 30
             timeoutSeconds: 5
-      volumes:
-        - name: redis-credentials
-          secret:
-            secretName: ${{ defaults.app_name }}-redis-redis-account-default
-            optional: true
-
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-viewer
   annotations:
-    originImageName: baptistearno/typebot-viewer:3.17.1
+    originImageName: baptistearno/typebot-viewer:3.17.2
     docker-to-sealos.resource-override-source: https://github.com/baptisteArno/typebot.io/blob/v3.17.1/docker-compose.yml runs the Viewer as a separate Next.js public runtime service.
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
@@ -675,7 +672,7 @@ spec:
       automountServiceAccountToken: false
       initContainers:
         - name: wait-for-redis
-          image: public.ecr.aws/docker/library/redis:7.2.7-alpine
+          image: public.ecr.aws/docker/library/busybox:1.38.0
           imagePullPolicy: IfNotPresent
           env:
             - name: REDIS_HOST
@@ -686,17 +683,9 @@ spec:
             - /bin/sh
             - -ec
             - |
-              until [ -s /redis-secret/password ]; do
+              until nc -z "$REDIS_HOST" "$REDIS_PORT"; do
                 sleep 2
               done
-              REDIS_PASSWORD="$(cat /redis-secret/password)"
-              until redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" ping >/dev/null 2>&1; do
-                sleep 2
-              done
-          volumeMounts:
-            - name: redis-credentials
-              mountPath: /redis-secret
-              readOnly: true
           resources:
             limits:
               cpu: 200m
@@ -706,7 +695,7 @@ spec:
               memory: 25Mi
       containers:
         - name: ${{ defaults.app_name }}-viewer
-          image: baptistearno/typebot-viewer:3.17.1
+          image: baptistearno/typebot-viewer:3.17.2
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_HOST
@@ -741,8 +730,12 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
             - name: REDIS_URL
-              value: redis://$(REDIS_USERNAME):$(REDIS_PASSWORD)@${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local:6379
+              value: redis://$(REDIS_USERNAME):$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)
             - name: ENCRYPTION_SECRET
               value: ${{ defaults.encryption_secret }}
             - name: NEXTAUTH_URL
@@ -752,32 +745,38 @@ spec:
             - name: NODE_OPTIONS
               value: --no-node-snapshot
             ${{ if(inputs.use_object_storage === 'true') }}
-            - name: S3_ACCESS_KEY
+            - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: accessKey
-            - name: S3_SECRET_KEY
+            - name: S3_ACCESS_KEY
+              value: $(S3_ACCESS_KEY_ID)
+            - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: secretKey
+            - name: S3_SECRET_KEY
+              value: $(S3_SECRET_ACCESS_KEY)
             - name: S3_BUCKET
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
                   key: bucket
-            - name: S3_ENDPOINT
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: external
+            - name: S3_ENDPOINT
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
             - name: S3_SSL
               value: 'true'
             - name: S3_REGION
               value: us-east-1
             - name: S3_PUBLIC_CUSTOM_DOMAIN
-              value: https://$(S3_ENDPOINT)/$(S3_BUCKET)
+              value: $(S3_ENDPOINT)/$(S3_BUCKET)
             ${{ endif() }}
           ports:
             - name: http
@@ -808,12 +807,6 @@ spec:
             initialDelaySeconds: 60
             periodSeconds: 30
             timeoutSeconds: 5
-      volumes:
-        - name: redis-credentials
-          secret:
-            secretName: ${{ defaults.app_name }}-redis-redis-account-default
-            optional: true
-
 ---
 ${{ if(inputs.auth_provider === 'builtin-email') }}
 apiVersion: apps/v1
@@ -821,7 +814,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-mailpit
   annotations:
-    originImageName: axllent/mailpit:v1.30.1
+    originImageName: axllent/mailpit:v1.30.2
     docker-to-sealos.resource-override-source: https://mailpit.axllent.org/docs/install/docker/
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
@@ -843,7 +836,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}-mailpit
-          image: axllent/mailpit:v1.30.1
+          image: axllent/mailpit:v1.30.2
           imagePullPolicy: IfNotPresent
           ports:
             - name: smtp

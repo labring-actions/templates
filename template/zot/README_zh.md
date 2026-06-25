@@ -1,6 +1,6 @@
 # 在 Sealos 上部署并托管 Zot Registry
 
-Zot Registry 是一个 OCI 原生容器镜像仓库，用于存储和分发容器制品。这个模板会在 Sealos Cloud 上部署 Zot `v2.1.14`，默认启用基础认证，并提供两种存储后端：本地文件系统或 S3 兼容对象存储。
+Zot Registry 是一个 OCI 原生容器镜像仓库，用于存储和分发容器制品。这个模板会在 Sealos Cloud 上部署 Zot `v2.1.18`，默认启用基础认证，并提供两种存储后端：本地文件系统或 S3 兼容对象存储。
 
 ![Zot Logo](logo.svg)
 
@@ -24,7 +24,7 @@ Zot 是一个轻量级 OCI 仓库实现，内置 Web UI 和标准 Registry API�
 
 这个 Sealos 模板已经包含 Zot 运行所需的核心依赖：
 
-- Zot 主服务（`ghcr.io/project-zot/zot:v2.1.14`）
+- Zot 主服务（`ghcr.io/project-zot/zot:v2.1.18`）
 - Service + Ingress（HTTPS 暴露）
 - 默认启用的基础认证与仓库访问控制策略
 - 可选 Sealos ObjectStorage Bucket（当 `zot_storage_backend=objectstorage`）
@@ -87,7 +87,7 @@ Sealos 是构建在 Kubernetes 之上的 AI 驱动云操作系统，能显著降
 
 1. 打开 [Zot 模板](https://sealos.io/products/app-store/zot)，点击 **Deploy Now**。
 2. 在弹窗中配置参数：
-   - `zot_storage_backend`：`filesystem` 或 `objectstorage`
+   - `use_object_storage`：`false` 使用本地文件系统存储，`true` 使用 Sealos ObjectStorage
    - `zot_admin_user`
    - 若使用 `filesystem`：填写 `zot_admin_password`
    - 若使用 `objectstorage`：填写 `zot_admin_htpasswd_hash`，可选配置 `zot_s3_region`
@@ -109,7 +109,7 @@ Sealos 是构建在 Kubernetes 之上的 AI 驱动云操作系统，能显著降
 
 | 参数 | 说明 | 是否必填 |
 | --- | --- | --- |
-| `zot_storage_backend` | 存储后端（`filesystem` 或 `objectstorage`） | 是 |
+| `use_object_storage` | 使用 Sealos S3 兼容对象存储替代本地文件系统存储 | 是 |
 | `zot_admin_user` | 基础认证管理员用户名 | 是 |
 | `zot_admin_password` | 管理员密码（仅 `filesystem` 模式） | 条件必填 |
 | `zot_admin_htpasswd_hash` | 管理员 htpasswd 哈希（仅 `objectstorage` 模式，不能填明文） | 条件必填 |

@@ -15,6 +15,7 @@ spec:
   templateType: inline
   categories:
     - tool
+  locale: en
   defaults:
     app_host:
       # number or string..
@@ -25,6 +26,7 @@ spec:
       value: privatebin-${{ random(8) }}
   i18n:
     zh:
+      description: '一个极简的开源在线粘贴板，服务器无法知晓粘贴数据的内容。'
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/privatebin/README_zh.md'
 
 ---
@@ -32,6 +34,9 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 data:
   vn-srvvn-cfgvn-confvn-php: |-
     ;<?php http_response_code(403); /*
@@ -246,7 +251,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: frooodle/privatebin:0.26.1-fat
+    originImageName: ghcr.io/privatebin/fs:2.0.4
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -264,36 +269,44 @@ spec:
     metadata:
       labels:
         app: ${{ defaults.app_name }}
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     spec:
       terminationGracePeriodSeconds: 10
       automountServiceAccountToken: false
       initContainers:
         - name: take-data-dir-ownership
-          image: alpine
+          image: alpine:3.24.1
           command: ["/bin/sh", "-c", "chown -R 65534:82 /srv/data"]
           imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
           volumeMounts:
             - name: vn-srvvn-data
               mountPath: /srv/data
       containers:
         - name: ${{ defaults.app_name }}
-          image: ghcr.io/privatebin/fs:1.7.4
+          image: ghcr.io/privatebin/fs:2.0.4
           resources:
             requests:
               cpu: 100m
-              memory: 307Mi
+              memory: 409Mi
             limits:
-              cpu: 1000m
-              memory: 3072Mi
+              cpu: 1
+              memory: 4096Mi
           ports:
             - name: http
               protocol: TCP
               containerPort: 8080
           imagePullPolicy: IfNotPresent
           volumeMounts:
-            - name: vn-srvvn-cfgvn-confvn-php
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /srv/cfg/conf.php
-              subPath: ./srv/cfg/conf.php
+              subPath: vn-srvvn-cfgvn-confvn-php
             - name: vn-srvvn-data
               mountPath: /srv/data
           livenessProbe:
@@ -307,12 +320,9 @@ spec:
               port: 8080
             initialDelaySeconds: 20
       volumes:
-        - name: vn-srvvn-cfgvn-confvn-php
+        - name: ${{ defaults.app_name }}-cm
           configMap:
             name: ${{ defaults.app_name }}
-            items:
-              - key: vn-srvvn-cfgvn-confvn-php
-                path: ./srv/cfg/conf.php
   volumeClaimTemplates:
     - metadata:
         annotations:
@@ -332,10 +342,14 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 8080
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
   selector:
     app: ${{ defaults.app_name }}
 ---
@@ -344,13 +358,10 @@ kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
-    higress.io/response-header-control-remove: X-Frame-Options
-    higress.io/response-header-control-update: |
-      Content-Security-Policy "default-src * blob: data: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; img-src * data: blob: resource: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; connect-src * wss: blob: resource:; style-src 'self' 'unsafe-inline' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource: *.baidu.com *.bdstatic.com; frame-src 'self' *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} mailto: tel: weixin: mtt: *.baidu.com; frame-ancestors 'self' https://${{ SEALOS_CLOUD_DOMAIN }} https://*.${{ SEALOS_CLOUD_DOMAIN }}"
-      X-Xss-Protection "1; mode=block"
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/proxy-body-size: 32m
     nginx.ingress.kubernetes.io/server-snippet: |
@@ -358,15 +369,11 @@ metadata:
       large_client_header_buffers 4 128k;
     nginx.ingress.kubernetes.io/ssl-redirect: 'true'
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
-    nginx.ingress.kubernetes.io/rewrite-target: /$2
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
     nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
     nginx.ingress.kubernetes.io/configuration-snippet: |
-      more_clear_headers "X-Frame-Options:";
-      more_set_headers "Content-Security-Policy: default-src * blob: data: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; img-src * data: blob: resource: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; connect-src * wss: blob: resource:; style-src 'self' 'unsafe-inline' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource: *.baidu.com *.bdstatic.com; frame-src 'self' *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} mailto: tel: weixin: mtt: *.baidu.com; frame-ancestors 'self' https://${{ SEALOS_CLOUD_DOMAIN }} https://*.${{ SEALOS_CLOUD_DOMAIN }}";
-      more_set_headers "X-Xss-Protection: 1; mode=block";
       if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
         expires 30d;
         add_header Cache-Control "public";
@@ -377,7 +384,7 @@ spec:
       http:
         paths:
           - pathType: Prefix
-            path: /()(.*)
+            path: /
             backend:
               service:
                 name: ${{ defaults.app_name }}
@@ -401,4 +408,4 @@ spec:
   displayType: normal
   icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/privatebin/logo.svg"
   name: "PrivateBin"
-  type: iframe
+  type: link

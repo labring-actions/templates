@@ -77,6 +77,7 @@ metadata:
   name: ${{ defaults.app_name }}-pg
   labels:
     kb.io/database: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
     clusterdefinition.kubeblocks.io/name: postgresql
     clusterversion.kubeblocks.io/name: postgresql-16.4.0
 spec:
@@ -141,13 +142,9 @@ spec:
         image: hasura/graphql-engine:v2.48.11
         imagePullPolicy: IfNotPresent
         command:
-        - /bin/sh
-        - -ec
+        - graphql-engine
         args:
-        - |
-          export HASURA_GRAPHQL_METADATA_DATABASE_URL="postgres://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/postgres"
-          export PG_DATABASE_URL="${HASURA_GRAPHQL_METADATA_DATABASE_URL}"
-          exec graphql-engine serve
+        - serve
         resources:
           limits:
             cpu: 200m
@@ -179,15 +176,9 @@ spec:
               name: ${{ defaults.app_name }}-pg-conn-credential
               key: password
         - name: HASURA_GRAPHQL_METADATA_DATABASE_URL
-          valueFrom:
-            secretKeyRef:
-              name: ${{ defaults.app_name }}-pg-conn-credential
-              key: endpoint
+          value: postgresql://$(PGUSER):$(PGPASSWORD)@$(PGHOST):$(PGPORT)/postgres
         - name: PG_DATABASE_URL
-          valueFrom:
-            secretKeyRef:
-              name: ${{ defaults.app_name }}-pg-conn-credential
-              key: endpoint
+          value: postgresql://$(PGUSER):$(PGPASSWORD)@$(PGHOST):$(PGPORT)/postgres
         - name: HASURA_GRAPHQL_ENABLE_CONSOLE
           value: 'true'
         - name: HASURA_GRAPHQL_DEV_MODE
@@ -212,7 +203,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-data-connector-agent
   annotations:
-    originImageName: hasura/graphql-data-connector:v2.48.11
+    originImageName: hasura/graphql-data-connector:v2.49.3
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -232,7 +223,7 @@ spec:
       automountServiceAccountToken: false
       containers:
       - name: ${{ defaults.app_name }}-data-connector-agent
-        image: hasura/graphql-data-connector:v2.48.11
+        image: hasura/graphql-data-connector:v2.49.3
         imagePullPolicy: IfNotPresent
         resources:
           limits:
@@ -275,6 +266,7 @@ metadata:
   name: ${{ defaults.app_name }}
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
 spec:
   ports:
   - name: tcp-8080
@@ -290,6 +282,7 @@ metadata:
   name: ${{ defaults.app_name }}-data-connector-agent
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-data-connector-agent
+    app: ${{ defaults.app_name }}-data-connector-agent
 spec:
   ports:
   - name: tcp-8081

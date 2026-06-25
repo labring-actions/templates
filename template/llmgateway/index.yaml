@@ -105,6 +105,7 @@ kind: Cluster
 metadata:
   name: ${{ defaults.app_name }}-pg
   labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
     kb.io/database: postgresql-16.4.0
     clusterdefinition.kubeblocks.io/name: postgresql
     clusterversion.kubeblocks.io/name: postgresql-16.4.0
@@ -256,6 +257,7 @@ kind: Cluster
 metadata:
   name: ${{ defaults.app_name }}-redis
   labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
     kb.io/database: redis-7.2.7
     app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
     app.kubernetes.io/version: 7.2.7
@@ -354,7 +356,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-api
   annotations:
-    originImageName: ghcr.io/theopenco/llmgateway-api:v1.3.0
+    originImageName: ghcr.io/theopenco/llmgateway-api:v1.5.0
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -375,7 +377,7 @@ spec:
       automountServiceAccountToken: false
       initContainers:
         - name: wait-for-postgres
-          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          image: public.ecr.aws/docker/library/busybox:1.38.0
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_HOST
@@ -388,24 +390,11 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: port
-            - name: PG_USER
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: username
-            - name: PG_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: password
-            - name: PG_DATABASE
-              value: llmgateway
           command:
             - /bin/sh
             - -ec
             - |
-              export PGPASSWORD="$PG_PASSWORD"
-              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DATABASE" >/dev/null 2>&1; do
+              until nc -z "$PG_HOST" "$PG_PORT"; do
                 sleep 2
               done
           resources:
@@ -416,7 +405,7 @@ spec:
               cpu: 20m
               memory: 25Mi
         - name: wait-for-redis
-          image: public.ecr.aws/docker/library/redis:7.2.7-alpine
+          image: public.ecr.aws/docker/library/busybox:1.38.0
           imagePullPolicy: IfNotPresent
           env:
             - name: REDIS_HOST
@@ -427,7 +416,7 @@ spec:
             - /bin/sh
             - -ec
             - |
-              until redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" ping 2>&1 | grep -Eq 'PONG|NOAUTH|Authentication required'; do
+              until nc -z "$REDIS_HOST" "$REDIS_PORT"; do
                 sleep 2
               done
           resources:
@@ -439,7 +428,7 @@ spec:
               memory: 25Mi
       containers:
         - name: ${{ defaults.app_name }}-api
-          image: ghcr.io/theopenco/llmgateway-api:v1.3.0
+          image: ghcr.io/theopenco/llmgateway-api:v1.5.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -587,7 +576,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-gateway
   annotations:
-    originImageName: ghcr.io/theopenco/llmgateway-gateway:v1.3.0
+    originImageName: ghcr.io/theopenco/llmgateway-gateway:v1.5.0
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -608,7 +597,7 @@ spec:
       automountServiceAccountToken: false
       initContainers:
         - name: wait-for-postgres
-          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          image: public.ecr.aws/docker/library/busybox:1.38.0
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_HOST
@@ -621,24 +610,11 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: port
-            - name: PG_USER
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: username
-            - name: PG_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: password
-            - name: PG_DATABASE
-              value: llmgateway
           command:
             - /bin/sh
             - -ec
             - |
-              export PGPASSWORD="$PG_PASSWORD"
-              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DATABASE" >/dev/null 2>&1; do
+              until nc -z "$PG_HOST" "$PG_PORT"; do
                 sleep 2
               done
           resources:
@@ -649,7 +625,7 @@ spec:
               cpu: 20m
               memory: 25Mi
         - name: wait-for-migrations
-          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          image: senzing/postgresql-client:2.2.4
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_HOST
@@ -690,7 +666,7 @@ spec:
               cpu: 20m
               memory: 25Mi
         - name: wait-for-redis
-          image: public.ecr.aws/docker/library/redis:7.2.7-alpine
+          image: public.ecr.aws/docker/library/busybox:1.38.0
           imagePullPolicy: IfNotPresent
           env:
             - name: REDIS_HOST
@@ -701,7 +677,7 @@ spec:
             - /bin/sh
             - -ec
             - |
-              until redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" ping 2>&1 | grep -Eq 'PONG|NOAUTH|Authentication required'; do
+              until nc -z "$REDIS_HOST" "$REDIS_PORT"; do
                 sleep 2
               done
           resources:
@@ -713,7 +689,7 @@ spec:
               memory: 25Mi
       containers:
         - name: ${{ defaults.app_name }}-gateway
-          image: ghcr.io/theopenco/llmgateway-gateway:v1.3.0
+          image: ghcr.io/theopenco/llmgateway-gateway:v1.5.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -871,8 +847,8 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-worker
   annotations:
-    originImageName: ghcr.io/theopenco/llmgateway-worker:v1.3.0
-    docker-to-sealos.resource-override-source: Live Sealos cold-start validation on 2026-06-05 showed LLM Gateway worker v1.3.0 running at about 68Mi memory after startup; 128Mi kept the worker Ready with the API, Gateway, PostgreSQL, and Redis stack.
+    originImageName: ghcr.io/theopenco/llmgateway-worker:v1.5.0
+    docker-to-sealos.resource-override-source: Live Sealos cold-start validation on 2026-06-05 showed the LLM Gateway worker running at about 68Mi memory after startup; 128Mi kept the worker Ready with the API, Gateway, PostgreSQL, and Redis stack.
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -893,7 +869,7 @@ spec:
       automountServiceAccountToken: false
       initContainers:
         - name: wait-for-postgres
-          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          image: public.ecr.aws/docker/library/busybox:1.38.0
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_HOST
@@ -906,24 +882,11 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: port
-            - name: PG_USER
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: username
-            - name: PG_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: password
-            - name: PG_DATABASE
-              value: llmgateway
           command:
             - /bin/sh
             - -ec
             - |
-              export PGPASSWORD="$PG_PASSWORD"
-              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DATABASE" >/dev/null 2>&1; do
+              until nc -z "$PG_HOST" "$PG_PORT"; do
                 sleep 2
               done
           resources:
@@ -934,7 +897,7 @@ spec:
               cpu: 20m
               memory: 25Mi
         - name: wait-for-migrations
-          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          image: senzing/postgresql-client:2.2.4
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_HOST
@@ -975,7 +938,7 @@ spec:
               cpu: 20m
               memory: 25Mi
         - name: wait-for-redis
-          image: public.ecr.aws/docker/library/redis:7.2.7-alpine
+          image: public.ecr.aws/docker/library/busybox:1.38.0
           imagePullPolicy: IfNotPresent
           env:
             - name: REDIS_HOST
@@ -986,7 +949,7 @@ spec:
             - /bin/sh
             - -ec
             - |
-              until redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" ping 2>&1 | grep -Eq 'PONG|NOAUTH|Authentication required'; do
+              until nc -z "$REDIS_HOST" "$REDIS_PORT"; do
                 sleep 2
               done
           resources:
@@ -998,7 +961,7 @@ spec:
               memory: 25Mi
       containers:
         - name: ${{ defaults.app_name }}-worker
-          image: ghcr.io/theopenco/llmgateway-worker:v1.3.0
+          image: ghcr.io/theopenco/llmgateway-worker:v1.5.0
           imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
@@ -1055,7 +1018,7 @@ spec:
               memory: 128Mi
             requests:
               cpu: 20m
-              memory: 25Mi
+              memory: 12Mi
 
 ---
 apiVersion: apps/v1
@@ -1063,7 +1026,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: ghcr.io/theopenco/llmgateway-ui:v1.3.0
+    originImageName: ghcr.io/theopenco/llmgateway-ui:v1.5.0
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -1084,7 +1047,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: ghcr.io/theopenco/llmgateway-ui:v1.3.0
+          image: ghcr.io/theopenco/llmgateway-ui:v1.5.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -1192,7 +1155,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-docs
   annotations:
-    originImageName: ghcr.io/theopenco/llmgateway-docs:v1.3.0
+    originImageName: ghcr.io/theopenco/llmgateway-docs:v1.5.0
     docker-to-sealos.resource-override-source: LLM Gateway official Helm values set docs resources to requests 50m/64Mi and limits 100m/128Mi; live Sealos validation showed the docs service Ready at about 114Mi memory.
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
@@ -1214,7 +1177,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}-docs
-          image: ghcr.io/theopenco/llmgateway-docs:v1.3.0
+          image: ghcr.io/theopenco/llmgateway-docs:v1.5.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -1228,8 +1191,8 @@ spec:
               cpu: 100m
               memory: 128Mi
             requests:
-              cpu: 20m
-              memory: 25Mi
+              cpu: 10m
+              memory: 12Mi
           startupProbe:
             tcpSocket:
               port: http

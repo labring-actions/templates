@@ -279,7 +279,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-api
   annotations:
-    originImageName: ghcr.io/raphaelmansuy/edgequake:0.12.2
+    originImageName: ghcr.io/raphaelmansuy/edgequake:0.12.11
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -299,7 +299,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}-api
-          image: ghcr.io/raphaelmansuy/edgequake:0.12.2
+          image: ghcr.io/raphaelmansuy/edgequake:0.12.11
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -372,12 +372,35 @@ spec:
             timeoutSeconds: 5
             failureThreshold: 3
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-appvn-startvn-sealosvn-sh: |
+    set -eu
+    old="http://localhost:8080"
+    new="${EDGEQUAKE_API_URL:-}"
+    if [ -n "${new}" ]; then
+      for dir in /app/.next/server /app/.next/standalone/.next/server /app/.next/static; do
+        if [ -d "${dir}" ]; then
+          grep -R -l "${old}" "${dir}" 2>/dev/null | while IFS= read -r file; do
+            [ -n "${file}" ] && sed -i "s|${old}|${new}|g" "${file}"
+          done
+        fi
+      done
+    fi
+    exec pnpm start
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: ghcr.io/raphaelmansuy/edgequake-frontend:0.12.2
+    originImageName: ghcr.io/raphaelmansuy/edgequake-frontend:0.12.11
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -397,7 +420,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: ghcr.io/raphaelmansuy/edgequake-frontend:0.12.2
+          image: ghcr.io/raphaelmansuy/edgequake-frontend:0.12.11
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -419,20 +442,11 @@ spec:
             - /bin/sh
             - -c
           args:
-            - |
-              set -eu
-              old="http://localhost:8080"
-              new="${EDGEQUAKE_API_URL:-}"
-              if [ -n "${new}" ]; then
-                for dir in /app/.next/server /app/.next/standalone/.next/server /app/.next/static; do
-                  if [ -d "${dir}" ]; then
-                    grep -R -l "${old}" "${dir}" 2>/dev/null | while IFS= read -r file; do
-                      [ -n "${file}" ] && sed -i "s|${old}|${new}|g" "${file}"
-                    done
-                  fi
-                done
-              fi
-              exec pnpm start
+            - exec /bin/sh /app/start-sealos.sh
+          volumeMounts:
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /app/start-sealos.sh
+              subPath: vn-appvn-startvn-sealosvn-sh
           startupProbe:
             httpGet:
               path: /
@@ -457,6 +471,10 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
+      volumes:
+        - name: ${{ defaults.app_name }}-cm
+          configMap:
+            name: ${{ defaults.app_name }}
 ---
 apiVersion: v1
 kind: Service

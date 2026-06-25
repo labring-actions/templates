@@ -74,7 +74,7 @@ spec:
       automountServiceAccountToken: false
       initContainers:
         - name: wait-db
-          image: postgres:14-alpine
+          image: senzing/postgresql-client:2.2.4
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_USERNAME
@@ -87,27 +87,42 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
             - name: PG_PORT
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: port
-            - name: DATABASE_URL
-              value: postgresql://$(PG_USERNAME):$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:$(PG_PORT)
           command:
             - /bin/sh
             - -c
             - |
-              until pg_isready -d $(DATABASE_URL); do
+              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d postgres >/dev/null 2>&1; do
                 echo "Waiting for database to start..."
                 sleep 2
               done
               echo "Database is ready"
-              until psql ${DATABASE_URL} -lqt | cut -d \| -f 1 | grep -qw dify; do
+              until psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d postgres -lqt | cut -d \| -f 1 | grep -qw dify; do
                 echo "Waiting for dify database to be created..."
                 sleep 5
               done
               echo "Dify database is ready"
+          resources:
+            requests:
+              cpu: 20m
+              memory: 25Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
         - name: init-permissions
           image: busybox:1.37.0
           imagePullPolicy: IfNotPresent
@@ -126,6 +141,13 @@ spec:
           volumeMounts:
             - name: vn-appvn-apivn-storage
               mountPath: /app/api/storage
+          resources:
+            requests:
+              cpu: 20m
+              memory: 25Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
       containers:
         - name: ${{ defaults.app_name }}-api
           image: langgenius/dify-api:1.11.2
@@ -173,7 +195,7 @@ spec:
             - name: DB_DATABASE
               value: dify
             - name: REDIS_HOST
-              value: ${{ defaults.app_name }}-redis-redis-redis
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
             - name: REDIS_PORT
               value: '6379'
             - name: REDIS_USERNAME
@@ -191,7 +213,7 @@ spec:
             - name: REDIS_DB
               value: '0'
             - name: CELERY_BROKER_URL
-              value: redis://$(REDIS_USERNAME):$(REDIS_PASSWORD)@$(REDIS_HOST).${{ SEALOS_NAMESPACE }}.svc:$(REDIS_PORT)/1
+              value: redis://$(REDIS_USERNAME):$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)/1
             - name: WEB_API_CORS_ALLOW_ORIGINS
               value: '*'
             - name: CONSOLE_CORS_ALLOW_ORIGINS
@@ -256,12 +278,12 @@ spec:
               value: ${{ defaults.inner_api_key }}
           resources:
             requests:
-              cpu: 200m
-              memory: 256Mi
+              cpu: 100m
+              memory: 204Mi
               ephemeral-storage: 200Mi
             limits:
-              cpu: 1000m
-              memory: 2Gi
+              cpu: 1
+              memory: 2048Mi
               ephemeral-storage: 200Mi
           ports:
             - containerPort: 5001
@@ -301,7 +323,7 @@ spec:
             - name: DB_DATABASE
               value: dify
             - name: REDIS_HOST
-              value: ${{ defaults.app_name }}-redis-redis-redis
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
             - name: REDIS_PORT
               value: '6379'
             - name: REDIS_USERNAME
@@ -319,7 +341,7 @@ spec:
             - name: REDIS_DB
               value: '0'
             - name: CELERY_BROKER_URL
-              value: redis://$(REDIS_USERNAME):$(REDIS_PASSWORD)@$(REDIS_HOST).${{ SEALOS_NAMESPACE }}.svc:$(REDIS_PORT)/1
+              value: redis://$(REDIS_USERNAME):$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)/1
             - name: WEB_API_CORS_ALLOW_ORIGINS
               value: '*'
             - name: CONSOLE_CORS_ALLOW_ORIGINS
@@ -366,12 +388,12 @@ spec:
               value: ${{ defaults.inner_api_key }}
           resources:
             requests:
-              cpu: 200m
-              memory: 256Mi
+              cpu: 100m
+              memory: 204Mi
               ephemeral-storage: 200Mi
             limits:
-              cpu: 1000m
-              memory: 2Gi
+              cpu: 1
+              memory: 2048Mi
               ephemeral-storage: 200Mi
           ports:
             - containerPort: 5001
@@ -399,9 +421,13 @@ metadata:
   name: ${{ defaults.app_name }}-api
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-api
+    app: ${{ defaults.app_name }}-api
 spec:
   ports:
-    - port: 5001
+    - name: http
+      port: 5001
+      targetPort: 5001
+      protocol: TCP
   selector:
     app: ${{ defaults.app_name }}-api
 
@@ -431,7 +457,7 @@ spec:
       automountServiceAccountToken: false
       initContainers:
         - name: wait-db
-          image: postgres:14-alpine
+          image: senzing/postgresql-client:2.2.4
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_USERNAME
@@ -444,27 +470,42 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
             - name: PG_PORT
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: port
-            - name: DATABASE_URL
-              value: postgresql://$(PG_USERNAME):$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:$(PG_PORT)
           command:
             - /bin/sh
             - -c
             - |
-              until pg_isready -d $(DATABASE_URL); do
+              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d postgres >/dev/null 2>&1; do
                 echo "Waiting for database to start..."
                 sleep 2
               done
               echo "Database is ready"
-              until psql ${DATABASE_URL} -lqt | cut -d \| -f 1 | grep -qw dify; do
+              until psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d postgres -lqt | cut -d \| -f 1 | grep -qw dify; do
                 echo "Waiting for dify database to be created..."
                 sleep 5
               done
               echo "Dify database is ready"
+          resources:
+            requests:
+              cpu: 20m
+              memory: 25Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
       containers:
         - name: ${{ defaults.app_name }}-web
           image: langgenius/dify-web:1.11.2
@@ -488,10 +529,10 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 256Mi
+              memory: 204Mi
             limits:
               cpu: 1
-              memory: 2Gi
+              memory: 2048Mi
           ports:
             - containerPort: 3000
           imagePullPolicy: IfNotPresent
@@ -503,9 +544,13 @@ metadata:
   name: ${{ defaults.app_name }}-web
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-web
+    app: ${{ defaults.app_name }}-web
 spec:
   ports:
-    - port: 3000
+    - name: http
+      port: 3000
+      targetPort: 3000
+      protocol: TCP
   selector:
     app: ${{ defaults.app_name }}-web
 
@@ -519,6 +564,21 @@ metadata:
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
     kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
 spec:
   rules:
     - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
@@ -634,11 +694,11 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 128Mi
+              memory: 102Mi
               ephemeral-storage: 300Mi
             limits:
               cpu: 1
-              memory: 1Gi
+              memory: 1024Mi
               ephemeral-storage: 300Mi
           ports:
             - containerPort: 8194
@@ -666,9 +726,13 @@ metadata:
   name: ${{ defaults.app_name }}-sandbox
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-sandbox
+    app: ${{ defaults.app_name }}-sandbox
 spec:
   ports:
-    - port: 8194
+    - name: http
+      port: 8194
+      targetPort: 8194
+      protocol: TCP
   selector:
     app: ${{ defaults.app_name }}-sandbox
 
@@ -701,7 +765,7 @@ spec:
       automountServiceAccountToken: false
       initContainers:
         - name: wait-db
-          image: postgres:14-alpine
+          image: senzing/postgresql-client:2.2.4
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_USERNAME
@@ -714,27 +778,42 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
             - name: PG_PORT
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: port
-            - name: DATABASE_URL
-              value: postgresql://$(PG_USERNAME):$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:$(PG_PORT)
           command:
             - /bin/sh
             - -c
             - |
-              until pg_isready -d $(DATABASE_URL); do
+              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d postgres >/dev/null 2>&1; do
                 echo "Waiting for database to start..."
                 sleep 2
               done
               echo "Database is ready"
-              until psql ${DATABASE_URL} -lqt | cut -d \| -f 1 | grep -qw dify; do
+              until psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d postgres -lqt | cut -d \| -f 1 | grep -qw dify; do
                 echo "Waiting for dify database to be created..."
                 sleep 5
               done
               echo "Dify database is ready"
+          resources:
+            requests:
+              cpu: 20m
+              memory: 25Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
       containers:
         - name: ${{ defaults.app_name }}-plugin-daemon
           image: langgenius/dify-plugin-daemon:0.5.2-local
@@ -762,7 +841,7 @@ spec:
             - name: DB_DATABASE
               value: dify
             - name: REDIS_HOST
-              value: ${{ defaults.app_name }}-redis-redis-redis
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
             - name: REDIS_PORT
               value: '6379'
             - name: REDIS_USERNAME
@@ -808,11 +887,11 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 128Mi
+              memory: 102Mi
               ephemeral-storage: 500Mi
             limits:
               cpu: 1
-              memory: 1Gi
+              memory: 1024Mi
               ephemeral-storage: 500Mi
           ports:
             - name: server-port
@@ -827,14 +906,14 @@ spec:
     - metadata:
         annotations:
           path: /app/storage
-          value: '3'
+          value: '1'
         name: vn-appvn-storage
       spec:
         accessModes:
           - ReadWriteOnce
         resources:
           requests:
-            storage: 3Gi
+            storage: 1Gi
 
 ---
 apiVersion: v1
@@ -843,14 +922,17 @@ metadata:
   name: ${{ defaults.app_name }}-plugin-daemon
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-plugin-daemon
+    app: ${{ defaults.app_name }}-plugin-daemon
 spec:
   ports:
     - name: server-port
       port: 5002
-      containerPort: 5002
+      targetPort: 5002
+      protocol: TCP
     - name: remote-port
       port: 5003
-      containerPort: 5003
+      targetPort: 5003
+      protocol: TCP
   selector:
     app: ${{ defaults.app_name }}-plugin-daemon
 
@@ -905,10 +987,11 @@ metadata:
   finalizers:
     - cluster.kubeblocks.io/finalizer
   labels:
+    kb.io/database: postgresql-16.4.0
     clusterdefinition.kubeblocks.io/name: postgresql
-    clusterversion.kubeblocks.io/name: postgresql-14.8.0
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
-  annotations: {}
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
   name: ${{ defaults.app_name }}-pg
 spec:
   affinity:
@@ -917,7 +1000,7 @@ spec:
     tenancy: SharedNode
     topologyKeys: []
   clusterDefinitionRef: postgresql
-  clusterVersionRef: postgresql-14.8.0
+  clusterVersionRef: postgresql-16.4.0
   backup:
     enabled: true
     cronExpression: 0 18 * * *
@@ -926,16 +1009,18 @@ spec:
     retentionPeriod: 7d
   componentSpecs:
     - componentDefRef: postgresql
-      monitor: true
+      disableExporter: true
       name: postgresql
       replicas: 1
+      enabledLogs:
+        - running
       resources:
         limits:
-          cpu: 2
-          memory: 4Gi
+          cpu: 500m
+          memory: 512Mi
         requests:
-          cpu: 200m
-          memory: 400Mi
+          cpu: 50m
+          memory: 51Mi
       serviceAccountName: ${{ defaults.app_name }}-pg
       switchPolicy:
         type: Noop
@@ -962,7 +1047,8 @@ spec:
     spec:
       containers:
         - name: pgsql-init
-          image: postgres:14-alpine
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
           env:
             - name: PG_USERNAME
               valueFrom:
@@ -974,24 +1060,32 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
             - name: PG_PORT
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: port
-            - name: DATABASE_URL
-              value: postgresql://$(PG_USERNAME):$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:$(PG_PORT)
           command:
             - /bin/sh
             - -c
             - |
-              until pg_isready -d "${DATABASE_URL}"; do
+              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d postgres >/dev/null 2>&1; do
                 sleep 2
               done
-              psql "${DATABASE_URL}" -tc "SELECT 1 FROM pg_database WHERE datname = 'dify'" | grep -q 1 \
-                || psql "${DATABASE_URL}" -c "CREATE DATABASE dify;"
-              psql "${DATABASE_URL}" -tc "SELECT 1 FROM pg_database WHERE datname = 'dify_plugin'" | grep -q 1 \
-                || psql "${DATABASE_URL}" -c "CREATE DATABASE dify_plugin;"
+              psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d postgres -tc "SELECT 1 FROM pg_database WHERE datname = 'dify'" | grep -q 1 \
+                || psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d postgres -c "CREATE DATABASE dify;"
+              psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d postgres -tc "SELECT 1 FROM pg_database WHERE datname = 'dify_plugin'" | grep -q 1 \
+                || psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d postgres -c "CREATE DATABASE dify_plugin;"
           resources:
             limits:
               cpu: 500m
@@ -1056,11 +1150,10 @@ metadata:
   labels:
     clusterdefinition.kubeblocks.io/name: redis
     kb.io/database: redis-7.2.7
-    app.kubernetes.io/instance: ${{ defaults.app_name }}
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
     app.kubernetes.io/version: 7.2.7
     helm.sh/chart: redis-cluster-0.9.0
     sealos-db-provider-cr: ${{ defaults.app_name }}-redis
-  annotations: {}
   name: ${{ defaults.app_name }}-redis
 spec:
   affinity:
@@ -1080,11 +1173,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 1
-          memory: 4Gi
+          cpu: 500m
+          memory: 512Mi
         requests:
-          cpu: 100m
-          memory: 400Mi
+          cpu: 50m
+          memory: 51Mi
       serviceAccountName: ${{ defaults.app_name }}-redis
       switchPolicy:
         type: Noop
@@ -1102,11 +1195,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 100m
-          memory: 100Mi
+          cpu: 500m
+          memory: 512Mi
         requests:
-          cpu: 100m
-          memory: 100Mi
+          cpu: 50m
+          memory: 51Mi
       serviceAccountName: ${{ defaults.app_name }}-redis
   terminationPolicy: Delete
   topology: replication
@@ -1193,11 +1286,11 @@ spec:
             timeoutSeconds: 5
           resources:
             requests:
-              cpu: 200m
-              memory: 400Mi
+              cpu: 100m
+              memory: 204Mi
             limits:
               cpu: 1
-              memory: 2Gi
+              memory: 2048Mi
           imagePullPolicy: IfNotPresent
           volumeMounts:
             - name: vn-varvn-libvn-weaviate

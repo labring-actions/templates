@@ -19,7 +19,6 @@ spec:
   locale: en
   i18n:
     zh:
-      title: 'Keycloak'
       description: '面向现代应用和服务的开源身份和访问管理解决方案'
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/keycloak/README_zh.md'
   defaults:
@@ -95,10 +94,10 @@ metadata:
   finalizers:
     - cluster.kubeblocks.io/finalizer
   labels:
+    kb.io/database: postgresql-14.8.0
     clusterdefinition.kubeblocks.io/name: postgresql
     clusterversion.kubeblocks.io/name: postgresql-14.8.0
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
-  annotations: {}
   name: ${{ defaults.app_name }}-pg
 spec:
   affinity:
@@ -143,28 +142,57 @@ metadata:
   name: ${{ defaults.app_name }}-pg-init
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-pg-init
+    app: ${{ defaults.app_name }}-pg-init
 spec:
-  completions: 1
+  backoffLimit: 6
   template:
     spec:
+      automountServiceAccountToken: false
       containers:
         - name: pgsql-init
           image: postgres:14-alpine
+          imagePullPolicy: IfNotPresent
           env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
             - name: PG_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
-            - name: DATABASE_URL
-              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
+            - name: PGPASSWORD
+              value: $(PG_PASSWORD)
           command:
             - /bin/sh
-            - -c
+            - -ec
             - |
-              until psql ${DATABASE_URL} -c 'CREATE DATABASE keycloak;' &>/dev/null; do sleep 1; done
+              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; do
+                sleep 2
+              done
+              if ! psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='keycloak'" | grep -q 1; then
+                psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE "keycloak";'
+              fi
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
       restartPolicy: Never
-  backoffLimit: 0
   ttlSecondsAfterFinished: 300
 
 ---
@@ -174,7 +202,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: quay.io/keycloak/keycloak:26.3.2
+    originImageName: quay.io/keycloak/keycloak:26.6.3
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -191,11 +219,12 @@ spec:
     metadata:
       labels:
         app: ${{ defaults.app_name }}
+        app.kubernetes.io/discovery: ${{ defaults.app_name }}-discovery
     spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: quay.io/keycloak/keycloak:26.3.2
+          image: quay.io/keycloak/keycloak:26.6.3
           imagePullPolicy: IfNotPresent
           args: ["start"]
           env:
@@ -219,13 +248,13 @@ spec:
                   fieldPath: status.podIP
             - name: JAVA_OPTS_APPEND
               value: '-Djgroups.bind.address=$(POD_IP)'
-            - name: KC_DB_URL_DATABASE
-              value: 'keycloak'
-            - name: KC_DB_URL_HOST
+            - name: KC_DB_ENDPOINT
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: host
+                  key: endpoint
+            - name: KC_DB_URL
+              value: jdbc:postgresql://$(KC_DB_ENDPOINT)/keycloak
             - name: KC_DB
               value: 'postgres'
             - name: KC_DB_PASSWORD
@@ -293,10 +322,11 @@ kind: Service
 metadata:
   labels:
     app: ${{ defaults.app_name }}-discovery
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-discovery
   name: ${{ defaults.app_name }}-discovery
 spec:
   selector:
-    app: ${{ defaults.app_name }}
+    app.kubernetes.io/discovery: ${{ defaults.app_name }}-discovery
   clusterIP: None
   type: ClusterIP
 

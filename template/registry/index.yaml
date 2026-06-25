@@ -5,26 +5,30 @@ metadata:
 spec:
   gitRepo: https://github.com/distribution/distribution
   templateType: inline
-  title: registry
+  title: Registry
   url: https://distribution.github.io/distribution
-  author: sealos
+  author: Sealos
   description: >-
-    registry is an implementation of the OCI Distribution Specification.
-    gui-registry is a web UI for registry.
+    Registry is an implementation of the OCI Distribution Specification with a
+    web UI for browsing and managing container images.
   readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/registry/README.md'
   icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/registry/logo.svg'
   screenshots:
     - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/registry/website-screenshot.webp'
+  locale: en
+  categories:
+    - dev-ops
+    - storage
   defaults:
     app_name:
       type: string
       value: registry-${{ random(8) }}
     app_host:
       type: string
-      value: ${{ random(8) }}
-  input: null
+      value: registry-${{ random(8) }}
   i18n:
     zh:
+      description: Registry 是一个 OCI Distribution Specification 实现，提供用于浏览和管理容器镜像的 Web UI。
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/registry/README_zh.md'
 ---
 apiVersion: apps/v1
@@ -32,7 +36,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: registry:2.8.3
+    originImageName: registry:3.1.1
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -45,16 +49,17 @@ spec:
     matchLabels:
       app: ${{ defaults.app_name }}
   minReadySeconds: 10
-  serviceName: registry
+  serviceName: ${{ defaults.app_name }}
   template:
     metadata:
       labels:
         app: ${{ defaults.app_name }}
     spec:
+      automountServiceAccountToken: false
       terminationGracePeriodSeconds: 10
       containers:
         - name: ${{ defaults.app_name }}
-          image: registry:2.8.3
+          image: registry:3.1.1
           env: []
           resources:
             requests:
@@ -64,30 +69,23 @@ spec:
               cpu: 500m
               memory: 256Mi
           ports:
-            - containerPort: 5000
+            - name: http
+              containerPort: 5000
+              protocol: TCP
           imagePullPolicy: IfNotPresent
           volumeMounts:
-            - name: vn-etcvn-dockervn-registryvn-configvn-yml
-              mountPath: /etc/docker/registry/config.yml
-              subPath: ./etc/docker/registry/config.yml
-            - name: vn-etcvn-registryvn-htpasswd
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /etc/distribution/config.yml
+              subPath: vn-etcvn-distributionvn-configvn-yml
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /etc/registry/htpasswd
-              subPath: ./etc/registry/htpasswd
+              subPath: vn-etcvn-registryvn-htpasswd
             - name: vn-varvn-libvn-registry
               mountPath: /var/lib/registry
       volumes:
-        - name: vn-etcvn-dockervn-registryvn-configvn-yml
+        - name: ${{ defaults.app_name }}-cm
           configMap:
             name: ${{ defaults.app_name }}
-            items:
-              - key: vn-etcvn-dockervn-registryvn-configvn-yml
-                path: ./etc/docker/registry/config.yml
-        - name: vn-etcvn-registryvn-htpasswd
-          configMap:
-            name: ${{ defaults.app_name }}
-            items:
-              - key: vn-etcvn-registryvn-htpasswd
-                path: ./etc/registry/htpasswd
   volumeClaimTemplates:
     - metadata:
         annotations:
@@ -106,9 +104,10 @@ kind: ConfigMap
 metadata:
   name: ${{ defaults.app_name }}
   labels:
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 data:
-  vn-etcvn-dockervn-registryvn-configvn-yml: |-
+  vn-etcvn-distributionvn-configvn-yml: |-
     version: 0.1
     log:
       fields:
@@ -151,10 +150,14 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 5000
+    - name: http
+      port: 5000
+      targetPort: http
+      protocol: TCP
   selector:
     app: ${{ defaults.app_name }}
 ---
@@ -163,19 +166,21 @@ kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
     kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/proxy-body-size: 4g
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
     nginx.ingress.kubernetes.io/server-snippet: |
       client_header_buffer_size 64k;
       large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
-    nginx.ingress.kubernetes.io/rewrite-target: /$2
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
     nginx.ingress.kubernetes.io/configuration-snippet: |
       if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
         expires 30d;
@@ -187,7 +192,7 @@ spec:
       http:
         paths:
           - pathType: Prefix
-            path: /()(.*)
+            path: /
             backend:
               service:
                 name: ${{ defaults.app_name }}
@@ -203,7 +208,7 @@ kind: Deployment
 metadata:
   name: gui-${{ defaults.app_name }}
   annotations:
-    originImageName: joxit/docker-registry-ui:2.5.6-debian
+    originImageName: joxit/docker-registry-ui:2.6.0-debian
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -225,9 +230,10 @@ spec:
       labels:
         app: gui-${{ defaults.app_name }}
     spec:
+      automountServiceAccountToken: false
       containers:
         - name: gui-${{ defaults.app_name }}
-          image: joxit/docker-registry-ui:2.5.6-debian
+          image: joxit/docker-registry-ui:2.6.0-debian
           env:
             - name: REGISTRY_TITLE
               value: Sealos-Registry-GUI
@@ -259,20 +265,24 @@ spec:
               cpu: 500m
               memory: 256Mi
           ports:
-            - containerPort: 80
+            - name: http
+              containerPort: 80
+              protocol: TCP
           imagePullPolicy: IfNotPresent
-          volumeMounts: []
-      volumes: []
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: gui-${{ defaults.app_name }}
   labels:
+    app: gui-${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: gui-${{ defaults.app_name }}
 spec:
   ports:
-    - port: 80
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
   selector:
     app: gui-${{ defaults.app_name }}
 ---
@@ -281,17 +291,17 @@ kind: Ingress
 metadata:
   name: gui-${{ defaults.app_name }}
   labels:
+    app: gui-${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: gui-${{ defaults.app_name }}
-    cloud.sealos.io/app-deploy-manager-domain: gui-${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: gui-${{ defaults.app_host }}
   annotations:
     kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/proxy-body-size: 4g
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
     nginx.ingress.kubernetes.io/server-snippet: |
       client_header_buffer_size 64k;
       large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
-    nginx.ingress.kubernetes.io/rewrite-target: /$2
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
@@ -307,7 +317,7 @@ spec:
       http:
         paths:
           - pathType: Prefix
-            path: /()(.*)
+            path: /
             backend:
               service:
                 name: gui-${{ defaults.app_name }}
@@ -317,3 +327,17 @@ spec:
     - hosts:
         - gui-${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       secretName:  ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: gui-${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: gui-${{ defaults.app_name }}
+spec:
+  data:
+    url: https://gui-${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/registry/logo.svg
+  name: Registry
+  type: link

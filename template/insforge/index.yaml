@@ -169,7 +169,7 @@ metadata:
     kb.io/database: postgresql-16.4.0
     clusterdefinition.kubeblocks.io/name: postgresql
     clusterversion.kubeblocks.io/name: postgresql-16.4.0
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
 spec:
   affinity:
     podAntiAffinity: Preferred
@@ -262,7 +262,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: pg-ext-init
-          image: apecloud/kubeblocks-tools:0.9.3
+          image: apecloud/kubeblocks-tools:1.0.2
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
@@ -349,7 +349,7 @@ spec:
           restartPolicy: OnFailure
           containers:
             - name: pg-ext-ensure
-              image: apecloud/kubeblocks-tools:0.9.3
+              image: apecloud/kubeblocks-tools:1.0.2
               imagePullPolicy: IfNotPresent
               securityContext:
                 allowPrivilegeEscalation: false
@@ -417,13 +417,12 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: ghcr.io/insforge/insforge-oss:v2.1.8
+    originImageName: ghcr.io/insforge/insforge-oss:v2.2.2
     deploy.cloud.sealos.io/minReplicas: "1"
     deploy.cloud.sealos.io/maxReplicas: "1"
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
 spec:
   replicas: 1
   revisionHistoryLimit: 1
@@ -437,8 +436,8 @@ spec:
     spec:
       automountServiceAccountToken: false
       initContainers:
-        - name: wait-db-prerequisites
-          image: postgres:16-alpine
+        - name: wait-app-prerequisites
+          image: alpine:3.24.1
           imagePullPolicy: IfNotPresent
           resources:
             limits:
@@ -474,6 +473,7 @@ spec:
           args:
             - |
               set -eu
+              apk add --no-cache postgresql-client
               DB_URL="postgresql://$(SEALOS_DATABASE_POSTGRES_USERNAME):$(SEALOS_DATABASE_POSTGRES_PASSWORD)@$(SEALOS_DATABASE_POSTGRES_HOST):$(SEALOS_DATABASE_POSTGRES_PORT)/postgres"
 
               until pg_isready -h "$(SEALOS_DATABASE_POSTGRES_HOST)" -p "$(SEALOS_DATABASE_POSTGRES_PORT)" -U "$(SEALOS_DATABASE_POSTGRES_USERNAME)" -d postgres >/dev/null 2>&1; do
@@ -497,7 +497,7 @@ spec:
               done
       containers:
         - name: ${{ defaults.app_name }}
-          image: ghcr.io/insforge/insforge-oss:v2.1.8
+          image: ghcr.io/insforge/insforge-oss:v2.2.2
           imagePullPolicy: IfNotPresent
           resources:
             limits:
@@ -672,7 +672,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-postgrest
   annotations:
-    originImageName: postgrest/postgrest:v12.2.12
+    originImageName: postgrest/postgrest:v13.0.8
     deploy.cloud.sealos.io/minReplicas: "1"
     deploy.cloud.sealos.io/maxReplicas: "1"
   labels:
@@ -692,7 +692,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}-postgrest
-          image: postgrest/postgrest:v12.2.12
+          image: postgrest/postgrest:v13.0.8
           imagePullPolicy: IfNotPresent
           resources:
             limits:

@@ -1,6 +1,6 @@
 # Deploy and Host Zot Registry on Sealos
 
-Zot Registry is an OCI-native container image registry for storing and distributing container artifacts. This template deploys Zot `v2.1.14` on Sealos Cloud with built-in basic authentication and two storage backends: local filesystem or S3-compatible object storage.
+Zot Registry is an OCI-native container image registry for storing and distributing container artifacts. This template deploys Zot `v2.1.18` on Sealos Cloud with built-in basic authentication and two storage backends: local filesystem or S3-compatible object storage.
 
 ![Zot Logo](logo.svg)
 
@@ -24,7 +24,7 @@ The deployment enables basic auth and access-control policies by default, config
 
 The Sealos template includes all required dependencies for Zot runtime:
 
-- Zot core service (`ghcr.io/project-zot/zot:v2.1.14`)
+- Zot core service (`ghcr.io/project-zot/zot:v2.1.18`)
 - Service + Ingress with HTTPS exposure
 - Built-in basic authentication and repository access-control policy
 - Optional Sealos ObjectStorage bucket (when `zot_storage_backend=objectstorage`)
@@ -87,7 +87,7 @@ Deploy Zot on Sealos and focus on shipping artifacts instead of managing infrast
 
 1. Open the [Zot template](https://sealos.io/products/app-store/zot) and click **Deploy Now**.
 2. Configure parameters in the popup dialog:
-   - `zot_storage_backend`: `filesystem` or `objectstorage`
+   - `use_object_storage`: `false` for filesystem storage or `true` for Sealos ObjectStorage
    - `zot_admin_user`
    - If `filesystem`: set `zot_admin_password`
    - If `objectstorage`: set `zot_admin_htpasswd_hash` and optional `zot_s3_region`
@@ -109,7 +109,7 @@ After deployment, you can configure Zot through:
 
 | Parameter | Description | Required |
 | --- | --- | --- |
-| `zot_storage_backend` | Storage backend (`filesystem` or `objectstorage`) | Yes |
+| `use_object_storage` | Use Sealos S3-compatible object storage instead of local filesystem storage | Yes |
 | `zot_admin_user` | Admin username for basic auth | Yes |
 | `zot_admin_password` | Admin password (filesystem mode only) | Conditional |
 | `zot_admin_htpasswd_hash` | Admin htpasswd hash, not plain password (objectstorage mode only) | Conditional |

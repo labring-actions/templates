@@ -13,6 +13,7 @@ spec:
   screenshots:
     - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/s-pdf/website-screenshot.webp'
   templateType: inline
+  locale: en
   categories:
     - tool
   defaults:
@@ -81,6 +82,7 @@ spec:
       required: false
   i18n:
     zh:
+      description: 'Stirling-PDF 是一个本地托管的 PDF 工具箱，可在浏览器中执行多种 PDF 文件处理操作。'
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/s-pdf/README_zh.md'
 ---
 ${{ if(inputs.SYSTEM_DEFAULTLOCALE === 'zh-CN') }}
@@ -89,6 +91,9 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 data:
   vn-etcvn-apkvn-repositories: |-
     https://mirrors.ustc.edu.cn/alpine/v3.20/main
@@ -150,10 +155,10 @@ metadata:
   finalizers:
     - cluster.kubeblocks.io/finalizer
   labels:
+    kb.io/database: postgresql-14.8.0
     clusterdefinition.kubeblocks.io/name: postgresql
     clusterversion.kubeblocks.io/name: postgresql-14.8.0
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
-  annotations: {}
   name: ${{ defaults.app_name }}-pg
 spec:
   affinity:
@@ -201,19 +206,42 @@ spec:
       containers:
         - name: pgsql-init
           image: postgres:14-alpine
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
           env:
             - name: PG_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
+            - name: PG_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: endpoint
             - name: DATABASE_URL
-              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
+              value: postgresql://postgres:$(PG_PASSWORD)@$(PG_ENDPOINT)
           command:
             - /bin/sh
             - -c
             - |
-              until psql ${DATABASE_URL} -c 'CREATE DATABASE stirling_pdf;' &>/dev/null; do sleep 1; done
+              set -eu
+              for i in $(seq 1 60); do
+                if pg_isready -h "${PG_ENDPOINT%:*}" -p "${PG_ENDPOINT##*:}" -U postgres -d postgres >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 2
+              done
+              pg_isready -h "${PG_ENDPOINT%:*}" -p "${PG_ENDPOINT##*:}" -U postgres -d postgres >/dev/null 2>&1
+              if ! psql "${DATABASE_URL}/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='stirling_pdf'" | grep -q 1; then
+                psql "${DATABASE_URL}/postgres" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE "stirling_pdf";'
+              fi
       restartPolicy: Never
   backoffLimit: 0
   ttlSecondsAfterFinished: 300
@@ -225,7 +253,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: ghcr.io/stirling-tools/stirling-pdf:1.2.0-fat
+    originImageName: ghcr.io/stirling-tools/stirling-pdf:2.13.2-fat
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -248,15 +276,22 @@ spec:
       automountServiceAccountToken: false
       initContainers:
         - name: take-data-dir-ownership
-          image: alpine
+          image: alpine:3.22.2
           command: ["/bin/sh", "-c", "chown -R 1000:1000 /tmp"]
           imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
           volumeMounts:
             - name: vn-tmp
               mountPath: /tmp
       containers:
         - name: ${{ defaults.app_name }}
-          image: ghcr.io/stirling-tools/stirling-pdf:1.2.0-fat
+          image: ghcr.io/stirling-tools/stirling-pdf:2.13.2-fat
           env:
             - name: DOCKER_ENABLE_SECURITY
               value: ${{ inputs.DOCKER_ENABLE_SECURITY }}
@@ -310,7 +345,7 @@ spec:
               memory: 204Mi
               ephemeral-storage: "200Mi"
             limits:
-              cpu: 1000m
+              cpu: 1
               memory: 2048Mi
               ephemeral-storage: "200Mi"
           ports:
@@ -324,9 +359,9 @@ spec:
             - name: vn-configs
               mountPath: /configs
             ${{ if(inputs.SYSTEM_DEFAULTLOCALE === 'zh-CN') }}
-            - name: vn-etcvn-apkvn-repositories
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /etc/apk/repositories
-              subPath: ./etc/apk/repositories
+              subPath: vn-etcvn-apkvn-repositories
             ${{ endif() }}
             - name: vn-customfiles
               mountPath: /customFiles
@@ -356,12 +391,12 @@ spec:
             failureThreshold: 5
       ${{ if(inputs.SYSTEM_DEFAULTLOCALE === 'zh-CN') }}
       volumes:
-        - name: vn-etcvn-apkvn-repositories
+        - name: ${{ defaults.app_name }}-cm
           configMap:
             name: ${{ defaults.app_name }}
             items:
               - key: vn-etcvn-apkvn-repositories
-                path: ./etc/apk/repositories
+                path: vn-etcvn-apkvn-repositories
       ${{ endif() }}
   volumeClaimTemplates:
     - metadata:
@@ -427,9 +462,11 @@ metadata:
   name: ${{ defaults.app_name }}
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 8080
+    - name: http
+      port: 8080
   selector:
     app: ${{ defaults.app_name }}
 ---

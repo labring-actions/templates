@@ -16,7 +16,6 @@ spec:
   locale: en
   i18n:
     zh:
-      title: 'Casdoor'
       description: 'Casdoor 是一个基于 OAuth 2.0、OIDC、SAML 和 CAS 的 UI 优先的身份访问管理（IAM）/单点登录（SSO）平台。'
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/casdoor/README_zh.md'
   categories:
@@ -46,6 +45,7 @@ kind: ConfigMap
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 data:
   vn-confvn-appvn-conf: |
@@ -119,19 +119,25 @@ metadata:
     - cluster.kubeblocks.io/finalizer
   labels:
     clusterdefinition.kubeblocks.io/name: apecloud-mysql
-    clusterversion.kubeblocks.io/name: ac-mysql-8.0.30
+    clusterversion.kubeblocks.io/name: ac-mysql-8.0.30-1
+    kb.io/database: ac-mysql-8.0.30-1
     sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
   name: ${{ defaults.app_name }}-mysql
 spec:
   affinity:
+    nodeLabels: {}
     podAntiAffinity: Preferred
     tenancy: SharedNode
+    topologyKeys:
+      - kubernetes.io/hostname
   clusterDefinitionRef: apecloud-mysql
-  clusterVersionRef: ac-mysql-8.0.30
+  clusterVersionRef: ac-mysql-8.0.30-1
   componentSpecs:
     - componentDefRef: mysql
       monitor: true
       name: mysql
+      noCreatePDB: false
       replicas: 1
       resources:
         limits:
@@ -141,6 +147,8 @@ spec:
           cpu: 50m
           memory: 51Mi
       serviceAccountName: ${{ defaults.app_name }}-mysql
+      switchPolicy:
+        type: Noop
       volumeClaimTemplates:
         - name: data
           spec:
@@ -151,6 +159,7 @@ spec:
                 storage: 1Gi
             storageClassName: openebs-backup
   terminationPolicy: Delete
+  tolerations: []
 ---
 apiVersion: batch/v1
 kind: Job
@@ -160,9 +169,11 @@ spec:
   completions: 1
   template:
     spec:
+      automountServiceAccountToken: false
       containers:
         - name: mysql-init
-          image: mysql:8.0
+          image: mysql:8.0.46-debian
+          imagePullPolicy: IfNotPresent
           env:
             - name: MYSQL_PASSWORD
               valueFrom:
@@ -190,19 +201,27 @@ spec:
             - /bin/sh
             - -c
             - |
+              set -eu
               echo "Waiting for MySQL to be ready..."
 
-              until mysql -h${MYSQL_HOST} -P${MYSQL_PORT} -u${MYSQL_USER} -p${MYSQL_PASSWORD} -e "SELECT 1" >/dev/null 2>&1; do
+              until mysqladmin ping -h "${MYSQL_HOST}" -P "${MYSQL_PORT}" -u "${MYSQL_USER}" -p"${MYSQL_PASSWORD}" --silent; do
                 echo "MySQL is not ready, retrying..."
                 sleep 2
               done
 
               echo "MySQL ready. Creating database if not exists..."
-              mysql -h${MYSQL_HOST} -P${MYSQL_PORT} -u${MYSQL_USER} -p${MYSQL_PASSWORD} \
+              mysql -h "${MYSQL_HOST}" -P "${MYSQL_PORT}" -u "${MYSQL_USER}" -p"${MYSQL_PASSWORD}" \
                 -e "CREATE DATABASE IF NOT EXISTS \`${DATABASE_NAME}\` DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_unicode_ci;"
               echo "Database '${DATABASE_NAME}' ensured!"
-      restartPolicy: Never
-  backoffLimit: 0
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+      restartPolicy: OnFailure
+  backoffLimit: 3
   ttlSecondsAfterFinished: 300
 ${{ endif() }}
 
@@ -259,17 +278,22 @@ metadata:
     - cluster.kubeblocks.io/finalizer
   labels:
     clusterdefinition.kubeblocks.io/name: postgresql
-    clusterversion.kubeblocks.io/name: postgresql-14.8.0
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+    kb.io/database: postgresql-16.4.0
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
   name: ${{ defaults.app_name }}-pg
 spec:
   affinity:
     podAntiAffinity: Preferred
     tenancy: SharedNode
   clusterDefinitionRef: postgresql
-  clusterVersionRef: postgresql-14.8.0
+  clusterVersionRef: postgresql-16.4.0
   componentSpecs:
     - componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
       monitor: true
       name: postgresql
       replicas: 1
@@ -303,24 +327,48 @@ spec:
   completions: 1
   template:
     spec:
+      automountServiceAccountToken: false
       containers:
         - name: pgsql-init
-          image: postgres:14-alpine
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
           env:
             - name: PG_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
-            - name: DATABASE_URL
-              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
+            - name: PG_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: endpoint
+            - name: PG_DATABASE
+              value: casdoor
           command:
             - /bin/sh
             - -c
             - |
-              until psql ${DATABASE_URL} -c 'CREATE DATABASE casdoor;' &>/dev/null; do sleep 1; done
-      restartPolicy: Never
-  backoffLimit: 0
+              set -eu
+              for i in $(seq 1 60); do
+                if pg_isready -h "${PG_ENDPOINT%:*}" -p "${PG_ENDPOINT##*:}" -U postgres -d postgres >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 2
+              done
+              pg_isready -h "${PG_ENDPOINT%:*}" -p "${PG_ENDPOINT##*:}" -U postgres -d postgres >/dev/null 2>&1
+              if ! psql "postgresql://postgres:${PG_PASSWORD}@${PG_ENDPOINT}/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='${PG_DATABASE}'" | grep -q 1; then
+                psql "postgresql://postgres:${PG_PASSWORD}@${PG_ENDPOINT}/postgres" -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"${PG_DATABASE}\";"
+              fi
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+      restartPolicy: OnFailure
+  backoffLimit: 3
   ttlSecondsAfterFinished: 300
 ${{ endif() }}
 
@@ -331,7 +379,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: casbin/casdoor:v2.32.0
+    originImageName: casbin/casdoor:v2.190.0
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -350,9 +398,12 @@ spec:
         app: ${{ defaults.app_name }}
     spec:
       automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: ${{ defaults.app_name }}
-          image: casbin/casdoor:v2.32.0
+          image: casbin/casdoor:v2.190.0
           imagePullPolicy: IfNotPresent
           env:
             - name: RUNNING_IN_DOCKER
@@ -362,7 +413,7 @@ spec:
             - name: driverName
               value: sqlite
             - name: dataSourceName
-              value: /tmp/casdoor.db
+              value: /home/casdoor.db
           ports:
             - name: http
               containerPort: 8000
@@ -375,19 +426,15 @@ spec:
               cpu: 20m
               memory: 25Mi
           volumeMounts:
-            - name: vn-confvn-appvn-conf
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /conf/app.conf
-              subPath: ./conf/app.conf
+              subPath: vn-confvn-appvn-conf
             - name: data
               mountPath: /home
       volumes:
-        - name: vn-confvn-appvn-conf
+        - name: ${{ defaults.app_name }}-cm
           configMap:
             name: ${{ defaults.app_name }}
-            items:
-              - key: vn-confvn-appvn-conf
-                path: ./conf/app.conf
-            defaultMode: 420
   volumeClaimTemplates:
     - metadata:
         annotations:
@@ -405,6 +452,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: casbin/casdoor:v2.190.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
@@ -422,7 +473,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: casbin/casdoor:v1.702.0
+          image: casbin/casdoor:v2.190.0
           imagePullPolicy: IfNotPresent
           env:
             - name: RUNNING_IN_DOCKER
@@ -492,17 +543,13 @@ spec:
               cpu: 20m
               memory: 25Mi
           volumeMounts:
-            - name: vn-confvn-appvn-conf
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /conf/app.conf
-              subPath: ./conf/app.conf
+              subPath: vn-confvn-appvn-conf
       volumes:
-        - name: vn-confvn-appvn-conf
+        - name: ${{ defaults.app_name }}-cm
           configMap:
             name: ${{ defaults.app_name }}
-            items:
-              - key: vn-confvn-appvn-conf
-                path: ./conf/app.conf
-            defaultMode: 420
 ${{ endif() }}
 
 ---
@@ -511,6 +558,7 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   type: ClusterIP
@@ -528,6 +576,7 @@ kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:

@@ -14,6 +14,8 @@ spec:
     - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/tailchat/website-screenshot.webp'
   templateType: inline
   locale: en
+  categories:
+    - tool
   i18n:
     zh:
       description: '在您自己工作区中的下一代 noIM 应用程序'
@@ -63,7 +65,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: moonrailgun/tailchat:1.11.5
+    originImageName: moonrailgun/tailchat:1.11.11
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -83,19 +85,26 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: moonrailgun/tailchat:1.11.5
+          image: moonrailgun/tailchat:1.11.11
           env:
+            - name: MONGO_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mongodb-mongodb-account-root
+                  key: username
             - name: MONGO_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: ${{ defaults.app_name }}-mongodb-conn-credential
+                  name: ${{ defaults.app_name }}-mongodb-mongodb-account-root
                   key: password
             - name: SERVICEDIR
               value: services,plugins
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
             - name: TRANSPORTER
-              value: redis://${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc
-            - name: REDIS_ENDPOINT
-              value: ${{ defaults.app_name }}-redis-redis-redis:6379
+              value: redis://$(REDIS_USERNAME):$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)
             - name: REDIS_USERNAME
               valueFrom:
                 secretKeyRef:
@@ -107,9 +116,9 @@ spec:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
             - name: REDIS_URL
-              value: redis://$(REDIS_USERNAME):$(REDIS_PASSWORD)@$(REDIS_ENDPOINT)
+              value: redis://$(REDIS_USERNAME):$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)
             - name: MONGO_URL
-              value: mongodb://root:$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongodb-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017
+              value: mongodb://$(MONGO_USERNAME):$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongodb-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017/tailchat?authSource=admin
             - name: MINIO_URL
               value: ${{ defaults.app_name }}-minio.${{ SEALOS_NAMESPACE }}.svc.cluster.local:9000
             - name: MINIO_USER
@@ -121,7 +130,7 @@ spec:
               cpu: 100m
               memory: 102Mi
             limits:
-              cpu: 1000m
+              cpu: 1
               memory: 1024Mi
           command: []
           args: []
@@ -137,10 +146,13 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 11000
+    - name: http
+      port: 11000
+      targetPort: 11000
   selector:
     app: ${{ defaults.app_name }}
 
@@ -158,11 +170,13 @@ metadata:
     nginx.ingress.kubernetes.io/server-snippet: |
       client_header_buffer_size 64k;
       large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
     nginx.ingress.kubernetes.io/rewrite-target: /$2
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
     nginx.ingress.kubernetes.io/configuration-snippet: |
       if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
         expires 30d;
@@ -191,7 +205,8 @@ kind: Cluster
 metadata:
   labels:
     kb.io/database: mongodb-8.0.4
-    app.kubernetes.io/instance: test-db
+    clusterdefinition.kubeblocks.io/name: mongodb
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongodb
     helm.sh/chart: mongodb-cluster-0.9.1
     sealos-db-provider-cr: ${{ defaults.app_name }}-mongodb
   name: ${{ defaults.app_name }}-mongodb
@@ -283,6 +298,7 @@ spec:
       labels:
         app: ${{ defaults.app_name }}-minio
     spec:
+      automountServiceAccountToken: false
       terminationGracePeriodSeconds: 10
       containers:
         - name: ${{ defaults.app_name }}-minio
@@ -297,7 +313,7 @@ spec:
               cpu: 100m
               memory: 102Mi
             limits:
-              cpu: 1000m
+              cpu: 1
               memory: 1024Mi
           command:
             - minio
@@ -330,10 +346,13 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-minio
   labels:
+    app: ${{ defaults.app_name }}-minio
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio
 spec:
   ports:
-    - port: 9000
+    - name: http
+      port: 9000
+      targetPort: 9000
   selector:
     app: ${{ defaults.app_name }}-minio
 
@@ -392,11 +411,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 100m
-          memory: 100Mi
+          cpu: 500m
+          memory: 512Mi
         requests:
-          cpu: 10m
-          memory: 10Mi
+          cpu: 50m
+          memory: 51Mi
       serviceVersion: 7.2.7
       volumeClaimTemplates:
         - name: data

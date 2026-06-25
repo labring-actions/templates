@@ -285,6 +285,13 @@ spec:
               if ! psql "postgresql://postgres:$(PG_PASSWORD)@$(PG_ENDPOINT)/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='tooljet_db'" | grep -q 1; then
                 psql "postgresql://postgres:$(PG_PASSWORD)@$(PG_ENDPOINT)/postgres" -v ON_ERROR_STOP=1 -c "CREATE DATABASE tooljet_db;"
               fi
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
       restartPolicy: OnFailure
   ttlSecondsAfterFinished: 300
 ---
@@ -328,9 +335,16 @@ spec:
               done
               echo "Timed out waiting for ToolJet databases" >&2
               exit 1
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
       containers:
         - name: tooljet-migrate
-          image: tooljet/tooljet-ce:v3.20.170-lts
+          image: tooljet/tooljet-ce:v3.20.186-lts
           imagePullPolicy: IfNotPresent
           command:
             - /bin/sh
@@ -440,10 +454,10 @@ spec:
           resources:
             limits:
               cpu: '1'
-              memory: 2Gi
+              memory: 2048Mi
             requests:
-              cpu: 50m
-              memory: 512Mi
+              cpu: 100m
+              memory: 204Mi
       restartPolicy: OnFailure
   ttlSecondsAfterFinished: 300
 ---
@@ -452,7 +466,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-postgrest
   annotations:
-    originImageName: postgrest/postgrest:v12.0.2
+    originImageName: postgrest/postgrest:v13.0.8
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -472,7 +486,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}-postgrest
-          image: postgrest/postgrest:v12.0.2
+          image: postgrest/postgrest:v13.0.8
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_HOST
@@ -545,10 +559,10 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: tooljet/tooljet-ce:v3.20.170-lts
+    originImageName: tooljet/tooljet-ce:v3.20.186-lts
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
-    docker-to-sealos.resource-override-source: "Live Sealos cold-start validation on 2026-06-02: ToolJet v3.20.170-lts required 1536Mi memory for the main web process; lower 512Mi/768Mi attempts OOMKilled."
+    docker-to-sealos.resource-override-source: "Live Sealos cold-start validation on 2026-06-02: ToolJet required more than 1024Mi memory for the main web process; use the 2048Mi Sealos ladder entry for startup headroom."
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
@@ -565,7 +579,7 @@ spec:
     spec:
       initContainers:
         - name: wait-for-tooljet-schema
-          image: postgres:16-alpine
+          image: senzing/postgresql-client:2.2.4
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_HOST
@@ -613,7 +627,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: tooljet/tooljet-ce:v3.20.170-lts
+          image: tooljet/tooljet-ce:v3.20.186-lts
           imagePullPolicy: IfNotPresent
           command:
             - /bin/sh
@@ -753,10 +767,10 @@ spec:
           resources:
             limits:
               cpu: 500m
-              memory: 1536Mi
+              memory: 2048Mi
             requests:
               cpu: 50m
-              memory: 512Mi
+              memory: 204Mi
 ---
 apiVersion: v1
 kind: Service
@@ -826,4 +840,4 @@ spec:
   displayType: normal
   icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/tooljet/logo.svg'
   name: ToolJet
-  type: iframe
+  type: link

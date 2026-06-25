@@ -100,6 +100,8 @@ metadata:
     kb.io/database: postgresql-16.4.0
     clusterdefinition.kubeblocks.io/name: postgresql
     clusterversion.kubeblocks.io/name: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
 spec:
   affinity:
     podAntiAffinity: Preferred
@@ -180,6 +182,13 @@ spec:
               done
               psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -tc "SELECT 1 FROM pg_database WHERE datname='keystone'" | grep -q 1 || \
                 psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -c "CREATE DATABASE \"keystone\";"
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
       restartPolicy: Never
   ttlSecondsAfterFinished: 300
 
@@ -476,7 +485,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: node:22.22.1-alpine
+    originImageName: node:26.3.1-alpine
     deploy.cloud.sealos.io/minReplicas: "1"
     deploy.cloud.sealos.io/maxReplicas: "1"
   labels:
@@ -497,51 +506,12 @@ spec:
     spec:
       automountServiceAccountToken: false
       volumes:
-        - name: vn-bootstrapvn-packagevn-json
+        - name: ${{ defaults.app_name }}-cm
           configMap:
             name: ${{ defaults.app_name }}
-            items:
-              - key: vn-bootstrapvn-packagevn-json
-                path: package.json
-            defaultMode: 420
-        - name: vn-bootstrapvn-tsconfigvn-json
-          configMap:
-            name: ${{ defaults.app_name }}
-            items:
-              - key: vn-bootstrapvn-tsconfigvn-json
-                path: tsconfig.json
-            defaultMode: 420
-        - name: vn-bootstrapvn-authvn-ts
-          configMap:
-            name: ${{ defaults.app_name }}
-            items:
-              - key: vn-bootstrapvn-authvn-ts
-                path: auth.ts
-            defaultMode: 420
-        - name: vn-bootstrapvn-keystonevn-ts
-          configMap:
-            name: ${{ defaults.app_name }}
-            items:
-              - key: vn-bootstrapvn-keystonevn-ts
-                path: keystone.ts
-            defaultMode: 420
-        - name: vn-bootstrapvn-schemavn-ts
-          configMap:
-            name: ${{ defaults.app_name }}
-            items:
-              - key: vn-bootstrapvn-schemavn-ts
-                path: schema.ts
-            defaultMode: 420
-        - name: vn-bootstrapvn-bootstrapvn-sh
-          configMap:
-            name: ${{ defaults.app_name }}
-            items:
-              - key: vn-bootstrapvn-bootstrapvn-sh
-                path: bootstrap.sh
-            defaultMode: 420
       initContainers:
         - name: bootstrap
-          image: node:22.22.1-alpine
+          image: node:26.3.1-alpine
           imagePullPolicy: IfNotPresent
           workingDir: /app
           env:
@@ -584,29 +554,29 @@ spec:
           volumeMounts:
             - name: vn-app
               mountPath: /app
-            - name: vn-bootstrapvn-packagevn-json
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /tmp/keystone-bootstrap-package.json
-              subPath: package.json
+              subPath: vn-bootstrapvn-packagevn-json
               readOnly: true
-            - name: vn-bootstrapvn-tsconfigvn-json
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /tmp/keystone-bootstrap-tsconfig.json
-              subPath: tsconfig.json
+              subPath: vn-bootstrapvn-tsconfigvn-json
               readOnly: true
-            - name: vn-bootstrapvn-authvn-ts
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /tmp/keystone-bootstrap-auth.ts
-              subPath: auth.ts
+              subPath: vn-bootstrapvn-authvn-ts
               readOnly: true
-            - name: vn-bootstrapvn-keystonevn-ts
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /tmp/keystone-bootstrap-keystone.ts
-              subPath: keystone.ts
+              subPath: vn-bootstrapvn-keystonevn-ts
               readOnly: true
-            - name: vn-bootstrapvn-schemavn-ts
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /tmp/keystone-bootstrap-schema.ts
-              subPath: schema.ts
+              subPath: vn-bootstrapvn-schemavn-ts
               readOnly: true
-            - name: vn-bootstrapvn-bootstrapvn-sh
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /tmp/keystone-bootstrap.sh
-              subPath: bootstrap.sh
+              subPath: vn-bootstrapvn-bootstrapvn-sh
               readOnly: true
           resources:
             limits:
@@ -617,13 +587,13 @@ spec:
               memory: 51Mi
       containers:
         - name: ${{ defaults.app_name }}
-          image: node:22.22.1-alpine
+          image: node:26.3.1-alpine
           imagePullPolicy: IfNotPresent
           workingDir: /app
           command:
             - /bin/sh
             - -ec
-            - /bin/sh /tmp/keystone-bootstrap.sh && exec npm run start
+            - exec npm run start
           env:
             - name: NODE_ENV
               value: production
@@ -696,29 +666,29 @@ spec:
           volumeMounts:
             - name: vn-app
               mountPath: /app
-            - name: vn-bootstrapvn-packagevn-json
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /tmp/keystone-bootstrap-package.json
-              subPath: package.json
+              subPath: vn-bootstrapvn-packagevn-json
               readOnly: true
-            - name: vn-bootstrapvn-tsconfigvn-json
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /tmp/keystone-bootstrap-tsconfig.json
-              subPath: tsconfig.json
+              subPath: vn-bootstrapvn-tsconfigvn-json
               readOnly: true
-            - name: vn-bootstrapvn-authvn-ts
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /tmp/keystone-bootstrap-auth.ts
-              subPath: auth.ts
+              subPath: vn-bootstrapvn-authvn-ts
               readOnly: true
-            - name: vn-bootstrapvn-keystonevn-ts
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /tmp/keystone-bootstrap-keystone.ts
-              subPath: keystone.ts
+              subPath: vn-bootstrapvn-keystonevn-ts
               readOnly: true
-            - name: vn-bootstrapvn-schemavn-ts
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /tmp/keystone-bootstrap-schema.ts
-              subPath: schema.ts
+              subPath: vn-bootstrapvn-schemavn-ts
               readOnly: true
-            - name: vn-bootstrapvn-bootstrapvn-sh
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /tmp/keystone-bootstrap.sh
-              subPath: bootstrap.sh
+              subPath: vn-bootstrapvn-bootstrapvn-sh
               readOnly: true
   volumeClaimTemplates:
     - metadata:

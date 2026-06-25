@@ -121,39 +121,28 @@ spec:
   terminationPolicy: Delete
   tolerations: []
 ---
-apiVersion: apps/v1
-kind: StatefulSet
+apiVersion: batch/v1
+kind: Job
 metadata:
-  name: ${{ defaults.app_name }}
-  annotations:
-    originImageName: crazymax/flarum:1.8.10
-    deploy.cloud.sealos.io/minReplicas: '1'
-    deploy.cloud.sealos.io/maxReplicas: '1'
-  labels:
-    app: ${{ defaults.app_name }}
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+  name: ${{ defaults.app_name }}-mysql-init
 spec:
-  replicas: 1
-  revisionHistoryLimit: 1
-  minReadySeconds: 10
-  serviceName: ${{ defaults.app_name }}
-  selector:
-    matchLabels:
-      app: ${{ defaults.app_name }}
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
   template:
-    metadata:
-      labels:
-        app: ${{ defaults.app_name }}
-        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     spec:
+      restartPolicy: OnFailure
       automountServiceAccountToken: false
-      imagePullSecrets:
-        - name: ${{ defaults.app_name }}
-      terminationGracePeriodSeconds: 30
-      initContainers:
-        - name: ${{ defaults.app_name }}-mysql-init
-          image: mysql:8.0.30
+      containers:
+        - name: mysql-init
+          image: mysql:9.7.1
           imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
           env:
             - name: MYSQL_HOST
               valueFrom:
@@ -188,15 +177,39 @@ spec:
                 fi
                 sleep 2
               done
+              mysqladmin ping -h"${MYSQL_HOST}" -P"${MYSQL_PORT}" -u"${MYSQL_USER}" -p"${MYSQL_PASSWORD}" --silent
               mysql -h"${MYSQL_HOST}" -P"${MYSQL_PORT}" -u"${MYSQL_USER}" -p"${MYSQL_PASSWORD}" \
-                -e "CREATE DATABASE IF NOT EXISTS ${MYSQL_DATABASE} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-          resources:
-            limits:
-              cpu: 200m
-              memory: 256Mi
-            requests:
-              cpu: 20m
-              memory: 25Mi
+                -e "CREATE DATABASE IF NOT EXISTS \`${MYSQL_DATABASE}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: crazymax/flarum:1.8.10
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ${{ defaults.app_name }}
+      terminationGracePeriodSeconds: 30
       containers:
         - name: ${{ defaults.app_name }}
           image: crazymax/flarum:1.8.10
