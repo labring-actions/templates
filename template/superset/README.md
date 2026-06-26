@@ -41,7 +41,7 @@ The Sealos template includes Superset, PostgreSQL, Redis, a configuration Config
 **Configuration:**
 
 - Admin username is `admin`.
-- Admin password is generated automatically as `admin_password`.
+- Admin password is configured through the `admin_password` deployment input.
 - Admin email is `admin@superset.local`.
 - `SUPERSET_SECRET_KEY` is generated automatically.
 
@@ -62,11 +62,11 @@ Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies
 ## Deployment Guide
 
 1. Open the [Apache Superset template](https://sealos.io/products/app-store/superset) and click **Deploy Now**.
-2. Review the generated `admin_password` and deploy.
+2. Set `admin_password`, or keep the generated default, and deploy.
 3. Wait for deployment to complete. After deployment, you will be redirected to the Canvas.
 4. Open the Superset URL and log in with:
    - **Username**: `admin`
-   - **Password**: the generated `admin_password` value shown in your deployment parameters.
+   - **Password**: the `admin_password` value from your deployment form.
 5. Add your first database connection from **Settings > Database Connections**.
 
 ## Configuration
@@ -85,8 +85,8 @@ The template deploys a single Superset web replica for a compact self-hosted set
 
 ### Cannot log in
 
-- Cause: The initialization Job has not completed or the generated password was copied incorrectly.
-- Solution: Wait for the `superset-init` Job to complete, then log in as `admin` with `admin_password`.
+- Cause: The initialization Job has not completed or the deployment-form password was copied incorrectly.
+- Solution: Wait for the `superset-init` Job to complete, then log in as `admin` with the `admin_password` value from your deployment form.
 
 ### Database connection test fails
 

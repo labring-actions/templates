@@ -41,7 +41,7 @@ Sealos 模板包含 Superset、PostgreSQL、Redis、配置 ConfigMap、初始化
 **配置：**
 
 - 管理员用户名为 `admin`。
-- 管理员密码自动生成为 `admin_password`。
+- 管理员密码通过 `admin_password` 部署输入项配置。
 - 管理员邮箱为 `admin@superset.local`。
 - `SUPERSET_SECRET_KEY` 自动生成。
 
@@ -62,11 +62,11 @@ Sealos 是基于 Kubernetes 的 AI 辅助云操作系统，统一从云端 IDE �
 ## 部署指南
 
 1. 打开 [Apache Superset 模板](https://sealos.io/products/app-store/superset)，点击 **Deploy Now**。
-2. 查看生成的 `admin_password` 并部署。
+2. 填写 `admin_password`，也可以保留生成的默认值，然后部署。
 3. 等待部署完成。部署完成后会跳转到 Canvas。
 4. 打开 Superset 地址并使用以下信息登录：
    - **用户名**：`admin`
-   - **密码**：部署参数中生成的 `admin_password` 值。
+   - **密码**：部署表单中的 `admin_password` 值。
 5. 从 **Settings > Database Connections** 添加第一个数据库连接。
 
 ## 配置
@@ -85,8 +85,8 @@ Sealos 是基于 Kubernetes 的 AI 辅助云操作系统，统一从云端 IDE �
 
 ### 无法登录
 
-- 原因：初始化 Job 还在运行，或生成密码复制错误。
-- 解决方法：等待 `superset-init` Job 完成，然后使用 `admin` 和 `admin_password` 登录。
+- 原因：初始化 Job 还在运行，或部署表单中的密码复制错误。
+- 解决方法：等待 `superset-init` Job 完成，然后使用 `admin` 和部署表单中的 `admin_password` 登录。
 
 ### 数据库连接测试失败
 
