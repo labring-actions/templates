@@ -134,6 +134,13 @@ spec:
         - name: pg-init
           image: postgres:16.4-alpine
           imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 20m
+              memory: 25Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
           env:
             - name: PG_HOST
               valueFrom:
@@ -288,7 +295,7 @@ metadata:
     app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 data:
-  vn-appvn-pythonpathvn-superset-configvn-py: |
+  vn-appvn-pythonpathvn-supersetvn-configvn-py: |
     import os
 
     SECRET_KEY = os.environ["SUPERSET_SECRET_KEY"]
@@ -310,6 +317,64 @@ data:
     RATELIMIT_STORAGE_URI = f"redis://default:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/2"
     WTF_CSRF_ENABLED = True
     FEATURE_FLAGS = {"ALERT_REPORTS": True}
+  vn-appvn-sealosvn-entrypointvn-sh: |
+    set -eu
+
+    wait_tcp() {
+      host="$1"
+      port="$2"
+      for i in $(seq 1 120); do
+        if python - "$host" "$port" <<'PY'
+    import socket
+    import sys
+
+    try:
+        socket.create_connection((sys.argv[1], int(sys.argv[2])), 5).close()
+    except OSError:
+        raise SystemExit(1)
+    PY
+        then
+          return 0
+        fi
+        sleep 2
+      done
+      return 1
+    }
+
+    pip install --no-cache-dir --target /tmp/python-deps psycopg2-binary
+    export PYTHONPATH="/tmp/python-deps:${PYTHONPATH:-}"
+    wait_tcp "$PG_HOST" "$PG_PORT"
+    wait_tcp "$REDIS_HOST" "$REDIS_PORT"
+
+    case "$1" in
+      init)
+        superset db upgrade
+        superset fab create-admin --username admin --firstname Superset --lastname Admin --email admin@superset.local --password "$ADMIN_PASSWORD" || true
+        superset init
+        ;;
+      wait)
+        for i in $(seq 1 120); do
+          if superset fab list-users >/dev/null 2>&1; then
+            exit 0
+          fi
+          sleep 3
+        done
+        exit 1
+        ;;
+      start)
+        exec /app/.venv/bin/gunicorn \
+          --bind 0.0.0.0:8088 \
+          --workers 1 \
+          --worker-class gthread \
+          --threads 8 \
+          --timeout 120 \
+          "superset.app:create_app()"
+        ;;
+      *)
+        echo "usage: $0 init|wait|start" >&2
+        exit 2
+        ;;
+    esac
 ---
 apiVersion: batch/v1
 kind: Job
@@ -331,19 +396,14 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 256Mi
+              memory: 102Mi
             limits:
-              cpu: 800m
-              memory: 1Gi
+              cpu: 1
+              memory: 1024Mi
           command:
             - /bin/sh
-            - -ec
-            - |
-              pip install --no-cache-dir --target /tmp/python-deps psycopg2-binary
-              export PYTHONPATH="/tmp/python-deps:${PYTHONPATH:-}"
-              superset db upgrade
-              superset fab create-admin --username admin --firstname Superset --lastname Admin --email admin@superset.local --password "$ADMIN_PASSWORD" || true
-              superset init
+            - /app/sealos/entrypoint.sh
+            - init
           env:
             - name: SUPERSET_SECRET_KEY
               value: ${{ defaults.secret_key }}
@@ -381,16 +441,21 @@ spec:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
           volumeMounts:
-            - name: vn-appvn-pythonpathvn-superset-configvn-py
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /app/pythonpath/superset_config.py
-              subPath: superset_config.py
+              subPath: vn-appvn-pythonpathvn-supersetvn-configvn-py
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /app/sealos/entrypoint.sh
+              subPath: vn-appvn-sealosvn-entrypointvn-sh
       volumes:
-        - name: vn-appvn-pythonpathvn-superset-configvn-py
+        - name: ${{ defaults.app_name }}-cm
           configMap:
             name: ${{ defaults.app_name }}
             items:
-              - key: vn-appvn-pythonpathvn-superset-configvn-py
-                path: superset_config.py
+              - key: vn-appvn-pythonpathvn-supersetvn-configvn-py
+                path: vn-appvn-pythonpathvn-supersetvn-configvn-py
+              - key: vn-appvn-sealosvn-entrypointvn-sh
+                path: vn-appvn-sealosvn-entrypointvn-sh
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -422,17 +487,8 @@ spec:
           imagePullPolicy: IfNotPresent
           command:
             - /bin/sh
-            - -ec
-            - |
-              pip install --no-cache-dir --target /tmp/python-deps psycopg2-binary
-              export PYTHONPATH="/tmp/python-deps:${PYTHONPATH:-}"
-              for i in $(seq 1 120); do
-                if superset fab list-users >/dev/null 2>&1; then
-                  exit 0
-                fi
-                sleep 3
-              done
-              exit 1
+            - /app/sealos/entrypoint.sh
+            - wait
           env:
             - name: SUPERSET_SECRET_KEY
               value: ${{ defaults.secret_key }}
@@ -468,27 +524,27 @@ spec:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
           volumeMounts:
-            - name: vn-appvn-pythonpathvn-superset-configvn-py
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /app/pythonpath/superset_config.py
-              subPath: superset_config.py
+              subPath: vn-appvn-pythonpathvn-supersetvn-configvn-py
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /app/sealos/entrypoint.sh
+              subPath: vn-appvn-sealosvn-entrypointvn-sh
           resources:
             requests:
-              cpu: 20m
-              memory: 25Mi
+              cpu: 50m
+              memory: 51Mi
             limits:
-              cpu: 200m
-              memory: 256Mi
+              cpu: 500m
+              memory: 512Mi
       containers:
         - name: ${{ defaults.app_name }}
           image: apachesuperset.docker.scarf.sh/apache/superset:6.1.0
           imagePullPolicy: IfNotPresent
           command:
             - /bin/sh
-            - -ec
-            - |
-              pip install --no-cache-dir --target /tmp/python-deps psycopg2-binary
-              export PYTHONPATH="/tmp/python-deps:${PYTHONPATH:-}"
-              superset run -h 0.0.0.0 -p 8088
+            - -c
+            - exec /bin/sh /app/sealos/entrypoint.sh start
           env:
             - name: SUPERSET_SECRET_KEY
               value: ${{ defaults.secret_key }}
@@ -550,24 +606,29 @@ spec:
             failureThreshold: 6
           resources:
             requests:
-              cpu: 20m
-              memory: 25Mi
+              cpu: 50m
+              memory: 51Mi
             limits:
-              cpu: 200m
-              memory: 256Mi
+              cpu: 500m
+              memory: 512Mi
           volumeMounts:
             - name: vn-appvn-superset-home
               mountPath: /app/superset_home
-            - name: vn-appvn-pythonpathvn-superset-configvn-py
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /app/pythonpath/superset_config.py
-              subPath: superset_config.py
+              subPath: vn-appvn-pythonpathvn-supersetvn-configvn-py
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /app/sealos/entrypoint.sh
+              subPath: vn-appvn-sealosvn-entrypointvn-sh
       volumes:
-        - name: vn-appvn-pythonpathvn-superset-configvn-py
+        - name: ${{ defaults.app_name }}-cm
           configMap:
             name: ${{ defaults.app_name }}
             items:
-              - key: vn-appvn-pythonpathvn-superset-configvn-py
-                path: superset_config.py
+              - key: vn-appvn-pythonpathvn-supersetvn-configvn-py
+                path: vn-appvn-pythonpathvn-supersetvn-configvn-py
+              - key: vn-appvn-sealosvn-entrypointvn-sh
+                path: vn-appvn-sealosvn-entrypointvn-sh
   volumeClaimTemplates:
     - metadata:
         name: vn-appvn-superset-home
