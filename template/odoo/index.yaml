@@ -32,9 +32,6 @@ spec:
     admin_passwd:
       type: string
       value: ${{ random(32) }}
-    odoo_db_password:
-      type: string
-      value: ${{ random(32) }}
 
 ---
 apiVersion: v1
@@ -87,6 +84,7 @@ metadata:
   name: ${{ defaults.app_name }}-pg
   labels:
     kb.io/database: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
     clusterdefinition.kubeblocks.io/name: postgresql
     clusterversion.kubeblocks.io/name: postgresql-16.4.0
 spec:
@@ -160,26 +158,25 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
-            - name: ROLE_SECRET
-              value: ${{ defaults.odoo_db_password }}
           command:
             - /bin/sh
             - -ec
             - |
               export PGPASSWORD="$PG_PASSWORD"
-              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; do
+              for i in $(seq 1 60); do
+                if pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; then
+                  break
+                fi
                 sleep 2
               done
-              psql "postgresql://$PG_USER:$PG_PASSWORD@$PG_HOST:$PG_PORT/postgres" -v ON_ERROR_STOP=1 <<SQL
-              DO \$\$
-              BEGIN
-                IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'odoo') THEN
-                  CREATE ROLE odoo LOGIN CREATEDB PASSWORD '${ROLE_SECRET}';
-                ELSE
-                  ALTER ROLE odoo WITH LOGIN CREATEDB PASSWORD '${ROLE_SECRET}';
-                END IF;
-              END
-              \$\$;
+              pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1
+              if ! psql "postgresql://$PG_USER:$PG_PASSWORD@$PG_HOST:$PG_PORT/postgres" -tAc "SELECT 1 FROM pg_roles WHERE rolname='odoo'" | grep -q 1; then
+                psql "postgresql://$PG_USER:$PG_PASSWORD@$PG_HOST:$PG_PORT/postgres" -v ON_ERROR_STOP=1 -v role_password="$PG_PASSWORD" <<'SQL'
+              CREATE ROLE odoo LOGIN CREATEDB PASSWORD :'role_password';
+              SQL
+              fi
+              psql "postgresql://$PG_USER:$PG_PASSWORD@$PG_HOST:$PG_PORT/postgres" -v ON_ERROR_STOP=1 -v role_password="$PG_PASSWORD" <<'SQL'
+              ALTER ROLE odoo WITH LOGIN CREATEDB PASSWORD :'role_password';
               SQL
           resources:
             limits:
@@ -198,7 +195,7 @@ metadata:
     app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 data:
-  odoo.conf: |
+  vn-odoovn-conf: |
     [options]
     addons_path = /mnt/extra-addons
     data_dir = /var/lib/odoo
@@ -237,8 +234,8 @@ spec:
         fsGroup: 101
         fsGroupChangePolicy: OnRootMismatch
       initContainers:
-        - name: wait-for-postgres
-          image: postgres:16.4-alpine
+        - name: wait-for-db
+          image: odoo:18.0-20260609
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_HOST
@@ -266,12 +263,20 @@ spec:
             - -ec
             - |
               export PGPASSWORD="$PG_PASSWORD"
-              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; do
+              for i in $(seq 1 60); do
+                if pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; then
+                  break
+                fi
                 sleep 2
               done
-              until psql "postgresql://$PG_USER:$PG_PASSWORD@$PG_HOST:$PG_PORT/postgres" -tAc "SELECT 1 FROM pg_roles WHERE rolname='odoo'" | grep -q 1; do
+              pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1
+              for i in $(seq 1 60); do
+                if psql "postgresql://$PG_USER:$PG_PASSWORD@$PG_HOST:$PG_PORT/postgres" -tAc "SELECT 1 FROM pg_roles WHERE rolname='odoo'" | grep -q 1; then
+                  exit 0
+                fi
                 sleep 2
               done
+              psql "postgresql://$PG_USER:$PG_PASSWORD@$PG_HOST:$PG_PORT/postgres" -tAc "SELECT 1 FROM pg_roles WHERE rolname='odoo'" | grep -q 1
           resources:
             limits:
               cpu: 200m
@@ -283,31 +288,27 @@ spec:
         - name: ${{ defaults.app_name }}
           image: odoo:18.0-20260609
           imagePullPolicy: IfNotPresent
-          command:
-            - /bin/bash
-            - -ec
-            - |
-              export USER="$ODOO_USER"
-              export PASSWORD="$ODOO_SECRET"
-              exec /entrypoint.sh odoo
           ports:
             - name: http
               containerPort: 8069
           env:
-            - name: PGHOST
+            - name: HOST
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: host
-            - name: PGPORT
+            - name: PORT
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: port
-            - name: ODOO_USER
+            - name: USER
               value: odoo
-            - name: ODOO_SECRET
-              value: ${{ defaults.odoo_db_password }}
+            - name: PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
           resources:
             limits:
               cpu: 200m
@@ -334,15 +335,15 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 15
           volumeMounts:
-            - name: config
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /etc/odoo/odoo.conf
-              subPath: odoo.conf
+              subPath: vn-odoovn-conf
             - name: vn-odoo-data
               mountPath: /var/lib/odoo
             - name: vn-extra-addons
               mountPath: /mnt/extra-addons
       volumes:
-        - name: config
+        - name: ${{ defaults.app_name }}-cm
           configMap:
             name: ${{ defaults.app_name }}
   volumeClaimTemplates:
@@ -351,6 +352,9 @@ spec:
         annotations:
           path: /var/lib/odoo
           value: '1'
+        labels:
+          app: ${{ defaults.app_name }}
+          cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
       spec:
         accessModes:
           - ReadWriteOnce
@@ -363,6 +367,9 @@ spec:
         annotations:
           path: /mnt/extra-addons
           value: '1'
+        labels:
+          app: ${{ defaults.app_name }}
+          cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
       spec:
         accessModes:
           - ReadWriteOnce
