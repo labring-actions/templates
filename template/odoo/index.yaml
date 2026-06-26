@@ -234,7 +234,7 @@ spec:
         fsGroup: 101
         fsGroupChangePolicy: OnRootMismatch
       initContainers:
-        - name: wait-for-db
+        - name: database-startup-gate
           image: odoo:18.0-20260609
           imagePullPolicy: IfNotPresent
           env:
@@ -272,11 +272,23 @@ spec:
               pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1
               for i in $(seq 1 60); do
                 if psql "postgresql://$PG_USER:$PG_PASSWORD@$PG_HOST:$PG_PORT/postgres" -tAc "SELECT 1 FROM pg_roles WHERE rolname='odoo'" | grep -q 1; then
-                  exit 0
+                  break
                 fi
                 sleep 2
               done
               psql "postgresql://$PG_USER:$PG_PASSWORD@$PG_HOST:$PG_PORT/postgres" -tAc "SELECT 1 FROM pg_roles WHERE rolname='odoo'" | grep -q 1
+              if psql "postgresql://$PG_USER:$PG_PASSWORD@$PG_HOST:$PG_PORT/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='odoo'" | grep -q 1; then
+                table_count="$(psql "postgresql://$PG_USER:$PG_PASSWORD@$PG_HOST:$PG_PORT/odoo" -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'")"
+                if [ "$table_count" = "0" ]; then
+                  psql "postgresql://$PG_USER:$PG_PASSWORD@$PG_HOST:$PG_PORT/postgres" -v ON_ERROR_STOP=1 <<'SQL'
+              SELECT pg_terminate_backend(pid)
+              FROM pg_stat_activity
+              WHERE datname = 'odoo'
+                AND pid <> pg_backend_pid();
+              DROP DATABASE odoo;
+              SQL
+                fi
+              fi
           resources:
             limits:
               cpu: 200m

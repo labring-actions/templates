@@ -6,9 +6,9 @@ Odoo is an open-source business application suite for CRM, sales, inventory, acc
 
 ## About Hosting Odoo
 
-Odoo runs as a web application backed by PostgreSQL. On first launch, Odoo opens the database manager so you can create the first business database, set the master password, configure the administrator account, and select apps to install.
+Odoo runs as a web application backed by PostgreSQL. A fresh Odoo deployment starts at the database manager, where you create the first business database and define the administrator account for that database.
 
-This Sealos template provisions a KubeBlocks PostgreSQL cluster, an initialization job that creates a dedicated `odoo` database role, persistent `/var/lib/odoo` filestore storage, persistent `/mnt/extra-addons` storage, HTTPS ingress, and an App launcher entry.
+The Sealos template provisions a KubeBlocks PostgreSQL cluster, a dedicated `odoo` database role, persistent `/var/lib/odoo` filestore storage, persistent `/mnt/extra-addons` storage, a Service, an HTTPS Ingress, and an App launcher. It also guards startup against an empty default `odoo` database so the first-run database manager remains reachable.
 
 ## Common Use Cases
 
@@ -30,55 +30,66 @@ The Sealos template includes Odoo, PostgreSQL, a database role initialization jo
 
 ## Implementation Details
 
-### Architecture Components
+**Architecture Components:**
 
-- **Odoo Web**: Runs on port `8069`
-- **PostgreSQL**: Stores Odoo business databases
-- **Database Init Job**: Creates a dedicated `odoo` PostgreSQL role with `CREATEDB`
-- **Filestore Storage**: Persists attachments and Odoo runtime data at `/var/lib/odoo`
-- **Extra Addons Storage**: Persists custom modules at `/mnt/extra-addons`
+- **Odoo Web**: Serves the browser UI on port `8069`.
+- **PostgreSQL**: Stores Odoo business databases in a KubeBlocks-managed cluster.
+- **Database Init Job**: Creates a dedicated `odoo` PostgreSQL role with `CREATEDB`.
+- **Startup Gate**: Waits for PostgreSQL and removes only an empty, uninitialized default `odoo` database if one exists.
+- **Filestore Storage**: Persists attachments and Odoo runtime data at `/var/lib/odoo`.
+- **Extra Addons Storage**: Persists custom modules at `/mnt/extra-addons`.
 
-### Resource Allocation
+**Resource Allocation:**
 
 | Component | CPU Request | CPU Limit | Memory Request | Memory Limit |
 |-----------|-------------|-----------|----------------|--------------|
 | Odoo | 20m | 200m | 51Mi | 512Mi |
 | PostgreSQL | 50m | 500m | 51Mi | 512Mi |
 
-### Configuration
+**Configuration:**
 
-The template writes `odoo.conf` through a ConfigMap, enables proxy mode for Sealos ingress, and generates the Odoo master password automatically. PostgreSQL admin credentials are injected from KubeBlocks-managed secrets only into the init job, while the Odoo container uses the dedicated `odoo` role created by the job. Odoo uses `512Mi` memory because the first database creation workflow performs migrations and module loading.
+The template writes `odoo.conf` through a ConfigMap, enables proxy mode for Sealos ingress, and generates the Odoo master password automatically. PostgreSQL admin credentials come from KubeBlocks-managed secrets, while Odoo connects through the dedicated `odoo` role. Odoo uses `512Mi` memory because first database creation performs migrations and module loading.
 
-### License Information
+**License Information:**
 
 Odoo Community Edition is licensed under [LGPL-3.0](https://github.com/odoo/odoo/blob/18.0/LICENSE). This template follows the licensing policy of the Sealos templates repository.
 
 ## Why Deploy Odoo on Sealos?
 
-Sealos is an AI-assisted Cloud Operating System built on Kubernetes that simplifies deployment and operations. By deploying Odoo on Sealos, you get:
+Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies deployment, operations, and application lifecycle management. By deploying Odoo on Sealos, you get:
 
 - **One-Click Deployment**: Launch Odoo with PostgreSQL, storage, and HTTPS from one template page.
 - **Managed PostgreSQL**: Store Odoo business databases in a KubeBlocks-managed PostgreSQL cluster.
-- **Persistent Filestore**: Keep attachments and runtime data across restarts.
-- **Addon Storage**: Reserve a persistent path for custom Odoo modules.
-- **Simple Operations**: Resize resources or inspect logs from the Sealos Canvas.
+- **Persistent Storage Included**: Keep attachments, runtime data, and custom addons across restarts.
+- **Instant Public Access**: Use the generated HTTPS URL without manual ingress or certificate setup.
+- **Simple Operations**: Resize resources, inspect logs, and update settings from the Sealos Canvas.
+- **Pay-as-You-Go Efficiency**: Start with compact resources and scale when your business workload grows.
 
 ## Deployment Guide
 
 1. Open the [Odoo template](https://sealos.io/products/app-store/odoo) and click **Deploy Now**.
 2. Review the generated parameters in the popup dialog and deploy.
-3. Wait for PostgreSQL, the role init job, and Odoo to become ready.
-4. Open the generated URL and create the first Odoo database:
-   - Use the generated master password from the template defaults
-   - Enter a database name
-   - Enter the administrator email and password
-   - Select the language and country
-   - Create the database
-5. Log in with the administrator account, install at least one app such as CRM or Sales, and create a test record.
+3. Wait for deployment to complete, typically 2-3 minutes. After deployment, you will be redirected to the Canvas.
+4. Open the generated Odoo URL. On a fresh deployment, Odoo shows the database manager instead of a normal sign-up page.
+5. Create the first Odoo database:
+   - **Master Password**: use the generated `admin_passwd` value from the Odoo ConfigMap (`odoo.conf`).
+   - **Database Name**: enter a business database name such as `company`.
+   - **Email**: enter the administrator login email.
+   - **Password**: enter the administrator login password.
+   - **Language / Country**: choose your preferred options.
+6. Click **Create database** and wait for Odoo to initialize the base modules.
+7. Log in with the administrator email and password you entered during database creation.
+8. Open **Apps** and install the modules you need, such as CRM, Sales, Inventory, or Accounting.
+
+## Registration and Login
+
+Odoo does not use public self-registration for the first administrator. The first administrator is created when you create the first database from the database manager.
+
+After the first database exists, use `/web/login` or the generated app URL to log in. The login credentials are the administrator email and password you entered on the database creation form. The generated `admin_passwd` is only the database manager master password; it is not the administrator login password.
 
 ## Configuration
 
-Use Odoo settings for apps, users, companies, email, modules, and business workflows. Use Sealos Canvas to resize CPU, memory, `/var/lib/odoo`, `/mnt/extra-addons`, or PostgreSQL storage.
+Use Odoo settings for apps, users, companies, email, modules, and business workflows. Use the Sealos Canvas for operational changes: describe the desired change in the AI dialog, or click resource cards to adjust CPU, memory, `/var/lib/odoo`, `/mnt/extra-addons`, or PostgreSQL storage.
 
 ## Scaling
 
@@ -88,7 +99,11 @@ This template is optimized for a single Odoo instance. Increase CPU and memory w
 
 **Issue: Odoo shows the database manager**
 - Cause: The first business database has not been created yet.
-- Solution: Create a database using the generated master password.
+- Solution: Create a database using the generated master password from `odoo.conf`.
+
+**Issue: Login fails after creating a database**
+- Cause: The master password and administrator password are different.
+- Solution: Log in with the administrator email and password from the database creation form.
 
 **Issue: Odoo refuses to start with the postgres user**
 - Cause: The official Odoo image rejects the `postgres` database role for application startup.
