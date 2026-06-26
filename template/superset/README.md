@@ -34,13 +34,13 @@ The Sealos template includes Superset, PostgreSQL, Redis, a configuration Config
 - **PostgreSQL 16.4**: Stores Superset metadata in the `superset` database.
 - **Redis 7.2.7**: Stores cache and rate-limit state.
 - **PostgreSQL init Job**: Creates the `superset` database idempotently.
-- **Superset init Job**: Runs `superset db upgrade`, creates the `admin` user, and runs `superset init`.
+- **Superset init Job**: Runs `superset db upgrade`, creates the configured administrator user, and runs `superset init`.
 - **Superset StatefulSet**: Runs the web application on port `8088`.
 - **Persistent volume**: Stores `/app/superset_home`.
 
 **Configuration:**
 
-- Admin username is `admin`.
+- Admin username is configured through the `admin_username` deployment input.
 - Admin password is configured through the `admin_password` deployment input.
 - Admin email is `admin@superset.local`.
 - `SUPERSET_SECRET_KEY` is generated automatically.
@@ -62,10 +62,10 @@ Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies
 ## Deployment Guide
 
 1. Open the [Apache Superset template](https://sealos.io/products/app-store/superset) and click **Deploy Now**.
-2. Set `admin_password`, or keep the generated default, and deploy.
+2. Set `admin_username` and `admin_password`, then deploy.
 3. Wait for deployment to complete. After deployment, you will be redirected to the Canvas.
 4. Open the Superset URL and log in with:
-   - **Username**: `admin`
+   - **Username**: the `admin_username` value from your deployment form.
    - **Password**: the `admin_password` value from your deployment form.
 5. Add your first database connection from **Settings > Database Connections**.
 
@@ -85,8 +85,8 @@ The template deploys a single Superset web replica for a compact self-hosted set
 
 ### Cannot log in
 
-- Cause: The initialization Job has not completed or the deployment-form password was copied incorrectly.
-- Solution: Wait for the `superset-init` Job to complete, then log in as `admin` with the `admin_password` value from your deployment form.
+- Cause: The initialization Job has not completed or the deployment-form credentials were copied incorrectly.
+- Solution: Wait for the `superset-init` Job to complete, then log in with the `admin_username` and `admin_password` values from your deployment form.
 
 ### Database connection test fails
 
