@@ -32,11 +32,6 @@ spec:
       type: string
       value: ${{ random(24) }}
   inputs:
-    minio_storage:
-      description: "Storage size for minio in Gi"
-      type: number
-      default: "5"
-      required: true
     prometheus_storage:
       description: "Storage size for Prometheus in Gi"
       type: number
@@ -49,7 +44,11 @@ spec:
       required: true
   i18n:
     zh:
+      description: "Laf 是开源的云开发平台，提供云函数、云数据库、云存储等开箱即用的应用资源。让开发者专注于业务开发，快速释放创意。"
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/laf/README_zh.md'
+  categories:
+    - low-code
+    - backend
 
 ---
 # mongo sa
@@ -114,8 +113,9 @@ metadata:
     - cluster.kubeblocks.io/finalizer
   labels:
     kb.io/database: mongodb-8.0.4
-    app.kubernetes.io/instance: ${{ defaults.app_name }}
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
     helm.sh/chart: mongodb-cluster-0.9.1
+    clusterdefinition.kubeblocks.io/name: mongodb
     sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
   annotations: {}
   name: ${{ defaults.app_name }}-mongo
@@ -136,8 +136,8 @@ spec:
           cpu: 500m
           memory: 512Mi
         requests:
-          cpu: 250m
-          memory: 256Mi
+          cpu: 50m
+          memory: 51Mi
       serviceAccountName: ${{ defaults.app_name }}-mongo
       volumeClaimTemplates:
         - name: data
@@ -146,7 +146,7 @@ spec:
               - ReadWriteOnce
             resources:
               requests:
-                storage: 5Gi
+                storage: 1Gi
 
   terminationPolicy: Delete
   tolerations: []
@@ -187,11 +187,16 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-server
+  annotations:
+    originImageName: docker.io/lafyun/laf-server:sha-ef30cd9
+    deploy.cloud.sealos.io/minReplicas: "1"
+    deploy.cloud.sealos.io/maxReplicas: "1"
   labels:
     app: ${{ defaults.app_name }}-server
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-server
 spec:
   replicas: 1
+  revisionHistoryLimit: 1
   selector:
     matchLabels:
       app: ${{ defaults.app_name }}-server
@@ -225,8 +230,8 @@ spec:
               cpu: 500m
               memory: 512Mi
             requests:
-              cpu: 250m
-              memory: 256Mi
+              cpu: 50m
+              memory: 51Mi
           env:
             - name: DISABLED_BILLING_CREATION_TASK
               value: "true"
@@ -291,6 +296,7 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-server
   labels:
+    app: ${{ defaults.app_name }}-server
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-server
 spec:
   type: ClusterIP
@@ -307,11 +313,16 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-web
+  annotations:
+    originImageName: docker.io/lafyun/laf-web:sha-e9d012d
+    deploy.cloud.sealos.io/minReplicas: "1"
+    deploy.cloud.sealos.io/maxReplicas: "1"
   labels:
     app: ${{ defaults.app_name }}-web
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-web
 spec:
   replicas: 1
+  revisionHistoryLimit: 1
   selector:
     matchLabels:
       app: ${{ defaults.app_name }}-web
@@ -320,6 +331,7 @@ spec:
       labels:
         app: ${{ defaults.app_name }}-web
     spec:
+      automountServiceAccountToken: false
       serviceAccountName: default
       securityContext: {}
       containers:
@@ -345,7 +357,7 @@ spec:
               memory: 128Mi
             requests:
               cpu: 10m
-              memory: 10Mi
+              memory: 12Mi
 
 ---
 apiVersion: v1
@@ -353,6 +365,7 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-web
   labels:
+    app: ${{ defaults.app_name }}-web
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-web
 spec:
   type: ClusterIP
@@ -373,8 +386,13 @@ metadata:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-runtime-exporter
     app: ${{ defaults.app_name }}-runtime-exporter
   name: ${{ defaults.app_name }}-runtime-exporter
+  annotations:
+    originImageName: docker.io/lafyun/runtime-exporter:sha-2948df9
+    deploy.cloud.sealos.io/minReplicas: "1"
+    deploy.cloud.sealos.io/maxReplicas: "1"
 spec:
   replicas: 1
+  revisionHistoryLimit: 1
   selector:
     matchLabels:
       app: ${{ defaults.app_name }}-runtime-exporter
@@ -404,11 +422,11 @@ spec:
               port: http
           resources:
             limits:
-              cpu: 150m
+              cpu: 200m
               memory: 256Mi
             requests:
-              cpu: 50m
-              memory: 128Mi
+              cpu: 20m
+              memory: 25Mi
           env:
             - name: API_SECRET
               value: ${{ defaults.exporter_jwt }}
@@ -421,6 +439,7 @@ apiVersion: v1
 kind: Service
 metadata:
   labels:
+    app: ${{ defaults.app_name }}-runtime-exporter
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-runtime-exporter
   name: ${{ defaults.app_name }}-runtime-exporter
 spec:
@@ -544,6 +563,7 @@ kind: Service
 metadata:
   name: prometheus-${{ defaults.app_name }}
   labels:
+    app: prometheus-${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: prometheus-${{ defaults.app_name }}
 spec:
   ports:
@@ -571,23 +591,12 @@ spec:
       static:
         - ${{ defaults.app_name }}-minio.${{ SEALOS_NAMESPACE }}
 ---
-#laf minio
-apiVersion: v1
-kind: Secret
-metadata:
-  name: ${{ defaults.app_name }}-minio-secret
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio-secret
-type: Opaque
-stringData:
-  rootUser: ${{ defaults.minio_passwd }}
-  rootPassword: ${{ defaults.minio_passwd }}
----
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: ${{ defaults.app_name }}-minio-conf
   labels:
+    app: ${{ defaults.app_name }}-minio-conf
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio-conf
 data:
   initialize: |-
@@ -602,7 +611,7 @@ data:
       SCHEME=$1
       ATTEMPTS=0 ; LIMIT=29 ; # Allow 30 attempts
       set -e ; # fail if we can't read the keys.
-      ACCESS=$(cat /config/rootUser) ; SECRET=$(cat /config/rootPassword) ;
+      ACCESS="$MINIO_ROOT_USER" ; SECRET="$MINIO_ROOT_PASSWORD" ;
       set +e ; # The connections to minio are allowed to fail.
       echo "Connecting to MinIO server: $SCHEME://$MINIO_ENDPOINT:$MINIO_PORT" ;
       MC_COMMAND="${MC} alias set myminio $SCHEME://$MINIO_ENDPOINT:$MINIO_PORT $ACCESS $SECRET" ;
@@ -714,7 +723,7 @@ data:
       SCHEME=$1
       ATTEMPTS=0 ; LIMIT=29 ; # Allow 30 attempts
       set -e ; # fail if we can't read the keys.
-      ACCESS=$(cat /config/rootUser) ; SECRET=$(cat /config/rootPassword) ;
+      ACCESS="$MINIO_ROOT_USER" ; SECRET="$MINIO_ROOT_PASSWORD" ;
       set +e ; # The connections to minio are allowed to fail.
       echo "Connecting to MinIO server: $SCHEME://$MINIO_ENDPOINT:$MINIO_PORT" ;
       MC_COMMAND="${MC} alias set myminio $SCHEME://$MINIO_ENDPOINT:$MINIO_PORT $ACCESS $SECRET" ;
@@ -791,7 +800,7 @@ data:
       SCHEME=$1
       ATTEMPTS=0 ; LIMIT=29 ; # Allow 30 attempts
       set -e ; # fail if we can't read the keys.
-      ACCESS=$(cat /config/rootUser) ; SECRET=$(cat /config/rootPassword) ;
+      ACCESS="$MINIO_ROOT_USER" ; SECRET="$MINIO_ROOT_PASSWORD" ;
       set +e ; # The connections to minio are allowed to fail.
       echo "Connecting to MinIO server: $SCHEME://$MINIO_ENDPOINT:$MINIO_PORT" ;
       MC_COMMAND="${MC} alias set myminio $SCHEME://$MINIO_ENDPOINT:$MINIO_PORT $ACCESS $SECRET" ;
@@ -903,7 +912,7 @@ data:
       SCHEME=$1
       ATTEMPTS=0 ; LIMIT=29 ; # Allow 30 attempts
       set -e ; # fail if we can't read the keys.
-      ACCESS=$(cat /config/rootUser) ; SECRET=$(cat /config/rootPassword) ;
+      ACCESS="$MINIO_ROOT_USER" ; SECRET="$MINIO_ROOT_PASSWORD" ;
       set +e ; # The connections to minio are allowed to fail.
       echo "Connecting to MinIO server: $SCHEME://$MINIO_ENDPOINT:$MINIO_PORT" ;
       MC_COMMAND="${MC} alias set myminio $SCHEME://$MINIO_ENDPOINT:$MINIO_PORT $ACCESS $SECRET" ;
@@ -967,12 +976,29 @@ spec:
   selector:
     app: ${{ defaults.app_name }}-minio
 ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-minio-console
+  labels:
+    app: ${{ defaults.app_name }}-minio-console
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio-console
+spec:
+  type: ClusterIP
+  ports:
+    - name: console
+      port: 9001
+      protocol: TCP
+      targetPort: 9001
+  selector:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}-minio
   annotations:
-    originImageName: quay.io/minio/minio
+    originImageName: quay.io/minio/minio:RELEASE.2023-03-22T06-36-24Z
     deploy.cloud.sealos.io/minReplicas: "1"
     deploy.cloud.sealos.io/maxReplicas: "1"
   labels:
@@ -993,7 +1019,9 @@ spec:
     metadata:
       labels:
         app: ${{ defaults.app_name }}-minio
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio
     spec:
+      automountServiceAccountToken: false
       terminationGracePeriodSeconds: 10
       securityContext:
         runAsUser: 1000
@@ -1013,22 +1041,14 @@ spec:
               drop:
                 - ALL
           command:
-            [
-              "/bin/sh",
-              "-ce",
-              "/usr/bin/docker-entrypoint.sh minio server  /data -S /etc/minio/certs/ --address :9000 --console-address :9001",
-            ]
+            - /bin/sh
+            - -ec
+            - exec /usr/bin/docker-entrypoint.sh minio server /data -S /etc/minio/certs/ --address :9000 --console-address :9001
           env:
             - name: MINIO_ROOT_USER
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-minio-secret
-                  key: rootUser
+              value: ${{ defaults.minio_passwd }}
             - name: MINIO_ROOT_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-minio-secret
-                  key: rootPassword
+              value: ${{ defaults.minio_passwd }}
             - name: MINIO_PROMETHEUS_AUTH_TYPE
               value: public
           ports:
@@ -1038,11 +1058,11 @@ spec:
               containerPort: 9001
           resources:
             limits:
-              cpu: 300m
+              cpu: 500m
               memory: 512Mi
             requests:
-              cpu: 100m
-              memory: 256Mi
+              cpu: 50m
+              memory: 51Mi
           volumeMounts:
             - name: data
               mountPath: /data
@@ -1051,14 +1071,14 @@ spec:
     - metadata:
         annotations:
           path: /data
-          value: " ${{ inputs.minio_storage }} "
+          value: " 1 "
         name: data
       spec:
         accessModes:
           - ReadWriteOnce
         resources:
           requests:
-            storage: ${{ inputs.minio_storage }}Gi
+            storage: 1Gi
 
 ---
 # Source: minio/templates/post-install-create-policy-job.yaml
@@ -1087,8 +1107,6 @@ spec:
             sources:
               - configMap:
                   name: ${{ defaults.app_name }}-minio-conf
-              - secret:
-                  name: ${{ defaults.app_name }}-minio-secret
       containers:
         - name: ${{ defaults.app_name }}-minio-make-policies-job
           image: "quay.io/minio/mc:RELEASE.2022-11-07T23-47-39Z"
@@ -1104,16 +1122,20 @@ spec:
               value: "${{ defaults.app_name }}-minio.${{ SEALOS_NAMESPACE }}.svc.cluster.local"
             - name: MINIO_PORT
               value: "9000"
+            - name: MINIO_ROOT_USER
+              value: ${{ defaults.minio_passwd }}
+            - name: MINIO_ROOT_PASSWORD
+              value: ${{ defaults.minio_passwd }}
           volumeMounts:
             - name: minio-configuration
               mountPath: /config
           resources:
             limits:
-              cpu: 50m
+              cpu: 100m
               memory: 128Mi
             requests:
-              cpu: 50m
-              memory: 128Mi
+              cpu: 10m
+              memory: 12Mi
 ---
 # Source: minio/templates/post-install-custom-command.yaml
 apiVersion: batch/v1
@@ -1141,8 +1163,6 @@ spec:
             sources:
               - configMap:
                   name: ${{ defaults.app_name }}-minio-conf
-              - secret:
-                  name: ${{ defaults.app_name }}-minio-secret
       containers:
         - name: ${{ defaults.app_name }}-minio-custom-command-job
           image: "quay.io/minio/mc:RELEASE.2022-11-07T23-47-39Z"
@@ -1158,16 +1178,20 @@ spec:
               value: "${{ defaults.app_name }}-minio.${{ SEALOS_NAMESPACE }}.svc.cluster.local"
             - name: MINIO_PORT
               value: "9000"
+            - name: MINIO_ROOT_USER
+              value: ${{ defaults.minio_passwd }}
+            - name: MINIO_ROOT_PASSWORD
+              value: ${{ defaults.minio_passwd }}
           volumeMounts:
             - name: minio-configuration
               mountPath: /config
           resources:
             limits:
-              cpu: 50m
+              cpu: 100m
               memory: 128Mi
             requests:
-              cpu: 50m
-              memory: 128Mi
+              cpu: 10m
+              memory: 12Mi
 ---
 # ingress
 apiVersion: networking.k8s.io/v1
@@ -1188,6 +1212,7 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/configuration-snippet: |
       if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
         expires 30d;
@@ -1235,6 +1260,7 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/configuration-snippet: |
       if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
         expires 30d;
@@ -1263,7 +1289,7 @@ kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}-minio-console
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio-console
     cloud.sealos.io/app-deploy-manager-domain: minio-${{ inputs.domain }}
   annotations:
     kubernetes.io/ingress.class: nginx
@@ -1274,6 +1300,9 @@ metadata:
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/configuration-snippet: |
       if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
         expires 30d;
@@ -1288,7 +1317,7 @@ spec:
             path: /
             backend:
               service:
-                name: ${{ defaults.app_name }}-minio
+                name: ${{ defaults.app_name }}-minio-console
                 port:
                   number: 9001
   tls:
@@ -1300,7 +1329,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: ${{ defaults.app_name }}-minio-api
+  name: ${{ defaults.app_name }}-minio
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio
     cloud.sealos.io/app-deploy-manager-domain: oss-${{ inputs.domain }}
@@ -1313,6 +1342,9 @@ metadata:
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/configuration-snippet: |
       if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
         expires 30d;
@@ -1367,7 +1399,7 @@ spec:
   displayType: normal
   icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/laf/logo.svg"
   name: ${{ defaults.app_name }}
-  type: iframe
+  type: link
 
 ---
 # Template usage statistics
@@ -1409,11 +1441,11 @@ spec:
           volumeMounts: []
           resources:
             limits:
-              cpu: 50m
+              cpu: 100m
               memory: 128Mi
             requests:
-              cpu: 50m
-              memory: 128Mi
+              cpu: 10m
+              memory: 12Mi
         - name: ${{ defaults.app_name }}-runtime-node-init
           image: "docker.io/lafyun/runtime-node-init:sha-67b3cd6"
           imagePullPolicy: IfNotPresent
@@ -1431,14 +1463,14 @@ spec:
           volumeMounts: []
           resources:
             limits:
-              cpu: 50m
+              cpu: 100m
               memory: 128Mi
             requests:
-              cpu: 50m
-              memory: 128Mi
+              cpu: 10m
+              memory: 12Mi
       containers:
         - name: ${{ defaults.app_name }}-statistics
-          image: "docker.io/library/nginx:latest"
+          image: "docker.io/library/nginx:1.29.4"
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
@@ -1456,8 +1488,8 @@ spec:
           volumeMounts: []
           resources:
             limits:
-              cpu: 50m
+              cpu: 100m
               memory: 128Mi
             requests:
-              cpu: 50m
-              memory: 128Mi
+              cpu: 10m
+              memory: 12Mi

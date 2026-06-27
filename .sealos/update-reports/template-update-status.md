@@ -356,7 +356,7 @@
   - `goharbor/registry-photon:v2.14.4` -> `goharbor/registry-photon:v2.15.1`: requires coordinated Harbor multi-component runtime validation and broad ConfigMap/database contract normalization before automatic version changes
   - `goharbor/trivy-adapter-photon:v2.14.4` -> `goharbor/trivy-adapter-photon:v2.15.1`: requires coordinated Harbor multi-component runtime validation and broad ConfigMap/database contract normalization before automatic version changes
 - `laf`
-  - `quay.io/prometheus/prometheus:v2.45.0` -> `quay.io/prometheus/prometheus:v3.12.0`: requires LAF runtime validation across MongoDB, MinIO, web, server, runtime nodes, Prometheus, and broad template contract cleanup before automatic version changes
+  - `quay.io/prometheus/prometheus:v2.45.0` -> `quay.io/prometheus/prometheus:v3.12.0`: requires LAF runtime validation across MongoDB, MinIO, web, server, runtime nodes, and Prometheus before automatic version changes
 - `langfuse`
   - `clickhouse/clickhouse-server:25.4.2` -> `clickhouse/clickhouse-server:26.5.3`: requires Langfuse runtime validation across PostgreSQL init, ClickHouse, Redis, S3 storage, worker/web startup, and secret handling before automatic version changes
   - `docker.io/langfuse/langfuse-worker:3.180.0` -> `docker.io/langfuse/langfuse-worker:3.197.1`: requires Langfuse runtime validation across PostgreSQL init, ClickHouse, Redis, S3 storage, worker/web startup, and secret handling before automatic version changes
