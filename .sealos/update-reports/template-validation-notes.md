@@ -159,6 +159,7 @@ Validation passed:
 - Twenty template contract pass: updated server and worker images to v2.16.0, aligned official v2 runtime envs, PostgreSQL 16.4.0 metadata, idempotent pg-init, Redis FQDN wiring, generated secrets, resource ladder values, Service/Ingress labels, and App schema. Marked validation-needed for the v1 to v2 migration and first-run login path.
 
 Blocked this pass:
+- Reactive-Resume: requires a major Reactive Resume v5 upgrade and browserless Chromium runtime validation before automatic version changes
 - harbor: requires coordinated Harbor multi-component runtime validation and broad ConfigMap/database contract normalization before automatic version changes
 - laf: requires LAF runtime validation across MongoDB, MinIO, web, server, runtime nodes, Prometheus, and broad template contract cleanup before automatic version changes
 - langfuse: requires Langfuse runtime validation across PostgreSQL init, ClickHouse, Redis, S3 storage, worker/web startup, and secret handling before automatic version changes
@@ -220,6 +221,7 @@ Validation gaps:
 - `fastgpt-milvus`: single-template docker-to-sealos consistency check passed after adding Simplified Chinese metadata, normalizing the FastGPT ConfigMap mount, aligning FastGPT/AIPROXY/MCP resources, standardizing MongoDB/PostgreSQL/Redis/Milvus database visibility labels, secrets, resources, and PVC sizing. The FastGPT Milvus image bundle remains blocked pending coordinated runtime validation.
 - `fastgpt`: single-template docker-to-sealos consistency check passed after normalizing MongoDB/PostgreSQL/Redis database visibility labels, consolidating AIPROXY on the approved PostgreSQL secret contract, adding AIPROXY database init resources, normalizing the FastGPT ConfigMap mount, and aligning FastGPT/plugin/code-sandbox/MCP/AIPROXY resource ladder values. The FastGPT image bundle remains blocked pending coordinated runtime validation.
 - `fastgpt-pro`: single-template docker-to-sealos consistency check passed after normalizing MongoDB/PostgreSQL/Redis database visibility labels, consolidating AIPROXY on the approved PostgreSQL secret contract, adding AIPROXY database init resources, normalizing the FastGPT ConfigMap mount, and aligning FastGPT/pro/plugin/code-sandbox/MCP/AIPROXY resource ladder values. The FastGPT Pro image bundle remains blocked pending coordinated runtime validation.
+- `reactive-resume`: single-template docker-to-sealos consistency check passed after lowercasing the template path and metadata, replacing the embedded MinIO stack with Sealos ObjectStorageBucket wiring, normalizing PostgreSQL metadata and secret fields, adding workload originImageName/revision/automount settings, aligning resources, and replacing PostgreSQL helper images with a non-database client image. The Reactive Resume v5 and browserless Chromium update candidates remain blocked pending coordinated runtime validation.
 - `refly`: skipped the mautic/mautic helper candidate because it is used only as an Elasticsearch data ownership helper in the Refly template and is not part of the Refly application release surface.
 
 Remaining queue:

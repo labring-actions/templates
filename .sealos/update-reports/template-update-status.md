@@ -291,8 +291,8 @@
 
 ## Blocked Templates
 - `Reactive-Resume`
-  - `amruthpillai/reactive-resume:v4.1.2` -> `amruthpillai/reactive-resume:v5.1.9`: requires a major application upgrade, browserless Chromium runtime validation, and broad template contract cleanup before a safe automatic version update
-  - `ghcr.io/browserless/chromium:v2.11.0` -> `ghcr.io/browserless/chromium:v2.54.1`: requires a major application upgrade, browserless Chromium runtime validation, and broad template contract cleanup before a safe automatic version update
+  - `amruthpillai/reactive-resume:v4.1.2` -> `amruthpillai/reactive-resume:v5.1.9`: requires a major application upgrade and browserless Chromium runtime validation before a safe automatic version update
+  - `ghcr.io/browserless/chromium:v2.11.0` -> `ghcr.io/browserless/chromium:v2.54.1`: requires a major application upgrade and browserless Chromium runtime validation before a safe automatic version update
 - `airbyte`
   - `airbyte/bootloader:0.63.11` -> `airbyte/bootloader:2.1.0`: requires coordinated Airbyte 0.x to 2.x multi-component upgrade validation across bootloader, worker, cron, connector builder, Temporal, migrations, and ConfigMap runtime semantics
   - `airbyte/connector-builder-server:0.63.11` -> `airbyte/connector-builder-server:2.0.1`: requires coordinated Airbyte 0.x to 2.x multi-component upgrade validation across bootloader, worker, cron, connector builder, Temporal, migrations, and ConfigMap runtime semantics

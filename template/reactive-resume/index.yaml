@@ -1,39 +1,50 @@
 apiVersion: app.sealos.io/v1
 kind: Template
 metadata:
-  name: Reactive-Resume
+  name: reactive-resume
 spec:
   title: "Reactive-Resume"
   url: "https://rxresu.me/"
   gitRepo: "https://github.com/AmruthPillai/Reactive-Resume"
   author: "Sealos"
   description: "A free and open-source resume builder that simplifies the process of creating, updating, and sharing your resume."
-  readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/Reactive-Resume/README.md'
-  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/Reactive-Resume/logo.svg'
+  readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/reactive-resume/README.md'
+  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/reactive-resume/logo.svg'
   screenshots:
-    - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/Reactive-Resume/website-screenshot.webp'
+    - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/reactive-resume/website-screenshot.webp'
   templateType: inline
   categories:
     - tool
+  locale: en
   defaults:
     app_name:
       type: string
       value: re-${{ random(8) }}
-    minio_passwd:
+    chrome_token:
       type: string
-      value: ${{ random(24) }}
+      value: ${{ random(32) }}
+    access_token_secret:
+      type: string
+      value: ${{ random(48) }}
+    refresh_token_secret:
+      type: string
+      value: ${{ random(48) }}
     domain:
       type: string
       value: re-${{ random(8) }}
-  inputs:
-    minio_storage:
-      description: "Storage size for minio in Gi"
-      type: number
-      default: "5"
-      required: true
   i18n:
     zh:
-      readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/Reactive-Resume/README_zh.md'
+      description: "Reactive Resume 是一个免费开源的简历构建器，用于创建、更新和分享个人简历。"
+      readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/reactive-resume/README_zh.md'
+---
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  policy: private
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -51,10 +62,10 @@ metadata:
   finalizers:
     - cluster.kubeblocks.io/finalizer
   labels:
+    kb.io/database: postgresql-14.8.0
     clusterdefinition.kubeblocks.io/name: postgresql
     clusterversion.kubeblocks.io/name: postgresql-14.8.0
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
-  annotations: {}
   name: ${{ defaults.app_name }}-pg
 spec:
   affinity:
@@ -124,137 +135,12 @@ subjects:
   - kind: ServiceAccount
     name: ${{ defaults.app_name }}-pg
 ---
-#laf minio
-apiVersion: v1
-kind: Secret
-metadata:
-  name: ${{ defaults.app_name }}-minio-secret
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio-secret
-type: Opaque
-stringData:
-  rootUser: ${{ defaults.minio_passwd }}
-  rootPassword: ${{ defaults.minio_passwd }}
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: ${{ defaults.app_name }}-minio
-  labels:
-    app: ${{ defaults.app_name }}-minio
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio
-spec:
-  type: ClusterIP
-  ports:
-    - name: api
-      port: 9000
-      protocol: TCP
-      targetPort: 9000
-    - name: console
-      port: 9001
-      protocol: TCP
-      targetPort: 9001
-  selector:
-    app: ${{ defaults.app_name }}-minio
----
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: ${{ defaults.app_name }}-minio
-  annotations:
-    originImageName: quay.io/minio/minio
-    deploy.cloud.sealos.io/minReplicas: "1"
-    deploy.cloud.sealos.io/maxReplicas: "1"
-  labels:
-    app: ${{ defaults.app_name }}-minio
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio
-spec:
-  replicas: 1
-  revisionHistoryLimit: 1
-  minReadySeconds: 10
-  serviceName: ${{ defaults.app_name }}-minio-svc
-  selector:
-    matchLabels:
-      app: ${{ defaults.app_name }}-minio
-  podManagementPolicy: Parallel
-  updateStrategy:
-    type: RollingUpdate
-  template:
-    metadata:
-      labels:
-        app: ${{ defaults.app_name }}-minio
-    spec:
-      terminationGracePeriodSeconds: 10
-      securityContext:
-        runAsUser: 1000
-        runAsGroup: 1000
-        fsGroup: 1000
-        fsGroupChangePolicy: OnRootMismatch
-        runAsNonRoot: true
-        seccompProfile:
-          type: RuntimeDefault
-      containers:
-        - name: ${{ defaults.app_name }}-minio
-          image: quay.io/minio/minio:RELEASE.2023-03-22T06-36-24Z
-          imagePullPolicy: IfNotPresent
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - ALL
-          command:
-            [
-              "/bin/sh",
-              "-ce",
-              "/usr/bin/docker-entrypoint.sh minio server  /data -S /etc/minio/certs/ --address :9000 --console-address :9001",
-            ]
-          env:
-            - name: MINIO_ROOT_USER
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-minio-secret
-                  key: rootUser
-            - name: MINIO_ROOT_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-minio-secret
-                  key: rootPassword
-            - name: MINIO_PROMETHEUS_AUTH_TYPE
-              value: public
-          ports:
-            - name: http
-              containerPort: 9000
-            - name: http-console
-              containerPort: 9001
-          resources:
-            limits:
-              cpu: 300m
-              memory: 512Mi
-            requests:
-              cpu: 100m
-              memory: 256Mi
-          volumeMounts:
-            - name: data
-              mountPath: /data
-      volumes: []
-  volumeClaimTemplates:
-    - metadata:
-        annotations:
-          path: /data
-          value: " ${{ inputs.minio_storage }} "
-        name: data
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: ${{ inputs.minio_storage }}Gi
----
 apiVersion: v1
 kind: Service
 metadata:
   name: ${{ defaults.app_name }}-chrome
   labels:
+    app: ${{ defaults.app_name }}-chrome
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-chrome
 spec:
   type: ClusterIP
@@ -271,11 +157,14 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-chrome
+  annotations:
+    originImageName: ghcr.io/browserless/chromium:v2.11.0
   labels:
     app: ${{ defaults.app_name }}-chrome
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-chrome
 spec:
   replicas: 1
+  revisionHistoryLimit: 1
   selector:
     matchLabels:
       app: ${{ defaults.app_name }}-chrome
@@ -284,6 +173,7 @@ spec:
       labels:
         app: ${{ defaults.app_name }}-chrome
     spec:
+      automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}-chrome
           securityContext: {}
@@ -299,7 +189,7 @@ spec:
             - name: CONCURRENT
               value: "10"
             - name: TOKEN
-              value: "chrome_token"
+              value: ${{ defaults.chrome_token }}
             - name: EXIT_ON_HEALTH_FAILURE
               value: "true"
             - name: PRE_REQUEST_HEALTH_CHECK
@@ -309,8 +199,8 @@ spec:
               cpu: 500m
               memory: 512Mi
             requests:
-              cpu: 100m
-              memory: 128Mi
+              cpu: 50m
+              memory: 51Mi
 
 ---
 apiVersion: v1
@@ -318,6 +208,7 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-app
   labels:
+    app: ${{ defaults.app_name }}-app
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-app
 spec:
   type: ClusterIP
@@ -333,11 +224,14 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-app
+  annotations:
+    originImageName: amruthpillai/reactive-resume:v4.1.2
   labels:
     app: ${{ defaults.app_name }}-app
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-app
 spec:
   replicas: 1
+  revisionHistoryLimit: 1
   selector:
     matchLabels:
       app: ${{ defaults.app_name }}-app
@@ -346,6 +240,7 @@ spec:
       labels:
         app: ${{ defaults.app_name }}-app
     spec:
+      automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}-app
           image: amruthpillai/reactive-resume:v4.1.2
@@ -355,6 +250,21 @@ spec:
               containerPort: 3000
               protocol: TCP
           env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
             - name: PG_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -367,46 +277,58 @@ spec:
             - name: PUBLIC_URL
               value: "https://${{ defaults.domain }}.${{ SEALOS_CLOUD_DOMAIN }}"
             - name: STORAGE_URL
-              value: "https://oss-${{ defaults.domain }}.${{ SEALOS_CLOUD_DOMAIN }}/default"
+              value: "https://$(STORAGE_ENDPOINT)/$(STORAGE_BUCKET)"
             - name: CHROME_TOKEN
-              value: "chrome_token"
+              value: ${{ defaults.chrome_token }}
             - name: CHROME_URL
               value: "ws://${{ defaults.app_name }}-chrome.${{ SEALOS_NAMESPACE }}.svc.cluster.local:3000"
             - name: DATABASE_URL
-              value: "postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432/postgres"
+              value: "postgresql://$(PG_USER):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/postgres"
             - name: ACCESS_TOKEN_SECRET
-              value: "access_token_secret"
+              value: ${{ defaults.access_token_secret }}
             - name: REFRESH_TOKEN_SECRET
-              value: "refresh_token_secret"
+              value: ${{ defaults.refresh_token_secret }}
             - name: MAIL_FROM
               value: "noreply@localhost"
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
             - name: STORAGE_ENDPOINT
-              value: "${{ defaults.app_name }}-minio.${{ SEALOS_NAMESPACE }}.svc.cluster.local"
+              value: $(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
             - name: STORAGE_PORT
-              value: "9000"
+              value: "443"
             - name: STORAGE_REGION
               value: "us-east-1"
             - name: STORAGE_BUCKET
-              value: "default"
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
             - name: STORAGE_ACCESS_KEY
+              value: $(S3_ACCESS_KEY_ID)
+            - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: ${{ defaults.app_name }}-minio-secret
-                  key: rootUser
+                  name: object-storage-key
+                  key: secretKey
             - name: STORAGE_SECRET_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-minio-secret
-                  key: rootPassword
+              value: $(S3_SECRET_ACCESS_KEY)
             - name: STORAGE_USE_SSL
-              value: "false"
+              value: "true"
           resources:
             limits:
               cpu: 500m
               memory: 512Mi
             requests:
-              cpu: 250m
-              memory: 256Mi
+              cpu: 50m
+              memory: 51Mi
 
 ---
 apiVersion: networking.k8s.io/v1
@@ -422,6 +344,7 @@ metadata:
     nginx.ingress.kubernetes.io/server-snippet: |
       client_header_buffer_size 64k;
       large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
@@ -449,85 +372,6 @@ spec:
         - ${{ defaults.domain }}.${{ SEALOS_CLOUD_DOMAIN }}
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
 
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: ${{ defaults.app_name }}-minio-console
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio
-    cloud.sealos.io/app-deploy-manager-domain: minio-${{ defaults.domain }}
-  annotations:
-    kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/proxy-body-size: 32m
-    nginx.ingress.kubernetes.io/server-snippet: |
-      client_header_buffer_size 64k;
-      large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/backend-protocol: HTTP
-    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
-    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
-        expires 30d;
-        add_header Cache-Control "public";
-      }
-spec:
-  rules:
-    - host: minio-${{ defaults.domain }}.${{ SEALOS_CLOUD_DOMAIN }}
-      http:
-        paths:
-          - pathType: Prefix
-            path: /
-            backend:
-              service:
-                name: ${{ defaults.app_name }}-minio
-                port:
-                  number: 9001
-  tls:
-    - hosts:
-        - minio-${{ defaults.domain }}.${{ SEALOS_CLOUD_DOMAIN }}
-      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
-
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: ${{ defaults.app_name }}-minio-api
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio
-    cloud.sealos.io/app-deploy-manager-domain: oss-${{ defaults.domain }}
-  annotations:
-    kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/proxy-body-size: 32m
-    nginx.ingress.kubernetes.io/server-snippet: |
-      client_header_buffer_size 64k;
-      large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/backend-protocol: HTTP
-    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
-    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
-        expires 30d;
-        add_header Cache-Control "public";
-      }
-spec:
-  rules:
-    - host: oss-${{ defaults.domain }}.${{ SEALOS_CLOUD_DOMAIN }}
-      http:
-        paths:
-          - pathType: Prefix
-            path: /
-            backend:
-              service:
-                name: ${{ defaults.app_name }}-minio
-                port:
-                  number: 9000
-  tls:
-    - hosts:
-        - oss-${{ defaults.domain }}.${{ SEALOS_CLOUD_DOMAIN }}
-      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
-
----
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -536,10 +380,27 @@ spec:
   ttlSecondsAfterFinished: 120
   template:
     spec:
+      automountServiceAccountToken: false
       initContainers:
         - name: wait-for-postgres
-          image: bitnamilegacy/postgresql:latest
+          image: senzing/postgresql-client:2.2.4
+          imagePullPolicy: IfNotPresent
           env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
             - name: PGPASSWORD
               valueFrom:
                 secretKeyRef:
@@ -549,19 +410,35 @@ spec:
             [
               "sh",
               "-c",
-              "until pg_isready -h ${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc -p 5432 -U postgres; do echo waiting for postgres; sleep 2; done;",
+              "until pg_isready -h \"$PG_HOST\" -p \"$PG_PORT\" -U \"$PG_USER\"; do echo waiting for postgres; sleep 2; done;",
             ]
           resources:
             limits:
               cpu: 500m
               memory: 512Mi
             requests:
-              cpu: 250m
-              memory: 256Mi
+              cpu: 50m
+              memory: 51Mi
       containers:
         - name: update-schema
-          image: bitnamilegacy/postgresql:latest
+          image: senzing/postgresql-client:2.2.4
+          imagePullPolicy: IfNotPresent
           env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
             - name: PGPASSWORD
               valueFrom:
                 secretKeyRef:
@@ -571,15 +448,15 @@ spec:
             [
               "sh",
               "-c",
-              'psql postgresql://postgres:$PGPASSWORD@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432/postgres -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"',
+              'psql "postgresql://$PG_USER:$PGPASSWORD@$PG_HOST:$PG_PORT/postgres" -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"',
             ]
           resources:
             limits:
               cpu: 500m
               memory: 512Mi
             requests:
-              cpu: 250m
-              memory: 256Mi
+              cpu: 50m
+              memory: 51Mi
       restartPolicy: OnFailure
 ---
 apiVersion: app.sealos.io/v1
@@ -592,6 +469,6 @@ spec:
   data:
     url: https://${{ defaults.domain }}.${{ SEALOS_CLOUD_DOMAIN }}
   displayType: normal
-  icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/Reactive-Resume/logo.svg"
+  icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/reactive-resume/logo.svg"
   name: ${{ defaults.app_name }}
   type: link
