@@ -310,10 +310,10 @@
   - `python:3.12.12-alpine` -> `python:3.14.6-alpine`: requires runtime validation for mail-stack component upgrades plus broad ConfigMap file-mount normalization across generated mail, webmail, supplier, and bootstrap configs
   - `roundcube/roundcubemail:1.6.11-fpm-alpine` -> `roundcube/roundcubemail:1.7.1-fpm-alpine`: requires runtime validation for mail-stack component upgrades plus broad ConfigMap file-mount normalization across generated mail, webmail, supplier, and bootstrap configs
 - `budibase`
-  - `budibase/apps:3.15.0` -> `budibase/apps:3.39.22`: requires coordinated Budibase multi-service upgrade validation plus database/object-storage secret and ConfigMap normalization across apps, worker, proxy, CouchDB, and Redis surfaces
-  - `budibase/proxy:3.15.0` -> `budibase/proxy:3.39.22`: requires coordinated Budibase multi-service upgrade validation plus database/object-storage secret and ConfigMap normalization across apps, worker, proxy, CouchDB, and Redis surfaces
-  - `budibase/worker:3.15.0` -> `budibase/worker:3.39.22`: requires coordinated Budibase multi-service upgrade validation plus database/object-storage secret and ConfigMap normalization across apps, worker, proxy, CouchDB, and Redis surfaces
-  - `busybox:1.37.0` -> `busybox:1.38.0`: requires coordinated Budibase multi-service upgrade validation plus database/object-storage secret and ConfigMap normalization across apps, worker, proxy, CouchDB, and Redis surfaces
+  - `budibase/apps:3.15.0` -> `budibase/apps:3.39.22`: requires coordinated Budibase multi-service upgrade validation across apps, worker, proxy, CouchDB, Redis, and helper image before automatic version changes
+  - `budibase/proxy:3.15.0` -> `budibase/proxy:3.39.22`: requires coordinated Budibase multi-service upgrade validation across apps, worker, proxy, CouchDB, Redis, and helper image before automatic version changes
+  - `budibase/worker:3.15.0` -> `budibase/worker:3.39.22`: requires coordinated Budibase multi-service upgrade validation across apps, worker, proxy, CouchDB, Redis, and helper image before automatic version changes
+  - `busybox:1.37.0` -> `busybox:1.38.0`: requires coordinated Budibase multi-service upgrade validation across apps, worker, proxy, CouchDB, Redis, and helper image before automatic version changes
 - `coze-studio`
   - `alpine/curl:8.12.1` -> `alpine/curl:8.20.0`: requires coordinated multi-component runtime validation across MySQL, Elasticsearch, NSQ, ConfigMap mounts, migrations, and service startup before automatic version changes
   - `bitnamilegacy/elasticsearch:8.18.0` -> `bitnamilegacy/elasticsearch:9.1.2`: requires coordinated multi-component runtime validation across MySQL, Elasticsearch, NSQ, ConfigMap mounts, migrations, and service startup before automatic version changes

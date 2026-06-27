@@ -16,7 +16,6 @@ spec:
   locale: en
   i18n:
     zh:
-      title: 'Budibase'
       description: 'Budibase 是一个开源的低代码平台，帮助您在几分钟内构建和部署现代化的业务应用'
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/budibase/README_zh.md'
   categories:
@@ -28,7 +27,31 @@ spec:
       value: budibase-${{ random(8) }}
     app_host:
       type: string
-      value: ${{ random(8) }}
+      value: budibase-${{ random(8) }}
+    couchdb_admin_username:
+      type: string
+      value: admin
+    couchdb_admin_password:
+      type: string
+      value: ${{ random(24) }}
+    couchdb_erlang_cookie:
+      type: string
+      value: ${{ random(32) }}
+    couchdb_cookie_auth_secret:
+      type: string
+      value: ${{ random(32) }}
+    internal_api_key:
+      type: string
+      value: ${{ random(32) }}
+    jwt_secret:
+      type: string
+      value: ${{ random(32) }}
+    bb_encryption_key:
+      type: string
+      value: ${{ random(32) }}
+    api_encryption_key:
+      type: string
+      value: ${{ random(32) }}
   inputs:
     admin_email:
       description: 'Admin email address'
@@ -38,7 +61,7 @@ spec:
     admin_password:
       description: 'Admin password (minimum 8 characters)'
       type: string
-      default: ''
+      default: Budibase@${{ random(16) }}!1
       required: true
     enable_analytics:
       description: 'Enable analytics'
@@ -138,7 +161,7 @@ metadata:
   labels:
     clusterdefinition.kubeblocks.io/name: redis
     kb.io/database: redis-7.2.7
-    app.kubernetes.io/instance: ${{ defaults.app_name }}
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
     app.kubernetes.io/version: 7.2.7
     helm.sh/chart: redis-cluster-0.9.0
     sealos-db-provider-cr: ${{ defaults.app_name }}-redis
@@ -183,11 +206,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 100m
-          memory: 100Mi
+          cpu: 500m
+          memory: 512Mi
         requests:
-          cpu: 10m
-          memory: 10Mi
+          cpu: 50m
+          memory: 51Mi
       serviceVersion: 7.2.7
       volumeClaimTemplates:
         - name: data
@@ -201,33 +224,32 @@ spec:
   topology: replication
 ---
 apiVersion: v1
-kind: Secret
+kind: ConfigMap
 metadata:
-  name: ${{ defaults.app_name }}-couchdb
+  name: ${{ defaults.app_name }}-couchdb-env
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-couchdb
-type: Opaque
-stringData:
-  adminUsername: admin
-  adminPassword: ${{ random(16) }}
-  erlangCookie: ${{ random(16) }}
-  cookieAuthSecret: ${{ random(16) }}
+    app: ${{ defaults.app_name }}-couchdb-env
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-couchdb-env
+data:
+  COUCHDB_USER: ${{ defaults.couchdb_admin_username }}
+  COUCHDB_PASSWORD: ${{ defaults.couchdb_admin_password }}
+  COUCHDB_SECRET: ${{ defaults.couchdb_cookie_auth_secret }}
+  COUCHDB_ERLANG_COOKIE: ${{ defaults.couchdb_erlang_cookie }}
 
 ---
 apiVersion: v1
-kind: Secret
+kind: ConfigMap
 metadata:
-  name: ${{ defaults.app_name }}
+  name: ${{ defaults.app_name }}-env
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-type: Opaque
-stringData:
-  internal_api_key: ${{ random(16) }}
-  jwt_secret: ${{ random(16) }}
-  bb_encryption_key: ${{ random(16) }}
-  api_encryption_key: ${{ random(16) }}
-  admin_email: ${{ inputs.admin_email }}
-  admin_password: ${{ inputs.admin_password }}
+    app: ${{ defaults.app_name }}-env
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-env
+data:
+  COUCH_DB_URL: http://${{ defaults.app_name }}-couchdb.${{ SEALOS_NAMESPACE }}.svc.cluster.local:5984
+  COUCH_DB_SQL_URL: http://${{ defaults.app_name }}-couchdb.${{ SEALOS_NAMESPACE }}.svc.cluster.local:4984
+  COUCH_DB_USER: ${{ defaults.couchdb_admin_username }}
+  COUCH_DB_PASSWORD: ${{ defaults.couchdb_admin_password }}
+  COUCHDB_UPSTREAM_URL: http://${{ defaults.app_name }}-couchdb.${{ SEALOS_NAMESPACE }}.svc.cluster.local:5984
 
 ---
 apiVersion: v1
@@ -235,6 +257,7 @@ kind: ConfigMap
 metadata:
   name: ${{ defaults.app_name }}-couchdb
   labels:
+    app: ${{ defaults.app_name }}-couchdb
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-couchdb
 data:
   vn-tmpvn-chartvn-ini: |
@@ -275,6 +298,13 @@ spec:
         - name: init-copy
           image: busybox:1.37.0
           imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 10m
+              memory: 12Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
           command:
             - 'sh'
             - '-c'
@@ -282,13 +312,16 @@ spec:
           volumeMounts:
           - name: ${{ defaults.app_name }}-couchdb-cm
             mountPath: /tmp/chart.ini
-            subPath: ./tmp/chart.ini
+            subPath: vn-tmpvn-chartvn-ini
           - name: vn-optvn-couchdbvn-etcvn-defaultvn-d
             mountPath: /default.d
       containers:
         - name: ${{ defaults.app_name }}-couchdb
           image: budibase/couchdb:v3.3.3-sqs-v2.1.1
           imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: ${{ defaults.app_name }}-couchdb-env
           ports:
             - name: couchdb
               containerPort: 5984
@@ -298,26 +331,6 @@ spec:
             - containerPort: 4984
               name: sqs
           env:
-            - name: COUCHDB_USER
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-couchdb
-                  key: adminUsername
-            - name: COUCHDB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-couchdb
-                  key: adminPassword
-            - name: COUCHDB_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-couchdb
-                  key: cookieAuthSecret
-            - name: COUCHDB_ERLANG_COOKIE
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-couchdb
-                  key: erlangCookie
             - name: ERL_FLAGS
               value: " -name couchdb "
           livenessProbe:
@@ -352,14 +365,14 @@ spec:
             mountPath: /opt/couchdb/data
           - name: ${{ defaults.app_name }}-couchdb-cm
             mountPath: /tmp/chart.ini
-            subPath: ./tmp/chart.ini
+            subPath: vn-tmpvn-chartvn-ini
       volumes:
         - name: ${{ defaults.app_name }}-couchdb-cm
           configMap:
             name: ${{ defaults.app_name }}-couchdb
             items:
               - key: vn-tmpvn-chartvn-ini
-                path: ./tmp/chart.ini
+                path: vn-tmpvn-chartvn-ini
   volumeClaimTemplates:
     - metadata:
         annotations:
@@ -388,25 +401,13 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: ${{ defaults.app_name }}-couchdb-headless
-
+  name: ${{ defaults.app_name }}-couchdb
+  labels:
+    app: ${{ defaults.app_name }}-couchdb
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-couchdb
 spec:
   clusterIP: None
   publishNotReadyAddresses: true
-  ports:
-    - name: couchdb
-      port: 5984
-  selector:
-    app: ${{ defaults.app_name }}-couchdb
-
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: ${{ defaults.app_name }}-couchdb
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-couchdb
-spec:
   ports:
     - port: 5984
       name: couchdb
@@ -416,7 +417,6 @@ spec:
       port: 4984
       protocol: TCP
       targetPort: 4984
-  type: ClusterIP
   selector:
     app: ${{ defaults.app_name }}-couchdb
 
@@ -448,6 +448,9 @@ spec:
         - name: ${{ defaults.app_name }}
           image: budibase/apps:3.15.0
           imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: ${{ defaults.app_name }}-env
           env:
             - name: BUDIBASE_ENVIRONMENT
               value: PRODUCTION
@@ -463,101 +466,69 @@ spec:
               value: info
             - name: ENABLE_ANALYTICS
               value: ${{ inputs.enable_analytics }}
-            # CouchDB configuration
-            - name: COUCH_DB_URL
-              value: http://${{ defaults.app_name }}-couchdb.${{ SEALOS_NAMESPACE }}.svc.cluster.local:5984
-            - name: COUCH_DB_SQL_URL
-              value: http://${{ defaults.app_name }}-couchdb.${{ SEALOS_NAMESPACE }}.svc.cluster.local:4984
-            - name: COUCH_DB_USER
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-couchdb
-                  key: adminUsername
-            - name: COUCH_DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-couchdb
-                  key: adminPassword
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: "6379"
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
             - name: REDIS_URL
-              value: redis://:$(REDIS_PASSWORD)@${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local:6379
+              value: redis://:$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)
             - name: MINIO_ENABLED
               value: "true"
-            - name: MINIO_ACCESS_KEY
+            - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: accessKey
-            - name: MINIO_SECRET_KEY
+            - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: secretKey
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
             - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: external
+            - name: MINIO_ACCESS_KEY
+              value: $(S3_ACCESS_KEY_ID)
+            - name: MINIO_SECRET_KEY
+              value: $(S3_SECRET_ACCESS_KEY)
             - name: MINIO_URL
               value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
             - name: PLUGIN_BUCKET_NAME
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
-                  key: bucket
+              value: $(S3_BUCKET)
             - name: APPS_BUCKET_NAME
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
-                  key: bucket
+              value: $(S3_BUCKET)
             - name: GLOBAL_BUCKET_NAME
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
-                  key: bucket
+              value: $(S3_BUCKET)
             - name: BACKUPS_BUCKET_NAME
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
-                  key: bucket
+              value: $(S3_BUCKET)
             # Application secrets
             - name: INTERNAL_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}
-                  key: internal_api_key
+              value: ${{ defaults.internal_api_key }}
             - name: JWT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}
-                  key: jwt_secret
+              value: ${{ defaults.jwt_secret }}
             - name: ENCRYPTION_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}
-                  key: bb_encryption_key
+              value: ${{ defaults.bb_encryption_key }}
             - name: API_ENCRYPTION_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}
-                  key: api_encryption_key
+              value: ${{ defaults.api_encryption_key }}
             - name: WORKER_URL
               value: http://${{ defaults.app_name }}-worker.${{ SEALOS_NAMESPACE }}.svc.cluster.local:4003
             # Admin configuration
             - name: BB_ADMIN_USER_EMAIL
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}
-                  key: admin_email
+              value: ${{ inputs.admin_email }}
             - name: BB_ADMIN_USER_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}
-                  key: admin_password
+              value: ${{ inputs.admin_password }}
             ${{ if(inputs.smtp_enabled === 'true') }}
             - name: SMTP_HOST
               value: ${{ inputs.smtp_host }}
@@ -609,10 +580,14 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 4002
+    - name: http
+      port: 4002
+      protocol: TCP
+      targetPort: 4002
   selector:
     app: ${{ defaults.app_name }}
 
@@ -644,6 +619,9 @@ spec:
         - name: ${{ defaults.app_name }}-worker
           image: budibase/worker:3.15.0
           imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: ${{ defaults.app_name }}-env
           env:
             - name: BUDIBASE_ENVIRONMENT
               value: PRODUCTION
@@ -661,101 +639,69 @@ spec:
               value: info
             - name: ENABLE_ANALYTICS
               value: ${{ inputs.enable_analytics }}
-            # CouchDB configuration
-            - name: COUCH_DB_URL
-              value: http://${{ defaults.app_name }}-couchdb.${{ SEALOS_NAMESPACE }}.svc.cluster.local:5984
-            - name: COUCH_DB_SQL_URL
-              value: http://${{ defaults.app_name }}-couchdb.${{ SEALOS_NAMESPACE }}.svc.cluster.local:4984
-            - name: COUCH_DB_USER
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-couchdb
-                  key: adminUsername
-            - name: COUCH_DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-couchdb
-                  key: adminPassword
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: "6379"
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
             - name: REDIS_URL
-              value: redis://default:$(REDIS_PASSWORD)@${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local:6379
+              value: redis://default:$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)
             - name: MINIO_ENABLED
               value: "true"
-            - name: MINIO_ACCESS_KEY
+            - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: accessKey
-            - name: MINIO_SECRET_KEY
+            - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: secretKey
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
             - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: external
+            - name: MINIO_ACCESS_KEY
+              value: $(S3_ACCESS_KEY_ID)
+            - name: MINIO_SECRET_KEY
+              value: $(S3_SECRET_ACCESS_KEY)
             - name: MINIO_URL
               value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
             - name: PLUGIN_BUCKET_NAME
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
-                  key: bucket
+              value: $(S3_BUCKET)
             - name: APPS_BUCKET_NAME
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
-                  key: bucket
+              value: $(S3_BUCKET)
             - name: GLOBAL_BUCKET_NAME
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
-                  key: bucket
+              value: $(S3_BUCKET)
             - name: BACKUPS_BUCKET_NAME
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
-                  key: bucket
+              value: $(S3_BUCKET)
             # Application secrets
             - name: INTERNAL_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}
-                  key: internal_api_key
+              value: ${{ defaults.internal_api_key }}
             - name: JWT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}
-                  key: jwt_secret
+              value: ${{ defaults.jwt_secret }}
             - name: ENCRYPTION_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}
-                  key: bb_encryption_key
+              value: ${{ defaults.bb_encryption_key }}
             - name: API_ENCRYPTION_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}
-                  key: api_encryption_key
+              value: ${{ defaults.api_encryption_key }}
             - name: APPS_URL
               value: http://${{ defaults.app_name }}.${{ SEALOS_NAMESPACE }}.svc.cluster.local:4002
             # Admin configuration
             - name: BB_ADMIN_USER_EMAIL
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}
-                  key: admin_email
+              value: ${{ inputs.admin_email }}
             - name: BB_ADMIN_USER_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}
-                  key: admin_password
+              value: ${{ inputs.admin_password }}
             ${{ if(inputs.smtp_enabled === 'true') }}
             - name: SMTP_HOST
               value: ${{ inputs.smtp_host }}
@@ -805,10 +751,14 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-worker
   labels:
+    app: ${{ defaults.app_name }}-worker
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-worker
 spec:
   ports:
-    - port: 4003
+    - name: http
+      port: 4003
+      protocol: TCP
+      targetPort: 4003
   selector:
     app: ${{ defaults.app_name }}-worker
 
@@ -840,6 +790,9 @@ spec:
         - name: ${{ defaults.app_name }}-proxy
           image: budibase/proxy:3.15.0
           imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: ${{ defaults.app_name }}-env
           env:
             - name: APPS_UPSTREAM_URL
               value: http://${{ defaults.app_name }}.${{ SEALOS_NAMESPACE }}.svc.cluster.local:4002
@@ -852,8 +805,6 @@ spec:
                   key: external
             - name: MINIO_UPSTREAM_URL
               value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
-            - name: COUCHDB_UPSTREAM_URL
-              value: http://${{ defaults.app_name }}-couchdb.${{ SEALOS_NAMESPACE }}.svc.cluster.local:5984
             - name: RESOLVER
               value: kube-dns.kube-system.svc.cluster.local
           ports:
@@ -893,10 +844,14 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-proxy
   labels:
+    app: ${{ defaults.app_name }}-proxy
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-proxy
 spec:
   ports:
-    - port: 10000
+    - name: http
+      port: 10000
+      protocol: TCP
+      targetPort: 10000
   selector:
     app: ${{ defaults.app_name }}-proxy
 
