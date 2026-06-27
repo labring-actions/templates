@@ -363,8 +363,8 @@
   - `docker.io/langfuse/langfuse:3.180.0` -> `docker.io/langfuse/langfuse:3.197.1`: requires Langfuse runtime validation across PostgreSQL init, ClickHouse, Redis, S3 storage, worker/web startup, and secret handling before automatic version changes
   - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`: requires Langfuse runtime validation across PostgreSQL init, ClickHouse, Redis, S3 storage, worker/web startup, and secret handling before automatic version changes
 - `liebianbao`
-  - `busybox:1.36.1` -> `busybox:1.38.0`: requires LieBianBao runtime validation across PHP, Nginx, MongoDB, Redis, MySQL init, ConfigMap mounts, and startup behavior before automatic version changes
-  - `nginx:1.25.2` -> `nginx:1.31.2`: requires LieBianBao runtime validation across PHP, Nginx, MongoDB, Redis, MySQL init, ConfigMap mounts, and startup behavior before automatic version changes
+  - `busybox:1.36.1` -> `busybox:1.38.0`: requires LieBianBao runtime validation across PHP, Nginx, MongoDB, Redis, MySQL init, and startup behavior before automatic version changes
+  - `nginx:1.25.2` -> `nginx:1.31.2`: requires LieBianBao runtime validation across PHP, Nginx, MongoDB, Redis, MySQL init, and startup behavior before automatic version changes
 - `posthog`
   - `docker.redpanda.com/redpandadata/redpanda:v25.1.9` -> `docker.redpanda.com/redpandadata/redpanda:v26.1.10`: requires PostHog runtime validation across Redpanda, Zookeeper, ConfigMaps, services, and startup commands before automatic version changes
   - `zookeeper:3.9.3` -> `zookeeper:3.9.5`: requires PostHog runtime validation across Redpanda, Zookeeper, ConfigMaps, services, and startup commands before automatic version changes

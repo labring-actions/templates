@@ -5,7 +5,7 @@ metadata:
 spec:
   title: '慧动裂变宝'
   url: 'http://www.liebianbao.vip/'
-  gitRepo: ''
+  gitRepo: 'http://www.liebianbao.vip/'
   author: 'Sealos'
   description: '一款基于微信全生态运营场景开发的系统工具，助力企业打造获客·运营·转化·管理为一体的私域增长闭环。更好地通过微信公众号+社群+企业微信+视频号进行快速裂变获客、宣传推广、拓客到店，从而达到销售业绩的提升。'
   readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/liebianbao/README.md'
@@ -15,6 +15,8 @@ spec:
   templateType: inline
   locale: zh
   draft: true
+  categories:
+    - tool
   defaults:
     app_name:
       type: string
@@ -24,28 +26,29 @@ spec:
       value: ${{ random(8) }}
   inputs:
     url:
-      description: '注册域名-需要 cname 到 ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}'
+      description: 'Custom domain that must CNAME to ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}'
       type: string
       default: ''
       required: true
     reg_token:
-      description: '注册码'
+      description: 'Registration token'
       type: string
       default: ''
       required: true
     admin_username:
-      description: '管理员账户'
+      description: 'Administrator account'
       type: string
       default: 'admin'
       required: true
     admin_password:
-      description: '管理员密码'
+      description: 'Administrator password'
       type: string
       default: '12345678'
       required: true
 
   i18n:
     zh:
+      description: '一款基于微信全生态运营场景开发的系统工具，助力企业打造获客、运营、转化、管理为一体的私域增长闭环。'
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/liebianbao/README_zh.md'
 ---
 apiVersion: v1
@@ -63,10 +66,10 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongodb
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongodb
     app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-mongo
+  name: ${{ defaults.app_name }}-mongodb
 
 ---
 
@@ -75,7 +78,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: labring4docker/php-custom:7.2-fpm
+    originImageName: docker.io/labring4docker/php-custom:7.2-fpm
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -97,6 +100,13 @@ spec:
       initContainers:
       - name: initializer
         image: busybox:1.36.1
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 10m
+            memory: 12Mi
         command:
           - "/bin/sh"
           - "-c"
@@ -141,7 +151,7 @@ spec:
             - name: APP_KEY
               value: 'base64:9pF/k2HH4NWfUcnjSymylVAmHuGUc7e0lq70Kob0URE='
             - name: APP_DEBUG
-              value: true
+              value: 'true'
             - name: DB_CONNECTION
               value: mysql
             - name: DB_HOST
@@ -199,9 +209,9 @@ spec:
             - name: SESSION_DRIVER
               value: redis
             - name: SESSION_LIFETIME
-              value: 12000
+              value: '12000'
             - name: REDIS_HOST
-              value: ${{ defaults.app_name }}-redis-redis-redis
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
             - name: REDIS_PORT
               value: '6379'
             - name: REDIS_PASSWORD
@@ -210,41 +220,37 @@ spec:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
             - name: REDIS_CACHE_DB
-              value: 1
+              value: '1'
             - name: REDIS_DB
-              value: 1
+              value: '1'
             - name: TESTDAY
-              value: 1
+              value: '1'
             - name: reg_token
               value: ${{ inputs.reg_token }}
           resources:
-            requests:
-              cpu: 500m
-              memory: 256Mi
             limits:
               cpu: 1
-              memory: 2Gi
+              memory: 2048Mi
+            requests:
+              cpu: 100m
+              memory: 204Mi
           command:
             - "/bin/sh"
-            - "-c"
-            - |
-              cron
-              cd /data/918map/app/
-              nohup php artisan horizon &
-              php-fpm -R
+            - "-ec"
+            - cd /data/918map/app && cron && php artisan horizon >/tmp/horizon.log 2>&1 & exec php-fpm -R
           args: []
           ports:
             - containerPort: 9000
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           volumeMounts:
             - name: vn-datavn-918map
               mountPath: /data/918map
-            - name: php-ini
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /usr/local/etc/php/conf.d/99-custom.ini
-              subPath: ./usr/local/etc/php/conf.d/99-custom.ini
-            - name: php-fpm-conf
+              subPath: vn-usrvn-localvn-etcvn-phpvn-confvn-dvn-99vn-customvn-ini
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /usr/local/etc/php-fpm.d/zz-custom.conf
-              subPath: ./usr/local/etc/php-fpm.d/zz-custom.conf
+              subPath: vn-usrvn-localvn-etcvn-phpvn-fpmvn-dvn-zzvn-customvn-conf
           # securityContext:
           #   runAsUser: 1000
           #   runAsGroup: 1000
@@ -252,40 +258,25 @@ spec:
         - name: nginx
           image: nginx:1.25.2
           resources:
-            requests:
-              cpu: 25m
-              memory: 50Mi
             limits:
-              cpu: 256m
+              cpu: 500m
               memory: 512Mi
+            requests:
+              cpu: 50m
+              memory: 51Mi
           ports:
             - containerPort: 80
           volumeMounts:
             - name: vn-datavn-918map
               mountPath: /data/918map
-            - name: nginx-conf
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /etc/nginx/nginx.conf
-              subPath: ./etc/nginx/nginx.conf
+              subPath: vn-etcvn-nginxvn-nginxvn-conf
           imagePullPolicy: IfNotPresent
       volumes:
-        - name: php-ini
+        - name: ${{ defaults.app_name }}-cm
           configMap:
             name: ${{ defaults.app_name }}
-            items:
-              - key: php-ini
-                path: ./usr/local/etc/php/conf.d/99-custom.ini
-        - name: php-fpm-conf
-          configMap:
-            name: ${{ defaults.app_name }}
-            items:
-              - key: php-fpm-conf
-                path: ./usr/local/etc/php-fpm.d/zz-custom.conf
-        - name: nginx-conf
-          configMap:
-            name: ${{ defaults.app_name }}
-            items:
-              - key: nginx-conf
-                path: ./etc/nginx/nginx.conf
   volumeClaimTemplates:
     - metadata:
         annotations:
@@ -308,7 +299,7 @@ metadata:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
 data:
-  nginx-conf: |
+  vn-etcvn-nginxvn-nginxvn-conf: |
     user  root;
     worker_processes  4;
 
@@ -356,11 +347,11 @@ data:
             }
         }
     }
-  php-ini: |
+  vn-usrvn-localvn-etcvn-phpvn-confvn-dvn-99vn-customvn-ini: |
     memory_limit=-1
     upload_max_filesize=256M
     ; disable_functions=putenv,pcntl_signal,pcntl_signal_dispatch,proc_open,pcntl_alarm
-  php-fpm-conf: |
+  vn-usrvn-localvn-etcvn-phpvn-fpmvn-dvn-zzvn-customvn-conf: |
     [www]
     pm.max_children=128
 
@@ -371,9 +362,13 @@ metadata:
   name: ${{ defaults.app_name }}
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 80
+    - name: http
+      port: 80
+      targetPort: 80
+      protocol: TCP
   selector:
     app: ${{ defaults.app_name }}
 
@@ -385,8 +380,24 @@ metadata:
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+    app: ${{ defaults.app_name }}
   annotations:
+    kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
 spec:
   ingressClassName: nginx
   rules:
@@ -441,7 +452,8 @@ kind: Cluster
 metadata:
   labels:
     kb.io/database: mongodb-8.0.4
-    app.kubernetes.io/instance: test-db
+    clusterdefinition.kubeblocks.io/name: mongodb
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongodb
     helm.sh/chart: mongodb-cluster-0.9.1
     sealos-db-provider-cr: ${{ defaults.app_name }}-mongodb
   name: ${{ defaults.app_name }}-mongodb
@@ -463,11 +475,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 1000m
-          memory: 1Gi
+          cpu: 500m
+          memory: 512Mi
         requests:
-          cpu: 100m
-          memory: 128Mi
+          cpu: 50m
+          memory: 51Mi
       serviceVersion: 8.0.4
       serviceAccountName: ${{ defaults.app_name }}-mongodb
       volumeClaimTemplates:
@@ -477,7 +489,7 @@ spec:
               - ReadWriteOnce
             resources:
               requests:
-                storage: 3Gi
+                storage: 1Gi
   terminationPolicy: Delete
 ---
 
@@ -485,10 +497,10 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongodb
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongodb
     app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-mongo
+  name: ${{ defaults.app_name }}-mongodb
 rules:
   - apiGroups:
       - '*'
@@ -502,17 +514,17 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongodb
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongodb
     app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-mongo
+  name: ${{ defaults.app_name }}-mongodb
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: ${{ defaults.app_name }}-mongo
+  name: ${{ defaults.app_name }}-mongodb
 subjects:
   - kind: ServiceAccount
-    name: ${{ defaults.app_name }}-mongo
+    name: ${{ defaults.app_name }}-mongodb
 
 ---
 apiVersion: apps.kubeblocks.io/v1alpha1
@@ -524,7 +536,7 @@ metadata:
   labels:
     clusterdefinition.kubeblocks.io/name: redis
     kb.io/database: redis-7.2.7
-    app.kubernetes.io/instance: ${{ defaults.app_name }}
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
     app.kubernetes.io/version: 7.2.7
     helm.sh/chart: redis-cluster-0.9.0
     sealos-db-provider-cr: ${{ defaults.app_name }}-redis
@@ -569,12 +581,13 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 100m
-          memory: 100Mi
+          cpu: 500m
+          memory: 512Mi
         requests:
-          cpu: 10m
-          memory: 10Mi
+          cpu: 50m
+          memory: 51Mi
       serviceVersion: 7.2.7
+      serviceAccountName: ${{ defaults.app_name }}-redis
       volumeClaimTemplates:
         - name: data
           spec:
@@ -629,6 +642,9 @@ metadata:
   labels:
     clusterdefinition.kubeblocks.io/name: apecloud-mysql
     clusterversion.kubeblocks.io/name: ac-mysql-8.0.30
+    kb.io/database: ac-mysql-8.0.30-1
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
   name: ${{ defaults.app_name }}-mysql
 spec:
   affinity:
@@ -658,7 +674,7 @@ spec:
               - ReadWriteOnce
             resources:
               requests:
-                storage: 3Gi
+                storage: 1Gi
 
   terminationPolicy: Delete
   tolerations: []
@@ -709,7 +725,15 @@ spec:
     spec:
       containers:
         - name: mysql-init
-          image: docker.io/arey/mysql-client:latest
+          image: joseluisq/mysql-client:8.0.44
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
           env:
             - name: MYSQL_USER
               valueFrom:
