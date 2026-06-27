@@ -2,10 +2,10 @@
 
 - Updated templates: 110
 - Updated candidates: 149
-- Validation-needed templates: 6
-- Validation-needed candidates: 16
-- Blocked templates: 20
-- Blocked candidates: 86
+- Validation-needed templates: 7
+- Validation-needed candidates: 20
+- Blocked templates: 19
+- Blocked candidates: 82
 - Skipped templates: 1
 - Skipped candidates: 6
 
@@ -379,10 +379,10 @@
 - `rybbit`
   - `clickhouse/clickhouse-server:25.4.2` -> `clickhouse/clickhouse-server:26.5.3`: blocked because the ClickHouse 25.x to 26.x update requires database runtime validation and the template still needs ClickHouse storage and ConfigMap contract work before a safe image refresh
 - `signoz`
-  - `clickhouse/clickhouse-server:25.5.6` -> `clickhouse/clickhouse-server:26.5.3`: blocked because the Signoz bundle updates ClickHouse, collector, Signoz, and Zookeeper together and requires multi-component runtime validation plus database/storage contract work
-  - `signoz/signoz-otel-collector:v0.144.2` -> `signoz/signoz-otel-collector:v0.144.5`: blocked because the Signoz bundle updates ClickHouse, collector, Signoz, and Zookeeper together and requires multi-component runtime validation plus database/storage contract work
-  - `signoz/signoz:v0.117.0` -> `signoz/signoz:v0.130.1`: blocked because the Signoz bundle updates ClickHouse, collector, Signoz, and Zookeeper together and requires multi-component runtime validation plus database/storage contract work
-  - `signoz/zookeeper:3.7.1` -> `signoz/zookeeper:3.9.3`: blocked because the Signoz bundle updates ClickHouse, collector, Signoz, and Zookeeper together and requires multi-component runtime validation plus database/storage contract work
+  - `clickhouse/clickhouse-server:25.5.6` -> `clickhouse/clickhouse-server:26.5.3`: updated the Signoz ClickHouse, collector, Signoz, and Zookeeper image bundle; focused runtime validation is required for ClickHouse migrations/storage, collector ingestion, dashboard startup, and Zookeeper coordination before merge confidence
+  - `signoz/signoz-otel-collector:v0.144.2` -> `signoz/signoz-otel-collector:v0.144.5`: updated the Signoz ClickHouse, collector, Signoz, and Zookeeper image bundle; focused runtime validation is required for ClickHouse migrations/storage, collector ingestion, dashboard startup, and Zookeeper coordination before merge confidence
+  - `signoz/signoz:v0.117.0` -> `signoz/signoz:v0.130.1`: updated the Signoz ClickHouse, collector, Signoz, and Zookeeper image bundle; focused runtime validation is required for ClickHouse migrations/storage, collector ingestion, dashboard startup, and Zookeeper coordination before merge confidence
+  - `signoz/zookeeper:3.7.1` -> `signoz/zookeeper:3.9.3`: updated the Signoz ClickHouse, collector, Signoz, and Zookeeper image bundle; focused runtime validation is required for ClickHouse migrations/storage, collector ingestion, dashboard startup, and Zookeeper coordination before merge confidence
 - `supabase`
   - `darthsim/imgproxy:v3.30.1` -> `darthsim/imgproxy:v4.0.6`: blocked because the Supabase bundle spans eleven images, includes major Kong/imgproxy/storage/realtime changes, and requires official bundle alignment plus runtime validation
   - `kong:2.8.1` -> `kong:3.9.3`: blocked because the Supabase bundle spans eleven images, includes major Kong/imgproxy/storage/realtime changes, and requires official bundle alignment plus runtime validation
