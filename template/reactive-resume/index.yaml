@@ -20,15 +20,12 @@ spec:
     app_name:
       type: string
       value: re-${{ random(8) }}
-    chrome_token:
+    auth_secret:
       type: string
-      value: ${{ random(32) }}
-    access_token_secret:
+      value: rr-auth-${{ random(48) }}-S1!
+    encryption_secret:
       type: string
-      value: ${{ random(48) }}
-    refresh_token_secret:
-      type: string
-      value: ${{ random(48) }}
+      value: rr-enc-${{ random(48) }}-S1!
     domain:
       type: string
       value: re-${{ random(8) }}
@@ -54,53 +51,6 @@ metadata:
     app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
     app.kubernetes.io/managed-by: kbcli
   name: ${{ defaults.app_name }}-pg
-
----
-apiVersion: apps.kubeblocks.io/v1alpha1
-kind: Cluster
-metadata:
-  finalizers:
-    - cluster.kubeblocks.io/finalizer
-  labels:
-    kb.io/database: postgresql-14.8.0
-    clusterdefinition.kubeblocks.io/name: postgresql
-    clusterversion.kubeblocks.io/name: postgresql-14.8.0
-    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
-  name: ${{ defaults.app_name }}-pg
-spec:
-  affinity:
-    nodeLabels: {}
-    podAntiAffinity: Preferred
-    tenancy: SharedNode
-    topologyKeys: []
-  clusterDefinitionRef: postgresql
-  clusterVersionRef: postgresql-14.8.0
-  componentSpecs:
-    - componentDefRef: postgresql
-      monitor: true
-      name: postgresql
-      replicas: 1
-      resources:
-        limits:
-          cpu: 500m
-          memory: 512Mi
-        requests:
-          cpu: 50m
-          memory: 51Mi
-      serviceAccountName: ${{ defaults.app_name }}-pg
-      switchPolicy:
-        type: Noop
-      volumeClaimTemplates:
-        - name: data
-          spec:
-            accessModes:
-              - ReadWriteOnce
-            resources:
-              requests:
-                storage: 1Gi
-
-  terminationPolicy: Delete
-  tolerations: []
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -135,73 +85,165 @@ subjects:
   - kind: ServiceAccount
     name: ${{ defaults.app_name }}-pg
 ---
-apiVersion: v1
-kind: Service
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
 metadata:
-  name: ${{ defaults.app_name }}-chrome
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
   labels:
-    app: ${{ defaults.app_name }}-chrome
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-chrome
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+  name: ${{ defaults.app_name }}-pg
 spec:
-  type: ClusterIP
-  ports:
-    - port: 3000
-      targetPort: 3000
-      protocol: TCP
-      name: http
-  selector:
-    app: ${{ defaults.app_name }}-chrome
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  componentSpecs:
+    - componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
+      name: postgresql
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+
+  terminationPolicy: Delete
 
 ---
-apiVersion: apps/v1
-kind: Deployment
+apiVersion: v1
+kind: ServiceAccount
 metadata:
-  name: ${{ defaults.app_name }}-chrome
-  annotations:
-    originImageName: ghcr.io/browserless/chromium:v2.11.0
   labels:
-    app: ${{ defaults.app_name }}-chrome
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-chrome
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-redis
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-redis
+rules:
+  - apiGroups:
+      - "*"
+    resources:
+      - "*"
+    verbs:
+      - "*"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-redis
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-redis
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-redis
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  labels:
+    kb.io/database: redis-7.2.7
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/version: 7.2.7
+    clusterversion.kubeblocks.io/name: redis-7.2.7
+    clusterdefinition.kubeblocks.io/name: redis
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+  name: ${{ defaults.app_name }}-redis
 spec:
-  replicas: 1
-  revisionHistoryLimit: 1
-  selector:
-    matchLabels:
-      app: ${{ defaults.app_name }}-chrome
-  template:
-    metadata:
-      labels:
-        app: ${{ defaults.app_name }}-chrome
-    spec:
-      automountServiceAccountToken: false
-      containers:
-        - name: ${{ defaults.app_name }}-chrome
-          securityContext: {}
-          image: ghcr.io/browserless/chromium:v2.11.0
-          imagePullPolicy: IfNotPresent
-          ports:
-            - name: http
-              containerPort: 3000
-              protocol: TCP
-          env:
-            - name: TIMEOUT
-              value: "10000"
-            - name: CONCURRENT
-              value: "10"
-            - name: TOKEN
-              value: ${{ defaults.chrome_token }}
-            - name: EXIT_ON_HEALTH_FAILURE
-              value: "true"
-            - name: PRE_REQUEST_HEALTH_CHECK
-              value: "true"
-          resources:
-            limits:
-              cpu: 500m
-              memory: 512Mi
-            requests:
-              cpu: 50m
-              memory: 51Mi
-
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys:
+      - kubernetes.io/hostname
+  clusterDefinitionRef: redis
+  componentSpecs:
+    - componentDef: redis-7
+      name: redis
+      replicas: 1
+      enabledLogs:
+        - running
+      env:
+        - name: CUSTOM_SENTINEL_MASTER_NAME
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      serviceVersion: 7.2.7
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+    - componentDef: redis-sentinel-7
+      name: redis-sentinel
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      serviceVersion: 7.2.7
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+  topology: replication
 ---
 apiVersion: v1
 kind: Service
@@ -225,7 +267,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-app
   annotations:
-    originImageName: amruthpillai/reactive-resume:v4.1.2
+    originImageName: amruthpillai/reactive-resume:v5.1.9
   labels:
     app: ${{ defaults.app_name }}-app
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-app
@@ -243,7 +285,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}-app
-          image: amruthpillai/reactive-resume:v4.1.2
+          image: amruthpillai/reactive-resume:v5.1.9
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -274,54 +316,79 @@ spec:
               value: "3000"
             - name: NODE_ENV
               value: "production"
-            - name: PUBLIC_URL
+            - name: APP_URL
               value: "https://${{ defaults.domain }}.${{ SEALOS_CLOUD_DOMAIN }}"
-            - name: STORAGE_URL
-              value: "https://$(STORAGE_ENDPOINT)/$(STORAGE_BUCKET)"
-            - name: CHROME_TOKEN
-              value: ${{ defaults.chrome_token }}
-            - name: CHROME_URL
-              value: "ws://${{ defaults.app_name }}-chrome.${{ SEALOS_NAMESPACE }}.svc.cluster.local:3000"
             - name: DATABASE_URL
               value: "postgresql://$(PG_USER):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/postgres"
-            - name: ACCESS_TOKEN_SECRET
-              value: ${{ defaults.access_token_secret }}
-            - name: REFRESH_TOKEN_SECRET
-              value: ${{ defaults.refresh_token_secret }}
-            - name: MAIL_FROM
-              value: "noreply@localhost"
-            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key
-                  key: external
-            - name: STORAGE_ENDPOINT
-              value: $(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
-            - name: STORAGE_PORT
-              value: "443"
-            - name: STORAGE_REGION
-              value: "us-east-1"
-            - name: STORAGE_BUCKET
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
-                  key: bucket
+            - name: AUTH_SECRET
+              value: ${{ defaults.auth_secret }}
+            - name: ENCRYPTION_SECRET
+              value: ${{ defaults.encryption_secret }}
+            - name: REDIS_URL
+              value: "redis://${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local:6379"
             - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: accessKey
-            - name: STORAGE_ACCESS_KEY
-              value: $(S3_ACCESS_KEY_ID)
             - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: secretKey
-            - name: STORAGE_SECRET_KEY
-              value: $(S3_SECRET_ACCESS_KEY)
-            - name: STORAGE_USE_SSL
+            - name: S3_REGION
+              value: "us-east-1"
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            - name: S3_ENDPOINT
+              value: "https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)"
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: S3_FORCE_PATH_STYLE
               value: "true"
+            - name: LOCAL_STORAGE_PATH
+              value: /app/data
+            - name: FLAG_DISABLE_SIGNUPS
+              value: "false"
+            - name: FLAG_DISABLE_EMAIL_AUTH
+              value: "false"
+            - name: FLAG_DISABLE_IMAGE_PROCESSING
+              value: "false"
+            - name: FLAG_DISABLE_API_RATE_LIMIT
+              value: "false"
+            - name: FLAG_SHOW_SPONSORS
+              value: "false"
+            - name: FLAG_ALLOW_UNSAFE_OAUTH_REDIRECT_URI
+              value: "false"
+            - name: FLAG_ALLOW_UNSAFE_AI_BASE_URL
+              value: "false"
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
           resources:
             limits:
               cpu: 500m
@@ -329,6 +396,20 @@ spec:
             requests:
               cpu: 50m
               memory: 51Mi
+          volumeMounts:
+            - name: vn-appvn-data
+              mountPath: /app/data
+      volumes: []
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-appvn-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+        storageClassName: openebs-backup
 
 ---
 apiVersion: networking.k8s.io/v1
@@ -372,92 +453,6 @@ spec:
         - ${{ defaults.domain }}.${{ SEALOS_CLOUD_DOMAIN }}
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
 
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: ${{ defaults.app_name }}-postgres-schema-job
-spec:
-  ttlSecondsAfterFinished: 120
-  template:
-    spec:
-      automountServiceAccountToken: false
-      initContainers:
-        - name: wait-for-postgres
-          image: senzing/postgresql-client:2.2.4
-          imagePullPolicy: IfNotPresent
-          env:
-            - name: PG_HOST
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: host
-            - name: PG_PORT
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: port
-            - name: PG_USER
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: username
-            - name: PGPASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: password
-          command:
-            [
-              "sh",
-              "-c",
-              "until pg_isready -h \"$PG_HOST\" -p \"$PG_PORT\" -U \"$PG_USER\"; do echo waiting for postgres; sleep 2; done;",
-            ]
-          resources:
-            limits:
-              cpu: 500m
-              memory: 512Mi
-            requests:
-              cpu: 50m
-              memory: 51Mi
-      containers:
-        - name: update-schema
-          image: senzing/postgresql-client:2.2.4
-          imagePullPolicy: IfNotPresent
-          env:
-            - name: PG_HOST
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: host
-            - name: PG_PORT
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: port
-            - name: PG_USER
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: username
-            - name: PGPASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: password
-          command:
-            [
-              "sh",
-              "-c",
-              'psql "postgresql://$PG_USER:$PGPASSWORD@$PG_HOST:$PG_PORT/postgres" -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"',
-            ]
-          resources:
-            limits:
-              cpu: 500m
-              memory: 512Mi
-            requests:
-              cpu: 50m
-              memory: 51Mi
-      restartPolicy: OnFailure
 ---
 apiVersion: app.sealos.io/v1
 kind: App

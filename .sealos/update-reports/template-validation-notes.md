@@ -161,9 +161,9 @@ Validation passed:
 - BillionMail template update pass: updated Core, Roundcube, openssl helper, and docker-api Python helper images. Marked validation-needed for Core, Roundcube, docker-api helper compatibility, mail services, PostgreSQL/Redis startup, and first-run admin login.
 - Signoz template update pass: updated ClickHouse, collector, Signoz, and Zookeeper images as one observability bundle. Marked validation-needed for ClickHouse migrations/storage, collector ingestion, dashboard startup, and Zookeeper coordination.
 - WrenAI template update pass: updated and normalized AI service, engine, ibis server, UI, and Qdrant images as one runtime bundle. Marked validation-needed for official bundle compatibility, Qdrant persistence, PostgreSQL initialization, engine/API startup, UI routes, and data-source query flows.
+- Reactive Resume template update pass: updated the app image to v5.1.9 using the official v5 runtime contract, removed the legacy Browserless/Chromium sidecar, upgraded PostgreSQL metadata to 16.4.0, added Redis KubeBlocks support, aligned v5 APP_URL/AUTH_SECRET/ENCRYPTION_SECRET/REDIS_URL/S3 envs, and added /api/health probes. Marked validation-needed for v4 to v5 migration behavior, PostgreSQL/Redis/ObjectStorage startup, uploads, PDF export, and first-run account flow.
 
 Blocked this pass:
-- Reactive-Resume: requires a major Reactive Resume v5 upgrade and browserless Chromium runtime validation before automatic version changes
 - budibase: requires coordinated Budibase multi-service upgrade validation across apps, worker, proxy, CouchDB, Redis, and helper image before automatic version changes
 - harbor: requires coordinated Harbor multi-component runtime validation and broad ConfigMap/database contract normalization before automatic version changes
 - laf: requires LAF runtime validation across MongoDB, MinIO, web, server, runtime nodes, and Prometheus before automatic version changes
@@ -229,13 +229,13 @@ Validation gaps:
 - `fastgpt-pro`: single-template docker-to-sealos consistency check passed after normalizing MongoDB/PostgreSQL/Redis database visibility labels, consolidating AIPROXY on the approved PostgreSQL secret contract, adding AIPROXY database init resources, normalizing the FastGPT ConfigMap mount, and aligning FastGPT/pro/plugin/code-sandbox/MCP/AIPROXY resource ladder values. The FastGPT Pro image bundle remains blocked pending coordinated runtime validation.
 - `liebianbao`: single-template docker-to-sealos consistency check passed after adding required template metadata, normalizing PHP and Nginx ConfigMap file mounts, adding Service and Ingress defaults, aligning MongoDB/Redis/MySQL database visibility labels, resources, PVC sizing, and pinning the mysql-init helper with resource settings. The LieBianBao image candidates remain blocked pending coordinated runtime validation.
 - `laf`: single-template docker-to-sealos consistency check passed after adding Simplified Chinese metadata and categories, normalizing MongoDB visibility labels/resources/PVC sizing, aligning workload originImageName/revision/automount settings, adding Service labels, normalizing MinIO credentials/PVC/resources/startup and console routing, adding Ingress defaults, setting App type to link, and pinning the statistics helper image. The LAF Prometheus candidate remains blocked pending coordinated runtime validation.
-- `reactive-resume`: single-template docker-to-sealos consistency check passed after lowercasing the template path and metadata, replacing the embedded MinIO stack with Sealos ObjectStorageBucket wiring, normalizing PostgreSQL metadata and secret fields, adding workload originImageName/revision/automount settings, aligning resources, and replacing PostgreSQL helper images with a non-database client image. The Reactive Resume v5 and browserless Chromium update candidates remain blocked pending coordinated runtime validation.
+- `reactive-resume`: single-template docker-to-sealos consistency check passed after updating to Reactive Resume v5.1.9, removing the legacy Browserless/Chromium sidecar, upgrading PostgreSQL metadata, adding Redis KubeBlocks support, aligning v5 runtime envs, S3 wiring, /api/health probes, and persistent /app/data storage. The v5 migration remains validation-needed pending focused runtime validation.
 - `refly`: skipped the mautic/mautic helper candidate because it is used only as an Elasticsearch data ownership helper in the Refly template and is not part of the Refly application release surface.
 
 Remaining queue:
-- Validation-needed templates: 8
-- Validation-needed candidates: 25
-- Blocked templates: 18
-- Blocked candidates: 77
+- Validation-needed templates: 9
+- Validation-needed candidates: 27
+- Blocked templates: 17
+- Blocked candidates: 75
 - Skipped templates: 1
 - Skipped candidates: 6

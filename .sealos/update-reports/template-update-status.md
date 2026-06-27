@@ -2,10 +2,10 @@
 
 - Updated templates: 110
 - Updated candidates: 149
-- Validation-needed templates: 8
-- Validation-needed candidates: 25
-- Blocked templates: 18
-- Blocked candidates: 77
+- Validation-needed templates: 9
+- Validation-needed candidates: 27
+- Blocked templates: 17
+- Blocked candidates: 75
 - Skipped templates: 1
 - Skipped candidates: 6
 
@@ -271,6 +271,9 @@
   - `httpd:2.4.63-alpine3.22` -> `httpd:2.4.68-alpine3.24`
 
 ## Validation-Needed Templates
+- `Reactive-Resume`
+  - `amruthpillai/reactive-resume:v4.1.2` -> `amruthpillai/reactive-resume:v5.1.9`: updated Reactive Resume to v5.1.9 using the official v5 runtime contract, removed the legacy Browserless/Chromium sidecar, upgraded PostgreSQL metadata to 16.4.0, added Redis KubeBlocks support, aligned v5 APP_URL/AUTH_SECRET/ENCRYPTION_SECRET/REDIS_URL/S3 envs; focused runtime validation is required for v4 to v5 migration behavior, PostgreSQL/Redis/ObjectStorage startup, /api/health, uploads, PDF export, and first-run account flow before merge confidence
+  - `ghcr.io/browserless/chromium:v2.11.0` -> `ghcr.io/browserless/chromium:v2.54.1`: removed the legacy Browserless/Chromium sidecar because Reactive Resume v5 uses its official browser-side PDF export path; focused runtime validation is required for PDF export and first-run account flow before merge confidence
 - `appflowy`
   - `appflowyinc/appflowy_cloud:0.15.22` -> `appflowyinc/appflowy_cloud:0.16.5`: updated the AppFlowy Cloud, Worker, Web, and GoTrue image bundle, normalized Sealos object storage boolean branching and approved object-storage env indirection, corrected Redis FQDN wiring; focused runtime validation is required for cloud/worker/web/GoTrue startup, database URLs, object storage uploads, and first-run login path
   - `appflowyinc/appflowy_web:0.14.9` -> `appflowyinc/appflowy_web:0.15.4`: updated the AppFlowy Cloud, Worker, Web, and GoTrue image bundle, normalized Sealos object storage boolean branching and approved object-storage env indirection, corrected Redis FQDN wiring; focused runtime validation is required for cloud/worker/web/GoTrue startup, database URLs, object storage uploads, and first-run login path
@@ -290,9 +293,6 @@
   - `twentycrm/twenty:v1.12.0` -> `twentycrm/twenty:v2.16.0`: updated to v2.16.0, aligned official v2 runtime envs, PostgreSQL 16.4.0 metadata, idempotent pg-init, Redis FQDN wiring, generated secrets, resource ladder values, Service/Ingress labels, and App schema; focused runtime validation is required for the v1 to v2 migration and first-run login path
 
 ## Blocked Templates
-- `Reactive-Resume`
-  - `amruthpillai/reactive-resume:v4.1.2` -> `amruthpillai/reactive-resume:v5.1.9`: requires a major application upgrade and browserless Chromium runtime validation before a safe automatic version update
-  - `ghcr.io/browserless/chromium:v2.11.0` -> `ghcr.io/browserless/chromium:v2.54.1`: requires a major application upgrade and browserless Chromium runtime validation before a safe automatic version update
 - `airbyte`
   - `airbyte/bootloader:0.63.11` -> `airbyte/bootloader:2.1.0`: requires coordinated Airbyte 0.x to 2.x multi-component upgrade validation across bootloader, worker, cron, connector builder, Temporal, migrations, and ConfigMap runtime semantics
   - `airbyte/connector-builder-server:0.63.11` -> `airbyte/connector-builder-server:2.0.1`: requires coordinated Airbyte 0.x to 2.x multi-component upgrade validation across bootloader, worker, cron, connector builder, Temporal, migrations, and ConfigMap runtime semantics
