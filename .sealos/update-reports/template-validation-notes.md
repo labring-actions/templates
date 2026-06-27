@@ -162,6 +162,7 @@ Validation passed:
 - Signoz template update pass: updated ClickHouse, collector, Signoz, and Zookeeper images as one observability bundle. Marked validation-needed for ClickHouse migrations/storage, collector ingestion, dashboard startup, and Zookeeper coordination.
 - WrenAI template update pass: updated and normalized AI service, engine, ibis server, UI, and Qdrant images as one runtime bundle. Marked validation-needed for official bundle compatibility, Qdrant persistence, PostgreSQL initialization, engine/API startup, UI routes, and data-source query flows.
 - Reactive Resume template update pass: updated the app image to v5.1.9 using the official v5 runtime contract, removed the legacy Browserless/Chromium sidecar, upgraded PostgreSQL metadata to 16.4.0, added Redis KubeBlocks support, aligned v5 APP_URL/AUTH_SECRET/ENCRYPTION_SECRET/REDIS_URL/S3 envs, and added /api/health probes. Marked validation-needed for v4 to v5 migration behavior, PostgreSQL/Redis/ObjectStorage startup, uploads, PDF export, and first-run account flow.
+- Rybbit template update pass: updated the ClickHouse image to 26.5.3 after ClickHouse storage and ConfigMap mount normalization. Marked validation-needed for ClickHouse storage compatibility, ingestion writes, analytics queries, backend startup, and first-run account flow.
 
 Blocked this pass:
 - budibase: requires coordinated Budibase multi-service upgrade validation across apps, worker, proxy, CouchDB, Redis, and helper image before automatic version changes
@@ -220,7 +221,7 @@ Validation gaps:
 - `harbor`: single-template docker-to-sealos consistency check passed after adding PostgreSQL and Redis database visibility labels, splitting core env and file ConfigMaps, normalizing Harbor file ConfigMap keys to vn path names, and aligning ConfigMap volume names and subPath mounts for core, jobservice, portal, registry, and registryctl. The Harbor multi-component image bundle remains blocked pending coordinated runtime validation.
 - `posthog`: single-template docker-to-sealos consistency check passed after adding PostgreSQL and Redis database visibility labels, normalizing Kafka/Zookeeper/PostHog/Plugins/ClickHouse Service labels, aligning ClickHouse and Plugins ConfigMap file mounts, moving plugin heartbeat and MMDB seed scripts into a workload ConfigMap, normalizing resource ladder values, and removing the split ClickHouse client Service. The PostHog Redpanda/Zookeeper image candidates remain blocked pending coordinated runtime validation.
 - `langfuse`: single-template docker-to-sealos consistency check passed after normalizing PostgreSQL init detection, replacing Redis and PostgreSQL migration wait helpers with non-database images, applying approved object-storage env indirection, gating the built-in MinIO fallback with a dedicated boolean input, moving MinIO startup into a ConfigMap script, cleaning ClickHouse metadata, and aligning resource ladder values. The Langfuse image bundle remains blocked pending coordinated runtime validation.
-- `rybbit`: single-template docker-to-sealos consistency check passed after adding PostgreSQL init resources, normalizing ClickHouse ConfigMap keys and single-volume file mounts, adding init container resources, and replacing the PostgreSQL wait helper with a non-database image. The ClickHouse 25.x to 26.x image candidate remains blocked pending coordinated runtime validation.
+- `rybbit`: single-template docker-to-sealos consistency check passed after updating ClickHouse to 26.5.3, preserving normalized ConfigMap keys, single-volume file mounts, init container resources, and non-database PostgreSQL wait helper. The ClickHouse 25.x to 26.x update remains validation-needed pending focused runtime validation.
 - `erpnext`: single-template docker-to-sealos consistency check passed after replacing the raw MariaDB StatefulSet with a KubeBlocks MySQL Cluster, adding Redis database visibility metadata, changing Redis wait helpers to non-database TCP probes, sourcing MySQL connection fields from KubeBlocks secrets, and aligning Frappe job/workload resource ladder values. The ERPNext/Frappe image bundle remains blocked pending coordinated runtime validation.
 - `coze-studio`: single-template docker-to-sealos consistency check passed after adding MySQL and Redis database visibility labels, splitting shared ConfigMap data into workload-scoped ConfigMaps, normalizing ConfigMap volume names and subPaths, replacing the MySQL migration helper with a non-database image, and aligning Coze Studio init and workload resource ladder values. The Coze Studio image bundle remains blocked pending coordinated runtime validation.
 - `dify`: single-template docker-to-sealos consistency check passed after replacing PostgreSQL wait helpers with non-database images, sourcing PostgreSQL readiness from approved secret fields, normalizing PostgreSQL and Redis database visibility/resources, aligning API/worker/web/sandbox/plugin-daemon/Weaviate resource ladder values, adding Service labels and port names, restoring the required Ingress annotations, and reducing plugin-daemon storage to the current PVC contract. The Dify image bundle remains blocked pending coordinated runtime validation.
@@ -233,9 +234,9 @@ Validation gaps:
 - `refly`: skipped the mautic/mautic helper candidate because it is used only as an Elasticsearch data ownership helper in the Refly template and is not part of the Refly application release surface.
 
 Remaining queue:
-- Validation-needed templates: 9
-- Validation-needed candidates: 27
-- Blocked templates: 17
-- Blocked candidates: 75
+- Validation-needed templates: 10
+- Validation-needed candidates: 28
+- Blocked templates: 16
+- Blocked candidates: 74
 - Skipped templates: 1
 - Skipped candidates: 6
