@@ -87,6 +87,7 @@ Validation passed:
 - git diff --check
 - docker-to-sealos check_consistency.py for updated artifacts
 - docker-to-sealos self-tests and MUST coverage checks
+- Full PR contract pass: docker-to-sealos check_consistency.py passed for 136 changed template artifacts with the current 45-rule registry
 - Latest storage contract pass: removed cloud.sealos.io/deploy-on-sealos labels from StatefulSet metadata and removed empty labels fields from volumeClaimTemplates metadata in the updated artifacts
 - Latest image policy pass: normalized updated managed app workload imagePullPolicy values to IfNotPresent
 - Authentik template contract pass: updated server and worker images as one release pair, aligned originImageName values, added PostgreSQL database visibility label, added init Job resources, added Service app label, and normalized Ingress default annotations.
@@ -159,6 +160,7 @@ Validation passed:
 - Twenty template contract pass: updated server and worker images to v2.16.0, aligned official v2 runtime envs, PostgreSQL 16.4.0 metadata, idempotent pg-init, Redis FQDN wiring, generated secrets, resource ladder values, Service/Ingress labels, and App schema. Marked validation-needed for the v1 to v2 migration and first-run login path.
 - BillionMail template update pass: updated Core, Roundcube, openssl helper, and docker-api Python helper images. Marked validation-needed for Core, Roundcube, docker-api helper compatibility, mail services, PostgreSQL/Redis startup, and first-run admin login.
 - Signoz template update pass: updated ClickHouse, collector, Signoz, and Zookeeper images as one observability bundle. Marked validation-needed for ClickHouse migrations/storage, collector ingestion, dashboard startup, and Zookeeper coordination.
+- WrenAI template update pass: updated and normalized AI service, engine, ibis server, UI, and Qdrant images as one runtime bundle. Marked validation-needed for official bundle compatibility, Qdrant persistence, PostgreSQL initialization, engine/API startup, UI routes, and data-source query flows.
 
 Blocked this pass:
 - Reactive-Resume: requires a major Reactive Resume v5 upgrade and browserless Chromium runtime validation before automatic version changes
@@ -231,9 +233,9 @@ Validation gaps:
 - `refly`: skipped the mautic/mautic helper candidate because it is used only as an Elasticsearch data ownership helper in the Refly template and is not part of the Refly application release surface.
 
 Remaining queue:
-- Validation-needed templates: 7
-- Validation-needed candidates: 20
-- Blocked templates: 19
-- Blocked candidates: 82
+- Validation-needed templates: 8
+- Validation-needed candidates: 25
+- Blocked templates: 18
+- Blocked candidates: 77
 - Skipped templates: 1
 - Skipped candidates: 6

@@ -2,10 +2,10 @@
 
 - Updated templates: 110
 - Updated candidates: 149
-- Validation-needed templates: 7
-- Validation-needed candidates: 20
-- Blocked templates: 19
-- Blocked candidates: 82
+- Validation-needed templates: 8
+- Validation-needed candidates: 25
+- Blocked templates: 18
+- Blocked candidates: 77
 - Skipped templates: 1
 - Skipped candidates: 6
 
@@ -383,6 +383,11 @@
   - `signoz/signoz-otel-collector:v0.144.2` -> `signoz/signoz-otel-collector:v0.144.5`: updated the Signoz ClickHouse, collector, Signoz, and Zookeeper image bundle; focused runtime validation is required for ClickHouse migrations/storage, collector ingestion, dashboard startup, and Zookeeper coordination before merge confidence
   - `signoz/signoz:v0.117.0` -> `signoz/signoz:v0.130.1`: updated the Signoz ClickHouse, collector, Signoz, and Zookeeper image bundle; focused runtime validation is required for ClickHouse migrations/storage, collector ingestion, dashboard startup, and Zookeeper coordination before merge confidence
   - `signoz/zookeeper:3.7.1` -> `signoz/zookeeper:3.9.3`: updated the Signoz ClickHouse, collector, Signoz, and Zookeeper image bundle; focused runtime validation is required for ClickHouse migrations/storage, collector ingestion, dashboard startup, and Zookeeper coordination before merge confidence
+  - `ghcr.io/canner/wren-ai-service:0.15.17` -> `ghcr.io/canner/wren-ai-service:0.29.3`: updated and normalized the WrenAI AI service, engine, ibis server, UI, and Qdrant runtime bundle; focused runtime validation is required for official bundle compatibility, Qdrant persistence, PostgreSQL initialization, engine/API startup, UI routes, and data-source query flows before merge confidence
+  - `ghcr.io/canner/wren-engine-ibis:0.14.3` -> `ghcr.io/canner/wren-engine-ibis:0.25.0`: updated and normalized the WrenAI AI service, engine, ibis server, UI, and Qdrant runtime bundle; focused runtime validation is required for official bundle compatibility, Qdrant persistence, PostgreSQL initialization, engine/API startup, UI routes, and data-source query flows before merge confidence
+  - `ghcr.io/canner/wren-engine:0.14.3` -> `ghcr.io/canner/wren-engine:0.24.6`: updated and normalized the WrenAI AI service, engine, ibis server, UI, and Qdrant runtime bundle; focused runtime validation is required for official bundle compatibility, Qdrant persistence, PostgreSQL initialization, engine/API startup, UI routes, and data-source query flows before merge confidence
+  - `ghcr.io/canner/wren-ui:0.20.1` -> `ghcr.io/canner/wren-ui:0.32.2`: updated and normalized the WrenAI AI service, engine, ibis server, UI, and Qdrant runtime bundle; focused runtime validation is required for official bundle compatibility, Qdrant persistence, PostgreSQL initialization, engine/API startup, UI routes, and data-source query flows before merge confidence
+  - `qdrant/qdrant:v1.13.4` -> `qdrant/qdrant:v1.18.2`: updated and normalized the WrenAI AI service, engine, ibis server, UI, and Qdrant runtime bundle; focused runtime validation is required for official bundle compatibility, Qdrant persistence, PostgreSQL initialization, engine/API startup, UI routes, and data-source query flows before merge confidence
 - `supabase`
   - `darthsim/imgproxy:v3.30.1` -> `darthsim/imgproxy:v4.0.6`: blocked because the Supabase bundle spans eleven images, includes major Kong/imgproxy/storage/realtime changes, and requires official bundle alignment plus runtime validation
   - `kong:2.8.1` -> `kong:3.9.3`: blocked because the Supabase bundle spans eleven images, includes major Kong/imgproxy/storage/realtime changes, and requires official bundle alignment plus runtime validation
@@ -395,12 +400,6 @@
   - `supabase/studio:2026.02.16-sha-26c615c` -> `supabase/studio:2026.06.22-sha-2207d7f`: blocked because the Supabase bundle spans eleven images, includes major Kong/imgproxy/storage/realtime changes, and requires official bundle alignment plus runtime validation
   - `supabase/supavisor:2.7.4` -> `supabase/supavisor:2.9.7`: blocked because the Supabase bundle spans eleven images, includes major Kong/imgproxy/storage/realtime changes, and requires official bundle alignment plus runtime validation
   - `timberio/vector:0.53.0-alpine` -> `timberio/vector:0.56.0-alpine`: blocked because the Supabase bundle spans eleven images, includes major Kong/imgproxy/storage/realtime changes, and requires official bundle alignment plus runtime validation
-- `wrenai`
-  - `ghcr.io/canner/wren-ai-service:0.15.17` -> `ghcr.io/canner/wren-ai-service:0.29.3`: blocked because the WrenAI update spans five runtime components, Qdrant, and multiple major version jumps that require official bundle alignment and live runtime validation
-  - `ghcr.io/canner/wren-engine-ibis:0.14.3` -> `ghcr.io/canner/wren-engine-ibis:0.25.0`: blocked because the WrenAI update spans five runtime components, Qdrant, and multiple major version jumps that require official bundle alignment and live runtime validation
-  - `ghcr.io/canner/wren-engine:0.14.3` -> `ghcr.io/canner/wren-engine:0.24.6`: blocked because the WrenAI update spans five runtime components, Qdrant, and multiple major version jumps that require official bundle alignment and live runtime validation
-  - `ghcr.io/canner/wren-ui:0.20.1` -> `ghcr.io/canner/wren-ui:0.32.2`: blocked because the WrenAI update spans five runtime components, Qdrant, and multiple major version jumps that require official bundle alignment and live runtime validation
-  - `qdrant/qdrant:v1.13.4` -> `qdrant/qdrant:v1.18.2`: blocked because the WrenAI update spans five runtime components, Qdrant, and multiple major version jumps that require official bundle alignment and live runtime validation
 
 ## Skipped Templates
 - `refly`
