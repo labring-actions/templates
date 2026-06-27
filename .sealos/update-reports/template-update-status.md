@@ -2,10 +2,10 @@
 
 - Updated templates: 110
 - Updated candidates: 149
-- Validation-needed templates: 5
-- Validation-needed candidates: 12
-- Blocked templates: 21
-- Blocked candidates: 90
+- Validation-needed templates: 6
+- Validation-needed candidates: 16
+- Blocked templates: 20
+- Blocked candidates: 86
 - Skipped templates: 1
 - Skipped candidates: 6
 
@@ -305,10 +305,10 @@
   - `nginx:1.27.5-alpine` -> `nginx:1.31.2-alpine`: requires coordinated APITable runtime validation for MySQL 8 to 9, RabbitMQ 3 to 4, object-storage branching, and multi-service resource/config updates
   - `rabbitmq:3.11.9-management` -> `rabbitmq:4.3.2-management`: requires coordinated APITable runtime validation for MySQL 8 to 9, RabbitMQ 3 to 4, object-storage branching, and multi-service resource/config updates
 - `billionmail`
-  - `alpine/openssl:3.5.4` -> `alpine/openssl:3.5.7`: requires runtime validation for mail-stack component upgrades plus broad ConfigMap file-mount normalization across generated mail, webmail, supplier, and bootstrap configs
-  - `billionmail/core:4.9.3@sha256:b97c71b463e99368f0fb50a4f3088139c2f04a37171d3b660b92f946a3076692` -> `billionmail/core:4.9.5`: requires runtime validation for mail-stack component upgrades plus broad ConfigMap file-mount normalization across generated mail, webmail, supplier, and bootstrap configs
-  - `python:3.12.12-alpine` -> `python:3.14.6-alpine`: requires runtime validation for mail-stack component upgrades plus broad ConfigMap file-mount normalization across generated mail, webmail, supplier, and bootstrap configs
-  - `roundcube/roundcubemail:1.6.11-fpm-alpine` -> `roundcube/roundcubemail:1.7.1-fpm-alpine`: requires runtime validation for mail-stack component upgrades plus broad ConfigMap file-mount normalization across generated mail, webmail, supplier, and bootstrap configs
+  - `alpine/openssl:3.5.4` -> `alpine/openssl:3.5.7`: updated BillionMail mail-stack image candidates; focused runtime validation is required for Core, Roundcube, docker-api helper compatibility, mail services, PostgreSQL/Redis startup, and first-run admin login before merge confidence
+  - `billionmail/core:4.9.3@sha256:b97c71b463e99368f0fb50a4f3088139c2f04a37171d3b660b92f946a3076692` -> `billionmail/core:4.9.5`: updated BillionMail mail-stack image candidates; focused runtime validation is required for Core, Roundcube, docker-api helper compatibility, mail services, PostgreSQL/Redis startup, and first-run admin login before merge confidence
+  - `python:3.12.12-alpine` -> `python:3.14.6-alpine`: updated BillionMail mail-stack image candidates; focused runtime validation is required for Core, Roundcube, docker-api helper compatibility, mail services, PostgreSQL/Redis startup, and first-run admin login before merge confidence
+  - `roundcube/roundcubemail:1.6.11-fpm-alpine` -> `roundcube/roundcubemail:1.7.1-fpm-alpine`: updated BillionMail mail-stack image candidates; focused runtime validation is required for Core, Roundcube, docker-api helper compatibility, mail services, PostgreSQL/Redis startup, and first-run admin login before merge confidence
 - `budibase`
   - `budibase/apps:3.15.0` -> `budibase/apps:3.39.22`: requires coordinated Budibase multi-service upgrade validation across apps, worker, proxy, CouchDB, Redis, and helper image before automatic version changes
   - `budibase/proxy:3.15.0` -> `budibase/proxy:3.39.22`: requires coordinated Budibase multi-service upgrade validation across apps, worker, proxy, CouchDB, Redis, and helper image before automatic version changes

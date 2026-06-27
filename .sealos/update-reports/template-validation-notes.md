@@ -157,6 +157,7 @@ Validation passed:
 - Grafana OTel template contract pass: updated Grafana, Prometheus, and OpenTelemetry Collector images, normalized ConfigMap labels and file mounts, added helper resources, Service labels, and Simplified Chinese metadata. Marked validation-needed for the monitoring bundle public Grafana entry, collector ingest ports, and Prometheus scrape path.
 - Penpot template contract pass: updated frontend, backend, and exporter images to 2.16.1, aligned PostgreSQL 16.4 metadata and idempotent pg-init, normalized Redis/PostgreSQL URL composition, approved object-storage env indirection, Service and Ingress labels, and App schema. Marked validation-needed for frontend/backend/exporter startup, database migration, S3 asset uploads, and first-run login path.
 - Twenty template contract pass: updated server and worker images to v2.16.0, aligned official v2 runtime envs, PostgreSQL 16.4.0 metadata, idempotent pg-init, Redis FQDN wiring, generated secrets, resource ladder values, Service/Ingress labels, and App schema. Marked validation-needed for the v1 to v2 migration and first-run login path.
+- BillionMail template update pass: updated Core, Roundcube, openssl helper, and docker-api Python helper images. Marked validation-needed for Core, Roundcube, docker-api helper compatibility, mail services, PostgreSQL/Redis startup, and first-run admin login.
 
 Blocked this pass:
 - Reactive-Resume: requires a major Reactive Resume v5 upgrade and browserless Chromium runtime validation before automatic version changes
@@ -229,9 +230,9 @@ Validation gaps:
 - `refly`: skipped the mautic/mautic helper candidate because it is used only as an Elasticsearch data ownership helper in the Refly template and is not part of the Refly application release surface.
 
 Remaining queue:
-- Validation-needed templates: 5
-- Validation-needed candidates: 12
-- Blocked templates: 21
-- Blocked candidates: 90
+- Validation-needed templates: 6
+- Validation-needed candidates: 16
+- Blocked templates: 20
+- Blocked candidates: 86
 - Skipped templates: 1
 - Skipped candidates: 6
