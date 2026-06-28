@@ -2,12 +2,12 @@
 
 - Updated templates: 110
 - Updated candidates: 149
-- Validation-needed templates: 22
-- Validation-needed candidates: 71
-- Blocked templates: 4
-- Blocked candidates: 28
+- Validation-needed templates: 23
+- Validation-needed candidates: 75
+- Blocked templates: 3
+- Blocked candidates: 23
 - Skipped templates: 1
-- Skipped candidates: 9
+- Skipped candidates: 10
 
 ## Updated Templates
 - `readeck`
@@ -294,6 +294,11 @@
   - `billionmail/core:4.9.3@sha256:b97c71b463e99368f0fb50a4f3088139c2f04a37171d3b660b92f946a3076692` -> `billionmail/core:4.9.5`: updated BillionMail mail-stack image candidates; focused runtime validation is required for Core, Roundcube, docker-api helper compatibility, mail services, PostgreSQL/Redis startup, and first-run admin login before merge confidence
   - `python:3.12.12-alpine` -> `python:3.14.6-alpine`: updated BillionMail mail-stack image candidates; focused runtime validation is required for Core, Roundcube, docker-api helper compatibility, mail services, PostgreSQL/Redis startup, and first-run admin login before merge confidence
   - `roundcube/roundcubemail:1.6.11-fpm-alpine` -> `roundcube/roundcubemail:1.7.1-fpm-alpine`: updated BillionMail mail-stack image candidates; focused runtime validation is required for Core, Roundcube, docker-api helper compatibility, mail services, PostgreSQL/Redis startup, and first-run admin login before merge confidence
+- `coze-studio`
+  - `alpine/curl:8.12.1` -> `alpine/curl:8.20.0`: updated Coze Studio NSQ, Elasticsearch, BusyBox helper, and curl helper images after template contract normalization; focused runtime validation is required for KubeBlocks MySQL connectivity, Redis connectivity, Elasticsearch 8 to 9 compatibility, NSQ messaging, migration init flow, object storage bootstrap, server/web startup, and first-run login before merge confidence
+  - `bitnamilegacy/elasticsearch:8.18.0` -> `bitnamilegacy/elasticsearch:9.1.2`: updated Coze Studio NSQ, Elasticsearch, BusyBox helper, and curl helper images after template contract normalization; focused runtime validation is required for KubeBlocks MySQL connectivity, Redis connectivity, Elasticsearch 8 to 9 compatibility, NSQ messaging, migration init flow, object storage bootstrap, server/web startup, and first-run login before merge confidence
+  - `busybox:1.36.1` -> `busybox:1.38.0`: updated Coze Studio NSQ, Elasticsearch, BusyBox helper, and curl helper images after template contract normalization; focused runtime validation is required for KubeBlocks MySQL connectivity, Redis connectivity, Elasticsearch 8 to 9 compatibility, NSQ messaging, migration init flow, object storage bootstrap, server/web startup, and first-run login before merge confidence
+  - `nsqio/nsq:v1.2.1` -> `nsqio/nsq:v1.3.0`: updated Coze Studio NSQ, Elasticsearch, BusyBox helper, and curl helper images after template contract normalization; focused runtime validation is required for KubeBlocks MySQL connectivity, Redis connectivity, Elasticsearch 8 to 9 compatibility, NSQ messaging, migration init flow, object storage bootstrap, server/web startup, and first-run login before merge confidence
 - `dify`
   - `busybox:1.37.0` -> `busybox:1.38.0`: updated Dify BusyBox helper, sandbox, and plugin daemon images; focused runtime validation is required for API, worker, web, sandbox execution, plugin-daemon package/runtime behavior, PostgreSQL/Redis connectivity, Weaviate connectivity, migration readiness, and first-run admin login before merge confidence
   - `langgenius/dify-plugin-daemon:0.5.2-local` -> `langgenius/dify-plugin-daemon:0.6.3-local`: updated Dify BusyBox helper, sandbox, and plugin daemon images; focused runtime validation is required for API, worker, web, sandbox execution, plugin-daemon package/runtime behavior, PostgreSQL/Redis connectivity, Weaviate connectivity, migration readiness, and first-run admin login before merge confidence
@@ -372,12 +377,6 @@
   - `airbyte/cron:0.63.11` -> `airbyte/cron:2.1.0`: requires coordinated Airbyte 0.x to 2.x multi-component upgrade validation across bootloader, worker, cron, connector builder, Temporal, migrations, and ConfigMap runtime semantics
   - `airbyte/worker:0.63.11` -> `airbyte/worker:2.1.0`: requires coordinated Airbyte 0.x to 2.x multi-component upgrade validation across bootloader, worker, cron, connector builder, Temporal, migrations, and ConfigMap runtime semantics
   - `temporalio/auto-setup:1.23.0` -> `temporalio/auto-setup:1.29.7`: requires coordinated Airbyte 0.x to 2.x multi-component upgrade validation across bootloader, worker, cron, connector builder, Temporal, migrations, and ConfigMap runtime semantics
-- `coze-studio`
-  - `alpine/curl:8.12.1` -> `alpine/curl:8.20.0`: requires coordinated multi-component runtime validation across MySQL, Elasticsearch, NSQ, ConfigMap mounts, migrations, and service startup before automatic version changes
-  - `bitnamilegacy/elasticsearch:8.18.0` -> `bitnamilegacy/elasticsearch:9.1.2`: requires coordinated multi-component runtime validation across MySQL, Elasticsearch, NSQ, ConfigMap mounts, migrations, and service startup before automatic version changes
-  - `busybox:1.36.1` -> `busybox:1.38.0`: requires coordinated multi-component runtime validation across MySQL, Elasticsearch, NSQ, ConfigMap mounts, migrations, and service startup before automatic version changes
-  - `mysql:8.0.36` -> `mysql:9.7.1`: requires coordinated multi-component runtime validation across MySQL, Elasticsearch, NSQ, ConfigMap mounts, migrations, and service startup before automatic version changes
-  - `nsqio/nsq:v1.2.1` -> `nsqio/nsq:v1.3.0`: requires coordinated multi-component runtime validation across MySQL, Elasticsearch, NSQ, ConfigMap mounts, migrations, and service startup before automatic version changes
 - `rocketchat-micro`
   - `natsio/nats-server-config-reloader:0.6.3` -> `natsio/nats-server-config-reloader:0.23.0`: requires Rocket.Chat microservices runtime validation across NATS config reload, service family upgrades, database labels, ConfigMaps, and image policies before automatic version changes
   - `rocketchat/account-service:7.9.0` -> `rocketchat/account-service:8.5.1`: requires Rocket.Chat microservices runtime validation across NATS config reload, service family upgrades, database labels, ConfigMaps, and image policies before automatic version changes
@@ -409,6 +408,8 @@
 - `erpnext`
   - `mariadb:11.4.7` -> `mariadb:12.3.2`: skipped because the queued MariaDB image no longer exists in template/erpnext/index.yaml after prior template contract normalization replaced the raw MariaDB workload with a KubeBlocks MySQL Cluster
   - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`: skipped because the queued Redis image no longer exists in template/erpnext/index.yaml after prior template contract normalization replaced raw Redis helpers with KubeBlocks Redis wiring and non-database TCP checks
+- `coze-studio`
+  - `mysql:8.0.36` -> `mysql:9.7.1`: skipped because the current Coze Studio template uses a KubeBlocks MySQL Cluster and secret-backed migration flow; the queued raw MySQL container image has no current artifact reference
 - `directus`
   - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`: removed the raw Redis helper image from the app StatefulSet and replaced Redis readiness with a busybox TCP check under the docker-to-sealos database-service rule
 - `typebot`

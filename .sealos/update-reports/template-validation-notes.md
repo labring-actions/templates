@@ -175,10 +175,10 @@ Validation passed:
 - Langfuse template update pass: updated web, worker, and ClickHouse images after the template contract normalization. Marked validation-needed for PostgreSQL init, ClickHouse migrations/storage, Redis connectivity, S3/object storage paths, worker jobs, web startup, secret handling, and first-run login. Skipped the queued Redis image because the current template no longer uses that Redis container image after prior wait-helper normalization.
 - ERPNext template update pass: updated ERPNext/Frappe app images to v16.25.0 and BusyBox helper images to 1.38.0 after template contract normalization. Marked validation-needed for MySQL KubeBlocks connectivity, Redis connectivity, bench site bootstrap, migrations, worker/queue/scheduler startup, WebSocket/socketio routes, and first-run login. Skipped MariaDB and Redis image candidates because the current template now uses KubeBlocks database resources and non-database TCP checks after prior database normalization.
 - PostHog template update pass: updated Redpanda to v26.1.10 and Zookeeper to 3.9.5 after template contract normalization. Marked validation-needed for Redpanda startup/storage compatibility, Zookeeper startup, PostHog Kafka connectivity, plugin/capture/feature-flag services, ClickHouse writes, migrations, and first-run login.
+- Coze Studio template update pass: updated NSQ to v1.3.0, Elasticsearch to 9.1.2, BusyBox helper images to 1.38.0, and Alpine curl helper to 8.20.0 after template contract normalization. Marked validation-needed for KubeBlocks MySQL connectivity, Redis connectivity, Elasticsearch 8 to 9 compatibility, NSQ messaging, migration init flow, object storage bootstrap, server/web startup, and first-run login. Skipped the queued MySQL image because the current template uses a KubeBlocks MySQL Cluster and secret-backed migration flow.
 
 Blocked this pass:
 - rocketchat-micro: requires Rocket.Chat microservices runtime validation across NATS config reload, service family upgrades, database labels, ConfigMaps, and image policies before automatic version changes
-- coze-studio: requires coordinated multi-component runtime validation across MySQL, Elasticsearch, NSQ, ConfigMap mounts, migrations, and service startup before automatic version changes
 
 Validation gaps:
 - docker-to-sealos consistency checks were used as the template contract authority for changed artifacts.
@@ -223,7 +223,7 @@ Validation gaps:
 - `langfuse`: single-template docker-to-sealos consistency check passed after updating web, worker, and ClickHouse images while preserving PostgreSQL init detection, BusyBox Redis wait helpers, approved object-storage env indirection, built-in MinIO boolean gating, MinIO ConfigMap startup, ClickHouse metadata, and resource ladder values. The Langfuse image bundle remains validation-needed pending focused runtime validation.
 - `rybbit`: single-template docker-to-sealos consistency check passed after updating ClickHouse to 26.5.3, preserving normalized ConfigMap keys, single-volume file mounts, init container resources, and non-database PostgreSQL wait helper. The ClickHouse 25.x to 26.x update remains validation-needed pending focused runtime validation.
 - `erpnext`: single-template docker-to-sealos consistency check passed after updating ERPNext/Frappe and BusyBox helper images while preserving the KubeBlocks MySQL Cluster, Redis database visibility metadata, non-database Redis wait helpers, approved MySQL secret fields, and Frappe job/workload resource ladder values. The ERPNext/Frappe image bundle remains validation-needed pending focused runtime validation.
-- `coze-studio`: single-template docker-to-sealos consistency check passed after adding MySQL and Redis database visibility labels, splitting shared ConfigMap data into workload-scoped ConfigMaps, normalizing ConfigMap volume names and subPaths, replacing the MySQL migration helper with a non-database image, and aligning Coze Studio init and workload resource ladder values. The Coze Studio image bundle remains blocked pending coordinated runtime validation.
+- `coze-studio`: single-template docker-to-sealos consistency check passed after updating NSQ, Elasticsearch, BusyBox helper, and Alpine curl helper images while preserving MySQL and Redis database visibility labels, workload-scoped ConfigMaps, ConfigMap volume names/subPaths, non-database migration helper, init resources, and workload resource ladder values. The Coze Studio image bundle remains validation-needed pending focused runtime validation.
 - `dify`: single-template docker-to-sealos consistency check passed after updating BusyBox helper, sandbox, and plugin daemon images while preserving PostgreSQL wait helpers, approved PostgreSQL secret fields, PostgreSQL and Redis database visibility/resources, API/worker/web/sandbox/plugin-daemon/Weaviate resource ladder values, Service labels and port names, Ingress annotations, and plugin-daemon storage. The Dify image bundle remains validation-needed pending focused runtime validation.
 - `fastgpt-milvus`: single-template docker-to-sealos consistency check passed after updating app, plugin, code sandbox, MCP server, and AI proxy images while preserving Simplified Chinese metadata, FastGPT ConfigMap mount, FastGPT/AIPROXY/MCP resources, MongoDB/PostgreSQL/Redis/Milvus database visibility labels, secrets, resources, and PVC sizing. The FastGPT Milvus runtime bundle remains validation-needed pending focused runtime validation.
 - `fastgpt`: single-template docker-to-sealos consistency check passed after updating app, plugin, code sandbox, MCP server, and AI proxy images while preserving MongoDB/PostgreSQL/Redis database visibility labels, AIPROXY PostgreSQL secret contract, AIPROXY database init resources, FastGPT ConfigMap mount, and FastGPT/plugin/code-sandbox/MCP/AIPROXY resource ladder values. The FastGPT runtime bundle remains validation-needed pending focused runtime validation.
@@ -234,9 +234,9 @@ Validation gaps:
 - `refly`: skipped the mautic/mautic helper candidate because it is used only as an Elasticsearch data ownership helper in the Refly template and is not part of the Refly application release surface.
 
 Remaining queue:
-- Validation-needed templates: 22
-- Validation-needed candidates: 71
-- Blocked templates: 4
-- Blocked candidates: 28
+- Validation-needed templates: 23
+- Validation-needed candidates: 75
+- Blocked templates: 3
+- Blocked candidates: 23
 - Skipped templates: 1
-- Skipped candidates: 9
+- Skipped candidates: 10
