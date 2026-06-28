@@ -2,10 +2,10 @@
 
 - Updated templates: 110
 - Updated candidates: 149
-- Validation-needed templates: 11
-- Validation-needed candidates: 30
-- Blocked templates: 15
-- Blocked candidates: 72
+- Validation-needed templates: 12
+- Validation-needed candidates: 31
+- Blocked templates: 14
+- Blocked candidates: 71
 - Skipped templates: 1
 - Skipped candidates: 6
 
@@ -290,6 +290,8 @@
   - `grafana/grafana:12.3.0` -> `grafana/grafana:13.1.0`: updated Grafana, Prometheus, and OpenTelemetry Collector images, normalized ConfigMap mounts and labels, and requires focused runtime validation for the monitoring bundle public Grafana entry, collector ingest ports, and Prometheus scrape path
   - `otel/opentelemetry-collector:0.99.0` -> `otel/opentelemetry-collector:0.155.0`: updated Grafana, Prometheus, and OpenTelemetry Collector images, normalized ConfigMap mounts and labels, and requires focused runtime validation for the monitoring bundle public Grafana entry, collector ingest ports, and Prometheus scrape path
   - `prom/prometheus:v3.8.0` -> `prom/prometheus:v3.12.0`: updated Grafana, Prometheus, and OpenTelemetry Collector images, normalized ConfigMap mounts and labels, and requires focused runtime validation for the monitoring bundle public Grafana entry, collector ingest ports, and Prometheus scrape path
+- `laf`
+  - `quay.io/prometheus/prometheus:v2.45.0` -> `quay.io/prometheus/prometheus:v3.12.0`: updated LAF Prometheus image to v3.12.0; focused runtime validation is required for MongoDB, MinIO, web/server/runtime-node startup, Prometheus scrape/rule behavior, and first-run app flow before merge confidence
 - `liebianbao`
   - `busybox:1.36.1` -> `busybox:1.38.0`: updated LieBianBao BusyBox and Nginx helper images; focused runtime validation is required for PHP startup, Nginx static/PHP routing, MongoDB/Redis/MySQL connectivity, MySQL init data import, and first-run admin flow before merge confidence
   - `nginx:1.25.2` -> `nginx:1.31.2`: updated LieBianBao BusyBox and Nginx helper images; focused runtime validation is required for PHP startup, Nginx static/PHP routing, MongoDB/Redis/MySQL connectivity, MySQL init data import, and first-run admin flow before merge confidence
@@ -371,8 +373,6 @@
   - `goharbor/harbor-registryctl:v2.14.4` -> `goharbor/harbor-registryctl:v2.15.1`: requires coordinated Harbor multi-component runtime validation and broad ConfigMap/database contract normalization before automatic version changes
   - `goharbor/registry-photon:v2.14.4` -> `goharbor/registry-photon:v2.15.1`: requires coordinated Harbor multi-component runtime validation and broad ConfigMap/database contract normalization before automatic version changes
   - `goharbor/trivy-adapter-photon:v2.14.4` -> `goharbor/trivy-adapter-photon:v2.15.1`: requires coordinated Harbor multi-component runtime validation and broad ConfigMap/database contract normalization before automatic version changes
-- `laf`
-  - `quay.io/prometheus/prometheus:v2.45.0` -> `quay.io/prometheus/prometheus:v3.12.0`: requires LAF runtime validation across MongoDB, MinIO, web, server, runtime nodes, and Prometheus before automatic version changes
 - `langfuse`
   - `clickhouse/clickhouse-server:25.4.2` -> `clickhouse/clickhouse-server:26.5.3`: requires Langfuse runtime validation across PostgreSQL init, ClickHouse, Redis, S3 storage, worker/web startup, and secret handling before automatic version changes
   - `docker.io/langfuse/langfuse-worker:3.180.0` -> `docker.io/langfuse/langfuse-worker:3.197.1`: requires Langfuse runtime validation across PostgreSQL init, ClickHouse, Redis, S3 storage, worker/web startup, and secret handling before automatic version changes
