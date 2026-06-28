@@ -2,10 +2,10 @@
 
 - Updated templates: 110
 - Updated candidates: 149
-- Validation-needed templates: 17
-- Validation-needed candidates: 55
-- Blocked templates: 9
-- Blocked candidates: 47
+- Validation-needed templates: 18
+- Validation-needed candidates: 61
+- Blocked templates: 8
+- Blocked candidates: 41
 - Skipped templates: 1
 - Skipped candidates: 6
 
@@ -319,6 +319,13 @@
   - `grafana/grafana:12.3.0` -> `grafana/grafana:13.1.0`: updated Grafana, Prometheus, and OpenTelemetry Collector images, normalized ConfigMap mounts and labels, and requires focused runtime validation for the monitoring bundle public Grafana entry, collector ingest ports, and Prometheus scrape path
   - `otel/opentelemetry-collector:0.99.0` -> `otel/opentelemetry-collector:0.155.0`: updated Grafana, Prometheus, and OpenTelemetry Collector images, normalized ConfigMap mounts and labels, and requires focused runtime validation for the monitoring bundle public Grafana entry, collector ingest ports, and Prometheus scrape path
   - `prom/prometheus:v3.8.0` -> `prom/prometheus:v3.12.0`: updated Grafana, Prometheus, and OpenTelemetry Collector images, normalized ConfigMap mounts and labels, and requires focused runtime validation for the monitoring bundle public Grafana entry, collector ingest ports, and Prometheus scrape path
+- `harbor`
+  - `goharbor/harbor-core:v2.14.4` -> `goharbor/harbor-core:v2.15.1`: updated Harbor core, jobservice, portal, registry, registryctl, and Trivy adapter images from v2.14.4 to v2.15.1 as one Harbor runtime bundle; focused runtime validation is required for PostgreSQL/Redis connectivity, object storage registry backend, portal/core/API login, jobservice execution, registry push/pull paths, registryctl health, Trivy scan flow, and first-run admin login before merge confidence
+  - `goharbor/harbor-jobservice:v2.14.4` -> `goharbor/harbor-jobservice:v2.15.1`: updated Harbor core, jobservice, portal, registry, registryctl, and Trivy adapter images from v2.14.4 to v2.15.1 as one Harbor runtime bundle; focused runtime validation is required for PostgreSQL/Redis connectivity, object storage registry backend, portal/core/API login, jobservice execution, registry push/pull paths, registryctl health, Trivy scan flow, and first-run admin login before merge confidence
+  - `goharbor/harbor-portal:v2.14.4` -> `goharbor/harbor-portal:v2.15.1`: updated Harbor core, jobservice, portal, registry, registryctl, and Trivy adapter images from v2.14.4 to v2.15.1 as one Harbor runtime bundle; focused runtime validation is required for PostgreSQL/Redis connectivity, object storage registry backend, portal/core/API login, jobservice execution, registry push/pull paths, registryctl health, Trivy scan flow, and first-run admin login before merge confidence
+  - `goharbor/harbor-registryctl:v2.14.4` -> `goharbor/harbor-registryctl:v2.15.1`: updated Harbor core, jobservice, portal, registry, registryctl, and Trivy adapter images from v2.14.4 to v2.15.1 as one Harbor runtime bundle; focused runtime validation is required for PostgreSQL/Redis connectivity, object storage registry backend, portal/core/API login, jobservice execution, registry push/pull paths, registryctl health, Trivy scan flow, and first-run admin login before merge confidence
+  - `goharbor/registry-photon:v2.14.4` -> `goharbor/registry-photon:v2.15.1`: updated Harbor core, jobservice, portal, registry, registryctl, and Trivy adapter images from v2.14.4 to v2.15.1 as one Harbor runtime bundle; focused runtime validation is required for PostgreSQL/Redis connectivity, object storage registry backend, portal/core/API login, jobservice execution, registry push/pull paths, registryctl health, Trivy scan flow, and first-run admin login before merge confidence
+  - `goharbor/trivy-adapter-photon:v2.14.4` -> `goharbor/trivy-adapter-photon:v2.15.1`: updated Harbor core, jobservice, portal, registry, registryctl, and Trivy adapter images from v2.14.4 to v2.15.1 as one Harbor runtime bundle; focused runtime validation is required for PostgreSQL/Redis connectivity, object storage registry backend, portal/core/API login, jobservice execution, registry push/pull paths, registryctl health, Trivy scan flow, and first-run admin login before merge confidence
 - `laf`
   - `quay.io/prometheus/prometheus:v2.45.0` -> `quay.io/prometheus/prometheus:v3.12.0`: updated LAF Prometheus image to v3.12.0; focused runtime validation is required for MongoDB, MinIO, web/server/runtime-node startup, Prometheus scrape/rule behavior, and first-run app flow before merge confidence
 - `liebianbao`
@@ -366,13 +373,6 @@
   - `mariadb:11.4.7` -> `mariadb:12.3.2`: requires Frappe/ERPNext runtime validation across MariaDB, Redis, bench site bootstrap, workers, and scheduler before automatic version changes
   - `public.ecr.aws/docker/library/busybox:1.36.1` -> `public.ecr.aws/docker/library/busybox:1.38.0`: requires Frappe/ERPNext runtime validation across MariaDB, Redis, bench site bootstrap, workers, and scheduler before automatic version changes
   - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`: requires Frappe/ERPNext runtime validation across MariaDB, Redis, bench site bootstrap, workers, and scheduler before automatic version changes
-- `harbor`
-  - `goharbor/harbor-core:v2.14.4` -> `goharbor/harbor-core:v2.15.1`: requires coordinated Harbor multi-component runtime validation and broad ConfigMap/database contract normalization before automatic version changes
-  - `goharbor/harbor-jobservice:v2.14.4` -> `goharbor/harbor-jobservice:v2.15.1`: requires coordinated Harbor multi-component runtime validation and broad ConfigMap/database contract normalization before automatic version changes
-  - `goharbor/harbor-portal:v2.14.4` -> `goharbor/harbor-portal:v2.15.1`: requires coordinated Harbor multi-component runtime validation and broad ConfigMap/database contract normalization before automatic version changes
-  - `goharbor/harbor-registryctl:v2.14.4` -> `goharbor/harbor-registryctl:v2.15.1`: requires coordinated Harbor multi-component runtime validation and broad ConfigMap/database contract normalization before automatic version changes
-  - `goharbor/registry-photon:v2.14.4` -> `goharbor/registry-photon:v2.15.1`: requires coordinated Harbor multi-component runtime validation and broad ConfigMap/database contract normalization before automatic version changes
-  - `goharbor/trivy-adapter-photon:v2.14.4` -> `goharbor/trivy-adapter-photon:v2.15.1`: requires coordinated Harbor multi-component runtime validation and broad ConfigMap/database contract normalization before automatic version changes
 - `langfuse`
   - `clickhouse/clickhouse-server:25.4.2` -> `clickhouse/clickhouse-server:26.5.3`: requires Langfuse runtime validation across PostgreSQL init, ClickHouse, Redis, S3 storage, worker/web startup, and secret handling before automatic version changes
   - `docker.io/langfuse/langfuse-worker:3.180.0` -> `docker.io/langfuse/langfuse-worker:3.197.1`: requires Langfuse runtime validation across PostgreSQL init, ClickHouse, Redis, S3 storage, worker/web startup, and secret handling before automatic version changes
