@@ -65,6 +65,7 @@ Updated batch:
 - quay
 - readeck
 - registry
+- Reactive-Resume
 - appflowy
 - glitchtip
 - grafana-otel
@@ -153,6 +154,7 @@ Validation passed:
 - Casdoor template contract pass: updated sqlite and database-backed Casdoor images to v2.190.0, aligned originImageName values, upgraded PostgreSQL and MySQL KubeBlocks metadata, added helper Job resources and image policies, normalized ConfigMap mounting, moved the default sqlite database path onto persistent storage, and added Service/Ingress labels.
 - Registry template contract pass: updated registry and UI images, moved the registry v3 config mount to /etc/distribution/config.yml, normalized ConfigMap, Service, Ingress, App, locale/i18n, and removed legacy deploy-on-sealos metadata.
 - Chatwoot template contract pass: updated web, worker, and init images to v4.15.1, aligned PostgreSQL and Redis connection wiring with approved KubeBlocks secrets, normalized PostgreSQL/Redis metadata, helper resources, Service labels, and Service port naming.
+- Reactive Resume live runtime pass: converted the app workload to a StatefulSet with /app/data volumeClaimTemplates, verified Template API dry-run and deploy on ns-dn9ue3wz, confirmed PostgreSQL and Redis clusters reached Running, root and /auth routes returned 200, /api/health reported healthy database and S3 storage, sign-up/sign-in/get-session APIs returned 200, startup logs showed database migrations completed, and cleaned the re-gidmhqow test footprint.
 - AppFlowy template contract pass: updated Cloud, Worker, Web, and GoTrue images, replaced the choice-based storage selector with a boolean Sealos ObjectStorage branch, normalized approved object-storage env indirection, and corrected Redis FQDN wiring. Marked validation-needed for cloud/worker/web/GoTrue startup, database URLs, object storage uploads, and first-run login path.
 - GlitchTip template contract pass: updated app, migrate, and worker images to v6.0.3, aligned PostgreSQL 16.4 metadata and pg-init, normalized Redis/database/object-storage env wiring, Service labels, Ingress defaults, resources, and App schema. Marked validation-needed for v4 to v6 migrations, Redis/PostgreSQL startup, object storage uploads, and login path.
 - Grafana OTel template contract pass: updated Grafana, Prometheus, and OpenTelemetry Collector images, normalized ConfigMap labels and file mounts, added helper resources, Service labels, and Simplified Chinese metadata. Marked validation-needed for the monitoring bundle public Grafana entry, collector ingest ports, and Prometheus scrape path.
@@ -161,7 +163,7 @@ Validation passed:
 - BillionMail template update pass: updated Core, Roundcube, openssl helper, and docker-api Python helper images. Marked validation-needed for Core, Roundcube, docker-api helper compatibility, mail services, PostgreSQL/Redis startup, and first-run admin login.
 - Signoz template update pass: updated ClickHouse, collector, Signoz, and Zookeeper images as one observability bundle. Marked validation-needed for ClickHouse migrations/storage, collector ingestion, dashboard startup, and Zookeeper coordination.
 - WrenAI template update pass: updated and normalized AI service, engine, ibis server, UI, and Qdrant images as one runtime bundle. Marked validation-needed for official bundle compatibility, Qdrant persistence, PostgreSQL initialization, engine/API startup, UI routes, and data-source query flows.
-- Reactive Resume template update pass: updated the app image to v5.1.9 using the official v5 runtime contract, removed the legacy Browserless/Chromium sidecar, upgraded PostgreSQL metadata to 16.4.0, added Redis KubeBlocks support, aligned v5 APP_URL/AUTH_SECRET/ENCRYPTION_SECRET/REDIS_URL/S3 envs, and added /api/health probes. Marked validation-needed for v4 to v5 migration behavior, PostgreSQL/Redis/ObjectStorage startup, uploads, PDF export, and first-run account flow.
+- Reactive Resume template update pass: updated the app image to v5.1.9 using the official v5 runtime contract, removed the legacy Browserless/Chromium sidecar, upgraded PostgreSQL metadata to 16.4.0, added Redis KubeBlocks support, aligned v5 APP_URL/AUTH_SECRET/ENCRYPTION_SECRET/REDIS_URL/S3 envs, added /api/health probes, and passed live Sealos runtime validation for startup, database, Redis, S3 storage, and first-run account flow.
 - Rybbit template update pass: updated the ClickHouse image to 26.5.3 after ClickHouse storage and ConfigMap mount normalization. Marked validation-needed for ClickHouse storage compatibility, ingestion writes, analytics queries, backend startup, and first-run account flow.
 - LieBianBao template update pass: updated BusyBox to 1.38.0 and Nginx to 1.31.2 after the template contract normalization. Marked validation-needed for PHP startup, Nginx routing, MongoDB/Redis/MySQL connectivity, MySQL init import, and first-run admin flow.
 - LAF template update pass: updated Prometheus to v3.12.0 after the template contract normalization. Marked validation-needed for MongoDB, MinIO, web/server/runtime-node startup, Prometheus scrape/rule behavior, and first-run app flow.
@@ -232,12 +234,12 @@ Validation gaps:
 - `fastgpt-pro`: single-template docker-to-sealos consistency check passed after updating app, pro, plugin, code sandbox, MCP server, and AI proxy images while preserving MongoDB/PostgreSQL/Redis database visibility labels, AIPROXY PostgreSQL secret contract, AIPROXY database init resources, FastGPT ConfigMap mount, and FastGPT/pro/plugin/code-sandbox/MCP/AIPROXY resource ladder values. The FastGPT Pro runtime bundle remains validation-needed pending focused runtime validation.
 - `liebianbao`: single-template docker-to-sealos consistency check passed after updating BusyBox to 1.38.0 and Nginx to 1.31.2 while preserving PHP, ConfigMap mounts, database labels/resources, and mysql-init helper settings. The LieBianBao helper image update remains validation-needed pending focused runtime validation.
 - `laf`: single-template docker-to-sealos consistency check passed after updating Prometheus to v3.12.0 while preserving MongoDB visibility labels/resources/PVC sizing, workload originImageName/revision/automount settings, Service labels, MinIO credentials/PVC/resources/startup and console routing, Ingress defaults, App type, and pinned statistics helper image. The LAF Prometheus update remains validation-needed pending focused runtime validation.
-- `reactive-resume`: single-template docker-to-sealos consistency check passed after updating to Reactive Resume v5.1.9, removing the legacy Browserless/Chromium sidecar, upgrading PostgreSQL metadata, adding Redis KubeBlocks support, aligning v5 runtime envs, S3 wiring, /api/health probes, and persistent /app/data storage. The v5 migration remains validation-needed pending focused runtime validation.
+- `reactive-resume`: single-template docker-to-sealos consistency check passed after updating to Reactive Resume v5.1.9, removing the legacy Browserless/Chromium sidecar, upgrading PostgreSQL metadata, adding Redis KubeBlocks support, aligning v5 runtime envs, S3 wiring, /api/health probes, and persistent /app/data storage. Live Sealos validation passed: Template API dry-run and deploy succeeded, PostgreSQL and Redis reached Running, root and auth routes returned 200, /api/health reported healthy database and S3 storage, registration/sign-in/session APIs returned 200, startup logs showed database migrations completed, and the test footprint was cleaned.
 - `refly`: skipped the mautic/mautic helper candidate because it is used only as an Elasticsearch data ownership helper in the Refly template and is not part of the Refly application release surface.
 
 Remaining queue:
-- Validation-needed templates: 26
-- Validation-needed candidates: 98
+- Validation-needed templates: 25
+- Validation-needed candidates: 96
 - Blocked templates: 0
 - Blocked candidates: 0
 - Skipped templates: 1

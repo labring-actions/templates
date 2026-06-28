@@ -1,9 +1,9 @@
 # Template Update Status
 
-- Updated templates: 110
-- Updated candidates: 149
-- Validation-needed templates: 26
-- Validation-needed candidates: 98
+- Updated templates: 111
+- Updated candidates: 151
+- Validation-needed templates: 25
+- Validation-needed candidates: 96
 - Blocked templates: 0
 - Blocked candidates: 0
 - Skipped templates: 1
@@ -15,6 +15,9 @@
 - `registry`
   - `joxit/docker-registry-ui:2.5.6-debian` -> `joxit/docker-registry-ui:2.6.0-debian`
   - `registry:2.8.3` -> `registry:3.1.1`
+- `Reactive-Resume`
+  - `amruthpillai/reactive-resume:v4.1.2` -> `amruthpillai/reactive-resume:v5.1.9`: updated Reactive Resume to v5.1.9 using the official v5 runtime contract, removed the legacy Browserless/Chromium sidecar, upgraded PostgreSQL metadata to 16.4.0, added Redis KubeBlocks support, aligned v5 APP_URL/AUTH_SECRET/ENCRYPTION_SECRET/REDIS_URL/S3 envs, fixed persistent /app/data storage by using a StatefulSet with volumeClaimTemplates, and passed live runtime validation on Sealos: Template API dry-run and deploy succeeded, PostgreSQL and Redis clusters reached Running, root and /auth routes returned 200, /api/health returned database and S3 storage healthy, registration/sign-in/session APIs returned 200, startup logs showed database migrations completed, and the test footprint for re-gidmhqow was cleaned up
+  - `ghcr.io/browserless/chromium:v2.11.0` -> `ghcr.io/browserless/chromium:v2.54.1`: updated Reactive Resume to v5.1.9 using the official v5 runtime contract, removed the legacy Browserless/Chromium sidecar, upgraded PostgreSQL metadata to 16.4.0, added Redis KubeBlocks support, aligned v5 APP_URL/AUTH_SECRET/ENCRYPTION_SECRET/REDIS_URL/S3 envs, fixed persistent /app/data storage by using a StatefulSet with volumeClaimTemplates, and passed live runtime validation on Sealos: Template API dry-run and deploy succeeded, PostgreSQL and Redis clusters reached Running, root and /auth routes returned 200, /api/health returned database and S3 storage healthy, registration/sign-in/session APIs returned 200, startup logs showed database migrations completed, and the test footprint for re-gidmhqow was cleaned up
 - `affine`
   - `ghcr.io/toeverything/affine:0.26.6` -> `ghcr.io/toeverything/affine:0.26.7`
 - `authentik`
@@ -271,9 +274,6 @@
   - `httpd:2.4.63-alpine3.22` -> `httpd:2.4.68-alpine3.24`
 
 ## Validation-Needed Templates
-- `Reactive-Resume`
-  - `amruthpillai/reactive-resume:v4.1.2` -> `amruthpillai/reactive-resume:v5.1.9`: updated Reactive Resume to v5.1.9 using the official v5 runtime contract, removed the legacy Browserless/Chromium sidecar, upgraded PostgreSQL metadata to 16.4.0, added Redis KubeBlocks support, aligned v5 APP_URL/AUTH_SECRET/ENCRYPTION_SECRET/REDIS_URL/S3 envs, and requires focused runtime validation for v4 to v5 migration behavior, PostgreSQL/Redis/ObjectStorage startup, /api/health, uploads, PDF export, and first-run account flow before merge confidence
-  - `ghcr.io/browserless/chromium:v2.11.0` -> `ghcr.io/browserless/chromium:v2.54.1`: updated Reactive Resume to v5.1.9 using the official v5 runtime contract, removed the legacy Browserless/Chromium sidecar, upgraded PostgreSQL metadata to 16.4.0, added Redis KubeBlocks support, aligned v5 APP_URL/AUTH_SECRET/ENCRYPTION_SECRET/REDIS_URL/S3 envs, and requires focused runtime validation for v4 to v5 migration behavior, PostgreSQL/Redis/ObjectStorage startup, /api/health, uploads, PDF export, and first-run account flow before merge confidence
 - `appflowy`
   - `appflowyinc/appflowy_cloud:0.15.22` -> `appflowyinc/appflowy_cloud:0.16.5`: updated the AppFlowy Cloud, Worker, Web, and GoTrue image bundle, normalized Sealos object storage boolean branching and approved object-storage env indirection, corrected Redis FQDN wiring, and requires focused runtime validation for cloud/worker/web/GoTrue startup, database URLs, object storage uploads, and first-run login path
   - `appflowyinc/appflowy_web:0.14.9` -> `appflowyinc/appflowy_web:0.15.4`: updated the AppFlowy Cloud, Worker, Web, and GoTrue image bundle, normalized Sealos object storage boolean branching and approved object-storage env indirection, corrected Redis FQDN wiring, and requires focused runtime validation for cloud/worker/web/GoTrue startup, database URLs, object storage uploads, and first-run login path
