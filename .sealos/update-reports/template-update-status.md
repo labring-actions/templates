@@ -2,10 +2,10 @@
 
 - Updated templates: 110
 - Updated candidates: 149
-- Validation-needed templates: 24
-- Validation-needed candidates: 82
-- Blocked templates: 2
-- Blocked candidates: 16
+- Validation-needed templates: 25
+- Validation-needed candidates: 87
+- Blocked templates: 1
+- Blocked candidates: 11
 - Skipped templates: 1
 - Skipped candidates: 10
 
@@ -284,6 +284,12 @@
   - `mysql:8.0.32` -> `mysql:9.7.1`: updated APITable BusyBox, MySQL helper, RabbitMQ, and Nginx gateway images; focused runtime validation is required for MySQL helper compatibility, RabbitMQ 3 to 4 startup/persistence, object-storage routing, gateway behavior, and first-run multi-service flow before merge confidence
   - `nginx:1.27.5-alpine` -> `nginx:1.31.2-alpine`: updated APITable BusyBox, MySQL helper, RabbitMQ, and Nginx gateway images; focused runtime validation is required for MySQL helper compatibility, RabbitMQ 3 to 4 startup/persistence, object-storage routing, gateway behavior, and first-run multi-service flow before merge confidence
   - `rabbitmq:3.11.9-management` -> `rabbitmq:4.3.2-management`: updated APITable BusyBox, MySQL helper, RabbitMQ, and Nginx gateway images; focused runtime validation is required for MySQL helper compatibility, RabbitMQ 3 to 4 startup/persistence, object-storage routing, gateway behavior, and first-run multi-service flow before merge confidence
+- `airbyte`
+  - `airbyte/bootloader:0.63.11` -> `airbyte/bootloader:2.1.0`: updated Airbyte bootloader, connector builder, worker, cron, and Temporal images after template contract normalization; focused runtime validation is required for Airbyte 0.x to 2.x migrations, bootloader database migration, worker and cron job execution, connector builder startup, Temporal 1.23 to 1.29 persistence compatibility, server/webapp compatibility with the upgraded components, and first-run login before merge confidence
+  - `airbyte/connector-builder-server:0.63.11` -> `airbyte/connector-builder-server:2.0.1`: updated Airbyte bootloader, connector builder, worker, cron, and Temporal images after template contract normalization; focused runtime validation is required for Airbyte 0.x to 2.x migrations, bootloader database migration, worker and cron job execution, connector builder startup, Temporal 1.23 to 1.29 persistence compatibility, server/webapp compatibility with the upgraded components, and first-run login before merge confidence
+  - `airbyte/cron:0.63.11` -> `airbyte/cron:2.1.0`: updated Airbyte bootloader, connector builder, worker, cron, and Temporal images after template contract normalization; focused runtime validation is required for Airbyte 0.x to 2.x migrations, bootloader database migration, worker and cron job execution, connector builder startup, Temporal 1.23 to 1.29 persistence compatibility, server/webapp compatibility with the upgraded components, and first-run login before merge confidence
+  - `airbyte/worker:0.63.11` -> `airbyte/worker:2.1.0`: updated Airbyte bootloader, connector builder, worker, cron, and Temporal images after template contract normalization; focused runtime validation is required for Airbyte 0.x to 2.x migrations, bootloader database migration, worker and cron job execution, connector builder startup, Temporal 1.23 to 1.29 persistence compatibility, server/webapp compatibility with the upgraded components, and first-run login before merge confidence
+  - `temporalio/auto-setup:1.23.0` -> `temporalio/auto-setup:1.29.7`: updated Airbyte bootloader, connector builder, worker, cron, and Temporal images after template contract normalization; focused runtime validation is required for Airbyte 0.x to 2.x migrations, bootloader database migration, worker and cron job execution, connector builder startup, Temporal 1.23 to 1.29 persistence compatibility, server/webapp compatibility with the upgraded components, and first-run login before merge confidence
 - `budibase`
   - `budibase/apps:3.15.0` -> `budibase/apps:3.39.22`: updated Budibase apps, worker, proxy, and CouchDB init helper images; focused runtime validation is required for apps/worker/proxy compatibility, CouchDB startup and persistence, Redis connectivity, object storage plugin/assets/backups buckets, SMTP branching, and first-run admin setup before merge confidence
   - `budibase/proxy:3.15.0` -> `budibase/proxy:3.39.22`: updated Budibase apps, worker, proxy, and CouchDB init helper images; focused runtime validation is required for apps/worker/proxy compatibility, CouchDB startup and persistence, Redis connectivity, object storage plugin/assets/backups buckets, SMTP branching, and first-run admin setup before merge confidence
@@ -379,12 +385,6 @@
   - `qdrant/qdrant:v1.13.4` -> `qdrant/qdrant:v1.18.2`: updated and normalized the WrenAI AI service, engine, ibis server, UI, and Qdrant runtime bundle; focused runtime validation is required for official bundle compatibility, Qdrant persistence, PostgreSQL initialization, engine/API startup, UI routes, and data-source query flows before merge confidence
 
 ## Blocked Templates
-- `airbyte`
-  - `airbyte/bootloader:0.63.11` -> `airbyte/bootloader:2.1.0`: requires coordinated Airbyte 0.x to 2.x multi-component upgrade validation across bootloader, worker, cron, connector builder, Temporal, migrations, and ConfigMap runtime semantics
-  - `airbyte/connector-builder-server:0.63.11` -> `airbyte/connector-builder-server:2.0.1`: requires coordinated Airbyte 0.x to 2.x multi-component upgrade validation across bootloader, worker, cron, connector builder, Temporal, migrations, and ConfigMap runtime semantics
-  - `airbyte/cron:0.63.11` -> `airbyte/cron:2.1.0`: requires coordinated Airbyte 0.x to 2.x multi-component upgrade validation across bootloader, worker, cron, connector builder, Temporal, migrations, and ConfigMap runtime semantics
-  - `airbyte/worker:0.63.11` -> `airbyte/worker:2.1.0`: requires coordinated Airbyte 0.x to 2.x multi-component upgrade validation across bootloader, worker, cron, connector builder, Temporal, migrations, and ConfigMap runtime semantics
-  - `temporalio/auto-setup:1.23.0` -> `temporalio/auto-setup:1.29.7`: requires coordinated Airbyte 0.x to 2.x multi-component upgrade validation across bootloader, worker, cron, connector builder, Temporal, migrations, and ConfigMap runtime semantics
 - `supabase`
   - `darthsim/imgproxy:v3.30.1` -> `darthsim/imgproxy:v4.0.6`: blocked because the Supabase bundle spans eleven images, includes major Kong/imgproxy/storage/realtime changes, and requires official bundle alignment plus runtime validation
   - `kong:2.8.1` -> `kong:3.9.3`: blocked because the Supabase bundle spans eleven images, includes major Kong/imgproxy/storage/realtime changes, and requires official bundle alignment plus runtime validation
