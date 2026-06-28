@@ -444,6 +444,38 @@ spec:
         app: ${{ defaults.app_name }}
     spec:
       automountServiceAccountToken: false
+      initContainers:
+        - name: wait-runtime
+          image: busybox:1.38.0
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 10m
+              memory: 12Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          envFrom:
+            - configMapRef:
+                name: ${{ defaults.app_name }}-env
+          env:
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: "6379"
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              for i in $(seq 1 120); do
+                if nc -z "$REDIS_HOST" "$REDIS_PORT" >/dev/null 2>&1 && wget -q -O- "$COUCH_DB_URL/_up" >/dev/null 2>&1; then
+                  exit 0
+                fi
+                sleep 2
+              done
+              nc -z "$REDIS_HOST" "$REDIS_PORT"
+              wget -q -O- "$COUCH_DB_URL/_up"
       containers:
         - name: ${{ defaults.app_name }}
           image: budibase/apps:3.39.22
@@ -548,10 +580,10 @@ spec:
           resources:
             requests:
               cpu: 20m
-              memory: 51Mi
+              memory: 102Mi
             limits:
               cpu: 200m
-              memory: 512Mi
+              memory: 1024Mi
           startupProbe:
             failureThreshold: 30
             httpGet:
@@ -615,6 +647,38 @@ spec:
         app: ${{ defaults.app_name }}-worker
     spec:
       automountServiceAccountToken: false
+      initContainers:
+        - name: wait-runtime
+          image: busybox:1.38.0
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 10m
+              memory: 12Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          envFrom:
+            - configMapRef:
+                name: ${{ defaults.app_name }}-env
+          env:
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: "6379"
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              for i in $(seq 1 120); do
+                if nc -z "$REDIS_HOST" "$REDIS_PORT" >/dev/null 2>&1 && wget -q -O- "$COUCH_DB_URL/_up" >/dev/null 2>&1; then
+                  exit 0
+                fi
+                sleep 2
+              done
+              nc -z "$REDIS_HOST" "$REDIS_PORT"
+              wget -q -O- "$COUCH_DB_URL/_up"
       containers:
         - name: ${{ defaults.app_name }}-worker
           image: budibase/worker:3.39.22
@@ -719,10 +783,10 @@ spec:
           resources:
             requests:
               cpu: 20m
-              memory: 25Mi
+              memory: 51Mi
             limits:
               cpu: 200m
-              memory: 256Mi
+              memory: 512Mi
           startupProbe:
             failureThreshold: 30
             httpGet:

@@ -1,9 +1,9 @@
 # Template Update Status
 
-- Updated templates: 115
-- Updated candidates: 168
-- Validation-needed templates: 21
-- Validation-needed candidates: 79
+- Updated templates: 116
+- Updated candidates: 172
+- Validation-needed templates: 20
+- Validation-needed candidates: 75
 - Blocked templates: 0
 - Blocked candidates: 0
 - Skipped templates: 1
@@ -20,6 +20,11 @@
   - `billionmail/core:4.9.3@sha256:b97c71b463e99368f0fb50a4f3088139c2f04a37171d3b660b92f946a3076692` -> `billionmail/core:4.9.5`: validated BillionMail mail-stack runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis reached Running, pg-init completed, Core and Roundcube started with zero pod restarts, root URL and /api/languages/get returned 200, Docker API stub _ping/version/containers checks passed, database compatibility objects and uk_relay_domain existed, Core/Webmail logs stayed free of runtime errors, and test footprints were cleaned up
   - `python:3.12.12-alpine` -> `python:3.14.6-alpine`: validated BillionMail mail-stack runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis reached Running, pg-init completed, Core and Roundcube started with zero pod restarts, root URL and /api/languages/get returned 200, Docker API stub _ping/version/containers checks passed, database compatibility objects and uk_relay_domain existed, Core/Webmail logs stayed free of runtime errors, and test footprints were cleaned up
   - `roundcube/roundcubemail:1.6.11-fpm-alpine` -> `roundcube/roundcubemail:1.7.1-fpm-alpine`: validated BillionMail mail-stack runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis reached Running, pg-init completed, Core and Roundcube started with zero pod restarts, root URL and /api/languages/get returned 200, Docker API stub _ping/version/containers checks passed, database compatibility objects and uk_relay_domain existed, Core/Webmail logs stayed free of runtime errors, and test footprints were cleaned up
+- `budibase`
+  - `budibase/apps:3.15.0` -> `budibase/apps:3.39.22`: validated Budibase runtime on Sealos: Template API dry-run/deploy succeeded, Redis reached Running, CouchDB reached 1/1, apps/worker/proxy reached 1/1 with zero pod restarts after dependency startup gates, root redirected to /builder, /builder and /health returned 200, /api/system/status returned version 3.39.22 with passing health, admin login via /api/global/auth/local/login returned 200, CouchDB contained _users/global-db/global-info and the admin user, object storage bucket secrets existed, recent logs stayed free of runtime errors, and test footprints were cleaned up
+  - `budibase/proxy:3.15.0` -> `budibase/proxy:3.39.22`: validated Budibase runtime on Sealos: Template API dry-run/deploy succeeded, Redis reached Running, CouchDB reached 1/1, apps/worker/proxy reached 1/1 with zero pod restarts after dependency startup gates, root redirected to /builder, /builder and /health returned 200, /api/system/status returned version 3.39.22 with passing health, admin login via /api/global/auth/local/login returned 200, CouchDB contained _users/global-db/global-info and the admin user, object storage bucket secrets existed, recent logs stayed free of runtime errors, and test footprints were cleaned up
+  - `budibase/worker:3.15.0` -> `budibase/worker:3.39.22`: validated Budibase runtime on Sealos: Template API dry-run/deploy succeeded, Redis reached Running, CouchDB reached 1/1, apps/worker/proxy reached 1/1 with zero pod restarts after dependency startup gates, root redirected to /builder, /builder and /health returned 200, /api/system/status returned version 3.39.22 with passing health, admin login via /api/global/auth/local/login returned 200, CouchDB contained _users/global-db/global-info and the admin user, object storage bucket secrets existed, recent logs stayed free of runtime errors, and test footprints were cleaned up
+  - `busybox:1.37.0` -> `busybox:1.38.0`: validated Budibase runtime on Sealos: Template API dry-run/deploy succeeded, Redis reached Running, CouchDB reached 1/1, apps/worker/proxy reached 1/1 with zero pod restarts after dependency startup gates, root redirected to /builder, /builder and /health returned 200, /api/system/status returned version 3.39.22 with passing health, admin login via /api/global/auth/local/login returned 200, CouchDB contained _users/global-db/global-info and the admin user, object storage bucket secrets existed, recent logs stayed free of runtime errors, and test footprints were cleaned up
 - `readeck`
   - `codeberg.org/readeck/readeck:0.16.0` -> `codeberg.org/readeck/readeck:0.22.3`
 - `registry`
@@ -295,11 +300,6 @@
   - `httpd:2.4.63-alpine3.22` -> `httpd:2.4.68-alpine3.24`
 
 ## Validation-Needed Templates
-- `budibase`
-  - `budibase/apps:3.15.0` -> `budibase/apps:3.39.22`: updated Budibase apps, worker, proxy, and CouchDB init helper images; focused runtime validation is required for apps/worker/proxy compatibility, CouchDB startup and persistence, Redis connectivity, object storage plugin/assets/backups buckets, SMTP branching, and first-run admin setup before merge confidence
-  - `budibase/proxy:3.15.0` -> `budibase/proxy:3.39.22`: updated Budibase apps, worker, proxy, and CouchDB init helper images; focused runtime validation is required for apps/worker/proxy compatibility, CouchDB startup and persistence, Redis connectivity, object storage plugin/assets/backups buckets, SMTP branching, and first-run admin setup before merge confidence
-  - `budibase/worker:3.15.0` -> `budibase/worker:3.39.22`: updated Budibase apps, worker, proxy, and CouchDB init helper images; focused runtime validation is required for apps/worker/proxy compatibility, CouchDB startup and persistence, Redis connectivity, object storage plugin/assets/backups buckets, SMTP branching, and first-run admin setup before merge confidence
-  - `busybox:1.37.0` -> `busybox:1.38.0`: updated Budibase apps, worker, proxy, and CouchDB init helper images; focused runtime validation is required for apps/worker/proxy compatibility, CouchDB startup and persistence, Redis connectivity, object storage plugin/assets/backups buckets, SMTP branching, and first-run admin setup before merge confidence
 - `coze-studio`
   - `alpine/curl:8.12.1` -> `alpine/curl:8.20.0`: updated Coze Studio NSQ, Elasticsearch, BusyBox helper, and curl helper images after template contract normalization; focused runtime validation is required for KubeBlocks MySQL connectivity, Redis connectivity, Elasticsearch 8 to 9 compatibility, NSQ messaging, migration init flow, object storage bootstrap, server/web startup, and first-run login before merge confidence
   - `bitnamilegacy/elasticsearch:8.18.0` -> `bitnamilegacy/elasticsearch:9.1.2`: updated Coze Studio NSQ, Elasticsearch, BusyBox helper, and curl helper images after template contract normalization; focused runtime validation is required for KubeBlocks MySQL connectivity, Redis connectivity, Elasticsearch 8 to 9 compatibility, NSQ messaging, migration init flow, object storage bootstrap, server/web startup, and first-run login before merge confidence
