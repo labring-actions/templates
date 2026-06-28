@@ -2,10 +2,10 @@
 
 - Updated templates: 118
 - Updated candidates: 179
-- Validation-needed templates: 18
-- Validation-needed candidates: 68
-- Blocked templates: 0
-- Blocked candidates: 0
+- Validation-needed templates: 17
+- Validation-needed candidates: 66
+- Blocked templates: 1
+- Blocked candidates: 2
 - Skipped templates: 1
 - Skipped candidates: 10
 
@@ -310,9 +310,6 @@
   - `langgenius/dify-sandbox:0.2.12` -> `langgenius/dify-sandbox:0.2.15`: validated Dify runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis KubeBlocks clusters reached Running, pg-init created dify and dify_plugin databases, API, worker, web, plugin-daemon, sandbox, and Weaviate reached ready with zero pod restarts, root redirected to /apps, /apps, /install, /signin, /console/api/setup, and /console/api/system-features returned expected responses, init validation and first-run setup APIs completed, PostgreSQL migrations populated 111 Dify tables and 13 plugin tables, Redis returned PONG, Weaviate ready and sandbox health/code execution checks passed, and test footprints were cleaned up
 
 ## Validation-Needed Templates
-- `erpnext`
-  - `frappe/erpnext:v16.21.1` -> `frappe/erpnext:v16.25.0`: updated ERPNext/Frappe app images and BusyBox helper images; focused runtime validation is required for MySQL KubeBlocks connectivity, Redis connectivity, bench site bootstrap, migrations, worker/queue/scheduler startup, WebSocket/socketio routes, and first-run login before merge confidence
-  - `public.ecr.aws/docker/library/busybox:1.36.1` -> `public.ecr.aws/docker/library/busybox:1.38.0`: updated ERPNext/Frappe app images and BusyBox helper images; focused runtime validation is required for MySQL KubeBlocks connectivity, Redis connectivity, bench site bootstrap, migrations, worker/queue/scheduler startup, WebSocket/socketio routes, and first-run login before merge confidence
 - `fastgpt`
   - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-code-sandbox:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-code-sandbox:v4.14.23`: updated FastGPT app, plugin, code sandbox, MCP server, and AI proxy images; focused runtime validation is required for MongoDB/PostgreSQL/Redis connectivity, plugin and code sandbox calls, MCP server routing, AI proxy startup, ConfigMap mounts, object storage public/private buckets, and first-run root account flow before merge confidence
   - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-mcp_server:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-mcp_server:v4.14.23`: updated FastGPT app, plugin, code sandbox, MCP server, and AI proxy images; focused runtime validation is required for MongoDB/PostgreSQL/Redis connectivity, plugin and code sandbox calls, MCP server routing, AI proxy startup, ConfigMap mounts, object storage public/private buckets, and first-run root account flow before merge confidence
@@ -398,7 +395,9 @@
   - `qdrant/qdrant:v1.13.4` -> `qdrant/qdrant:v1.18.2`: updated and normalized the WrenAI AI service, engine, ibis server, UI, and Qdrant runtime bundle; focused runtime validation is required for official bundle compatibility, Qdrant persistence, PostgreSQL initialization, engine/API startup, UI routes, and data-source query flows before merge confidence
 
 ## Blocked Templates
-- none
+- `erpnext`
+  - `frappe/erpnext:v16.21.1` -> `frappe/erpnext:v16.25.0`: blocked after live Sealos validation: Template API dry-run/deploy succeeded, MySQL and Redis reached Running, and configure completed, then bench new-site failed during Frappe DocType migration with MySQL error 1101 on User.onboarding_status on both ac-mysql-8.0.30-1 and a mysql-8.4.2 trial. Frappe reported the detected MySQL versions below the MariaDB 10.6 support line. A safe update needs an approved KubeBlocks MariaDB 10.6+ path or dedicated database strategy; test footprints were cleaned up
+  - `public.ecr.aws/docker/library/busybox:1.36.1` -> `public.ecr.aws/docker/library/busybox:1.38.0`: blocked after live Sealos validation: Template API dry-run/deploy succeeded, MySQL and Redis reached Running, and configure completed, then bench new-site failed during Frappe DocType migration with MySQL error 1101 on User.onboarding_status on both ac-mysql-8.0.30-1 and a mysql-8.4.2 trial. Frappe reported the detected MySQL versions below the MariaDB 10.6 support line. A safe update needs an approved KubeBlocks MariaDB 10.6+ path or dedicated database strategy; test footprints were cleaned up
 
 ## Skipped Templates
 - `refly`
