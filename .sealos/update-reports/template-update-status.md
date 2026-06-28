@@ -1,15 +1,25 @@
 # Template Update Status
 
-- Updated templates: 113
-- Updated candidates: 160
-- Validation-needed templates: 23
-- Validation-needed candidates: 87
+- Updated templates: 115
+- Updated candidates: 168
+- Validation-needed templates: 21
+- Validation-needed candidates: 79
 - Blocked templates: 0
 - Blocked candidates: 0
 - Skipped templates: 1
 - Skipped candidates: 10
 
 ## Updated Templates
+- `appflowy`
+  - `appflowyinc/appflowy_cloud:0.15.22` -> `appflowyinc/appflowy_cloud:0.16.5`: validated AppFlowy Cloud, Worker, Web, and GoTrue runtime startup; fixed Redis primary service FQDN, added dependency startup gates, and provided a generated GoTrue admin password default
+  - `appflowyinc/appflowy_web:0.14.9` -> `appflowyinc/appflowy_web:0.15.4`: validated AppFlowy Cloud, Worker, Web, and GoTrue runtime startup; fixed Redis primary service FQDN, added dependency startup gates, and provided a generated GoTrue admin password default
+  - `appflowyinc/appflowy_worker:0.15.22` -> `appflowyinc/appflowy_worker:0.16.5`: validated AppFlowy Cloud, Worker, Web, and GoTrue runtime startup; fixed Redis primary service FQDN, added dependency startup gates, and provided a generated GoTrue admin password default
+  - `appflowyinc/gotrue:0.15.22` -> `appflowyinc/gotrue:0.16.5`: validated AppFlowy Cloud, Worker, Web, and GoTrue runtime startup; fixed Redis primary service FQDN, added dependency startup gates, and provided a generated GoTrue admin password default
+- `billionmail`
+  - `alpine/openssl:3.5.4` -> `alpine/openssl:3.5.7`: validated BillionMail mail-stack runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis reached Running, pg-init completed, Core and Roundcube started with zero pod restarts, root URL and /api/languages/get returned 200, Docker API stub _ping/version/containers checks passed, database compatibility objects and uk_relay_domain existed, Core/Webmail logs stayed free of runtime errors, and test footprints were cleaned up
+  - `billionmail/core:4.9.3@sha256:b97c71b463e99368f0fb50a4f3088139c2f04a37171d3b660b92f946a3076692` -> `billionmail/core:4.9.5`: validated BillionMail mail-stack runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis reached Running, pg-init completed, Core and Roundcube started with zero pod restarts, root URL and /api/languages/get returned 200, Docker API stub _ping/version/containers checks passed, database compatibility objects and uk_relay_domain existed, Core/Webmail logs stayed free of runtime errors, and test footprints were cleaned up
+  - `python:3.12.12-alpine` -> `python:3.14.6-alpine`: validated BillionMail mail-stack runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis reached Running, pg-init completed, Core and Roundcube started with zero pod restarts, root URL and /api/languages/get returned 200, Docker API stub _ping/version/containers checks passed, database compatibility objects and uk_relay_domain existed, Core/Webmail logs stayed free of runtime errors, and test footprints were cleaned up
+  - `roundcube/roundcubemail:1.6.11-fpm-alpine` -> `roundcube/roundcubemail:1.7.1-fpm-alpine`: validated BillionMail mail-stack runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis reached Running, pg-init completed, Core and Roundcube started with zero pod restarts, root URL and /api/languages/get returned 200, Docker API stub _ping/version/containers checks passed, database compatibility objects and uk_relay_domain existed, Core/Webmail logs stayed free of runtime errors, and test footprints were cleaned up
 - `readeck`
   - `codeberg.org/readeck/readeck:0.16.0` -> `codeberg.org/readeck/readeck:0.22.3`
 - `registry`
@@ -285,21 +295,11 @@
   - `httpd:2.4.63-alpine3.22` -> `httpd:2.4.68-alpine3.24`
 
 ## Validation-Needed Templates
-- `appflowy`
-  - `appflowyinc/appflowy_cloud:0.15.22` -> `appflowyinc/appflowy_cloud:0.16.5`: updated the AppFlowy Cloud, Worker, Web, and GoTrue image bundle, normalized Sealos object storage boolean branching and approved object-storage env indirection, corrected Redis FQDN wiring, and requires focused runtime validation for cloud/worker/web/GoTrue startup, database URLs, object storage uploads, and first-run login path
-  - `appflowyinc/appflowy_web:0.14.9` -> `appflowyinc/appflowy_web:0.15.4`: updated the AppFlowy Cloud, Worker, Web, and GoTrue image bundle, normalized Sealos object storage boolean branching and approved object-storage env indirection, corrected Redis FQDN wiring, and requires focused runtime validation for cloud/worker/web/GoTrue startup, database URLs, object storage uploads, and first-run login path
-  - `appflowyinc/appflowy_worker:0.15.22` -> `appflowyinc/appflowy_worker:0.16.5`: updated the AppFlowy Cloud, Worker, Web, and GoTrue image bundle, normalized Sealos object storage boolean branching and approved object-storage env indirection, corrected Redis FQDN wiring, and requires focused runtime validation for cloud/worker/web/GoTrue startup, database URLs, object storage uploads, and first-run login path
-  - `appflowyinc/gotrue:0.15.22` -> `appflowyinc/gotrue:0.16.5`: updated the AppFlowy Cloud, Worker, Web, and GoTrue image bundle, normalized Sealos object storage boolean branching and approved object-storage env indirection, corrected Redis FQDN wiring, and requires focused runtime validation for cloud/worker/web/GoTrue startup, database URLs, object storage uploads, and first-run login path
 - `budibase`
   - `budibase/apps:3.15.0` -> `budibase/apps:3.39.22`: updated Budibase apps, worker, proxy, and CouchDB init helper images; focused runtime validation is required for apps/worker/proxy compatibility, CouchDB startup and persistence, Redis connectivity, object storage plugin/assets/backups buckets, SMTP branching, and first-run admin setup before merge confidence
   - `budibase/proxy:3.15.0` -> `budibase/proxy:3.39.22`: updated Budibase apps, worker, proxy, and CouchDB init helper images; focused runtime validation is required for apps/worker/proxy compatibility, CouchDB startup and persistence, Redis connectivity, object storage plugin/assets/backups buckets, SMTP branching, and first-run admin setup before merge confidence
   - `budibase/worker:3.15.0` -> `budibase/worker:3.39.22`: updated Budibase apps, worker, proxy, and CouchDB init helper images; focused runtime validation is required for apps/worker/proxy compatibility, CouchDB startup and persistence, Redis connectivity, object storage plugin/assets/backups buckets, SMTP branching, and first-run admin setup before merge confidence
   - `busybox:1.37.0` -> `busybox:1.38.0`: updated Budibase apps, worker, proxy, and CouchDB init helper images; focused runtime validation is required for apps/worker/proxy compatibility, CouchDB startup and persistence, Redis connectivity, object storage plugin/assets/backups buckets, SMTP branching, and first-run admin setup before merge confidence
-- `billionmail`
-  - `alpine/openssl:3.5.4` -> `alpine/openssl:3.5.7`: updated BillionMail mail-stack image candidates; focused runtime validation is required for Core, Roundcube, docker-api helper compatibility, mail services, PostgreSQL/Redis startup, and first-run admin login before merge confidence
-  - `billionmail/core:4.9.3@sha256:b97c71b463e99368f0fb50a4f3088139c2f04a37171d3b660b92f946a3076692` -> `billionmail/core:4.9.5`: updated BillionMail mail-stack image candidates; focused runtime validation is required for Core, Roundcube, docker-api helper compatibility, mail services, PostgreSQL/Redis startup, and first-run admin login before merge confidence
-  - `python:3.12.12-alpine` -> `python:3.14.6-alpine`: updated BillionMail mail-stack image candidates; focused runtime validation is required for Core, Roundcube, docker-api helper compatibility, mail services, PostgreSQL/Redis startup, and first-run admin login before merge confidence
-  - `roundcube/roundcubemail:1.6.11-fpm-alpine` -> `roundcube/roundcubemail:1.7.1-fpm-alpine`: updated BillionMail mail-stack image candidates; focused runtime validation is required for Core, Roundcube, docker-api helper compatibility, mail services, PostgreSQL/Redis startup, and first-run admin login before merge confidence
 - `coze-studio`
   - `alpine/curl:8.12.1` -> `alpine/curl:8.20.0`: updated Coze Studio NSQ, Elasticsearch, BusyBox helper, and curl helper images after template contract normalization; focused runtime validation is required for KubeBlocks MySQL connectivity, Redis connectivity, Elasticsearch 8 to 9 compatibility, NSQ messaging, migration init flow, object storage bootstrap, server/web startup, and first-run login before merge confidence
   - `bitnamilegacy/elasticsearch:8.18.0` -> `bitnamilegacy/elasticsearch:9.1.2`: updated Coze Studio NSQ, Elasticsearch, BusyBox helper, and curl helper images after template contract normalization; focused runtime validation is required for KubeBlocks MySQL connectivity, Redis connectivity, Elasticsearch 8 to 9 compatibility, NSQ messaging, migration init flow, object storage bootstrap, server/web startup, and first-run login before merge confidence

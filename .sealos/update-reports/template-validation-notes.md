@@ -71,6 +71,7 @@ Updated batch:
 - grafana-otel
 - penpot
 - twenty
+- billionmail
 - rocketchat
 - skardi
 - sub2api
@@ -160,7 +161,7 @@ Validation passed:
 - Grafana OTel template contract pass: updated Grafana, Prometheus, and OpenTelemetry Collector images, normalized ConfigMap labels and file mounts, added helper resources, Service labels, and Simplified Chinese metadata. Marked validation-needed for the monitoring bundle public Grafana entry, collector ingest ports, and Prometheus scrape path.
 - Penpot template contract pass: updated frontend, backend, and exporter images to 2.16.1, aligned PostgreSQL 16.4 metadata and idempotent pg-init, normalized Redis/PostgreSQL URL composition, approved object-storage env indirection, Service and Ingress labels, and App schema. Marked validation-needed for frontend/backend/exporter startup, database migration, S3 asset uploads, and first-run login path.
 - Twenty template contract pass: updated server and worker images to v2.16.0, aligned official v2 runtime envs, PostgreSQL 16.4.0 metadata, idempotent pg-init, Redis FQDN wiring, generated secrets, resource ladder values, Service/Ingress labels, and App schema. Marked validation-needed for the v1 to v2 migration and first-run login path.
-- BillionMail template update pass: updated Core, Roundcube, openssl helper, and docker-api Python helper images. Marked validation-needed for Core, Roundcube, docker-api helper compatibility, mail services, PostgreSQL/Redis startup, and first-run admin login.
+- BillionMail live runtime pass: updated Core, Roundcube, openssl helper, and docker-api Python helper images; added a generated admin password default, aligned the Docker API stub image list, removed the public-image pull secret, and made the stub read complete HTTP request bodies. Verified Template API dry-run and deploy on ns-dn9ue3wz, PostgreSQL and Redis Running, pg-init completion, Core and Roundcube readiness, zero pod restarts, root URL and /api/languages/get HTTP 200, Docker API stub _ping/version/containers responses, required database compatibility objects, clean Core/Webmail error scan, and targeted cleanup.
 - Signoz template update pass: updated ClickHouse, collector, Signoz, and Zookeeper images as one observability bundle. Marked validation-needed for ClickHouse migrations/storage, collector ingestion, dashboard startup, and Zookeeper coordination.
 - WrenAI template update pass: updated and normalized AI service, engine, ibis server, UI, and Qdrant images as one runtime bundle. Marked validation-needed for official bundle compatibility, Qdrant persistence, PostgreSQL initialization, engine/API startup, UI routes, and data-source query flows.
 - Reactive Resume template update pass: updated the app image to v5.1.9 using the official v5 runtime contract, removed the legacy Browserless/Chromium sidecar, upgraded PostgreSQL metadata to 16.4.0, added Redis KubeBlocks support, aligned v5 APP_URL/AUTH_SECRET/ENCRYPTION_SECRET/REDIS_URL/S3 envs, added /api/health probes, and passed live Sealos runtime validation for startup, database, Redis, S3 storage, and first-run account flow.
@@ -238,8 +239,8 @@ Validation gaps:
 - `refly`: skipped the mautic/mautic helper candidate because it is used only as an Elasticsearch data ownership helper in the Refly template and is not part of the Refly application release surface.
 
 Remaining queue:
-- Validation-needed templates: 23
-- Validation-needed candidates: 87
+- Validation-needed templates: 21
+- Validation-needed candidates: 79
 - Blocked templates: 0
 - Blocked candidates: 0
 - Skipped templates: 1

@@ -37,7 +37,7 @@ spec:
     admin_password:
       description: Initial BillionMail administrator password
       type: string
-      default: ''
+      default: "BillionMail@${{ random(16) }}!1"
       required: true
     mail_hostname:
       description: Mail server hostname used by Postfix and DNS guidance
@@ -613,11 +613,11 @@ data:
 
     SOCKET_PATH = "/var/run/docker.sock"
     CONTAINERS = [
-        ("core-id", "core-billionmail", "billionmail/core:4.9.3@sha256:b97c71b463e99368f0fb50a4f3088139c2f04a37171d3b660b92f946a3076692"),
+        ("core-id", "core-billionmail", "billionmail/core:4.9.5"),
         ("rspamd-id", "rspamd-billionmail", "billionmail/rspamd:1.2@sha256:bed48c106e8b8fcbf0a133c86e90900e7e17d4dec14cc30a9ddf989ada74f058"),
         ("dovecot-id", "dovecot-billionmail", "billionmail/dovecot:1.6@sha256:bbf5c304f248141768d1dbdf26b190fd28b69de6969b90e994ee81f54b942fab"),
         ("postfix-id", "postfix-billionmail", "billionmail/postfix:1.6@sha256:870656c055c83f4e4b83fcd4c2f9cecfbcd0d8e3a963ab7d0c9c88bd6b348342"),
-        ("webmail-id", "webmail-billionmail", "roundcube/roundcubemail:1.6.11-fpm-alpine"),
+        ("webmail-id", "webmail-billionmail", "roundcube/roundcubemail:1.7.1-fpm-alpine"),
     ]
     EXECS = {}
     EXEC_COUNTER = 0
@@ -656,6 +656,44 @@ data:
             "",
         ]
         conn.sendall("\r\n".join(headers).encode() + body)
+
+
+    def read_http_request(conn):
+        request = b""
+        while b"\r\n\r\n" not in request:
+            chunk = conn.recv(65536)
+            if not chunk:
+                return request
+            request += chunk
+        headers, body = request.split(b"\r\n\r\n", 1)
+        content_length = 0
+        chunked = False
+        for raw_line in headers.split(b"\r\n")[1:]:
+            if b":" not in raw_line:
+                continue
+            key, value = raw_line.split(b":", 1)
+            key = key.strip().lower()
+            value = value.strip().lower()
+            if key == b"content-length":
+                try:
+                    content_length = int(value)
+                except ValueError:
+                    content_length = 0
+            elif key == b"transfer-encoding" and b"chunked" in value:
+                chunked = True
+        if content_length:
+            while len(body) < content_length:
+                chunk = conn.recv(65536)
+                if not chunk:
+                    break
+                body += chunk
+        elif chunked:
+            while b"\r\n0\r\n\r\n" not in body and b"\n0\n\n" not in body:
+                chunk = conn.recv(65536)
+                if not chunk:
+                    break
+                body += chunk
+        return headers + b"\r\n\r\n" + body
 
 
     def write_hijacked_response(conn, body=b""):
@@ -784,7 +822,7 @@ data:
     while True:
         conn, _ = server.accept()
         with conn:
-            request = conn.recv(65536)
+            request = read_http_request(conn)
             handle(conn, request)
   vn-confvn-corevn-fail2banvn-initvn-filtervn-dvn-corevn-limitvn-filtervn-conf: |
     [Definition]
@@ -6497,8 +6535,6 @@ spec:
         app: ${{ defaults.app_name }}
     spec:
       automountServiceAccountToken: false
-      imagePullSecrets:
-        - name: ${{ defaults.app_name }}
       hostAliases:
         - ip: 127.0.0.1
           hostnames:
