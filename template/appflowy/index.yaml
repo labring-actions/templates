@@ -48,7 +48,7 @@ spec:
     gotrue_admin_password:
       description: Bootstrap admin password for GoTrue service administration. This is not the recommended AppFlowy Web login account.
       type: string
-      default: ''
+      default: AppFlowy@${{ random(16) }}!1
       required: true
     external_s3_endpoint:
       description: External S3-compatible API endpoint, for example https://s3.amazonaws.com or https://s3.example.com.
@@ -368,6 +368,35 @@ spec:
         app: ${{ defaults.app_name }}-gotrue
     spec:
       automountServiceAccountToken: false
+      initContainers:
+        - name: wait-for-postgres
+          image: public.ecr.aws/docker/library/busybox:1.38.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until nc -z "$PG_HOST" "$PG_PORT"; do
+                sleep 2
+              done
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
       containers:
         - name: ${{ defaults.app_name }}-gotrue
           image: appflowyinc/gotrue:0.16.5
@@ -503,6 +532,77 @@ spec:
         app: ${{ defaults.app_name }}-cloud
     spec:
       automountServiceAccountToken: false
+      initContainers:
+        - name: wait-for-postgres
+          image: public.ecr.aws/docker/library/busybox:1.38.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until nc -z "$PG_HOST" "$PG_PORT"; do
+                sleep 2
+              done
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+        - name: wait-for-redis
+          image: public.ecr.aws/docker/library/busybox:1.38.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until nc -z "$REDIS_HOST" "$REDIS_PORT"; do
+                sleep 2
+              done
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+        - name: wait-for-gotrue
+          image: public.ecr.aws/docker/library/busybox:1.38.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: GOTRUE_URL
+              value: http://${{ defaults.app_name }}-gotrue.${{ SEALOS_NAMESPACE }}.svc.cluster.local:9999/health
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until wget -q -O - "$GOTRUE_URL" >/dev/null 2>&1; do
+                sleep 2
+              done
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
       containers:
         - name: ${{ defaults.app_name }}-cloud
           image: appflowyinc/appflowy_cloud:0.16.5
@@ -551,7 +651,7 @@ spec:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
             - name: REDIS_HOST
-              value: ${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
             - name: REDIS_PORT
               value: '6379'
             - name: APPFLOWY_REDIS_URI
@@ -708,6 +808,77 @@ spec:
         app: ${{ defaults.app_name }}-worker
     spec:
       automountServiceAccountToken: false
+      initContainers:
+        - name: wait-for-postgres
+          image: public.ecr.aws/docker/library/busybox:1.38.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until nc -z "$PG_HOST" "$PG_PORT"; do
+                sleep 2
+              done
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+        - name: wait-for-redis
+          image: public.ecr.aws/docker/library/busybox:1.38.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until nc -z "$REDIS_HOST" "$REDIS_PORT"; do
+                sleep 2
+              done
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+        - name: wait-for-cloud
+          image: public.ecr.aws/docker/library/busybox:1.38.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: APPFLOWY_CLOUD_URL
+              value: http://${{ defaults.app_name }}-cloud.${{ SEALOS_NAMESPACE }}.svc.cluster.local:8000/api/health
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until wget -q -O - "$APPFLOWY_CLOUD_URL" >/dev/null 2>&1; do
+                sleep 2
+              done
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
       containers:
         - name: ${{ defaults.app_name }}-worker
           image: appflowyinc/appflowy_worker:0.16.5
@@ -751,7 +922,7 @@ spec:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
             - name: REDIS_HOST
-              value: ${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
             - name: REDIS_PORT
               value: '6379'
             - name: APPFLOWY_WORKER_REDIS_URL
