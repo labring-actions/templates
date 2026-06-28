@@ -2,10 +2,10 @@
 
 - Updated templates: 110
 - Updated candidates: 149
-- Validation-needed templates: 15
-- Validation-needed candidates: 44
-- Blocked templates: 11
-- Blocked candidates: 58
+- Validation-needed templates: 16
+- Validation-needed candidates: 49
+- Blocked templates: 10
+- Blocked candidates: 53
 - Skipped templates: 1
 - Skipped candidates: 6
 
@@ -300,6 +300,12 @@
   - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-plugin:v0.6.2` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-plugin:v0.6.3`: updated FastGPT app, plugin, code sandbox, MCP server, and AI proxy images; focused runtime validation is required for MongoDB/PostgreSQL/Redis connectivity, plugin and code sandbox calls, MCP server routing, AI proxy startup, ConfigMap mounts, object storage public/private buckets, and first-run root account flow before merge confidence
   - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.14.26`: updated FastGPT app, plugin, code sandbox, MCP server, and AI proxy images; focused runtime validation is required for MongoDB/PostgreSQL/Redis connectivity, plugin and code sandbox calls, MCP server routing, AI proxy startup, ConfigMap mounts, object storage public/private buckets, and first-run root account flow before merge confidence
   - `registry.cn-hangzhou.aliyuncs.com/labring/aiproxy:v0.5.8` -> `registry.cn-hangzhou.aliyuncs.com/labring/aiproxy:v0.6.3`: updated FastGPT app, plugin, code sandbox, MCP server, and AI proxy images; focused runtime validation is required for MongoDB/PostgreSQL/Redis connectivity, plugin and code sandbox calls, MCP server routing, AI proxy startup, ConfigMap mounts, object storage public/private buckets, and first-run root account flow before merge confidence
+- `fastgpt-milvus`
+  - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-code-sandbox:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-code-sandbox:v4.14.23`: updated FastGPT Milvus app, plugin, code sandbox, MCP server, and AI proxy images; focused runtime validation is required for MongoDB/PostgreSQL/Redis connectivity, Milvus storage and vector queries, plugin and code sandbox calls, MCP server routing, AI proxy startup, ConfigMap mounts, object storage secrets, and first-run root account flow before merge confidence
+  - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-mcp_server:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-mcp_server:v4.14.23`: updated FastGPT Milvus app, plugin, code sandbox, MCP server, and AI proxy images; focused runtime validation is required for MongoDB/PostgreSQL/Redis connectivity, Milvus storage and vector queries, plugin and code sandbox calls, MCP server routing, AI proxy startup, ConfigMap mounts, object storage secrets, and first-run root account flow before merge confidence
+  - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-plugin:v0.6.2` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-plugin:v0.6.3`: updated FastGPT Milvus app, plugin, code sandbox, MCP server, and AI proxy images; focused runtime validation is required for MongoDB/PostgreSQL/Redis connectivity, Milvus storage and vector queries, plugin and code sandbox calls, MCP server routing, AI proxy startup, ConfigMap mounts, object storage secrets, and first-run root account flow before merge confidence
+  - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.14.26`: updated FastGPT Milvus app, plugin, code sandbox, MCP server, and AI proxy images; focused runtime validation is required for MongoDB/PostgreSQL/Redis connectivity, Milvus storage and vector queries, plugin and code sandbox calls, MCP server routing, AI proxy startup, ConfigMap mounts, object storage secrets, and first-run root account flow before merge confidence
+  - `registry.cn-hangzhou.aliyuncs.com/labring/aiproxy:v0.5.8` -> `registry.cn-hangzhou.aliyuncs.com/labring/aiproxy:v0.6.3`: updated FastGPT Milvus app, plugin, code sandbox, MCP server, and AI proxy images; focused runtime validation is required for MongoDB/PostgreSQL/Redis connectivity, Milvus storage and vector queries, plugin and code sandbox calls, MCP server routing, AI proxy startup, ConfigMap mounts, object storage secrets, and first-run root account flow before merge confidence
 - `glitchtip`
   - `glitchtip/glitchtip:v4.1.5` -> `glitchtip/glitchtip:v6.0.3`: updated GlitchTip to v6.0.3, normalized PostgreSQL 16.4 metadata and pg-init, Redis/database/object-storage env wiring, Service/Ingress/App schema, and requires focused runtime validation for v4 to v6 migrations, Redis/PostgreSQL startup, object storage uploads, and login path
 - `grafana-otel`
@@ -353,12 +359,6 @@
   - `mariadb:11.4.7` -> `mariadb:12.3.2`: requires Frappe/ERPNext runtime validation across MariaDB, Redis, bench site bootstrap, workers, and scheduler before automatic version changes
   - `public.ecr.aws/docker/library/busybox:1.36.1` -> `public.ecr.aws/docker/library/busybox:1.38.0`: requires Frappe/ERPNext runtime validation across MariaDB, Redis, bench site bootstrap, workers, and scheduler before automatic version changes
   - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`: requires Frappe/ERPNext runtime validation across MariaDB, Redis, bench site bootstrap, workers, and scheduler before automatic version changes
-- `fastgpt-milvus`
-  - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-code-sandbox:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-code-sandbox:v4.14.23`: requires coordinated FastGPT Milvus runtime validation across MongoDB, PostgreSQL, Redis, Milvus storage, plugin, AI proxy, ConfigMap mounts, and object storage secrets before automatic version changes
-  - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-mcp_server:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-mcp_server:v4.14.23`: requires coordinated FastGPT Milvus runtime validation across MongoDB, PostgreSQL, Redis, Milvus storage, plugin, AI proxy, ConfigMap mounts, and object storage secrets before automatic version changes
-  - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-plugin:v0.6.2` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-plugin:v0.6.3`: requires coordinated FastGPT Milvus runtime validation across MongoDB, PostgreSQL, Redis, Milvus storage, plugin, AI proxy, ConfigMap mounts, and object storage secrets before automatic version changes
-  - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.14.26`: requires coordinated FastGPT Milvus runtime validation across MongoDB, PostgreSQL, Redis, Milvus storage, plugin, AI proxy, ConfigMap mounts, and object storage secrets before automatic version changes
-  - `registry.cn-hangzhou.aliyuncs.com/labring/aiproxy:v0.5.8` -> `registry.cn-hangzhou.aliyuncs.com/labring/aiproxy:v0.6.3`: requires coordinated FastGPT Milvus runtime validation across MongoDB, PostgreSQL, Redis, Milvus storage, plugin, AI proxy, ConfigMap mounts, and object storage secrets before automatic version changes
 - `fastgpt-pro`
   - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-code-sandbox:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-code-sandbox:v4.14.23`: requires coordinated FastGPT Pro runtime validation across MongoDB, PostgreSQL, Redis, pro/plugin/code-sandbox/MCP/AI proxy components, ConfigMap mounts, and object storage secrets before automatic version changes
   - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-mcp_server:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-mcp_server:v4.14.23`: requires coordinated FastGPT Pro runtime validation across MongoDB, PostgreSQL, Redis, pro/plugin/code-sandbox/MCP/AI proxy components, ConfigMap mounts, and object storage secrets before automatic version changes
