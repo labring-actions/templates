@@ -695,11 +695,11 @@ spec:
             requests:
               cpu: 100m
               memory: 102Mi
-              ephemeral-storage: 300Mi
+              ephemeral-storage: 1Gi
             limits:
               cpu: 1
               memory: 1024Mi
-              ephemeral-storage: 300Mi
+              ephemeral-storage: 1Gi
           ports:
             - containerPort: 8194
           imagePullPolicy: IfNotPresent
@@ -984,8 +984,6 @@ subjects:
 apiVersion: apps.kubeblocks.io/v1alpha1
 kind: Cluster
 metadata:
-  finalizers:
-    - cluster.kubeblocks.io/finalizer
   labels:
     kb.io/database: postgresql-16.4.0
     clusterdefinition.kubeblocks.io/name: postgresql
@@ -998,7 +996,8 @@ spec:
     nodeLabels: {}
     podAntiAffinity: Preferred
     tenancy: SharedNode
-    topologyKeys: []
+    topologyKeys:
+      - kubernetes.io/hostname
   clusterDefinitionRef: postgresql
   clusterVersionRef: postgresql-16.4.0
   backup:
@@ -1008,9 +1007,9 @@ spec:
     pitrEnabled: false
     retentionPeriod: 7d
   componentSpecs:
-    - componentDefRef: postgresql
+    - name: postgresql
+      componentDefRef: postgresql
       disableExporter: true
-      name: postgresql
       replicas: 1
       enabledLogs:
         - running
@@ -1032,9 +1031,8 @@ spec:
             resources:
               requests:
                 storage: 1Gi
-
+            storageClassName: openebs-backup
   terminationPolicy: Delete
-  tolerations: []
 
 ---
 apiVersion: batch/v1
@@ -1145,8 +1143,6 @@ subjects:
 apiVersion: apps.kubeblocks.io/v1alpha1
 kind: Cluster
 metadata:
-  finalizers:
-    - cluster.kubeblocks.io/finalizer
   labels:
     clusterdefinition.kubeblocks.io/name: redis
     kb.io/database: redis-7.2.7
@@ -1160,16 +1156,17 @@ spec:
     nodeLabels: {}
     podAntiAffinity: Preferred
     tenancy: SharedNode
-    topologyKeys: []
+    topologyKeys:
+      - kubernetes.io/hostname
   clusterDefinitionRef: redis
   componentSpecs:
-    - componentDef: redis-7
+    - name: redis
+      componentDef: redis-7
       enabledLogs:
         - running
       env:
         - name: CUSTOM_SENTINEL_MASTER_NAME
       serviceVersion: 7.2.7
-      name: redis
       replicas: 1
       resources:
         limits:
@@ -1189,9 +1186,10 @@ spec:
             resources:
               requests:
                 storage: 1Gi
-    - componentDef: redis-sentinel-7
+            storageClassName: openebs-backup
+    - name: redis-sentinel
+      componentDef: redis-sentinel-7
       serviceVersion: 7.2.7
-      name: redis-sentinel
       replicas: 1
       resources:
         limits:
@@ -1201,6 +1199,15 @@ spec:
           cpu: 50m
           memory: 51Mi
       serviceAccountName: ${{ defaults.app_name }}-redis
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
   terminationPolicy: Delete
   topology: replication
 

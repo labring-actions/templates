@@ -1,9 +1,9 @@
 # Template Update Status
 
-- Updated templates: 117
-- Updated candidates: 176
-- Validation-needed templates: 19
-- Validation-needed candidates: 71
+- Updated templates: 118
+- Updated candidates: 179
+- Validation-needed templates: 18
+- Validation-needed candidates: 68
 - Blocked templates: 0
 - Blocked candidates: 0
 - Skipped templates: 1
@@ -304,11 +304,12 @@
   - `ghcr.io/project-zot/zot:v2.1.14` -> `ghcr.io/project-zot/zot:v2.1.18`
   - `httpd:2.4.63-alpine3.22` -> `httpd:2.4.68-alpine3.24`
 
-## Validation-Needed Templates
 - `dify`
-  - `busybox:1.37.0` -> `busybox:1.38.0`: updated Dify BusyBox helper, sandbox, and plugin daemon images; focused runtime validation is required for API, worker, web, sandbox execution, plugin-daemon package/runtime behavior, PostgreSQL/Redis connectivity, Weaviate connectivity, migration readiness, and first-run admin login before merge confidence
-  - `langgenius/dify-plugin-daemon:0.5.2-local` -> `langgenius/dify-plugin-daemon:0.6.3-local`: updated Dify BusyBox helper, sandbox, and plugin daemon images; focused runtime validation is required for API, worker, web, sandbox execution, plugin-daemon package/runtime behavior, PostgreSQL/Redis connectivity, Weaviate connectivity, migration readiness, and first-run admin login before merge confidence
-  - `langgenius/dify-sandbox:0.2.12` -> `langgenius/dify-sandbox:0.2.15`: updated Dify BusyBox helper, sandbox, and plugin daemon images; focused runtime validation is required for API, worker, web, sandbox execution, plugin-daemon package/runtime behavior, PostgreSQL/Redis connectivity, Weaviate connectivity, migration readiness, and first-run admin login before merge confidence
+  - `busybox:1.37.0` -> `busybox:1.38.0`: validated Dify runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis KubeBlocks clusters reached Running, pg-init created dify and dify_plugin databases, API, worker, web, plugin-daemon, sandbox, and Weaviate reached ready with zero pod restarts, root redirected to /apps, /apps, /install, /signin, /console/api/setup, and /console/api/system-features returned expected responses, init validation and first-run setup APIs completed, PostgreSQL migrations populated 111 Dify tables and 13 plugin tables, Redis returned PONG, Weaviate ready and sandbox health/code execution checks passed, and test footprints were cleaned up
+  - `langgenius/dify-plugin-daemon:0.5.2-local` -> `langgenius/dify-plugin-daemon:0.6.3-local`: validated Dify runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis KubeBlocks clusters reached Running, pg-init created dify and dify_plugin databases, API, worker, web, plugin-daemon, sandbox, and Weaviate reached ready with zero pod restarts, root redirected to /apps, /apps, /install, /signin, /console/api/setup, and /console/api/system-features returned expected responses, init validation and first-run setup APIs completed, PostgreSQL migrations populated 111 Dify tables and 13 plugin tables, Redis returned PONG, Weaviate ready and sandbox health/code execution checks passed, and test footprints were cleaned up
+  - `langgenius/dify-sandbox:0.2.12` -> `langgenius/dify-sandbox:0.2.15`: validated Dify runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis KubeBlocks clusters reached Running, pg-init created dify and dify_plugin databases, API, worker, web, plugin-daemon, sandbox, and Weaviate reached ready with zero pod restarts, root redirected to /apps, /apps, /install, /signin, /console/api/setup, and /console/api/system-features returned expected responses, init validation and first-run setup APIs completed, PostgreSQL migrations populated 111 Dify tables and 13 plugin tables, Redis returned PONG, Weaviate ready and sandbox health/code execution checks passed, and test footprints were cleaned up
+
+## Validation-Needed Templates
 - `erpnext`
   - `frappe/erpnext:v16.21.1` -> `frappe/erpnext:v16.25.0`: updated ERPNext/Frappe app images and BusyBox helper images; focused runtime validation is required for MySQL KubeBlocks connectivity, Redis connectivity, bench site bootstrap, migrations, worker/queue/scheduler startup, WebSocket/socketio routes, and first-run login before merge confidence
   - `public.ecr.aws/docker/library/busybox:1.36.1` -> `public.ecr.aws/docker/library/busybox:1.38.0`: updated ERPNext/Frappe app images and BusyBox helper images; focused runtime validation is required for MySQL KubeBlocks connectivity, Redis connectivity, bench site bootstrap, migrations, worker/queue/scheduler startup, WebSocket/socketio routes, and first-run login before merge confidence
