@@ -2,10 +2,10 @@
 
 - Updated templates: 110
 - Updated candidates: 149
-- Validation-needed templates: 13
-- Validation-needed candidates: 35
-- Blocked templates: 13
-- Blocked candidates: 67
+- Validation-needed templates: 14
+- Validation-needed candidates: 39
+- Blocked templates: 12
+- Blocked candidates: 63
 - Skipped templates: 1
 - Skipped candidates: 6
 
@@ -284,6 +284,11 @@
   - `mysql:8.0.32` -> `mysql:9.7.1`: updated APITable BusyBox, MySQL helper, RabbitMQ, and Nginx gateway images; focused runtime validation is required for MySQL helper compatibility, RabbitMQ 3 to 4 startup/persistence, object-storage routing, gateway behavior, and first-run multi-service flow before merge confidence
   - `nginx:1.27.5-alpine` -> `nginx:1.31.2-alpine`: updated APITable BusyBox, MySQL helper, RabbitMQ, and Nginx gateway images; focused runtime validation is required for MySQL helper compatibility, RabbitMQ 3 to 4 startup/persistence, object-storage routing, gateway behavior, and first-run multi-service flow before merge confidence
   - `rabbitmq:3.11.9-management` -> `rabbitmq:4.3.2-management`: updated APITable BusyBox, MySQL helper, RabbitMQ, and Nginx gateway images; focused runtime validation is required for MySQL helper compatibility, RabbitMQ 3 to 4 startup/persistence, object-storage routing, gateway behavior, and first-run multi-service flow before merge confidence
+- `budibase`
+  - `budibase/apps:3.15.0` -> `budibase/apps:3.39.22`: updated Budibase apps, worker, proxy, and CouchDB init helper images; focused runtime validation is required for apps/worker/proxy compatibility, CouchDB startup and persistence, Redis connectivity, object storage plugin/assets/backups buckets, SMTP branching, and first-run admin setup before merge confidence
+  - `budibase/proxy:3.15.0` -> `budibase/proxy:3.39.22`: updated Budibase apps, worker, proxy, and CouchDB init helper images; focused runtime validation is required for apps/worker/proxy compatibility, CouchDB startup and persistence, Redis connectivity, object storage plugin/assets/backups buckets, SMTP branching, and first-run admin setup before merge confidence
+  - `budibase/worker:3.15.0` -> `budibase/worker:3.39.22`: updated Budibase apps, worker, proxy, and CouchDB init helper images; focused runtime validation is required for apps/worker/proxy compatibility, CouchDB startup and persistence, Redis connectivity, object storage plugin/assets/backups buckets, SMTP branching, and first-run admin setup before merge confidence
+  - `busybox:1.37.0` -> `busybox:1.38.0`: updated Budibase apps, worker, proxy, and CouchDB init helper images; focused runtime validation is required for apps/worker/proxy compatibility, CouchDB startup and persistence, Redis connectivity, object storage plugin/assets/backups buckets, SMTP branching, and first-run admin setup before merge confidence
 - `billionmail`
   - `alpine/openssl:3.5.4` -> `alpine/openssl:3.5.7`: updated BillionMail mail-stack image candidates; focused runtime validation is required for Core, Roundcube, docker-api helper compatibility, mail services, PostgreSQL/Redis startup, and first-run admin login before merge confidence
   - `billionmail/core:4.9.3@sha256:b97c71b463e99368f0fb50a4f3088139c2f04a37171d3b660b92f946a3076692` -> `billionmail/core:4.9.5`: updated BillionMail mail-stack image candidates; focused runtime validation is required for Core, Roundcube, docker-api helper compatibility, mail services, PostgreSQL/Redis startup, and first-run admin login before merge confidence
@@ -327,11 +332,6 @@
   - `airbyte/cron:0.63.11` -> `airbyte/cron:2.1.0`: requires coordinated Airbyte 0.x to 2.x multi-component upgrade validation across bootloader, worker, cron, connector builder, Temporal, migrations, and ConfigMap runtime semantics
   - `airbyte/worker:0.63.11` -> `airbyte/worker:2.1.0`: requires coordinated Airbyte 0.x to 2.x multi-component upgrade validation across bootloader, worker, cron, connector builder, Temporal, migrations, and ConfigMap runtime semantics
   - `temporalio/auto-setup:1.23.0` -> `temporalio/auto-setup:1.29.7`: requires coordinated Airbyte 0.x to 2.x multi-component upgrade validation across bootloader, worker, cron, connector builder, Temporal, migrations, and ConfigMap runtime semantics
-- `budibase`
-  - `budibase/apps:3.15.0` -> `budibase/apps:3.39.22`: requires coordinated Budibase multi-service upgrade validation across apps, worker, proxy, CouchDB, Redis, and helper image before automatic version changes
-  - `budibase/proxy:3.15.0` -> `budibase/proxy:3.39.22`: requires coordinated Budibase multi-service upgrade validation across apps, worker, proxy, CouchDB, Redis, and helper image before automatic version changes
-  - `budibase/worker:3.15.0` -> `budibase/worker:3.39.22`: requires coordinated Budibase multi-service upgrade validation across apps, worker, proxy, CouchDB, Redis, and helper image before automatic version changes
-  - `busybox:1.37.0` -> `busybox:1.38.0`: requires coordinated Budibase multi-service upgrade validation across apps, worker, proxy, CouchDB, Redis, and helper image before automatic version changes
 - `coze-studio`
   - `alpine/curl:8.12.1` -> `alpine/curl:8.20.0`: requires coordinated multi-component runtime validation across MySQL, Elasticsearch, NSQ, ConfigMap mounts, migrations, and service startup before automatic version changes
   - `bitnamilegacy/elasticsearch:8.18.0` -> `bitnamilegacy/elasticsearch:9.1.2`: requires coordinated multi-component runtime validation across MySQL, Elasticsearch, NSQ, ConfigMap mounts, migrations, and service startup before automatic version changes

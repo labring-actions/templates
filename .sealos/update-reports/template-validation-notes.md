@@ -166,9 +166,9 @@ Validation passed:
 - LieBianBao template update pass: updated BusyBox to 1.38.0 and Nginx to 1.31.2 after the template contract normalization. Marked validation-needed for PHP startup, Nginx routing, MongoDB/Redis/MySQL connectivity, MySQL init import, and first-run admin flow.
 - LAF template update pass: updated Prometheus to v3.12.0 after the template contract normalization. Marked validation-needed for MongoDB, MinIO, web/server/runtime-node startup, Prometheus scrape/rule behavior, and first-run app flow.
 - APITable template update pass: updated BusyBox to 1.38.0, MySQL helper images to 9.7.1, RabbitMQ to 4.3.2-management, and Nginx gateway to 1.31.2-alpine after the template contract normalization. Marked validation-needed for MySQL helper compatibility, RabbitMQ startup/persistence, object-storage routing, gateway behavior, and first-run multi-service flow.
+- Budibase template update pass: updated apps, worker, and proxy images to 3.39.22 and BusyBox to 1.38.0 after the template contract normalization. Marked validation-needed for apps/worker/proxy compatibility, CouchDB startup and persistence, Redis connectivity, object storage plugin/assets/backups buckets, SMTP branching, and first-run admin setup.
 
 Blocked this pass:
-- budibase: requires coordinated Budibase multi-service upgrade validation across apps, worker, proxy, CouchDB, Redis, and helper image before automatic version changes
 - harbor: requires coordinated Harbor multi-component runtime validation and broad ConfigMap/database contract normalization before automatic version changes
 - langfuse: requires Langfuse runtime validation across PostgreSQL init, ClickHouse, Redis, S3 storage, worker/web startup, and secret handling before automatic version changes
 - posthog: requires PostHog runtime validation across Redpanda, Zookeeper, ConfigMaps, services, and startup commands before automatic version changes
@@ -217,7 +217,7 @@ Validation gaps:
 - `supabase`: single-template docker-to-sealos consistency check passed after adding PostgreSQL database visibility labels, normalizing Kong/Supavisor/Vector/Functions ConfigMap names and mounted keys, and moving the Kong config rendering into a ConfigMap script with a short exec wrapper. The eleven-image Supabase bundle remains blocked pending official bundle alignment and coordinated runtime validation.
 - `rocketchat-micro`: single-template docker-to-sealos consistency check passed after normalizing MongoDB database visibility labels, NATS ConfigMap labels and mounts, NATS PID storage, resource ladder values, mongo-init image policy, Service labels, and duplicate localized title metadata. The Rocket.Chat microservices image bundle remains blocked pending coordinated runtime validation.
 - `apitable`: single-template docker-to-sealos consistency check passed after updating BusyBox, MySQL helper, RabbitMQ, and Nginx gateway images while preserving object storage boolean branches, bucket-scoped object storage secrets, MySQL database visibility labels, resource ladder values, and gateway ConfigMap startup rendering. The APITable helper/runtime update remains validation-needed pending focused runtime validation.
-- `budibase`: single-template docker-to-sealos consistency check passed after replacing custom Secret references with generated defaults and ConfigMap env injection, normalizing CouchDB ConfigMap mounts, Redis service FQDN composition, object-storage env indirection, Redis database resources, Service labels/ports, startup-critical admin defaults, and duplicate localized title metadata. The Budibase image bundle remains blocked pending coordinated runtime validation.
+- `budibase`: single-template docker-to-sealos consistency check passed after updating apps, worker, proxy, and BusyBox images while preserving generated defaults, ConfigMap env injection, CouchDB ConfigMap mounts, Redis service FQDN composition, object-storage env indirection, Redis database resources, Service labels/ports, startup-critical admin defaults, and localized metadata. The Budibase app/worker/proxy update remains validation-needed pending focused runtime validation.
 - `harbor`: single-template docker-to-sealos consistency check passed after adding PostgreSQL and Redis database visibility labels, splitting core env and file ConfigMaps, normalizing Harbor file ConfigMap keys to vn path names, and aligning ConfigMap volume names and subPath mounts for core, jobservice, portal, registry, and registryctl. The Harbor multi-component image bundle remains blocked pending coordinated runtime validation.
 - `posthog`: single-template docker-to-sealos consistency check passed after adding PostgreSQL and Redis database visibility labels, normalizing Kafka/Zookeeper/PostHog/Plugins/ClickHouse Service labels, aligning ClickHouse and Plugins ConfigMap file mounts, moving plugin heartbeat and MMDB seed scripts into a workload ConfigMap, normalizing resource ladder values, and removing the split ClickHouse client Service. The PostHog Redpanda/Zookeeper image candidates remain blocked pending coordinated runtime validation.
 - `langfuse`: single-template docker-to-sealos consistency check passed after normalizing PostgreSQL init detection, replacing Redis and PostgreSQL migration wait helpers with non-database images, applying approved object-storage env indirection, gating the built-in MinIO fallback with a dedicated boolean input, moving MinIO startup into a ConfigMap script, cleaning ClickHouse metadata, and aligning resource ladder values. The Langfuse image bundle remains blocked pending coordinated runtime validation.
@@ -234,9 +234,9 @@ Validation gaps:
 - `refly`: skipped the mautic/mautic helper candidate because it is used only as an Elasticsearch data ownership helper in the Refly template and is not part of the Refly application release surface.
 
 Remaining queue:
-- Validation-needed templates: 13
-- Validation-needed candidates: 35
-- Blocked templates: 13
-- Blocked candidates: 67
+- Validation-needed templates: 14
+- Validation-needed candidates: 39
+- Blocked templates: 12
+- Blocked candidates: 63
 - Skipped templates: 1
 - Skipped candidates: 6
