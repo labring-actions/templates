@@ -2,10 +2,10 @@
 
 - Updated templates: 110
 - Updated candidates: 149
-- Validation-needed templates: 10
-- Validation-needed candidates: 28
-- Blocked templates: 16
-- Blocked candidates: 74
+- Validation-needed templates: 11
+- Validation-needed candidates: 30
+- Blocked templates: 15
+- Blocked candidates: 72
 - Skipped templates: 1
 - Skipped candidates: 6
 
@@ -290,6 +290,9 @@
   - `grafana/grafana:12.3.0` -> `grafana/grafana:13.1.0`: updated Grafana, Prometheus, and OpenTelemetry Collector images, normalized ConfigMap mounts and labels, and requires focused runtime validation for the monitoring bundle public Grafana entry, collector ingest ports, and Prometheus scrape path
   - `otel/opentelemetry-collector:0.99.0` -> `otel/opentelemetry-collector:0.155.0`: updated Grafana, Prometheus, and OpenTelemetry Collector images, normalized ConfigMap mounts and labels, and requires focused runtime validation for the monitoring bundle public Grafana entry, collector ingest ports, and Prometheus scrape path
   - `prom/prometheus:v3.8.0` -> `prom/prometheus:v3.12.0`: updated Grafana, Prometheus, and OpenTelemetry Collector images, normalized ConfigMap mounts and labels, and requires focused runtime validation for the monitoring bundle public Grafana entry, collector ingest ports, and Prometheus scrape path
+- `liebianbao`
+  - `busybox:1.36.1` -> `busybox:1.38.0`: updated LieBianBao BusyBox and Nginx helper images; focused runtime validation is required for PHP startup, Nginx static/PHP routing, MongoDB/Redis/MySQL connectivity, MySQL init data import, and first-run admin flow before merge confidence
+  - `nginx:1.25.2` -> `nginx:1.31.2`: updated LieBianBao BusyBox and Nginx helper images; focused runtime validation is required for PHP startup, Nginx static/PHP routing, MongoDB/Redis/MySQL connectivity, MySQL init data import, and first-run admin flow before merge confidence
 - `penpot`
   - `penpotapp/backend:2.1.2` -> `penpotapp/backend:2.16.1`: updated the Penpot frontend, backend, and exporter image bundle, aligned PostgreSQL 16.4 metadata and idempotent pg-init, normalized Redis and PostgreSQL URL composition, approved object-storage env indirection, Service/Ingress/App schema, and requires focused runtime validation for frontend/backend/exporter startup, database migration, S3 asset uploads, and first-run login path
   - `penpotapp/exporter:2.1.2` -> `penpotapp/exporter:2.16.1`: updated the Penpot frontend, backend, and exporter image bundle, aligned PostgreSQL 16.4 metadata and idempotent pg-init, normalized Redis and PostgreSQL URL composition, approved object-storage env indirection, Service/Ingress/App schema, and requires focused runtime validation for frontend/backend/exporter startup, database migration, S3 asset uploads, and first-run login path
@@ -375,9 +378,6 @@
   - `docker.io/langfuse/langfuse-worker:3.180.0` -> `docker.io/langfuse/langfuse-worker:3.197.1`: requires Langfuse runtime validation across PostgreSQL init, ClickHouse, Redis, S3 storage, worker/web startup, and secret handling before automatic version changes
   - `docker.io/langfuse/langfuse:3.180.0` -> `docker.io/langfuse/langfuse:3.197.1`: requires Langfuse runtime validation across PostgreSQL init, ClickHouse, Redis, S3 storage, worker/web startup, and secret handling before automatic version changes
   - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`: requires Langfuse runtime validation across PostgreSQL init, ClickHouse, Redis, S3 storage, worker/web startup, and secret handling before automatic version changes
-- `liebianbao`
-  - `busybox:1.36.1` -> `busybox:1.38.0`: requires LieBianBao runtime validation across PHP, Nginx, MongoDB, Redis, MySQL init, and startup behavior before automatic version changes
-  - `nginx:1.25.2` -> `nginx:1.31.2`: requires LieBianBao runtime validation across PHP, Nginx, MongoDB, Redis, MySQL init, and startup behavior before automatic version changes
 - `posthog`
   - `docker.redpanda.com/redpandadata/redpanda:v25.1.9` -> `docker.redpanda.com/redpandadata/redpanda:v26.1.10`: requires PostHog runtime validation across Redpanda, Zookeeper, ConfigMaps, services, and startup commands before automatic version changes
   - `zookeeper:3.9.3` -> `zookeeper:3.9.5`: requires PostHog runtime validation across Redpanda, Zookeeper, ConfigMaps, services, and startup commands before automatic version changes
