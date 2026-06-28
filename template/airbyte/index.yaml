@@ -376,9 +376,12 @@ spec:
   backoffLimit: 3
   ttlSecondsAfterFinished: 300
   template:
+    metadata:
+      annotations:
+        sealos.io/service-account-token-reason: "Airbyte bootloader initializes auth Kubernetes secrets."
     spec:
       serviceAccountName: ${{ defaults.app_name }}-admin
-      automountServiceAccountToken: false
+      automountServiceAccountToken: true
       restartPolicy: Never
       initContainers:
         - name: init-db-airbyte
@@ -883,9 +886,11 @@ spec:
     metadata:
       labels:
         app: ${{ defaults.app_name }}-worker
+      annotations:
+        sealos.io/service-account-token-reason: "Airbyte worker launches Kubernetes workloads."
     spec:
       serviceAccountName: ${{ defaults.app_name }}-admin
-      automountServiceAccountToken: false
+      automountServiceAccountToken: true
       containers:
         - name: ${{ defaults.app_name }}-worker
           image: airbyte/worker:2.1.0
@@ -965,6 +970,10 @@ spec:
                   key: TEMPORAL_WORKER_PORTS
             - name: LOG_LEVEL
               value: "INFO"
+            - name: AIRBYTE_INTERNAL_API_AUTH_TYPE
+              value: "INTERNAL_CLIENT_TOKEN"
+            - name: AIRBYTE_INTERNAL_API_AUTH_SIGNATURE_SECRET
+              value: ${{ defaults.jwt_signature_secret }}
             - name: JOB_KUBE_NAMESPACE
               valueFrom:
                 fieldRef:
@@ -1114,6 +1123,8 @@ spec:
               value: $(S3_BUCKET)
             - name: STORAGE_BUCKET_WORKLOAD_OUTPUT
               value: $(S3_BUCKET)
+            - name: STORAGE_BUCKET_AUDIT_LOGGING
+              value: $(S3_BUCKET)
             - name: DATABASE_HOST
               valueFrom:
                 secretKeyRef:
@@ -1254,6 +1265,15 @@ spec:
                 configMapKeyRef:
                   name: ${{ defaults.app_name }}
                   key: TRACKING_STRATEGY
+            - name: INTERNAL_API_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: INTERNAL_API_HOST
+            - name: AIRBYTE_INTERNAL_API_AUTH_TYPE
+              value: "INTERNAL_CLIENT_TOKEN"
+            - name: AIRBYTE_INTERNAL_API_AUTH_SIGNATURE_SECRET
+              value: ${{ defaults.jwt_signature_secret }}
             - name: WORKFLOW_FAILURE_RESTART_DELAY_SECONDS
               valueFrom:
                 configMapKeyRef:
@@ -1341,7 +1361,7 @@ spec:
             - name: AUTO_SETUP
               value: "true"
             - name: DB
-              value: "postgresql"
+              value: "postgres12"
             - name: DYNAMIC_CONFIG_FILE_PATH
               value: "/etc/temporal/config/dynamicconfig/development.yaml"
             - name: DATABASE_HOST
