@@ -2,10 +2,10 @@
 
 - Updated templates: 110
 - Updated candidates: 149
-- Validation-needed templates: 25
-- Validation-needed candidates: 87
-- Blocked templates: 1
-- Blocked candidates: 11
+- Validation-needed templates: 26
+- Validation-needed candidates: 98
+- Blocked templates: 0
+- Blocked candidates: 0
 - Skipped templates: 1
 - Skipped candidates: 10
 
@@ -375,6 +375,18 @@
   - `signoz/signoz-otel-collector:v0.144.2` -> `signoz/signoz-otel-collector:v0.144.5`: updated the Signoz ClickHouse, collector, Signoz, and Zookeeper image bundle; focused runtime validation is required for ClickHouse migrations/storage, collector ingestion, dashboard startup, and Zookeeper coordination before merge confidence
   - `signoz/signoz:v0.117.0` -> `signoz/signoz:v0.130.1`: updated the Signoz ClickHouse, collector, Signoz, and Zookeeper image bundle; focused runtime validation is required for ClickHouse migrations/storage, collector ingestion, dashboard startup, and Zookeeper coordination before merge confidence
   - `signoz/zookeeper:3.7.1` -> `signoz/zookeeper:3.9.3`: updated the Signoz ClickHouse, collector, Signoz, and Zookeeper image bundle; focused runtime validation is required for ClickHouse migrations/storage, collector ingestion, dashboard startup, and Zookeeper coordination before merge confidence
+- `supabase`
+  - `darthsim/imgproxy:v3.30.1` -> `darthsim/imgproxy:v4.0.6`: updated Supabase eleven-image bundle after template contract normalization; focused runtime validation is required for official bundle compatibility, Kong 2 to 3 gateway behavior, imgproxy 3 to 4 changes, Storage/Realtime/Functions/Auth/Meta/Analytics startup, Supavisor pooling, Vector log routing, database migrations, and first-run login before merge confidence
+  - `kong:2.8.1` -> `kong:3.9.3`: updated Supabase eleven-image bundle after template contract normalization; focused runtime validation is required for official bundle compatibility, Kong 2 to 3 gateway behavior, imgproxy 3 to 4 changes, Storage/Realtime/Functions/Auth/Meta/Analytics startup, Supavisor pooling, Vector log routing, database migrations, and first-run login before merge confidence
+  - `supabase/edge-runtime:v1.70.3` -> `supabase/edge-runtime:v1.74.2`: updated Supabase eleven-image bundle after template contract normalization; focused runtime validation is required for official bundle compatibility, Kong 2 to 3 gateway behavior, imgproxy 3 to 4 changes, Storage/Realtime/Functions/Auth/Meta/Analytics startup, Supavisor pooling, Vector log routing, database migrations, and first-run login before merge confidence
+  - `supabase/gotrue:v2.186.0` -> `supabase/gotrue:v2.191.0`: updated Supabase eleven-image bundle after template contract normalization; focused runtime validation is required for official bundle compatibility, Kong 2 to 3 gateway behavior, imgproxy 3 to 4 changes, Storage/Realtime/Functions/Auth/Meta/Analytics startup, Supavisor pooling, Vector log routing, database migrations, and first-run login before merge confidence
+  - `supabase/logflare:1.31.2` -> `supabase/logflare:1.45.4`: updated Supabase eleven-image bundle after template contract normalization; focused runtime validation is required for official bundle compatibility, Kong 2 to 3 gateway behavior, imgproxy 3 to 4 changes, Storage/Realtime/Functions/Auth/Meta/Analytics startup, Supavisor pooling, Vector log routing, database migrations, and first-run login before merge confidence
+  - `supabase/postgres-meta:v0.95.2` -> `supabase/postgres-meta:v0.96.6`: updated Supabase eleven-image bundle after template contract normalization; focused runtime validation is required for official bundle compatibility, Kong 2 to 3 gateway behavior, imgproxy 3 to 4 changes, Storage/Realtime/Functions/Auth/Meta/Analytics startup, Supavisor pooling, Vector log routing, database migrations, and first-run login before merge confidence
+  - `supabase/realtime:v2.76.5` -> `supabase/realtime:v2.111.7`: updated Supabase eleven-image bundle after template contract normalization; focused runtime validation is required for official bundle compatibility, Kong 2 to 3 gateway behavior, imgproxy 3 to 4 changes, Storage/Realtime/Functions/Auth/Meta/Analytics startup, Supavisor pooling, Vector log routing, database migrations, and first-run login before merge confidence
+  - `supabase/storage-api:v1.37.8` -> `supabase/storage-api:v1.61.3`: updated Supabase eleven-image bundle after template contract normalization; focused runtime validation is required for official bundle compatibility, Kong 2 to 3 gateway behavior, imgproxy 3 to 4 changes, Storage/Realtime/Functions/Auth/Meta/Analytics startup, Supavisor pooling, Vector log routing, database migrations, and first-run login before merge confidence
+  - `supabase/studio:2026.02.16-sha-26c615c` -> `supabase/studio:2026.06.22-sha-2207d7f`: updated Supabase eleven-image bundle after template contract normalization; focused runtime validation is required for official bundle compatibility, Kong 2 to 3 gateway behavior, imgproxy 3 to 4 changes, Storage/Realtime/Functions/Auth/Meta/Analytics startup, Supavisor pooling, Vector log routing, database migrations, and first-run login before merge confidence
+  - `supabase/supavisor:2.7.4` -> `supabase/supavisor:2.9.7`: updated Supabase eleven-image bundle after template contract normalization; focused runtime validation is required for official bundle compatibility, Kong 2 to 3 gateway behavior, imgproxy 3 to 4 changes, Storage/Realtime/Functions/Auth/Meta/Analytics startup, Supavisor pooling, Vector log routing, database migrations, and first-run login before merge confidence
+  - `timberio/vector:0.53.0-alpine` -> `timberio/vector:0.56.0-alpine`: updated Supabase eleven-image bundle after template contract normalization; focused runtime validation is required for official bundle compatibility, Kong 2 to 3 gateway behavior, imgproxy 3 to 4 changes, Storage/Realtime/Functions/Auth/Meta/Analytics startup, Supavisor pooling, Vector log routing, database migrations, and first-run login before merge confidence
 - `twenty`
   - `twentycrm/twenty:v1.12.0` -> `twentycrm/twenty:v2.16.0`: updated Twenty to v2.16.0, aligned official v2 runtime environment variables, PostgreSQL 16.4.0 metadata, idempotent pg-init, Redis FQDN wiring, generated secrets, resource ladder values, Service/Ingress labels, and App schema; focused runtime validation is required for the v1 to v2 migration and first-run login path
 - `wrenai`
@@ -385,18 +397,7 @@
   - `qdrant/qdrant:v1.13.4` -> `qdrant/qdrant:v1.18.2`: updated and normalized the WrenAI AI service, engine, ibis server, UI, and Qdrant runtime bundle; focused runtime validation is required for official bundle compatibility, Qdrant persistence, PostgreSQL initialization, engine/API startup, UI routes, and data-source query flows before merge confidence
 
 ## Blocked Templates
-- `supabase`
-  - `darthsim/imgproxy:v3.30.1` -> `darthsim/imgproxy:v4.0.6`: blocked because the Supabase bundle spans eleven images, includes major Kong/imgproxy/storage/realtime changes, and requires official bundle alignment plus runtime validation
-  - `kong:2.8.1` -> `kong:3.9.3`: blocked because the Supabase bundle spans eleven images, includes major Kong/imgproxy/storage/realtime changes, and requires official bundle alignment plus runtime validation
-  - `supabase/edge-runtime:v1.70.3` -> `supabase/edge-runtime:v1.74.2`: blocked because the Supabase bundle spans eleven images, includes major Kong/imgproxy/storage/realtime changes, and requires official bundle alignment plus runtime validation
-  - `supabase/gotrue:v2.186.0` -> `supabase/gotrue:v2.191.0`: blocked because the Supabase bundle spans eleven images, includes major Kong/imgproxy/storage/realtime changes, and requires official bundle alignment plus runtime validation
-  - `supabase/logflare:1.31.2` -> `supabase/logflare:1.45.4`: blocked because the Supabase bundle spans eleven images, includes major Kong/imgproxy/storage/realtime changes, and requires official bundle alignment plus runtime validation
-  - `supabase/postgres-meta:v0.95.2` -> `supabase/postgres-meta:v0.96.6`: blocked because the Supabase bundle spans eleven images, includes major Kong/imgproxy/storage/realtime changes, and requires official bundle alignment plus runtime validation
-  - `supabase/realtime:v2.76.5` -> `supabase/realtime:v2.111.7`: blocked because the Supabase bundle spans eleven images, includes major Kong/imgproxy/storage/realtime changes, and requires official bundle alignment plus runtime validation
-  - `supabase/storage-api:v1.37.8` -> `supabase/storage-api:v1.61.3`: blocked because the Supabase bundle spans eleven images, includes major Kong/imgproxy/storage/realtime changes, and requires official bundle alignment plus runtime validation
-  - `supabase/studio:2026.02.16-sha-26c615c` -> `supabase/studio:2026.06.22-sha-2207d7f`: blocked because the Supabase bundle spans eleven images, includes major Kong/imgproxy/storage/realtime changes, and requires official bundle alignment plus runtime validation
-  - `supabase/supavisor:2.7.4` -> `supabase/supavisor:2.9.7`: blocked because the Supabase bundle spans eleven images, includes major Kong/imgproxy/storage/realtime changes, and requires official bundle alignment plus runtime validation
-  - `timberio/vector:0.53.0-alpine` -> `timberio/vector:0.56.0-alpine`: blocked because the Supabase bundle spans eleven images, includes major Kong/imgproxy/storage/realtime changes, and requires official bundle alignment plus runtime validation
+- none
 
 ## Skipped Templates
 - `refly`
