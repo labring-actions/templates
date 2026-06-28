@@ -171,12 +171,12 @@ Validation passed:
 - FastGPT Milvus template update pass: updated app, plugin, code sandbox, MCP server, and AI proxy images after the template contract normalization. Marked validation-needed for MongoDB/PostgreSQL/Redis connectivity, Milvus storage and vector queries, plugin and code sandbox calls, MCP server routing, AI proxy startup, ConfigMap mounts, object storage secrets, and first-run root account flow.
 - FastGPT Pro template update pass: updated app, pro, plugin, code sandbox, MCP server, and AI proxy images after the template contract normalization. Marked validation-needed for MongoDB/PostgreSQL/Redis connectivity, pro workflow features, plugin and code sandbox calls, MCP server routing, AI proxy startup, ConfigMap mounts, object storage secrets, and first-run root account flow.
 - Harbor template update pass: updated core, jobservice, portal, registry, registryctl, and Trivy adapter images to v2.15.1 as one Harbor runtime bundle. Marked validation-needed for PostgreSQL/Redis connectivity, object storage registry backend, portal/core/API login, jobservice execution, registry push/pull paths, registryctl health, Trivy scan flow, and first-run admin login.
+- Dify template update pass: updated BusyBox helper, sandbox, and plugin daemon images after the template contract normalization. Marked validation-needed for API, worker, web, sandbox execution, plugin-daemon package/runtime behavior, PostgreSQL/Redis connectivity, Weaviate connectivity, migration readiness, and first-run admin login.
 
 Blocked this pass:
 - langfuse: requires Langfuse runtime validation across PostgreSQL init, ClickHouse, Redis, S3 storage, worker/web startup, and secret handling before automatic version changes
 - posthog: requires PostHog runtime validation across Redpanda, Zookeeper, ConfigMaps, services, and startup commands before automatic version changes
 - rocketchat-micro: requires Rocket.Chat microservices runtime validation across NATS config reload, service family upgrades, database labels, ConfigMaps, and image policies before automatic version changes
-- dify: requires coordinated Dify runtime validation across API, worker, web, sandbox, plugin-daemon, PostgreSQL, Redis, and Weaviate before automatic version changes
 - erpnext: requires Frappe/ERPNext runtime validation across MariaDB, Redis, bench site bootstrap, workers, and scheduler before automatic version changes
 - coze-studio: requires coordinated multi-component runtime validation across MySQL, Elasticsearch, NSQ, ConfigMap mounts, migrations, and service startup before automatic version changes
 
@@ -224,7 +224,7 @@ Validation gaps:
 - `rybbit`: single-template docker-to-sealos consistency check passed after updating ClickHouse to 26.5.3, preserving normalized ConfigMap keys, single-volume file mounts, init container resources, and non-database PostgreSQL wait helper. The ClickHouse 25.x to 26.x update remains validation-needed pending focused runtime validation.
 - `erpnext`: single-template docker-to-sealos consistency check passed after replacing the raw MariaDB StatefulSet with a KubeBlocks MySQL Cluster, adding Redis database visibility metadata, changing Redis wait helpers to non-database TCP probes, sourcing MySQL connection fields from KubeBlocks secrets, and aligning Frappe job/workload resource ladder values. The ERPNext/Frappe image bundle remains blocked pending coordinated runtime validation.
 - `coze-studio`: single-template docker-to-sealos consistency check passed after adding MySQL and Redis database visibility labels, splitting shared ConfigMap data into workload-scoped ConfigMaps, normalizing ConfigMap volume names and subPaths, replacing the MySQL migration helper with a non-database image, and aligning Coze Studio init and workload resource ladder values. The Coze Studio image bundle remains blocked pending coordinated runtime validation.
-- `dify`: single-template docker-to-sealos consistency check passed after replacing PostgreSQL wait helpers with non-database images, sourcing PostgreSQL readiness from approved secret fields, normalizing PostgreSQL and Redis database visibility/resources, aligning API/worker/web/sandbox/plugin-daemon/Weaviate resource ladder values, adding Service labels and port names, restoring the required Ingress annotations, and reducing plugin-daemon storage to the current PVC contract. The Dify image bundle remains blocked pending coordinated runtime validation.
+- `dify`: single-template docker-to-sealos consistency check passed after updating BusyBox helper, sandbox, and plugin daemon images while preserving PostgreSQL wait helpers, approved PostgreSQL secret fields, PostgreSQL and Redis database visibility/resources, API/worker/web/sandbox/plugin-daemon/Weaviate resource ladder values, Service labels and port names, Ingress annotations, and plugin-daemon storage. The Dify image bundle remains validation-needed pending focused runtime validation.
 - `fastgpt-milvus`: single-template docker-to-sealos consistency check passed after updating app, plugin, code sandbox, MCP server, and AI proxy images while preserving Simplified Chinese metadata, FastGPT ConfigMap mount, FastGPT/AIPROXY/MCP resources, MongoDB/PostgreSQL/Redis/Milvus database visibility labels, secrets, resources, and PVC sizing. The FastGPT Milvus runtime bundle remains validation-needed pending focused runtime validation.
 - `fastgpt`: single-template docker-to-sealos consistency check passed after updating app, plugin, code sandbox, MCP server, and AI proxy images while preserving MongoDB/PostgreSQL/Redis database visibility labels, AIPROXY PostgreSQL secret contract, AIPROXY database init resources, FastGPT ConfigMap mount, and FastGPT/plugin/code-sandbox/MCP/AIPROXY resource ladder values. The FastGPT runtime bundle remains validation-needed pending focused runtime validation.
 - `fastgpt-pro`: single-template docker-to-sealos consistency check passed after updating app, pro, plugin, code sandbox, MCP server, and AI proxy images while preserving MongoDB/PostgreSQL/Redis database visibility labels, AIPROXY PostgreSQL secret contract, AIPROXY database init resources, FastGPT ConfigMap mount, and FastGPT/pro/plugin/code-sandbox/MCP/AIPROXY resource ladder values. The FastGPT Pro runtime bundle remains validation-needed pending focused runtime validation.
@@ -234,9 +234,9 @@ Validation gaps:
 - `refly`: skipped the mautic/mautic helper candidate because it is used only as an Elasticsearch data ownership helper in the Refly template and is not part of the Refly application release surface.
 
 Remaining queue:
-- Validation-needed templates: 18
-- Validation-needed candidates: 61
-- Blocked templates: 8
-- Blocked candidates: 41
+- Validation-needed templates: 19
+- Validation-needed candidates: 64
+- Blocked templates: 7
+- Blocked candidates: 38
 - Skipped templates: 1
 - Skipped candidates: 6

@@ -2,10 +2,10 @@
 
 - Updated templates: 110
 - Updated candidates: 149
-- Validation-needed templates: 18
-- Validation-needed candidates: 61
-- Blocked templates: 8
-- Blocked candidates: 41
+- Validation-needed templates: 19
+- Validation-needed candidates: 64
+- Blocked templates: 7
+- Blocked candidates: 38
 - Skipped templates: 1
 - Skipped candidates: 6
 
@@ -294,6 +294,10 @@
   - `billionmail/core:4.9.3@sha256:b97c71b463e99368f0fb50a4f3088139c2f04a37171d3b660b92f946a3076692` -> `billionmail/core:4.9.5`: updated BillionMail mail-stack image candidates; focused runtime validation is required for Core, Roundcube, docker-api helper compatibility, mail services, PostgreSQL/Redis startup, and first-run admin login before merge confidence
   - `python:3.12.12-alpine` -> `python:3.14.6-alpine`: updated BillionMail mail-stack image candidates; focused runtime validation is required for Core, Roundcube, docker-api helper compatibility, mail services, PostgreSQL/Redis startup, and first-run admin login before merge confidence
   - `roundcube/roundcubemail:1.6.11-fpm-alpine` -> `roundcube/roundcubemail:1.7.1-fpm-alpine`: updated BillionMail mail-stack image candidates; focused runtime validation is required for Core, Roundcube, docker-api helper compatibility, mail services, PostgreSQL/Redis startup, and first-run admin login before merge confidence
+- `dify`
+  - `busybox:1.37.0` -> `busybox:1.38.0`: updated Dify BusyBox helper, sandbox, and plugin daemon images; focused runtime validation is required for API, worker, web, sandbox execution, plugin-daemon package/runtime behavior, PostgreSQL/Redis connectivity, Weaviate connectivity, migration readiness, and first-run admin login before merge confidence
+  - `langgenius/dify-plugin-daemon:0.5.2-local` -> `langgenius/dify-plugin-daemon:0.6.3-local`: updated Dify BusyBox helper, sandbox, and plugin daemon images; focused runtime validation is required for API, worker, web, sandbox execution, plugin-daemon package/runtime behavior, PostgreSQL/Redis connectivity, Weaviate connectivity, migration readiness, and first-run admin login before merge confidence
+  - `langgenius/dify-sandbox:0.2.12` -> `langgenius/dify-sandbox:0.2.15`: updated Dify BusyBox helper, sandbox, and plugin daemon images; focused runtime validation is required for API, worker, web, sandbox execution, plugin-daemon package/runtime behavior, PostgreSQL/Redis connectivity, Weaviate connectivity, migration readiness, and first-run admin login before merge confidence
 - `fastgpt`
   - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-code-sandbox:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-code-sandbox:v4.14.23`: updated FastGPT app, plugin, code sandbox, MCP server, and AI proxy images; focused runtime validation is required for MongoDB/PostgreSQL/Redis connectivity, plugin and code sandbox calls, MCP server routing, AI proxy startup, ConfigMap mounts, object storage public/private buckets, and first-run root account flow before merge confidence
   - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-mcp_server:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-mcp_server:v4.14.23`: updated FastGPT app, plugin, code sandbox, MCP server, and AI proxy images; focused runtime validation is required for MongoDB/PostgreSQL/Redis connectivity, plugin and code sandbox calls, MCP server routing, AI proxy startup, ConfigMap mounts, object storage public/private buckets, and first-run root account flow before merge confidence
@@ -364,10 +368,6 @@
   - `busybox:1.36.1` -> `busybox:1.38.0`: requires coordinated multi-component runtime validation across MySQL, Elasticsearch, NSQ, ConfigMap mounts, migrations, and service startup before automatic version changes
   - `mysql:8.0.36` -> `mysql:9.7.1`: requires coordinated multi-component runtime validation across MySQL, Elasticsearch, NSQ, ConfigMap mounts, migrations, and service startup before automatic version changes
   - `nsqio/nsq:v1.2.1` -> `nsqio/nsq:v1.3.0`: requires coordinated multi-component runtime validation across MySQL, Elasticsearch, NSQ, ConfigMap mounts, migrations, and service startup before automatic version changes
-- `dify`
-  - `busybox:1.37.0` -> `busybox:1.38.0`: requires coordinated Dify runtime validation across API, worker, web, sandbox, plugin-daemon, PostgreSQL, Redis, and Weaviate before automatic version changes
-  - `langgenius/dify-plugin-daemon:0.5.2-local` -> `langgenius/dify-plugin-daemon:0.6.3-local`: requires coordinated Dify runtime validation across API, worker, web, sandbox, plugin-daemon, PostgreSQL, Redis, and Weaviate before automatic version changes
-  - `langgenius/dify-sandbox:0.2.12` -> `langgenius/dify-sandbox:0.2.15`: requires coordinated Dify runtime validation across API, worker, web, sandbox, plugin-daemon, PostgreSQL, Redis, and Weaviate before automatic version changes
 - `erpnext`
   - `frappe/erpnext:v16.21.1` -> `frappe/erpnext:v16.25.0`: requires Frappe/ERPNext runtime validation across MariaDB, Redis, bench site bootstrap, workers, and scheduler before automatic version changes
   - `mariadb:11.4.7` -> `mariadb:12.3.2`: requires Frappe/ERPNext runtime validation across MariaDB, Redis, bench site bootstrap, workers, and scheduler before automatic version changes
