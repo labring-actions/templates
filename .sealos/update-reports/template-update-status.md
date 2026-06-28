@@ -2,10 +2,10 @@
 
 - Updated templates: 110
 - Updated candidates: 149
-- Validation-needed templates: 12
-- Validation-needed candidates: 31
-- Blocked templates: 14
-- Blocked candidates: 71
+- Validation-needed templates: 13
+- Validation-needed candidates: 35
+- Blocked templates: 13
+- Blocked candidates: 67
 - Skipped templates: 1
 - Skipped candidates: 6
 
@@ -279,6 +279,11 @@
   - `appflowyinc/appflowy_web:0.14.9` -> `appflowyinc/appflowy_web:0.15.4`: updated the AppFlowy Cloud, Worker, Web, and GoTrue image bundle, normalized Sealos object storage boolean branching and approved object-storage env indirection, corrected Redis FQDN wiring, and requires focused runtime validation for cloud/worker/web/GoTrue startup, database URLs, object storage uploads, and first-run login path
   - `appflowyinc/appflowy_worker:0.15.22` -> `appflowyinc/appflowy_worker:0.16.5`: updated the AppFlowy Cloud, Worker, Web, and GoTrue image bundle, normalized Sealos object storage boolean branching and approved object-storage env indirection, corrected Redis FQDN wiring, and requires focused runtime validation for cloud/worker/web/GoTrue startup, database URLs, object storage uploads, and first-run login path
   - `appflowyinc/gotrue:0.15.22` -> `appflowyinc/gotrue:0.16.5`: updated the AppFlowy Cloud, Worker, Web, and GoTrue image bundle, normalized Sealos object storage boolean branching and approved object-storage env indirection, corrected Redis FQDN wiring, and requires focused runtime validation for cloud/worker/web/GoTrue startup, database URLs, object storage uploads, and first-run login path
+- `apitable`
+  - `busybox:1.36.1` -> `busybox:1.38.0`: updated APITable BusyBox, MySQL helper, RabbitMQ, and Nginx gateway images; focused runtime validation is required for MySQL helper compatibility, RabbitMQ 3 to 4 startup/persistence, object-storage routing, gateway behavior, and first-run multi-service flow before merge confidence
+  - `mysql:8.0.32` -> `mysql:9.7.1`: updated APITable BusyBox, MySQL helper, RabbitMQ, and Nginx gateway images; focused runtime validation is required for MySQL helper compatibility, RabbitMQ 3 to 4 startup/persistence, object-storage routing, gateway behavior, and first-run multi-service flow before merge confidence
+  - `nginx:1.27.5-alpine` -> `nginx:1.31.2-alpine`: updated APITable BusyBox, MySQL helper, RabbitMQ, and Nginx gateway images; focused runtime validation is required for MySQL helper compatibility, RabbitMQ 3 to 4 startup/persistence, object-storage routing, gateway behavior, and first-run multi-service flow before merge confidence
+  - `rabbitmq:3.11.9-management` -> `rabbitmq:4.3.2-management`: updated APITable BusyBox, MySQL helper, RabbitMQ, and Nginx gateway images; focused runtime validation is required for MySQL helper compatibility, RabbitMQ 3 to 4 startup/persistence, object-storage routing, gateway behavior, and first-run multi-service flow before merge confidence
 - `billionmail`
   - `alpine/openssl:3.5.4` -> `alpine/openssl:3.5.7`: updated BillionMail mail-stack image candidates; focused runtime validation is required for Core, Roundcube, docker-api helper compatibility, mail services, PostgreSQL/Redis startup, and first-run admin login before merge confidence
   - `billionmail/core:4.9.3@sha256:b97c71b463e99368f0fb50a4f3088139c2f04a37171d3b660b92f946a3076692` -> `billionmail/core:4.9.5`: updated BillionMail mail-stack image candidates; focused runtime validation is required for Core, Roundcube, docker-api helper compatibility, mail services, PostgreSQL/Redis startup, and first-run admin login before merge confidence
@@ -322,11 +327,6 @@
   - `airbyte/cron:0.63.11` -> `airbyte/cron:2.1.0`: requires coordinated Airbyte 0.x to 2.x multi-component upgrade validation across bootloader, worker, cron, connector builder, Temporal, migrations, and ConfigMap runtime semantics
   - `airbyte/worker:0.63.11` -> `airbyte/worker:2.1.0`: requires coordinated Airbyte 0.x to 2.x multi-component upgrade validation across bootloader, worker, cron, connector builder, Temporal, migrations, and ConfigMap runtime semantics
   - `temporalio/auto-setup:1.23.0` -> `temporalio/auto-setup:1.29.7`: requires coordinated Airbyte 0.x to 2.x multi-component upgrade validation across bootloader, worker, cron, connector builder, Temporal, migrations, and ConfigMap runtime semantics
-- `apitable`
-  - `busybox:1.36.1` -> `busybox:1.38.0`: requires coordinated APITable runtime validation for MySQL 8 to 9, RabbitMQ 3 to 4, object-storage branching, and multi-service resource/config updates
-  - `mysql:8.0.32` -> `mysql:9.7.1`: requires coordinated APITable runtime validation for MySQL 8 to 9, RabbitMQ 3 to 4, object-storage branching, and multi-service resource/config updates
-  - `nginx:1.27.5-alpine` -> `nginx:1.31.2-alpine`: requires coordinated APITable runtime validation for MySQL 8 to 9, RabbitMQ 3 to 4, object-storage branching, and multi-service resource/config updates
-  - `rabbitmq:3.11.9-management` -> `rabbitmq:4.3.2-management`: requires coordinated APITable runtime validation for MySQL 8 to 9, RabbitMQ 3 to 4, object-storage branching, and multi-service resource/config updates
 - `budibase`
   - `budibase/apps:3.15.0` -> `budibase/apps:3.39.22`: requires coordinated Budibase multi-service upgrade validation across apps, worker, proxy, CouchDB, Redis, and helper image before automatic version changes
   - `budibase/proxy:3.15.0` -> `budibase/proxy:3.39.22`: requires coordinated Budibase multi-service upgrade validation across apps, worker, proxy, CouchDB, Redis, and helper image before automatic version changes
