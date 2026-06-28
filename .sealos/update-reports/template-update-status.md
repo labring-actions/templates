@@ -2,12 +2,12 @@
 
 - Updated templates: 110
 - Updated candidates: 149
-- Validation-needed templates: 19
-- Validation-needed candidates: 64
-- Blocked templates: 7
-- Blocked candidates: 38
+- Validation-needed templates: 20
+- Validation-needed candidates: 67
+- Blocked templates: 6
+- Blocked candidates: 34
 - Skipped templates: 1
-- Skipped candidates: 6
+- Skipped candidates: 7
 
 ## Updated Templates
 - `readeck`
@@ -330,6 +330,10 @@
   - `goharbor/harbor-registryctl:v2.14.4` -> `goharbor/harbor-registryctl:v2.15.1`: updated Harbor core, jobservice, portal, registry, registryctl, and Trivy adapter images from v2.14.4 to v2.15.1 as one Harbor runtime bundle; focused runtime validation is required for PostgreSQL/Redis connectivity, object storage registry backend, portal/core/API login, jobservice execution, registry push/pull paths, registryctl health, Trivy scan flow, and first-run admin login before merge confidence
   - `goharbor/registry-photon:v2.14.4` -> `goharbor/registry-photon:v2.15.1`: updated Harbor core, jobservice, portal, registry, registryctl, and Trivy adapter images from v2.14.4 to v2.15.1 as one Harbor runtime bundle; focused runtime validation is required for PostgreSQL/Redis connectivity, object storage registry backend, portal/core/API login, jobservice execution, registry push/pull paths, registryctl health, Trivy scan flow, and first-run admin login before merge confidence
   - `goharbor/trivy-adapter-photon:v2.14.4` -> `goharbor/trivy-adapter-photon:v2.15.1`: updated Harbor core, jobservice, portal, registry, registryctl, and Trivy adapter images from v2.14.4 to v2.15.1 as one Harbor runtime bundle; focused runtime validation is required for PostgreSQL/Redis connectivity, object storage registry backend, portal/core/API login, jobservice execution, registry push/pull paths, registryctl health, Trivy scan flow, and first-run admin login before merge confidence
+- `langfuse`
+  - `clickhouse/clickhouse-server:25.4.2` -> `clickhouse/clickhouse-server:26.5.3`: updated Langfuse web, worker, and ClickHouse images; focused runtime validation is required for PostgreSQL init, ClickHouse migrations/storage, Redis connectivity, S3/object storage paths, worker jobs, web startup, secret handling, and first-run login before merge confidence
+  - `docker.io/langfuse/langfuse-worker:3.180.0` -> `docker.io/langfuse/langfuse-worker:3.197.1`: updated Langfuse web, worker, and ClickHouse images; focused runtime validation is required for PostgreSQL init, ClickHouse migrations/storage, Redis connectivity, S3/object storage paths, worker jobs, web startup, secret handling, and first-run login before merge confidence
+  - `docker.io/langfuse/langfuse:3.180.0` -> `docker.io/langfuse/langfuse:3.197.1`: updated Langfuse web, worker, and ClickHouse images; focused runtime validation is required for PostgreSQL init, ClickHouse migrations/storage, Redis connectivity, S3/object storage paths, worker jobs, web startup, secret handling, and first-run login before merge confidence
 - `laf`
   - `quay.io/prometheus/prometheus:v2.45.0` -> `quay.io/prometheus/prometheus:v3.12.0`: updated LAF Prometheus image to v3.12.0; focused runtime validation is required for MongoDB, MinIO, web/server/runtime-node startup, Prometheus scrape/rule behavior, and first-run app flow before merge confidence
 - `liebianbao`
@@ -373,11 +377,6 @@
   - `mariadb:11.4.7` -> `mariadb:12.3.2`: requires Frappe/ERPNext runtime validation across MariaDB, Redis, bench site bootstrap, workers, and scheduler before automatic version changes
   - `public.ecr.aws/docker/library/busybox:1.36.1` -> `public.ecr.aws/docker/library/busybox:1.38.0`: requires Frappe/ERPNext runtime validation across MariaDB, Redis, bench site bootstrap, workers, and scheduler before automatic version changes
   - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`: requires Frappe/ERPNext runtime validation across MariaDB, Redis, bench site bootstrap, workers, and scheduler before automatic version changes
-- `langfuse`
-  - `clickhouse/clickhouse-server:25.4.2` -> `clickhouse/clickhouse-server:26.5.3`: requires Langfuse runtime validation across PostgreSQL init, ClickHouse, Redis, S3 storage, worker/web startup, and secret handling before automatic version changes
-  - `docker.io/langfuse/langfuse-worker:3.180.0` -> `docker.io/langfuse/langfuse-worker:3.197.1`: requires Langfuse runtime validation across PostgreSQL init, ClickHouse, Redis, S3 storage, worker/web startup, and secret handling before automatic version changes
-  - `docker.io/langfuse/langfuse:3.180.0` -> `docker.io/langfuse/langfuse:3.197.1`: requires Langfuse runtime validation across PostgreSQL init, ClickHouse, Redis, S3 storage, worker/web startup, and secret handling before automatic version changes
-  - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`: requires Langfuse runtime validation across PostgreSQL init, ClickHouse, Redis, S3 storage, worker/web startup, and secret handling before automatic version changes
 - `posthog`
   - `docker.redpanda.com/redpandadata/redpanda:v25.1.9` -> `docker.redpanda.com/redpandadata/redpanda:v26.1.10`: requires PostHog runtime validation across Redpanda, Zookeeper, ConfigMaps, services, and startup commands before automatic version changes
   - `zookeeper:3.9.3` -> `zookeeper:3.9.5`: requires PostHog runtime validation across Redpanda, Zookeeper, ConfigMaps, services, and startup commands before automatic version changes
@@ -407,6 +406,8 @@
   - `mautic/mautic:5.2.3-fpm` -> `mautic/mautic:7.1.2-fpm`: skipped because mautic/mautic is used only as an Elasticsearch data ownership helper in the Refly template and is not part of the Refly application release surface
 
 ## Skipped Candidates
+- `langfuse`
+  - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`: skipped because the queued Redis image no longer exists in template/langfuse/index.yaml after prior template contract normalization replaced Redis wait helpers with BusyBox TCP checks and KubeBlocks Redis remains defined through Cluster metadata
 - `directus`
   - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`: removed the raw Redis helper image from the app StatefulSet and replaced Redis readiness with a busybox TCP check under the docker-to-sealos database-service rule
 - `typebot`
