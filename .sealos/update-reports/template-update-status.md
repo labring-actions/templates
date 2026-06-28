@@ -2,10 +2,10 @@
 
 - Updated templates: 110
 - Updated candidates: 149
-- Validation-needed templates: 23
-- Validation-needed candidates: 75
-- Blocked templates: 3
-- Blocked candidates: 23
+- Validation-needed templates: 24
+- Validation-needed candidates: 82
+- Blocked templates: 2
+- Blocked candidates: 16
 - Skipped templates: 1
 - Skipped candidates: 10
 
@@ -354,6 +354,14 @@
 - `posthog`
   - `docker.redpanda.com/redpandadata/redpanda:v25.1.9` -> `docker.redpanda.com/redpandadata/redpanda:v26.1.10`: updated PostHog Redpanda and Zookeeper images after template contract normalization; focused runtime validation is required for Redpanda startup/storage compatibility, Zookeeper startup, PostHog Kafka connectivity, plugin/capture/feature-flag services, ClickHouse writes, migrations, and first-run login before merge confidence
   - `zookeeper:3.9.3` -> `zookeeper:3.9.5`: updated PostHog Redpanda and Zookeeper images after template contract normalization; focused runtime validation is required for Redpanda startup/storage compatibility, Zookeeper startup, PostHog Kafka connectivity, plugin/capture/feature-flag services, ClickHouse writes, migrations, and first-run login before merge confidence
+- `rocketchat-micro`
+  - `natsio/nats-server-config-reloader:0.6.3` -> `natsio/nats-server-config-reloader:0.23.0`: updated Rocket.Chat microservices images and NATS config reloader after template contract normalization; focused runtime validation is required for Rocket.Chat 7 to 8 service family compatibility, NATS config reload, MongoDB connectivity, microservice registration, DDP/presence/stream hub routes, public web login, and metrics endpoints before merge confidence
+  - `rocketchat/account-service:7.9.0` -> `rocketchat/account-service:8.5.1`: updated Rocket.Chat microservices images and NATS config reloader after template contract normalization; focused runtime validation is required for Rocket.Chat 7 to 8 service family compatibility, NATS config reload, MongoDB connectivity, microservice registration, DDP/presence/stream hub routes, public web login, and metrics endpoints before merge confidence
+  - `rocketchat/authorization-service:7.9.0` -> `rocketchat/authorization-service:8.5.1`: updated Rocket.Chat microservices images and NATS config reloader after template contract normalization; focused runtime validation is required for Rocket.Chat 7 to 8 service family compatibility, NATS config reload, MongoDB connectivity, microservice registration, DDP/presence/stream hub routes, public web login, and metrics endpoints before merge confidence
+  - `rocketchat/ddp-streamer-service:7.9.0` -> `rocketchat/ddp-streamer-service:8.5.1`: updated Rocket.Chat microservices images and NATS config reloader after template contract normalization; focused runtime validation is required for Rocket.Chat 7 to 8 service family compatibility, NATS config reload, MongoDB connectivity, microservice registration, DDP/presence/stream hub routes, public web login, and metrics endpoints before merge confidence
+  - `rocketchat/presence-service:7.9.0` -> `rocketchat/presence-service:8.5.1`: updated Rocket.Chat microservices images and NATS config reloader after template contract normalization; focused runtime validation is required for Rocket.Chat 7 to 8 service family compatibility, NATS config reload, MongoDB connectivity, microservice registration, DDP/presence/stream hub routes, public web login, and metrics endpoints before merge confidence
+  - `rocketchat/rocket.chat:7.9.0` -> `rocketchat/rocket.chat:8.5.1`: updated Rocket.Chat microservices images and NATS config reloader after template contract normalization; focused runtime validation is required for Rocket.Chat 7 to 8 service family compatibility, NATS config reload, MongoDB connectivity, microservice registration, DDP/presence/stream hub routes, public web login, and metrics endpoints before merge confidence
+  - `rocketchat/stream-hub-service:7.9.0` -> `rocketchat/stream-hub-service:7.13.9`: updated Rocket.Chat microservices images and NATS config reloader after template contract normalization; focused runtime validation is required for Rocket.Chat 7 to 8 service family compatibility, NATS config reload, MongoDB connectivity, microservice registration, DDP/presence/stream hub routes, public web login, and metrics endpoints before merge confidence
 - `rybbit`
   - `clickhouse/clickhouse-server:25.4.2` -> `clickhouse/clickhouse-server:26.5.3`: updated Rybbit ClickHouse image candidate; focused runtime validation is required for ClickHouse 25.x to 26.x storage compatibility, ingestion writes, analytics queries, backend startup, and first-run account flow before merge confidence
 - `signoz`
@@ -377,14 +385,6 @@
   - `airbyte/cron:0.63.11` -> `airbyte/cron:2.1.0`: requires coordinated Airbyte 0.x to 2.x multi-component upgrade validation across bootloader, worker, cron, connector builder, Temporal, migrations, and ConfigMap runtime semantics
   - `airbyte/worker:0.63.11` -> `airbyte/worker:2.1.0`: requires coordinated Airbyte 0.x to 2.x multi-component upgrade validation across bootloader, worker, cron, connector builder, Temporal, migrations, and ConfigMap runtime semantics
   - `temporalio/auto-setup:1.23.0` -> `temporalio/auto-setup:1.29.7`: requires coordinated Airbyte 0.x to 2.x multi-component upgrade validation across bootloader, worker, cron, connector builder, Temporal, migrations, and ConfigMap runtime semantics
-- `rocketchat-micro`
-  - `natsio/nats-server-config-reloader:0.6.3` -> `natsio/nats-server-config-reloader:0.23.0`: requires Rocket.Chat microservices runtime validation across NATS config reload, service family upgrades, database labels, ConfigMaps, and image policies before automatic version changes
-  - `rocketchat/account-service:7.9.0` -> `rocketchat/account-service:8.5.1`: requires Rocket.Chat microservices runtime validation across NATS config reload, service family upgrades, database labels, ConfigMaps, and image policies before automatic version changes
-  - `rocketchat/authorization-service:7.9.0` -> `rocketchat/authorization-service:8.5.1`: requires Rocket.Chat microservices runtime validation across NATS config reload, service family upgrades, database labels, ConfigMaps, and image policies before automatic version changes
-  - `rocketchat/ddp-streamer-service:7.9.0` -> `rocketchat/ddp-streamer-service:8.5.1`: requires Rocket.Chat microservices runtime validation across NATS config reload, service family upgrades, database labels, ConfigMaps, and image policies before automatic version changes
-  - `rocketchat/presence-service:7.9.0` -> `rocketchat/presence-service:8.5.1`: requires Rocket.Chat microservices runtime validation across NATS config reload, service family upgrades, database labels, ConfigMaps, and image policies before automatic version changes
-  - `rocketchat/rocket.chat:7.9.0` -> `rocketchat/rocket.chat:8.5.1`: requires Rocket.Chat microservices runtime validation across NATS config reload, service family upgrades, database labels, ConfigMaps, and image policies before automatic version changes
-  - `rocketchat/stream-hub-service:7.9.0` -> `rocketchat/stream-hub-service:7.13.9`: requires Rocket.Chat microservices runtime validation across NATS config reload, service family upgrades, database labels, ConfigMaps, and image policies before automatic version changes
 - `supabase`
   - `darthsim/imgproxy:v3.30.1` -> `darthsim/imgproxy:v4.0.6`: blocked because the Supabase bundle spans eleven images, includes major Kong/imgproxy/storage/realtime changes, and requires official bundle alignment plus runtime validation
   - `kong:2.8.1` -> `kong:3.9.3`: blocked because the Supabase bundle spans eleven images, includes major Kong/imgproxy/storage/realtime changes, and requires official bundle alignment plus runtime validation

@@ -176,9 +176,10 @@ Validation passed:
 - ERPNext template update pass: updated ERPNext/Frappe app images to v16.25.0 and BusyBox helper images to 1.38.0 after template contract normalization. Marked validation-needed for MySQL KubeBlocks connectivity, Redis connectivity, bench site bootstrap, migrations, worker/queue/scheduler startup, WebSocket/socketio routes, and first-run login. Skipped MariaDB and Redis image candidates because the current template now uses KubeBlocks database resources and non-database TCP checks after prior database normalization.
 - PostHog template update pass: updated Redpanda to v26.1.10 and Zookeeper to 3.9.5 after template contract normalization. Marked validation-needed for Redpanda startup/storage compatibility, Zookeeper startup, PostHog Kafka connectivity, plugin/capture/feature-flag services, ClickHouse writes, migrations, and first-run login.
 - Coze Studio template update pass: updated NSQ to v1.3.0, Elasticsearch to 9.1.2, BusyBox helper images to 1.38.0, and Alpine curl helper to 8.20.0 after template contract normalization. Marked validation-needed for KubeBlocks MySQL connectivity, Redis connectivity, Elasticsearch 8 to 9 compatibility, NSQ messaging, migration init flow, object storage bootstrap, server/web startup, and first-run login. Skipped the queued MySQL image because the current template uses a KubeBlocks MySQL Cluster and secret-backed migration flow.
+- Rocket.Chat microservices template update pass: updated the main Rocket.Chat, account, authorization, DDP streamer, presence, stream hub, and NATS config reloader images after template contract normalization. Marked validation-needed for Rocket.Chat 7 to 8 service family compatibility, NATS config reload, MongoDB connectivity, microservice registration, DDP/presence/stream hub routes, public web login, and metrics endpoints.
 
 Blocked this pass:
-- rocketchat-micro: requires Rocket.Chat microservices runtime validation across NATS config reload, service family upgrades, database labels, ConfigMaps, and image policies before automatic version changes
+- none
 
 Validation gaps:
 - docker-to-sealos consistency checks were used as the template contract authority for changed artifacts.
@@ -215,7 +216,7 @@ Validation gaps:
 - `twenty`: single-template docker-to-sealos consistency check passed after v2.16.0 image update, official v2 env alignment, PostgreSQL 16.4.0 metadata, pg-init readiness/idempotency, Redis FQDN wiring, generated secret envs, resource ladder values, Service/Ingress metadata, and App schema normalization.
 - `airbyte`: single-template docker-to-sealos consistency check passed after Temporal ConfigMap file mount normalization, dedicated PostgreSQL init Job addition for the `db-airbyte` database, bootloader resource ladder alignment, and App schema normalization. The Airbyte 0.x to 2.x image bundle remains blocked pending coordinated runtime validation.
 - `supabase`: single-template docker-to-sealos consistency check passed after adding PostgreSQL database visibility labels, normalizing Kong/Supavisor/Vector/Functions ConfigMap names and mounted keys, and moving the Kong config rendering into a ConfigMap script with a short exec wrapper. The eleven-image Supabase bundle remains blocked pending official bundle alignment and coordinated runtime validation.
-- `rocketchat-micro`: single-template docker-to-sealos consistency check passed after normalizing MongoDB database visibility labels, NATS ConfigMap labels and mounts, NATS PID storage, resource ladder values, mongo-init image policy, Service labels, and duplicate localized title metadata. The Rocket.Chat microservices image bundle remains blocked pending coordinated runtime validation.
+- `rocketchat-micro`: single-template docker-to-sealos consistency check passed after updating Rocket.Chat microservices and NATS config reloader images while preserving MongoDB database visibility labels, NATS ConfigMap labels and mounts, NATS PID storage, resource ladder values, mongo-init image policy, Service labels, and localized metadata. The Rocket.Chat microservices image bundle remains validation-needed pending focused runtime validation.
 - `apitable`: single-template docker-to-sealos consistency check passed after updating BusyBox, MySQL helper, RabbitMQ, and Nginx gateway images while preserving object storage boolean branches, bucket-scoped object storage secrets, MySQL database visibility labels, resource ladder values, and gateway ConfigMap startup rendering. The APITable helper/runtime update remains validation-needed pending focused runtime validation.
 - `budibase`: single-template docker-to-sealos consistency check passed after updating apps, worker, proxy, and BusyBox images while preserving generated defaults, ConfigMap env injection, CouchDB ConfigMap mounts, Redis service FQDN composition, object-storage env indirection, Redis database resources, Service labels/ports, startup-critical admin defaults, and localized metadata. The Budibase app/worker/proxy update remains validation-needed pending focused runtime validation.
 - `harbor`: single-template docker-to-sealos consistency check passed after updating Harbor core, jobservice, portal, registry, registryctl, and Trivy adapter images while preserving PostgreSQL and Redis database visibility labels, split core env and file ConfigMaps, Harbor file ConfigMap vn keys, ConfigMap volume names, and subPath mounts for core, jobservice, portal, registry, and registryctl. The Harbor multi-component image bundle remains validation-needed pending focused runtime validation.
@@ -234,9 +235,9 @@ Validation gaps:
 - `refly`: skipped the mautic/mautic helper candidate because it is used only as an Elasticsearch data ownership helper in the Refly template and is not part of the Refly application release surface.
 
 Remaining queue:
-- Validation-needed templates: 23
-- Validation-needed candidates: 75
-- Blocked templates: 3
-- Blocked candidates: 23
+- Validation-needed templates: 24
+- Validation-needed candidates: 82
+- Blocked templates: 2
+- Blocked candidates: 16
 - Skipped templates: 1
 - Skipped candidates: 10
