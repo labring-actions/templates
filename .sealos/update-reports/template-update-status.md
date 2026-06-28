@@ -2,12 +2,12 @@
 
 - Updated templates: 110
 - Updated candidates: 149
-- Validation-needed templates: 20
-- Validation-needed candidates: 67
-- Blocked templates: 6
-- Blocked candidates: 34
+- Validation-needed templates: 21
+- Validation-needed candidates: 69
+- Blocked templates: 5
+- Blocked candidates: 30
 - Skipped templates: 1
-- Skipped candidates: 7
+- Skipped candidates: 9
 
 ## Updated Templates
 - `readeck`
@@ -298,6 +298,9 @@
   - `busybox:1.37.0` -> `busybox:1.38.0`: updated Dify BusyBox helper, sandbox, and plugin daemon images; focused runtime validation is required for API, worker, web, sandbox execution, plugin-daemon package/runtime behavior, PostgreSQL/Redis connectivity, Weaviate connectivity, migration readiness, and first-run admin login before merge confidence
   - `langgenius/dify-plugin-daemon:0.5.2-local` -> `langgenius/dify-plugin-daemon:0.6.3-local`: updated Dify BusyBox helper, sandbox, and plugin daemon images; focused runtime validation is required for API, worker, web, sandbox execution, plugin-daemon package/runtime behavior, PostgreSQL/Redis connectivity, Weaviate connectivity, migration readiness, and first-run admin login before merge confidence
   - `langgenius/dify-sandbox:0.2.12` -> `langgenius/dify-sandbox:0.2.15`: updated Dify BusyBox helper, sandbox, and plugin daemon images; focused runtime validation is required for API, worker, web, sandbox execution, plugin-daemon package/runtime behavior, PostgreSQL/Redis connectivity, Weaviate connectivity, migration readiness, and first-run admin login before merge confidence
+- `erpnext`
+  - `frappe/erpnext:v16.21.1` -> `frappe/erpnext:v16.25.0`: updated ERPNext/Frappe app images and BusyBox helper images; focused runtime validation is required for MySQL KubeBlocks connectivity, Redis connectivity, bench site bootstrap, migrations, worker/queue/scheduler startup, WebSocket/socketio routes, and first-run login before merge confidence
+  - `public.ecr.aws/docker/library/busybox:1.36.1` -> `public.ecr.aws/docker/library/busybox:1.38.0`: updated ERPNext/Frappe app images and BusyBox helper images; focused runtime validation is required for MySQL KubeBlocks connectivity, Redis connectivity, bench site bootstrap, migrations, worker/queue/scheduler startup, WebSocket/socketio routes, and first-run login before merge confidence
 - `fastgpt`
   - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-code-sandbox:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-code-sandbox:v4.14.23`: updated FastGPT app, plugin, code sandbox, MCP server, and AI proxy images; focused runtime validation is required for MongoDB/PostgreSQL/Redis connectivity, plugin and code sandbox calls, MCP server routing, AI proxy startup, ConfigMap mounts, object storage public/private buckets, and first-run root account flow before merge confidence
   - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-mcp_server:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-mcp_server:v4.14.23`: updated FastGPT app, plugin, code sandbox, MCP server, and AI proxy images; focused runtime validation is required for MongoDB/PostgreSQL/Redis connectivity, plugin and code sandbox calls, MCP server routing, AI proxy startup, ConfigMap mounts, object storage public/private buckets, and first-run root account flow before merge confidence
@@ -372,11 +375,6 @@
   - `busybox:1.36.1` -> `busybox:1.38.0`: requires coordinated multi-component runtime validation across MySQL, Elasticsearch, NSQ, ConfigMap mounts, migrations, and service startup before automatic version changes
   - `mysql:8.0.36` -> `mysql:9.7.1`: requires coordinated multi-component runtime validation across MySQL, Elasticsearch, NSQ, ConfigMap mounts, migrations, and service startup before automatic version changes
   - `nsqio/nsq:v1.2.1` -> `nsqio/nsq:v1.3.0`: requires coordinated multi-component runtime validation across MySQL, Elasticsearch, NSQ, ConfigMap mounts, migrations, and service startup before automatic version changes
-- `erpnext`
-  - `frappe/erpnext:v16.21.1` -> `frappe/erpnext:v16.25.0`: requires Frappe/ERPNext runtime validation across MariaDB, Redis, bench site bootstrap, workers, and scheduler before automatic version changes
-  - `mariadb:11.4.7` -> `mariadb:12.3.2`: requires Frappe/ERPNext runtime validation across MariaDB, Redis, bench site bootstrap, workers, and scheduler before automatic version changes
-  - `public.ecr.aws/docker/library/busybox:1.36.1` -> `public.ecr.aws/docker/library/busybox:1.38.0`: requires Frappe/ERPNext runtime validation across MariaDB, Redis, bench site bootstrap, workers, and scheduler before automatic version changes
-  - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`: requires Frappe/ERPNext runtime validation across MariaDB, Redis, bench site bootstrap, workers, and scheduler before automatic version changes
 - `posthog`
   - `docker.redpanda.com/redpandadata/redpanda:v25.1.9` -> `docker.redpanda.com/redpandadata/redpanda:v26.1.10`: requires PostHog runtime validation across Redpanda, Zookeeper, ConfigMaps, services, and startup commands before automatic version changes
   - `zookeeper:3.9.3` -> `zookeeper:3.9.5`: requires PostHog runtime validation across Redpanda, Zookeeper, ConfigMaps, services, and startup commands before automatic version changes
@@ -408,6 +406,9 @@
 ## Skipped Candidates
 - `langfuse`
   - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`: skipped because the queued Redis image no longer exists in template/langfuse/index.yaml after prior template contract normalization replaced Redis wait helpers with BusyBox TCP checks and KubeBlocks Redis remains defined through Cluster metadata
+- `erpnext`
+  - `mariadb:11.4.7` -> `mariadb:12.3.2`: skipped because the queued MariaDB image no longer exists in template/erpnext/index.yaml after prior template contract normalization replaced the raw MariaDB workload with a KubeBlocks MySQL Cluster
+  - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`: skipped because the queued Redis image no longer exists in template/erpnext/index.yaml after prior template contract normalization replaced raw Redis helpers with KubeBlocks Redis wiring and non-database TCP checks
 - `directus`
   - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`: removed the raw Redis helper image from the app StatefulSet and replaced Redis readiness with a busybox TCP check under the docker-to-sealos database-service rule
 - `typebot`
