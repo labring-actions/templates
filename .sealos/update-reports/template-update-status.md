@@ -2,10 +2,10 @@
 
 - Updated templates: 110
 - Updated candidates: 149
-- Validation-needed templates: 21
-- Validation-needed candidates: 69
-- Blocked templates: 5
-- Blocked candidates: 30
+- Validation-needed templates: 22
+- Validation-needed candidates: 71
+- Blocked templates: 4
+- Blocked candidates: 28
 - Skipped templates: 1
 - Skipped candidates: 9
 
@@ -346,6 +346,9 @@
   - `penpotapp/backend:2.1.2` -> `penpotapp/backend:2.16.1`: updated the Penpot frontend, backend, and exporter image bundle, aligned PostgreSQL 16.4 metadata and idempotent pg-init, normalized Redis and PostgreSQL URL composition, approved object-storage env indirection, Service/Ingress/App schema, and requires focused runtime validation for frontend/backend/exporter startup, database migration, S3 asset uploads, and first-run login path
   - `penpotapp/exporter:2.1.2` -> `penpotapp/exporter:2.16.1`: updated the Penpot frontend, backend, and exporter image bundle, aligned PostgreSQL 16.4 metadata and idempotent pg-init, normalized Redis and PostgreSQL URL composition, approved object-storage env indirection, Service/Ingress/App schema, and requires focused runtime validation for frontend/backend/exporter startup, database migration, S3 asset uploads, and first-run login path
   - `penpotapp/frontend:2.1.2` -> `penpotapp/frontend:2.16.1`: updated the Penpot frontend, backend, and exporter image bundle, aligned PostgreSQL 16.4 metadata and idempotent pg-init, normalized Redis and PostgreSQL URL composition, approved object-storage env indirection, Service/Ingress/App schema, and requires focused runtime validation for frontend/backend/exporter startup, database migration, S3 asset uploads, and first-run login path
+- `posthog`
+  - `docker.redpanda.com/redpandadata/redpanda:v25.1.9` -> `docker.redpanda.com/redpandadata/redpanda:v26.1.10`: updated PostHog Redpanda and Zookeeper images after template contract normalization; focused runtime validation is required for Redpanda startup/storage compatibility, Zookeeper startup, PostHog Kafka connectivity, plugin/capture/feature-flag services, ClickHouse writes, migrations, and first-run login before merge confidence
+  - `zookeeper:3.9.3` -> `zookeeper:3.9.5`: updated PostHog Redpanda and Zookeeper images after template contract normalization; focused runtime validation is required for Redpanda startup/storage compatibility, Zookeeper startup, PostHog Kafka connectivity, plugin/capture/feature-flag services, ClickHouse writes, migrations, and first-run login before merge confidence
 - `rybbit`
   - `clickhouse/clickhouse-server:25.4.2` -> `clickhouse/clickhouse-server:26.5.3`: updated Rybbit ClickHouse image candidate; focused runtime validation is required for ClickHouse 25.x to 26.x storage compatibility, ingestion writes, analytics queries, backend startup, and first-run account flow before merge confidence
 - `signoz`
@@ -375,9 +378,6 @@
   - `busybox:1.36.1` -> `busybox:1.38.0`: requires coordinated multi-component runtime validation across MySQL, Elasticsearch, NSQ, ConfigMap mounts, migrations, and service startup before automatic version changes
   - `mysql:8.0.36` -> `mysql:9.7.1`: requires coordinated multi-component runtime validation across MySQL, Elasticsearch, NSQ, ConfigMap mounts, migrations, and service startup before automatic version changes
   - `nsqio/nsq:v1.2.1` -> `nsqio/nsq:v1.3.0`: requires coordinated multi-component runtime validation across MySQL, Elasticsearch, NSQ, ConfigMap mounts, migrations, and service startup before automatic version changes
-- `posthog`
-  - `docker.redpanda.com/redpandadata/redpanda:v25.1.9` -> `docker.redpanda.com/redpandadata/redpanda:v26.1.10`: requires PostHog runtime validation across Redpanda, Zookeeper, ConfigMaps, services, and startup commands before automatic version changes
-  - `zookeeper:3.9.3` -> `zookeeper:3.9.5`: requires PostHog runtime validation across Redpanda, Zookeeper, ConfigMaps, services, and startup commands before automatic version changes
 - `rocketchat-micro`
   - `natsio/nats-server-config-reloader:0.6.3` -> `natsio/nats-server-config-reloader:0.23.0`: requires Rocket.Chat microservices runtime validation across NATS config reload, service family upgrades, database labels, ConfigMaps, and image policies before automatic version changes
   - `rocketchat/account-service:7.9.0` -> `rocketchat/account-service:8.5.1`: requires Rocket.Chat microservices runtime validation across NATS config reload, service family upgrades, database labels, ConfigMaps, and image policies before automatic version changes
