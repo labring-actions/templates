@@ -302,7 +302,13 @@ metadata:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 data:
   vn-appvn-pythonpathvn-supersetvn-configvn-py: |
+    from copy import deepcopy
+    import logging
     import os
+
+    from superset.config import THEME_DEFAULT as SUPERSET_THEME_DEFAULT
+    from superset.config import THEME_DARK as SUPERSET_THEME_DARK
+    from superset.utils.logging_configurator import DefaultLoggingConfigurator
 
     SECRET_KEY = os.environ["SUPERSET_SECRET_KEY"]
     SQLALCHEMY_DATABASE_URI = os.environ["SUPERSET__SQLALCHEMY_DATABASE_URI"]
@@ -310,7 +316,7 @@ data:
     REDIS_PORT = os.environ.get("REDIS_PORT", "6379")
     REDIS_PASSWORD = os.environ["REDIS_PASSWORD"]
     CACHE_CONFIG = {
-              "CACHE_TYPE": "RedisCache",
+        "CACHE_TYPE": "RedisCache",
         "CACHE_DEFAULT_TIMEOUT": 300,
         "CACHE_KEY_PREFIX": "superset_cache_",
         "CACHE_REDIS_HOST": REDIS_HOST,
@@ -323,6 +329,43 @@ data:
     RATELIMIT_STORAGE_URI = f"redis://default:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/2"
     WTF_CSRF_ENABLED = True
     FEATURE_FLAGS = {"ALERT_REPORTS": True}
+
+    SPINNER_URL = "/static/assets/images/loading.gif"
+    THEME_DEFAULT = deepcopy(SUPERSET_THEME_DEFAULT)
+    THEME_DEFAULT["token"]["brandSpinnerUrl"] = SPINNER_URL
+    THEME_DEFAULT["token"]["brandSpinnerSvg"] = None
+    THEME_DARK = deepcopy(SUPERSET_THEME_DARK) if SUPERSET_THEME_DARK else None
+    if THEME_DARK:
+        THEME_DARK["token"]["brandSpinnerUrl"] = SPINNER_URL
+        THEME_DARK["token"]["brandSpinnerSvg"] = None
+
+    class SealosLogFilter(logging.Filter):
+        def filter(self, record):
+            message = record.getMessage()
+            if message == "Failed to add user to db session: Class 'werkzeug.local.LocalProxy' is not mapped":
+                return False
+            if record.name == "superset.views.error_handling" and message == "HTTPException" and record.exc_info:
+                exc = record.exc_info[1]
+                if exc.__class__.__name__ == "NotFound":
+                    try:
+                        from flask import has_request_context, request
+
+                        if has_request_context() and request.path.startswith("/static/"):
+                            return False
+                    except RuntimeError:
+                        pass
+            return True
+
+    class SealosLoggingConfigurator(DefaultLoggingConfigurator):
+        def configure_logging(self, app_config, debug_mode):
+            super().configure_logging(app_config, debug_mode)
+            noise_filter = SealosLogFilter()
+            root_logger = logging.getLogger()
+            root_logger.addFilter(noise_filter)
+            for handler in root_logger.handlers:
+                handler.addFilter(noise_filter)
+
+    LOGGING_CONFIGURATOR = SealosLoggingConfigurator()
   vn-appvn-sealosvn-entrypointvn-sh: |
     set -eu
 
@@ -346,6 +389,24 @@ data:
       done
       return 1
     }
+
+    load_file_env() {
+      var="$1"
+      file="$2"
+      for i in $(seq 1 120); do
+        if [ -s "$file" ]; then
+          export "$var=$(cat "$file")"
+          return 0
+        fi
+        sleep 2
+      done
+      echo "missing required secret file: $file" >&2
+      return 1
+    }
+
+    if [ -z "${REDIS_PASSWORD:-}" ]; then
+      load_file_env REDIS_PASSWORD /app/sealos/secrets/redis/password
+    fi
 
     pip install --no-cache-dir --target /tmp/python-deps psycopg2-binary
     export PYTHONPATH="/tmp/python-deps:${PYTHONPATH:-}"
@@ -443,11 +504,6 @@ spec:
               value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc
             - name: REDIS_PORT
               value: "6379"
-            - name: REDIS_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-redis-redis-account-default
-                  key: password
           volumeMounts:
             - name: ${{ defaults.app_name }}-cm
               mountPath: /app/pythonpath/superset_config.py
@@ -455,6 +511,9 @@ spec:
             - name: ${{ defaults.app_name }}-cm
               mountPath: /app/sealos/entrypoint.sh
               subPath: vn-appvn-sealosvn-entrypointvn-sh
+            - name: redis-password
+              mountPath: /app/sealos/secrets/redis
+              readOnly: true
       volumes:
         - name: ${{ defaults.app_name }}-cm
           configMap:
@@ -464,6 +523,10 @@ spec:
                 path: vn-appvn-pythonpathvn-supersetvn-configvn-py
               - key: vn-appvn-sealosvn-entrypointvn-sh
                 path: vn-appvn-sealosvn-entrypointvn-sh
+        - name: redis-password
+          secret:
+            secretName: ${{ defaults.app_name }}-redis-redis-account-default
+            optional: true
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -471,6 +534,7 @@ metadata:
   name: ${{ defaults.app_name }}
   annotations:
     originImageName: apachesuperset.docker.scarf.sh/apache/superset:6.1.0
+    docker-to-sealos.resource-override-source: "Live Sealos validation: the Superset main web container was OOMKilled at the 512Mi ladder value during authenticated runtime inspection; 1024Mi keeps the web process stable."
     deploy.cloud.sealos.io/minReplicas: "1"
     deploy.cloud.sealos.io/maxReplicas: "1"
   labels:
@@ -526,11 +590,6 @@ spec:
               value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc
             - name: REDIS_PORT
               value: "6379"
-            - name: REDIS_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-redis-redis-account-default
-                  key: password
           volumeMounts:
             - name: ${{ defaults.app_name }}-cm
               mountPath: /app/pythonpath/superset_config.py
@@ -538,6 +597,9 @@ spec:
             - name: ${{ defaults.app_name }}-cm
               mountPath: /app/sealos/entrypoint.sh
               subPath: vn-appvn-sealosvn-entrypointvn-sh
+            - name: redis-password
+              mountPath: /app/sealos/secrets/redis
+              readOnly: true
           resources:
             requests:
               cpu: 50m
@@ -582,11 +644,6 @@ spec:
               value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc
             - name: REDIS_PORT
               value: "6379"
-            - name: REDIS_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-redis-redis-account-default
-                  key: password
           ports:
             - name: http
               containerPort: 8088
@@ -595,6 +652,7 @@ spec:
             httpGet:
               path: /health
               port: http
+            initialDelaySeconds: 30
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 60
@@ -615,10 +673,10 @@ spec:
           resources:
             requests:
               cpu: 50m
-              memory: 51Mi
+              memory: 102Mi
             limits:
               cpu: 500m
-              memory: 512Mi
+              memory: 1024Mi
           volumeMounts:
             - name: vn-appvn-superset-home
               mountPath: /app/superset_home
@@ -628,6 +686,9 @@ spec:
             - name: ${{ defaults.app_name }}-cm
               mountPath: /app/sealos/entrypoint.sh
               subPath: vn-appvn-sealosvn-entrypointvn-sh
+            - name: redis-password
+              mountPath: /app/sealos/secrets/redis
+              readOnly: true
       volumes:
         - name: ${{ defaults.app_name }}-cm
           configMap:
@@ -637,6 +698,10 @@ spec:
                 path: vn-appvn-pythonpathvn-supersetvn-configvn-py
               - key: vn-appvn-sealosvn-entrypointvn-sh
                 path: vn-appvn-sealosvn-entrypointvn-sh
+        - name: redis-password
+          secret:
+            secretName: ${{ defaults.app_name }}-redis-redis-account-default
+            optional: true
   volumeClaimTemplates:
     - metadata:
         name: vn-appvn-superset-home
