@@ -1,9 +1,9 @@
 # Template Update Status
 
-- Updated templates: 126
-- Updated candidates: 209
-- Validation-needed templates: 9
-- Validation-needed candidates: 36
+- Updated templates: 127
+- Updated candidates: 211
+- Validation-needed templates: 8
+- Validation-needed candidates: 34
 - Blocked templates: 1
 - Blocked candidates: 2
 - Skipped templates: 1
@@ -352,10 +352,11 @@
   - `docker.io/langfuse/langfuse-worker:3.180.0` -> `docker.io/langfuse/langfuse-worker:3.197.1`: validated Langfuse runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis KubeBlocks clusters reached Running, pg-init created the langfuse database, ClickHouse 26.5.3, Langfuse web 3.197.1, and worker 3.197.1 reached ready with zero pod restarts, root, sign-up, sign-in, health, readiness, auth providers, and CSRF routes returned HTTP 200, the sign-up API created a smoke user, credentials login returned a session, PostgreSQL reported 75 public tables and 412 Prisma migrations with eval_templates.type present, ClickHouse reported 12 default tables, Redis returned PONG, object storage bucket secrets were wired, recent web/worker/ClickHouse logs stayed free of runtime errors, and test footprints were cleaned up
   - `docker.io/langfuse/langfuse:3.180.0` -> `docker.io/langfuse/langfuse:3.197.1`: validated Langfuse runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis KubeBlocks clusters reached Running, pg-init created the langfuse database, ClickHouse 26.5.3, Langfuse web 3.197.1, and worker 3.197.1 reached ready with zero pod restarts, root, sign-up, sign-in, health, readiness, auth providers, and CSRF routes returned HTTP 200, the sign-up API created a smoke user, credentials login returned a session, PostgreSQL reported 75 public tables and 412 Prisma migrations with eval_templates.type present, ClickHouse reported 12 default tables, Redis returned PONG, object storage bucket secrets were wired, recent web/worker/ClickHouse logs stayed free of runtime errors, and test footprints were cleaned up
 
-## Validation-Needed Templates
 - `liebianbao`
-  - `busybox:1.36.1` -> `busybox:1.38.0`: updated LieBianBao BusyBox and Nginx helper images; focused runtime validation is required for PHP startup, Nginx static/PHP routing, MongoDB/Redis/MySQL connectivity, MySQL init data import, and first-run admin flow before merge confidence
-  - `nginx:1.25.2` -> `nginx:1.31.2`: updated LieBianBao BusyBox and Nginx helper images; focused runtime validation is required for PHP startup, Nginx static/PHP routing, MongoDB/Redis/MySQL connectivity, MySQL init data import, and first-run admin flow before merge confidence
+  - `busybox:1.36.1` -> `busybox:1.38.0`: validated LieBianBao runtime on Sealos: Template API dry-run/deploy succeeded, added the App entry resource, aligned MySQL/MongoDB/Redis KubeBlocks resources with the current contract, converted Redis to a single managed component, switched MongoDB host/port to the service FQDN, made the MySQL bootstrap observable, MySQL, MongoDB, and Redis reached Running, the app StatefulSet reached 2/2 with zero restarts, root/login/index.php login routes returned HTTP 200, MySQL imported 548 app tables and seeded admin/web settings, Redis returned PONG, MongoDB ping returned ok, the login form rendered, and test footprints were cleaned up
+  - `nginx:1.25.2` -> `nginx:1.31.2`: validated LieBianBao runtime on Sealos: Template API dry-run/deploy succeeded, added the App entry resource, aligned MySQL/MongoDB/Redis KubeBlocks resources with the current contract, converted Redis to a single managed component, switched MongoDB host/port to the service FQDN, made the MySQL bootstrap observable, MySQL, MongoDB, and Redis reached Running, the app StatefulSet reached 2/2 with zero restarts, root/login/index.php login routes returned HTTP 200, MySQL imported 548 app tables and seeded admin/web settings, Redis returned PONG, MongoDB ping returned ok, the login form rendered, and test footprints were cleaned up
+
+## Validation-Needed Templates
 - `penpot`
   - `penpotapp/backend:2.1.2` -> `penpotapp/backend:2.16.1`: updated the Penpot frontend, backend, and exporter image bundle, aligned PostgreSQL 16.4 metadata and idempotent pg-init, normalized Redis and PostgreSQL URL composition, approved object-storage env indirection, Service/Ingress/App schema, and requires focused runtime validation for frontend/backend/exporter startup, database migration, S3 asset uploads, and first-run login path
   - `penpotapp/exporter:2.1.2` -> `penpotapp/exporter:2.16.1`: updated the Penpot frontend, backend, and exporter image bundle, aligned PostgreSQL 16.4 metadata and idempotent pg-init, normalized Redis and PostgreSQL URL composition, approved object-storage env indirection, Service/Ingress/App schema, and requires focused runtime validation for frontend/backend/exporter startup, database migration, S3 asset uploads, and first-run login path
