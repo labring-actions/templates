@@ -34,6 +34,14 @@ spec:
       type: string
       default: sealos-syncthing
       required: false
+    gui_username:
+      description: Username for the Syncthing web GUI
+      type: string
+      required: true
+    gui_password:
+      description: Password for the Syncthing web GUI
+      type: string
+      required: true
 
 ---
 apiVersion: apps/v1
@@ -61,8 +69,47 @@ spec:
     spec:
       automountServiceAccountToken: false
       securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
+      initContainers:
+        - name: generate-config
+          image: syncthing/syncthing:2.1.1
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/syncthing
+          args:
+            - generate
+            - --home=/var/syncthing/config
+            - --gui-user=$(GUI_USERNAME)
+            - --gui-password=$(GUI_PASSWORD)
+            - --no-port-probing
+          env:
+            - name: GUI_USERNAME
+              value: ${{ inputs.gui_username }}
+            - name: GUI_PASSWORD
+              value: ${{ inputs.gui_password }}
+            - name: HOME
+              value: /var/syncthing
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+          volumeMounts:
+            - name: vn-varvn-syncthing
+              mountPath: /var/syncthing
       containers:
         - name: ${{ defaults.app_name }}
           image: syncthing/syncthing:2.1.1
@@ -105,11 +152,11 @@ spec:
               protocol: UDP
           resources:
             limits:
-              cpu: 200m
-              memory: 256Mi
+              cpu: 100m
+              memory: 128Mi
             requests:
-              cpu: 20m
-              memory: 25Mi
+              cpu: 10m
+              memory: 12Mi
           startupProbe:
             httpGet:
               path: /rest/noauth/health
