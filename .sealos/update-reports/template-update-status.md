@@ -1,9 +1,9 @@
 # Template Update Status
 
-- Updated templates: 121
-- Updated candidates: 195
-- Validation-needed templates: 14
-- Validation-needed candidates: 50
+- Updated templates: 122
+- Updated candidates: 196
+- Validation-needed templates: 13
+- Validation-needed candidates: 49
 - Blocked templates: 1
 - Blocked candidates: 2
 - Skipped templates: 1
@@ -328,10 +328,11 @@
   - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.14.26`: validated FastGPT Pro runtime on Sealos: Template API dry-run/deploy succeeded, MongoDB/PostgreSQL/Redis reached Running, pg-init created the aiproxy database, FastGPT/Pro/Plugin/Code Sandbox/MCP Server/AIProxy reached 1/1, all Service endpoints exposed port 3000, root and /login returned 200, preLogin and hashed root login succeeded, tokenLogin succeeded, Pro service returned the admin UI over the cluster Service, MongoDB fastgpt collections and Pro-related collections existed, PostgreSQL aiproxy database existed, Redis returned PONG, Plugin and AIProxy health endpoints returned 200, Code Sandbox process pools and MCP server SSE routing were healthy, object storage buckets and bucket secrets existed, recent Pro/Plugin/AIProxy/Code Sandbox/MCP logs stayed free of runtime errors, and test footprints were cleaned up
   - `registry.cn-hangzhou.aliyuncs.com/labring/aiproxy:v0.5.8` -> `registry.cn-hangzhou.aliyuncs.com/labring/aiproxy:v0.6.3`: validated FastGPT Pro runtime on Sealos: Template API dry-run/deploy succeeded, MongoDB/PostgreSQL/Redis reached Running, pg-init created the aiproxy database, FastGPT/Pro/Plugin/Code Sandbox/MCP Server/AIProxy reached 1/1, all Service endpoints exposed port 3000, root and /login returned 200, preLogin and hashed root login succeeded, tokenLogin succeeded, Pro service returned the admin UI over the cluster Service, MongoDB fastgpt collections and Pro-related collections existed, PostgreSQL aiproxy database existed, Redis returned PONG, Plugin and AIProxy health endpoints returned 200, Code Sandbox process pools and MCP server SSE routing were healthy, object storage buckets and bucket secrets existed, recent Pro/Plugin/AIProxy/Code Sandbox/MCP logs stayed free of runtime errors, and test footprints were cleaned up
 
+- `glitchtip`
+  - `glitchtip/glitchtip:v4.1.5` -> `glitchtip/glitchtip:v6.0.3`: validated GlitchTip runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis KubeBlocks clusters reached Running, pg-init completed, Django migrations applied 121 migrations across 274 public tables, web and worker containers reached ready with zero restarts, root, /login, and /register returned HTTP 200, Redis returned PONG, S3 object storage put/get/delete succeeded using the internal HTTP endpoint, recent web/worker logs showed healthy startup, and test footprints were cleaned up
 
 ## Validation-Needed Templates
-- `glitchtip`
-  - `glitchtip/glitchtip:v4.1.5` -> `glitchtip/glitchtip:v6.0.3`: updated GlitchTip to v6.0.3, normalized PostgreSQL 16.4 metadata and pg-init, Redis/database/object-storage env wiring, Service/Ingress/App schema, and requires focused runtime validation for v4 to v6 migrations, Redis/PostgreSQL startup, object storage uploads, and login path
+
 - `grafana-otel`
   - `grafana/grafana:12.3.0` -> `grafana/grafana:13.1.0`: updated Grafana, Prometheus, and OpenTelemetry Collector images, normalized ConfigMap mounts and labels, and requires focused runtime validation for the monitoring bundle public Grafana entry, collector ingest ports, and Prometheus scrape path
   - `otel/opentelemetry-collector:0.99.0` -> `otel/opentelemetry-collector:0.155.0`: updated Grafana, Prometheus, and OpenTelemetry Collector images, normalized ConfigMap mounts and labels, and requires focused runtime validation for the monitoring bundle public Grafana entry, collector ingest ports, and Prometheus scrape path
