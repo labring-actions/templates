@@ -243,14 +243,93 @@ spec:
         cpu: 50m
         memory: 51Mi
     volumeClaimTemplates:
-    - name: data
-      spec:
-        accessModes:
-        - ReadWriteOnce
+      - name: data
+        spec:
+          accessModes:
+          - ReadWriteOnce
+          resources:
+            requests:
+              storage: 1Gi
+          storageClassName: openebs-backup
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-wal-logical
+  labels:
+    app: ${{ defaults.app_name }}-pg-wal-logical
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-pg-wal-logical
+spec:
+  backoffLimit: 30
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-pg-wal-logical
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      containers:
+      - name: ${{ defaults.app_name }}-pg-wal-logical
+        image: alpine/k8s:1.33.2
+        imagePullPolicy: IfNotPresent
         resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
           requests:
-            storage: 1Gi
-        storageClassName: openebs-backup
+            cpu: 20m
+            memory: 25Mi
+        env:
+        - name: APP_NAME
+          value: ${{ defaults.app_name }}
+        command:
+        - /bin/sh
+        - -ec
+        args:
+        - |
+          cluster="${APP_NAME}-pg"
+          ops="${APP_NAME}-pg-wal-logical"
+
+          until [ "$(kubectl get cluster "${cluster}" -o jsonpath='{.status.phase}' 2>/dev/null || true)" = "Running" ]; do
+            sleep 5
+          done
+
+          cat <<YAML | kubectl apply -f -
+          apiVersion: apps.kubeblocks.io/v1alpha1
+          kind: OpsRequest
+          metadata:
+            name: ${ops}
+            labels:
+              app: ${ops}
+              cloud.sealos.io/app-deploy-manager: ${ops}
+          spec:
+            clusterName: ${cluster}
+            type: Reconfiguring
+            reconfigures:
+            - componentName: postgresql
+              configurations:
+              - name: postgresql-configuration
+                policy: dynamicReloadBeginRestart
+                keys:
+                - key: postgresql.conf
+                  parameters:
+                  - key: wal_level
+                    value: logical
+          YAML
+
+          while true; do
+            phase="$(kubectl get opsrequest "${ops}" -o jsonpath='{.status.phase}' 2>/dev/null || true)"
+            case "${phase}" in
+              Succeed)
+                exit 0
+                ;;
+              Failed|Aborted|Cancelled)
+                kubectl get opsrequest "${ops}" -o yaml
+                exit 1
+                ;;
+            esac
+            sleep 5
+          done
 ---
 apiVersion: batch/v1
 kind: Job
@@ -300,6 +379,7 @@ spec:
           psql -v ON_ERROR_STOP=1 <<'SQL'
           CREATE SCHEMA IF NOT EXISTS auth;
           CREATE SCHEMA IF NOT EXISTS storage;
+          CREATE SCHEMA IF NOT EXISTS graphql_public;
           CREATE SCHEMA IF NOT EXISTS realtime;
           CREATE SCHEMA IF NOT EXISTS _realtime;
 
@@ -323,6 +403,8 @@ spec:
           WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'supabase_admin')\gexec
           SELECT 'CREATE ROLE supabase_storage_admin NOINHERIT CREATEROLE LOGIN NOREPLICATION BYPASSRLS'
           WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'supabase_storage_admin')\gexec
+          SELECT 'CREATE ROLE supabase_realtime_admin NOINHERIT LOGIN NOREPLICATION'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'supabase_realtime_admin')\gexec
 
           GRANT anon TO authenticator;
           GRANT authenticated TO authenticator;
@@ -330,6 +412,7 @@ spec:
           GRANT authenticator TO supabase_storage_admin;
 
           GRANT USAGE ON SCHEMA storage TO postgres, anon, authenticated, service_role;
+          GRANT USAGE ON SCHEMA graphql_public TO postgres, anon, authenticated, service_role;
           GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA storage TO postgres, anon, authenticated, service_role;
           GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA storage TO postgres, anon, authenticated, service_role;
           ALTER DEFAULT PRIVILEGES IN SCHEMA storage GRANT ALL ON TABLES TO postgres, anon, authenticated, service_role;
@@ -360,6 +443,7 @@ spec:
           psql -v ON_ERROR_STOP=1 -c "ALTER ROLE authenticator WITH PASSWORD '${DB_PASS_SQL}';"
           psql -v ON_ERROR_STOP=1 -c "ALTER ROLE supabase_admin WITH PASSWORD '${DB_PASS_SQL}';"
           psql -v ON_ERROR_STOP=1 -c "ALTER ROLE supabase_storage_admin WITH PASSWORD '${DB_PASS_SQL}';"
+          psql -v ON_ERROR_STOP=1 -c "ALTER ROLE supabase_realtime_admin WITH LOGIN PASSWORD '${DB_PASS_SQL}';"
           psql -v ON_ERROR_STOP=1 -c "ALTER ROLE anon SET search_path = storage, public;"
           psql -v ON_ERROR_STOP=1 -c "ALTER ROLE authenticated SET search_path = storage, public;"
           psql -v ON_ERROR_STOP=1 -c "ALTER ROLE service_role SET search_path = storage, public;"
@@ -373,6 +457,54 @@ spec:
         secret:
           secretName: ${{ defaults.app_name }}-pg-conn-credential
           optional: true
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-runtime-wait
+  labels:
+    app: ${{ defaults.app_name }}-runtime-wait
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-runtime-wait
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-runtime-wait
+  labels:
+    app: ${{ defaults.app_name }}-runtime-wait
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-runtime-wait
+rules:
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - apps.kubeblocks.io
+  resources:
+  - clusters
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-runtime-wait
+  labels:
+    app: ${{ defaults.app_name }}-runtime-wait
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-runtime-wait
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-runtime-wait
+subjects:
+- kind: ServiceAccount
+  name: ${{ defaults.app_name }}-runtime-wait
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -732,6 +864,37 @@ spec:
         app: ${{ defaults.app_name }}
     spec:
       automountServiceAccountToken: false
+      initContainers:
+      - name: wait-for-postgres
+        image: busybox:1.37.0
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 10m
+            memory: 12Mi
+        env:
+        - name: POSTGRES_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: POSTGRES_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        command:
+        - /bin/sh
+        - -ec
+        args:
+        - |
+          until nc -z "${POSTGRES_HOST}" "${POSTGRES_PORT}"; do
+            sleep 2
+          done
+          sleep 20
       containers:
       - name: ${{ defaults.app_name }}
         image: supabase/studio:2026.06.22-sha-2207d7f
@@ -955,6 +1118,37 @@ spec:
         app: ${{ defaults.app_name }}-auth
     spec:
       automountServiceAccountToken: false
+      initContainers:
+      - name: wait-for-postgres
+        image: busybox:1.37.0
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 10m
+            memory: 12Mi
+        env:
+        - name: POSTGRES_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: POSTGRES_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        command:
+        - /bin/sh
+        - -ec
+        args:
+        - |
+          until nc -z "${POSTGRES_HOST}" "${POSTGRES_PORT}"; do
+            sleep 2
+          done
+          sleep 20
       containers:
       - name: ${{ defaults.app_name }}-auth
         image: supabase/gotrue:v2.191.0
@@ -1082,6 +1276,37 @@ spec:
         app: ${{ defaults.app_name }}-rest
     spec:
       automountServiceAccountToken: false
+      initContainers:
+      - name: wait-for-postgres
+        image: busybox:1.37.0
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 10m
+            memory: 12Mi
+        env:
+        - name: POSTGRES_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: POSTGRES_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        command:
+        - /bin/sh
+        - -ec
+        args:
+        - |
+          until nc -z "${POSTGRES_HOST}" "${POSTGRES_PORT}"; do
+            sleep 2
+          done
+          sleep 20
       containers:
       - name: ${{ defaults.app_name }}-rest
         image: postgrest/postgrest@sha256:b574528fe109c8343c1247155734d03df8c34b462f342dca0ccc20244fc36ef9
@@ -1153,7 +1378,60 @@ spec:
       labels:
         app: ${{ defaults.app_name }}-realtime
     spec:
-      automountServiceAccountToken: false
+      serviceAccountName: ${{ defaults.app_name }}-runtime-wait
+      automountServiceAccountToken: true
+      initContainers:
+      - name: wait-for-postgres
+        image: busybox:1.37.0
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 10m
+            memory: 12Mi
+        env:
+        - name: POSTGRES_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: POSTGRES_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        command:
+        - /bin/sh
+        - -ec
+        args:
+        - |
+          until nc -z "${POSTGRES_HOST}" "${POSTGRES_PORT}"; do
+            sleep 2
+          done
+          sleep 20
+      - name: wait-for-supabase-bootstrap
+        image: alpine/k8s:1.33.2
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 20m
+            memory: 25Mi
+        env:
+        - name: APP_NAME
+          value: ${{ defaults.app_name }}
+        command:
+        - /bin/sh
+        - -ec
+        args:
+        - |
+          kubectl wait --for=condition=complete "job/${APP_NAME}-pg-init" --timeout=20m
+          kubectl wait --for=condition=complete "job/${APP_NAME}-pg-wal-logical" --timeout=20m
+          kubectl wait --for=jsonpath='{.status.phase}'=Running "cluster/${APP_NAME}-pg" --timeout=20m
       containers:
       - name: ${{ defaults.app_name }}-realtime
         image: supabase/realtime:v2.111.7
@@ -1194,7 +1472,14 @@ spec:
           value: SET search_path TO _realtime
         - name: DB_ENC_KEY
           value: supabaserealtime
+        - name: DB_PASS_REALTIME
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: password
         - name: API_JWT_SECRET
+          value: ${{ inputs.jwt_secret }}
+        - name: METRICS_JWT_SECRET
           value: ${{ inputs.jwt_secret }}
         - name: SECRET_KEY_BASE
           value: ${{ defaults.secret_key_base }}
@@ -1206,6 +1491,8 @@ spec:
           value: '10000'
         - name: APP_NAME
           value: realtime
+        - name: SELF_HOST_TENANT_NAME
+          value: ${{ defaults.app_name }}-realtime
         - name: SEED_SELF_HOST
           value: 'true'
         - name: RUN_JANITOR
@@ -1255,6 +1542,37 @@ spec:
         app: ${{ defaults.app_name }}-storage
     spec:
       automountServiceAccountToken: false
+      initContainers:
+      - name: wait-for-postgres
+        image: busybox:1.37.0
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 10m
+            memory: 12Mi
+        env:
+        - name: POSTGRES_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: POSTGRES_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        command:
+        - /bin/sh
+        - -ec
+        args:
+        - |
+          until nc -z "${POSTGRES_HOST}" "${POSTGRES_PORT}"; do
+            sleep 2
+          done
+          sleep 20
       containers:
       - name: ${{ defaults.app_name }}-storage
         image: supabase/storage-api:v1.61.3
@@ -1451,6 +1769,37 @@ spec:
         app: ${{ defaults.app_name }}-meta
     spec:
       automountServiceAccountToken: false
+      initContainers:
+      - name: wait-for-postgres
+        image: busybox:1.37.0
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 10m
+            memory: 12Mi
+        env:
+        - name: POSTGRES_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: POSTGRES_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        command:
+        - /bin/sh
+        - -ec
+        args:
+        - |
+          until nc -z "${POSTGRES_HOST}" "${POSTGRES_PORT}"; do
+            sleep 2
+          done
+          sleep 20
       containers:
       - name: ${{ defaults.app_name }}-meta
         image: supabase/postgres-meta:v0.96.6
@@ -1513,6 +1862,37 @@ spec:
         app: ${{ defaults.app_name }}-functions
     spec:
       automountServiceAccountToken: false
+      initContainers:
+      - name: wait-for-postgres
+        image: busybox:1.37.0
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 10m
+            memory: 12Mi
+        env:
+        - name: POSTGRES_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: POSTGRES_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        command:
+        - /bin/sh
+        - -ec
+        args:
+        - |
+          until nc -z "${POSTGRES_HOST}" "${POSTGRES_PORT}"; do
+            sleep 2
+          done
+          sleep 20
       containers:
       - name: ${{ defaults.app_name }}-functions
         image: supabase/edge-runtime:v1.74.2
@@ -1614,7 +1994,60 @@ spec:
       labels:
         app: ${{ defaults.app_name }}-analytics
     spec:
-      automountServiceAccountToken: false
+      serviceAccountName: ${{ defaults.app_name }}-runtime-wait
+      automountServiceAccountToken: true
+      initContainers:
+      - name: wait-for-postgres
+        image: busybox:1.37.0
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 10m
+            memory: 12Mi
+        env:
+        - name: POSTGRES_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: POSTGRES_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        command:
+        - /bin/sh
+        - -ec
+        args:
+        - |
+          until nc -z "${POSTGRES_HOST}" "${POSTGRES_PORT}"; do
+            sleep 2
+          done
+          sleep 20
+      - name: wait-for-supabase-bootstrap
+        image: alpine/k8s:1.33.2
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 20m
+            memory: 25Mi
+        env:
+        - name: APP_NAME
+          value: ${{ defaults.app_name }}
+        command:
+        - /bin/sh
+        - -ec
+        args:
+        - |
+          kubectl wait --for=condition=complete "job/${APP_NAME}-pg-init" --timeout=20m
+          kubectl wait --for=condition=complete "job/${APP_NAME}-pg-wal-logical" --timeout=20m
+          kubectl wait --for=jsonpath='{.status.phase}'=Running "cluster/${APP_NAME}-pg" --timeout=20m
       containers:
       - name: ${{ defaults.app_name }}-analytics
         image: supabase/logflare:1.45.4
@@ -1657,6 +2090,8 @@ spec:
           value: ${{ defaults.logflare_public_access_token }}
         - name: LOGFLARE_PRIVATE_ACCESS_TOKEN
           value: ${{ defaults.logflare_private_access_token }}
+        - name: STRIPE_WEBHOOK_SECRET
+          value: ${{ defaults.secret_key_base }}
         - name: LOGFLARE_SINGLE_TENANT
           value: 'true'
         - name: LOGFLARE_SUPABASE_MODE
@@ -1787,6 +2222,37 @@ spec:
         app: ${{ defaults.app_name }}-supavisor
     spec:
       automountServiceAccountToken: false
+      initContainers:
+      - name: wait-for-postgres
+        image: busybox:1.37.0
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 10m
+            memory: 12Mi
+        env:
+        - name: POSTGRES_HOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: POSTGRES_PORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        command:
+        - /bin/sh
+        - -ec
+        args:
+        - |
+          until nc -z "${POSTGRES_HOST}" "${POSTGRES_PORT}"; do
+            sleep 2
+          done
+          sleep 20
       containers:
       - name: ${{ defaults.app_name }}-supavisor
         image: supabase/supavisor:2.9.7
