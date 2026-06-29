@@ -23,7 +23,7 @@ spec:
       value: signoz-${{ random(8) }}
     app_host:
       type: string
-      value: ${{ random(8) }}
+      value: signoz-${{ random(8) }}
     tokenizer_jwt_secret:
       type: string
       value: ${{ random(32) }}
@@ -281,7 +281,7 @@ data:
             <cluster>
                 <shard>
                     <replica>
-                        <host>${{ defaults.app_name }}-clickhouse</host>
+                        <host>127.0.0.1</host>
                         <port>9000</port>
                     </replica>
                 </shard>
@@ -417,9 +417,6 @@ data:
           receivers: [signozmeter]
           processors: [batch/meter]
           exporters: [signozclickhousemeter]
-  vn-etcvn-managervn-configvn-yaml: |
-    server_endpoint: ws://${{ defaults.app_name }}:4320/v1/opamp
-
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -792,6 +789,17 @@ spec:
           requests:
             cpu: 10m
             memory: 12Mi
+      - name: wait-for-migrations
+        image: clickhouse/clickhouse-server:26.5.3
+        imagePullPolicy: IfNotPresent
+        command: ['bash', '-c', 'until [ "$$(clickhouse-client --host ${{ defaults.app_name }}-clickhouse --query "SELECT count() FROM system.tables WHERE (database = ''signoz_traces'' AND name = ''distributed_span_attributes_keys'') OR (database = ''signoz_logs'' AND name = ''distributed_logs_attribute_keys'') OR (database = ''signoz_metadata'' AND name = ''distributed_schema_migrations_v2'')")" = "3" ]; do echo waiting for signoz migrations; sleep 5; done;']
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 50m
+            memory: 51Mi
       containers:
       - name: ${{ defaults.app_name }}
         image: signoz/signoz:v0.130.1
@@ -836,6 +844,13 @@ spec:
           periodSeconds: 30
           timeoutSeconds: 5
           failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /api/v1/health
+            port: 8080
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 30
   volumeClaimTemplates:
     - metadata:
         name: vn-varvn-libvn-signoz
@@ -902,6 +917,17 @@ spec:
           requests:
             cpu: 10m
             memory: 12Mi
+      - name: wait-for-migrations
+        image: clickhouse/clickhouse-server:26.5.3
+        imagePullPolicy: IfNotPresent
+        command: ['bash', '-c', 'until [ "$$(clickhouse-client --host ${{ defaults.app_name }}-clickhouse --query "SELECT count() FROM system.tables WHERE (database = ''signoz_traces'' AND name = ''distributed_span_attributes_keys'') OR (database = ''signoz_logs'' AND name = ''distributed_logs_attribute_keys'') OR (database = ''signoz_metadata'' AND name = ''distributed_schema_migrations_v2'')")" = "3" ]; do echo waiting for signoz migrations; sleep 5; done;']
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 50m
+            memory: 51Mi
       containers:
       - name: ${{ defaults.app_name }}-otel-collector
         image: signoz/signoz-otel-collector:v0.144.5
@@ -909,19 +935,18 @@ spec:
         command:
         - /bin/sh
         - -c
-        - exec /signoz-otel-collector --config=/etc/otel-collector-config.yaml --manager-config=/etc/manager-config.yaml --copy-path=/var/tmp/collector-config.yaml
+        - exec /signoz-otel-collector --config=/etc/otel-collector-config.yaml
         ports:
         - containerPort: 4317
           name: otlp-grpc
         - containerPort: 4318
           name: otlp-http
+        - containerPort: 13133
+          name: health
         volumeMounts:
         - name: ${{ defaults.app_name }}-otel-collector-cm
           mountPath: /etc/otel-collector-config.yaml
           subPath: vn-etcvn-otelvn-collectorvn-configvn-yaml
-        - name: ${{ defaults.app_name }}-otel-collector-cm
-          mountPath: /etc/manager-config.yaml
-          subPath: vn-etcvn-managervn-configvn-yaml
         env:
         - name: OTEL_RESOURCE_ATTRIBUTES
           value: host.name=signoz-host,os.type=linux
@@ -942,6 +967,29 @@ spec:
           requests:
             cpu: 100m
             memory: 102Mi
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 13133
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 13133
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /
+            port: 13133
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 30
       volumes:
       - name: ${{ defaults.app_name }}-otel-collector-cm
         configMap:

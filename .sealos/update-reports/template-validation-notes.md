@@ -74,6 +74,7 @@ Updated batch:
 - twenty
 - billionmail
 - rocketchat
+- signoz
 - skardi
 - sub2api
 - tududi
@@ -163,7 +164,7 @@ Validation passed:
 - Penpot template contract pass: updated frontend, backend, and exporter images to 2.16.1, aligned PostgreSQL 16.4 metadata and idempotent pg-init, normalized Redis/PostgreSQL URL composition, approved object-storage env indirection, Service and Ingress labels, and App schema. Marked validation-needed for frontend/backend/exporter startup, database migration, S3 asset uploads, and first-run login path.
 - Twenty template contract pass: updated server and worker images to v2.16.0, aligned official v2 runtime envs, PostgreSQL 16.4.0 metadata, idempotent pg-init, Redis FQDN wiring, generated secrets, resource ladder values, Service/Ingress labels, and App schema. Marked validation-needed for the v1 to v2 migration and first-run login path.
 - BillionMail live runtime pass: updated Core, Roundcube, openssl helper, and docker-api Python helper images; added a generated admin password default, aligned the Docker API stub image list, removed the public-image pull secret, and made the stub read complete HTTP request bodies. Verified Template API dry-run and deploy on ns-dn9ue3wz, PostgreSQL and Redis Running, pg-init completion, Core and Roundcube readiness, zero pod restarts, root URL and /api/languages/get HTTP 200, Docker API stub _ping/version/containers responses, required database compatibility objects, clean Core/Webmail error scan, and targeted cleanup.
-- Signoz template update pass: updated ClickHouse, collector, Signoz, and Zookeeper images as one observability bundle. Marked validation-needed for ClickHouse migrations/storage, collector ingestion, dashboard startup, and Zookeeper coordination.
+- SigNoz live runtime pass: updated ClickHouse, OpenTelemetry Collector, SigNoz, and Zookeeper as one observability bundle; fixed the ClickHouse single-node cluster host to 127.0.0.1, added migration startup gates for the app and collector, and switched the collector to static config so OTLP receivers stay active. Live validation passed on ns-dn9ue3wz: Template API dry-run/deploy succeeded, Zookeeper/ClickHouse/SigNoz/Collector reached ready with zero restarts, root and /api/v1/health returned HTTP 200, /api/v1/version reported v0.130.1 with setupCompleted false, ClickHouse 26.5.3 created all SigNoz databases with no pending distributed DDLs, OTLP HTTP trace ingestion returned 200 and wrote codex-signoz-smoke/signoz-template-smoke to ClickHouse, and test footprints were cleaned up.
 - WrenAI template update pass: updated and normalized AI service, engine, ibis server, UI, and Qdrant images as one runtime bundle. Marked validation-needed for official bundle compatibility, Qdrant persistence, PostgreSQL initialization, engine/API startup, UI routes, and data-source query flows.
 - Reactive Resume template update pass: updated the app image to v5.1.9 using the official v5 runtime contract, removed the legacy Browserless/Chromium sidecar, upgraded PostgreSQL metadata to 16.4.0, added Redis KubeBlocks support, aligned v5 APP_URL/AUTH_SECRET/ENCRYPTION_SECRET/REDIS_URL/S3 envs, added /api/health probes, and passed live Sealos runtime validation for startup, database, Redis, S3 storage, and first-run account flow.
 - Rybbit template update pass: updated the ClickHouse image to 26.5.3 after ClickHouse storage and ConfigMap mount normalization. Marked validation-needed for ClickHouse storage compatibility, ingestion writes, analytics queries, backend startup, and first-run account flow.
@@ -240,8 +241,8 @@ Validation gaps:
 - `refly`: skipped the mautic/mautic helper candidate because it is used only as an Elasticsearch data ownership helper in the Refly template and is not part of the Refly application release surface.
 
 Remaining queue:
-- Validation-needed templates: 4
-- Validation-needed candidates: 21
+- Validation-needed templates: 3
+- Validation-needed candidates: 17
 - Blocked templates: 1
 - Blocked candidates: 2
 - Skipped templates: 1
