@@ -5,39 +5,18 @@
 - Validation-needed templates: 0
 - Validation-needed candidates: 0
 - Blocked templates: 1
-- Blocked candidates: 2
+- Blocked candidates: 4
 - Skipped templates: 1
-- Skipped candidates: 10
+- Skipped candidates: 8
 
 ## Updated Templates
-- `appflowy`
-  - `appflowyinc/appflowy_cloud:0.15.22` -> `appflowyinc/appflowy_cloud:0.16.5`: validated AppFlowy Cloud, Worker, Web, and GoTrue runtime startup; fixed Redis primary service FQDN, added dependency startup gates, and provided a generated GoTrue admin password default
-  - `appflowyinc/appflowy_web:0.14.9` -> `appflowyinc/appflowy_web:0.15.4`: validated AppFlowy Cloud, Worker, Web, and GoTrue runtime startup; fixed Redis primary service FQDN, added dependency startup gates, and provided a generated GoTrue admin password default
-  - `appflowyinc/appflowy_worker:0.15.22` -> `appflowyinc/appflowy_worker:0.16.5`: validated AppFlowy Cloud, Worker, Web, and GoTrue runtime startup; fixed Redis primary service FQDN, added dependency startup gates, and provided a generated GoTrue admin password default
-  - `appflowyinc/gotrue:0.15.22` -> `appflowyinc/gotrue:0.16.5`: validated AppFlowy Cloud, Worker, Web, and GoTrue runtime startup; fixed Redis primary service FQDN, added dependency startup gates, and provided a generated GoTrue admin password default
-- `billionmail`
-  - `alpine/openssl:3.5.4` -> `alpine/openssl:3.5.7`: validated BillionMail mail-stack runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis reached Running, pg-init completed, Core and Roundcube started with zero pod restarts, root URL and /api/languages/get returned 200, Docker API stub _ping/version/containers checks passed, database compatibility objects and uk_relay_domain existed, Core/Webmail logs stayed free of runtime errors, and test footprints were cleaned up
-  - `billionmail/core:4.9.3@sha256:b97c71b463e99368f0fb50a4f3088139c2f04a37171d3b660b92f946a3076692` -> `billionmail/core:4.9.5`: validated BillionMail mail-stack runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis reached Running, pg-init completed, Core and Roundcube started with zero pod restarts, root URL and /api/languages/get returned 200, Docker API stub _ping/version/containers checks passed, database compatibility objects and uk_relay_domain existed, Core/Webmail logs stayed free of runtime errors, and test footprints were cleaned up
-  - `python:3.12.12-alpine` -> `python:3.14.6-alpine`: validated BillionMail mail-stack runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis reached Running, pg-init completed, Core and Roundcube started with zero pod restarts, root URL and /api/languages/get returned 200, Docker API stub _ping/version/containers checks passed, database compatibility objects and uk_relay_domain existed, Core/Webmail logs stayed free of runtime errors, and test footprints were cleaned up
-  - `roundcube/roundcubemail:1.6.11-fpm-alpine` -> `roundcube/roundcubemail:1.7.1-fpm-alpine`: validated BillionMail mail-stack runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis reached Running, pg-init completed, Core and Roundcube started with zero pod restarts, root URL and /api/languages/get returned 200, Docker API stub _ping/version/containers checks passed, database compatibility objects and uk_relay_domain existed, Core/Webmail logs stayed free of runtime errors, and test footprints were cleaned up
-- `budibase`
-  - `budibase/apps:3.15.0` -> `budibase/apps:3.39.22`: validated Budibase runtime on Sealos: Template API dry-run/deploy succeeded, Redis reached Running, CouchDB reached 1/1, apps/worker/proxy reached 1/1 with zero pod restarts after dependency startup gates, root redirected to /builder, /builder and /health returned 200, /api/system/status returned version 3.39.22 with passing health, admin login via /api/global/auth/local/login returned 200, CouchDB contained _users/global-db/global-info and the admin user, object storage bucket secrets existed, recent logs stayed free of runtime errors, and test footprints were cleaned up
-  - `budibase/proxy:3.15.0` -> `budibase/proxy:3.39.22`: validated Budibase runtime on Sealos: Template API dry-run/deploy succeeded, Redis reached Running, CouchDB reached 1/1, apps/worker/proxy reached 1/1 with zero pod restarts after dependency startup gates, root redirected to /builder, /builder and /health returned 200, /api/system/status returned version 3.39.22 with passing health, admin login via /api/global/auth/local/login returned 200, CouchDB contained _users/global-db/global-info and the admin user, object storage bucket secrets existed, recent logs stayed free of runtime errors, and test footprints were cleaned up
-  - `budibase/worker:3.15.0` -> `budibase/worker:3.39.22`: validated Budibase runtime on Sealos: Template API dry-run/deploy succeeded, Redis reached Running, CouchDB reached 1/1, apps/worker/proxy reached 1/1 with zero pod restarts after dependency startup gates, root redirected to /builder, /builder and /health returned 200, /api/system/status returned version 3.39.22 with passing health, admin login via /api/global/auth/local/login returned 200, CouchDB contained _users/global-db/global-info and the admin user, object storage bucket secrets existed, recent logs stayed free of runtime errors, and test footprints were cleaned up
-  - `busybox:1.37.0` -> `busybox:1.38.0`: validated Budibase runtime on Sealos: Template API dry-run/deploy succeeded, Redis reached Running, CouchDB reached 1/1, apps/worker/proxy reached 1/1 with zero pod restarts after dependency startup gates, root redirected to /builder, /builder and /health returned 200, /api/system/status returned version 3.39.22 with passing health, admin login via /api/global/auth/local/login returned 200, CouchDB contained _users/global-db/global-info and the admin user, object storage bucket secrets existed, recent logs stayed free of runtime errors, and test footprints were cleaned up
-- `coze-studio`
-  - `alpine/curl:8.12.1` -> `alpine/curl:8.20.0`: validated Coze Studio runtime on Sealos: Template API dry-run/deploy succeeded, MySQL and Redis KubeBlocks clusters reached Running, NSQ lookupd/nsqd reached 1/1, etcd/Elasticsearch/Milvus/server/web reached 1/1 with zero pod restarts, MySQL migrations populated 55 opencoze tables, Redis returned PONG, Elasticsearch 9.1.2 reached green health with project_draft and coze_resource indices, Milvus components reported Healthy, object storage bucket secrets existed and storage assets synced, root and /sign returned 200, public API routes reached the application auth layer with 401 JSON responses, recent logs showed only expected unauthenticated session messages, and test footprints were cleaned up
-  - `bitnamilegacy/elasticsearch:8.18.0` -> `bitnamilegacy/elasticsearch:9.1.2`: validated Coze Studio runtime on Sealos: Template API dry-run/deploy succeeded, MySQL and Redis KubeBlocks clusters reached Running, NSQ lookupd/nsqd reached 1/1, etcd/Elasticsearch/Milvus/server/web reached 1/1 with zero pod restarts, MySQL migrations populated 55 opencoze tables, Redis returned PONG, Elasticsearch 9.1.2 reached green health with project_draft and coze_resource indices, Milvus components reported Healthy, object storage bucket secrets existed and storage assets synced, root and /sign returned 200, public API routes reached the application auth layer with 401 JSON responses, recent logs showed only expected unauthenticated session messages, and test footprints were cleaned up
-  - `busybox:1.36.1` -> `busybox:1.38.0`: validated Coze Studio runtime on Sealos: Template API dry-run/deploy succeeded, MySQL and Redis KubeBlocks clusters reached Running, NSQ lookupd/nsqd reached 1/1, etcd/Elasticsearch/Milvus/server/web reached 1/1 with zero pod restarts, MySQL migrations populated 55 opencoze tables, Redis returned PONG, Elasticsearch 9.1.2 reached green health with project_draft and coze_resource indices, Milvus components reported Healthy, object storage bucket secrets existed and storage assets synced, root and /sign returned 200, public API routes reached the application auth layer with 401 JSON responses, recent logs showed only expected unauthenticated session messages, and test footprints were cleaned up
-  - `nsqio/nsq:v1.2.1` -> `nsqio/nsq:v1.3.0`: validated Coze Studio runtime on Sealos: Template API dry-run/deploy succeeded, MySQL and Redis KubeBlocks clusters reached Running, NSQ lookupd/nsqd reached 1/1, etcd/Elasticsearch/Milvus/server/web reached 1/1 with zero pod restarts, MySQL migrations populated 55 opencoze tables, Redis returned PONG, Elasticsearch 9.1.2 reached green health with project_draft and coze_resource indices, Milvus components reported Healthy, object storage bucket secrets existed and storage assets synced, root and /sign returned 200, public API routes reached the application auth layer with 401 JSON responses, recent logs showed only expected unauthenticated session messages, and test footprints were cleaned up
-- `readeck`
-  - `codeberg.org/readeck/readeck:0.16.0` -> `codeberg.org/readeck/readeck:0.22.3`
-- `registry`
-  - `joxit/docker-registry-ui:2.5.6-debian` -> `joxit/docker-registry-ui:2.6.0-debian`
-  - `registry:2.8.3` -> `registry:3.1.1`
 - `Reactive-Resume`
   - `amruthpillai/reactive-resume:v4.1.2` -> `amruthpillai/reactive-resume:v5.1.9`: updated Reactive Resume to v5.1.9 using the official v5 runtime contract, removed the legacy Browserless/Chromium sidecar, upgraded PostgreSQL metadata to 16.4.0, added Redis KubeBlocks support, aligned v5 APP_URL/AUTH_SECRET/ENCRYPTION_SECRET/REDIS_URL/S3 envs, fixed persistent /app/data storage by using a StatefulSet with volumeClaimTemplates, and passed live runtime validation on Sealos: Template API dry-run and deploy succeeded, PostgreSQL and Redis clusters reached Running, root and /auth routes returned 200, /api/health returned database and S3 storage healthy, registration/sign-in/session APIs returned 200, startup logs showed database migrations completed, and the test footprint for re-gidmhqow was cleaned up
   - `ghcr.io/browserless/chromium:v2.11.0` -> `ghcr.io/browserless/chromium:v2.54.1`: updated Reactive Resume to v5.1.9 using the official v5 runtime contract, removed the legacy Browserless/Chromium sidecar, upgraded PostgreSQL metadata to 16.4.0, added Redis KubeBlocks support, aligned v5 APP_URL/AUTH_SECRET/ENCRYPTION_SECRET/REDIS_URL/S3 envs, fixed persistent /app/data storage by using a StatefulSet with volumeClaimTemplates, and passed live runtime validation on Sealos: Template API dry-run and deploy succeeded, PostgreSQL and Redis clusters reached Running, root and /auth routes returned 200, /api/health returned database and S3 storage healthy, registration/sign-in/session APIs returned 200, startup logs showed database migrations completed, and the test footprint for re-gidmhqow was cleaned up
+- `readeck`
+  - `codeberg.org/readeck/readeck:0.16.0` -> `codeberg.org/readeck/readeck:0.22.3`: newer compatible semver tag found
+- `affine`
+  - `ghcr.io/toeverything/affine:0.26.6` -> `ghcr.io/toeverything/affine:0.26.7`: updated AFFiNE image from queue and replaced the app startup PostgreSQL client wait with a non-database TCP readiness gate after docker-to-sealos artifact validation passed
 - `airbyte`
   - `airbyte/bootloader:0.63.11` -> `airbyte/bootloader:2.1.0`: updated Airbyte bootloader, connector builder, worker, cron, and Temporal images after template contract normalization; added Airbyte 2.x runtime config for Temporal postgres12, bootloader Kubernetes auth-secret initialization, worker Kubernetes workload launching, internal API auth, audit logging storage, and cron internal API access; passed live Sealos runtime validation: Template API dry-run and deploy succeeded, PostgreSQL reached Running, pg-init and bootloader completed, connector-builder, server, worker, cron, Temporal, and webapp reached 1/1, /api/v1/health returned available, root URL returned the Airbyte login shell, cron restarts stayed 0 over 90s, and test footprints were cleaned up
   - `airbyte/connector-builder-server:0.63.11` -> `airbyte/connector-builder-server:2.0.1`: updated Airbyte bootloader, connector builder, worker, cron, and Temporal images after template contract normalization; added Airbyte 2.x runtime config for Temporal postgres12, bootloader Kubernetes auth-secret initialization, worker Kubernetes workload launching, internal API auth, audit logging storage, and cron internal API access; passed live Sealos runtime validation: Template API dry-run and deploy succeeded, PostgreSQL reached Running, pg-init and bootloader completed, connector-builder, server, worker, cron, Temporal, and webapp reached 1/1, /api/v1/health returned available, root URL returned the Airbyte login shell, cron restarts stayed 0 over 90s, and test footprints were cleaned up
@@ -49,265 +28,92 @@
   - `mysql:8.0.32` -> `mysql:9.7.1`: updated APITable BusyBox, MySQL helper, RabbitMQ, and Nginx gateway images; removed app-scoped pull secrets from public-image workloads, added a databus Redis startup gate, and passed live Sealos runtime validation: Template API dry-run/deploy succeeded, MySQL and Redis reached Running, mysql-init/init-db/init-appdata completed, RabbitMQ and backend/room/web/databus/imageproxy/gateway reached 1/1 with zero restarts, RabbitMQ ping succeeded, MySQL contained 95 apitable tables, root and /login returned 200, /api/v1/actuator/health returned UP, DataBus and backend startup logs were healthy, and test footprints were cleaned up
   - `nginx:1.27.5-alpine` -> `nginx:1.31.2-alpine`: updated APITable BusyBox, MySQL helper, RabbitMQ, and Nginx gateway images; removed app-scoped pull secrets from public-image workloads, added a databus Redis startup gate, and passed live Sealos runtime validation: Template API dry-run/deploy succeeded, MySQL and Redis reached Running, mysql-init/init-db/init-appdata completed, RabbitMQ and backend/room/web/databus/imageproxy/gateway reached 1/1 with zero restarts, RabbitMQ ping succeeded, MySQL contained 95 apitable tables, root and /login returned 200, /api/v1/actuator/health returned UP, DataBus and backend startup logs were healthy, and test footprints were cleaned up
   - `rabbitmq:3.11.9-management` -> `rabbitmq:4.3.2-management`: updated APITable BusyBox, MySQL helper, RabbitMQ, and Nginx gateway images; removed app-scoped pull secrets from public-image workloads, added a databus Redis startup gate, and passed live Sealos runtime validation: Template API dry-run/deploy succeeded, MySQL and Redis reached Running, mysql-init/init-db/init-appdata completed, RabbitMQ and backend/room/web/databus/imageproxy/gateway reached 1/1 with zero restarts, RabbitMQ ping succeeded, MySQL contained 95 apitable tables, root and /login returned 200, /api/v1/actuator/health returned UP, DataBus and backend startup logs were healthy, and test footprints were cleaned up
-- `affine`
-  - `ghcr.io/toeverything/affine:0.26.6` -> `ghcr.io/toeverything/affine:0.26.7`
+- `appflowy`
+  - `appflowyinc/appflowy_cloud:0.15.22` -> `appflowyinc/appflowy_cloud:0.16.5`: validated AppFlowy Cloud, Worker, Web, and GoTrue runtime startup; fixed Redis primary service FQDN, added dependency startup gates, and provided a generated GoTrue admin password default
+  - `appflowyinc/appflowy_web:0.14.9` -> `appflowyinc/appflowy_web:0.15.4`: validated AppFlowy Cloud, Worker, Web, and GoTrue runtime startup; fixed Redis primary service FQDN, added dependency startup gates, and provided a generated GoTrue admin password default
+  - `appflowyinc/appflowy_worker:0.15.22` -> `appflowyinc/appflowy_worker:0.16.5`: validated AppFlowy Cloud, Worker, Web, and GoTrue runtime startup; fixed Redis primary service FQDN, added dependency startup gates, and provided a generated GoTrue admin password default
+  - `appflowyinc/gotrue:0.15.22` -> `appflowyinc/gotrue:0.16.5`: validated AppFlowy Cloud, Worker, Web, and GoTrue runtime startup; fixed Redis primary service FQDN, added dependency startup gates, and provided a generated GoTrue admin password default
 - `authentik`
-  - `ghcr.io/goauthentik/server:2025.12.3` -> `ghcr.io/goauthentik/server:2026.5.3`
+  - `ghcr.io/goauthentik/server:2025.12.3` -> `ghcr.io/goauthentik/server:2026.5.3`: newer compatible semver tag found
+- `billionmail`
+  - `alpine/openssl:3.5.4` -> `alpine/openssl:3.5.7`: validated BillionMail mail-stack runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis reached Running, pg-init completed, Core and Roundcube started with zero pod restarts, root URL and /api/languages/get returned 200, Docker API stub _ping/version/containers checks passed, database compatibility objects and uk_relay_domain existed, Core/Webmail logs stayed free of runtime errors, and test footprints were cleaned up
+  - `billionmail/core:4.9.3@sha256:b97c71b463e99368f0fb50a4f3088139c2f04a37171d3b660b92f946a3076692` -> `billionmail/core:4.9.5`: validated BillionMail mail-stack runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis reached Running, pg-init completed, Core and Roundcube started with zero pod restarts, root URL and /api/languages/get returned 200, Docker API stub _ping/version/containers checks passed, database compatibility objects and uk_relay_domain existed, Core/Webmail logs stayed free of runtime errors, and test footprints were cleaned up
+  - `python:3.12.12-alpine` -> `python:3.14.6-alpine`: validated BillionMail mail-stack runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis reached Running, pg-init completed, Core and Roundcube started with zero pod restarts, root URL and /api/languages/get returned 200, Docker API stub _ping/version/containers checks passed, database compatibility objects and uk_relay_domain existed, Core/Webmail logs stayed free of runtime errors, and test footprints were cleaned up
+  - `roundcube/roundcubemail:1.6.11-fpm-alpine` -> `roundcube/roundcubemail:1.7.1-fpm-alpine`: validated BillionMail mail-stack runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis reached Running, pg-init completed, Core and Roundcube started with zero pod restarts, root URL and /api/languages/get returned 200, Docker API stub _ping/version/containers checks passed, database compatibility objects and uk_relay_domain existed, Core/Webmail logs stayed free of runtime errors, and test footprints were cleaned up
+- `budibase`
+  - `budibase/apps:3.15.0` -> `budibase/apps:3.39.22`: validated Budibase runtime on Sealos: Template API dry-run/deploy succeeded, Redis reached Running, CouchDB reached 1/1, apps/worker/proxy reached 1/1 with zero pod restarts after dependency startup gates, root redirected to /builder, /builder and /health returned 200, /api/system/status returned version 3.39.22 with passing health, admin login via /api/global/auth/local/login returned 200, CouchDB contained _users/global-db/global-info and the admin user, object storage bucket secrets existed, recent logs stayed free of runtime errors, and test footprints were cleaned up
+  - `budibase/proxy:3.15.0` -> `budibase/proxy:3.39.22`: validated Budibase runtime on Sealos: Template API dry-run/deploy succeeded, Redis reached Running, CouchDB reached 1/1, apps/worker/proxy reached 1/1 with zero pod restarts after dependency startup gates, root redirected to /builder, /builder and /health returned 200, /api/system/status returned version 3.39.22 with passing health, admin login via /api/global/auth/local/login returned 200, CouchDB contained _users/global-db/global-info and the admin user, object storage bucket secrets existed, recent logs stayed free of runtime errors, and test footprints were cleaned up
+  - `budibase/worker:3.15.0` -> `budibase/worker:3.39.22`: validated Budibase runtime on Sealos: Template API dry-run/deploy succeeded, Redis reached Running, CouchDB reached 1/1, apps/worker/proxy reached 1/1 with zero pod restarts after dependency startup gates, root redirected to /builder, /builder and /health returned 200, /api/system/status returned version 3.39.22 with passing health, admin login via /api/global/auth/local/login returned 200, CouchDB contained _users/global-db/global-info and the admin user, object storage bucket secrets existed, recent logs stayed free of runtime errors, and test footprints were cleaned up
+  - `busybox:1.37.0` -> `busybox:1.38.0`: validated Budibase runtime on Sealos: Template API dry-run/deploy succeeded, Redis reached Running, CouchDB reached 1/1, apps/worker/proxy reached 1/1 with zero pod restarts after dependency startup gates, root redirected to /builder, /builder and /health returned 200, /api/system/status returned version 3.39.22 with passing health, admin login via /api/global/auth/local/login returned 200, CouchDB contained _users/global-db/global-info and the admin user, object storage bucket secrets existed, recent logs stayed free of runtime errors, and test footprints were cleaned up
 - `bunkerweb`
-  - `docker.io/library/busybox:1.36.1` -> `docker.io/library/busybox:1.38.0`
-- `casdoor`
-  - `casbin/casdoor:v1.702.0` -> `casbin/casdoor:v2.190.0`
-  - `casbin/casdoor:v2.32.0` -> `casbin/casdoor:v2.190.0`
+  - `docker.io/library/busybox:1.36.1` -> `docker.io/library/busybox:1.38.0`: updated
 - `bytebase`
-  - `bytebase/bytebase:3.6.1` -> `bytebase/bytebase:3.19.1`
+  - `bytebase/bytebase:3.6.1` -> `bytebase/bytebase:3.19.1`: updated
+- `casdoor`
+  - `casbin/casdoor:v1.702.0` -> `casbin/casdoor:v2.190.0`: updated the Casdoor non-sqlite deployment image to v2.190.0, added originImageName, aligned KubeBlocks MySQL/PostgreSQL metadata and helper Job resources, normalized ConfigMap mounting, and validated the docker-to-sealos template contract
+  - `casbin/casdoor:v2.32.0` -> `casbin/casdoor:v2.190.0`: updated the Casdoor sqlite StatefulSet image to v2.190.0, aligned originImageName, moved the default sqlite data path onto persistent storage, normalized ConfigMap mounting, and validated the docker-to-sealos template contract
 - `changedetection`
-  - `ghcr.io/dgtlmoon/changedetection.io:0.50.43` -> `ghcr.io/dgtlmoon/changedetection.io:0.55.7`
+  - `ghcr.io/dgtlmoon/changedetection.io:0.50.43` -> `ghcr.io/dgtlmoon/changedetection.io:0.55.7`: newer compatible semver tag found
 - `chatgpt-next-web`
-  - `yidadaa/chatgpt-next-web:v2.12.4` -> `yidadaa/chatgpt-next-web:v2.16.1`
+  - `yidadaa/chatgpt-next-web:v2.12.4` -> `yidadaa/chatgpt-next-web:v2.16.1`: updated
 - `chatgpt-on-wechat`
-  - `zhayujie/chatgpt-on-wechat:1.6.8` -> `zhayujie/chatgpt-on-wechat:2.1.2`
-- `chatwoot`
-  - `chatwoot/chatwoot:v4.7.0` -> `chatwoot/chatwoot:v4.15.1`
+  - `zhayujie/chatgpt-on-wechat:1.6.8` -> `zhayujie/chatgpt-on-wechat:2.1.2`: newer compatible semver tag found
 - `chatnio`
-  - `joseluisq/mysql-client:8.0.30` -> `joseluisq/mysql-client:8.0.44`
+  - `joseluisq/mysql-client:8.0.30` -> `joseluisq/mysql-client:8.0.44`: updated queued mysql-client image to joseluisq/mysql-client:8.0.44 and normalized Redis service FQDN, MySQL/Redis database metadata, mysql-init resources, Service metadata and port naming, Ingress defaults, and App type to current docker-to-sealos rules
+- `chatwoot`
+  - `chatwoot/chatwoot:v4.7.0` -> `chatwoot/chatwoot:v4.15.1`: updated Chatwoot web, worker, and init images to v4.15.1, aligned PostgreSQL and Redis connection wiring with approved KubeBlocks secrets, normalized database metadata, helper resources, Service labels, and validated the docker-to-sealos template contract
 - `cobalt`
-  - `ghcr.io/imputnet/cobalt:7.13.3` -> `ghcr.io/imputnet/cobalt:11.7.1`
+  - `ghcr.io/imputnet/cobalt:7.13.3` -> `ghcr.io/imputnet/cobalt:11.7.1`: newer compatible semver tag found
 - `code-server`
-  - `codercom/code-server:4.90.3-39` -> `codercom/code-server:4.126.0-39`
+  - `codercom/code-server:4.90.3-39` -> `codercom/code-server:4.126.0-39`: newer compatible semver tag found
+- `coze-studio`
+  - `alpine/curl:8.12.1` -> `alpine/curl:8.20.0`: validated Coze Studio runtime on Sealos: Template API dry-run/deploy succeeded, MySQL and Redis KubeBlocks clusters reached Running, NSQ lookupd/nsqd reached 1/1, etcd/Elasticsearch/Milvus/server/web reached 1/1 with zero pod restarts, MySQL migrations populated 55 opencoze tables, Redis returned PONG, Elasticsearch 9.1.2 reached green health with project_draft and coze_resource indices, Milvus components reported Healthy, object storage bucket secrets existed and storage assets synced, root and /sign returned 200, public API routes reached the application auth layer with 401 JSON responses, recent logs showed only expected unauthenticated session messages, and test footprints were cleaned up
+  - `bitnamilegacy/elasticsearch:8.18.0` -> `bitnamilegacy/elasticsearch:9.1.2`: validated Coze Studio runtime on Sealos: Template API dry-run/deploy succeeded, MySQL and Redis KubeBlocks clusters reached Running, NSQ lookupd/nsqd reached 1/1, etcd/Elasticsearch/Milvus/server/web reached 1/1 with zero pod restarts, MySQL migrations populated 55 opencoze tables, Redis returned PONG, Elasticsearch 9.1.2 reached green health with project_draft and coze_resource indices, Milvus components reported Healthy, object storage bucket secrets existed and storage assets synced, root and /sign returned 200, public API routes reached the application auth layer with 401 JSON responses, recent logs showed only expected unauthenticated session messages, and test footprints were cleaned up
+  - `busybox:1.36.1` -> `busybox:1.38.0`: validated Coze Studio runtime on Sealos: Template API dry-run/deploy succeeded, MySQL and Redis KubeBlocks clusters reached Running, NSQ lookupd/nsqd reached 1/1, etcd/Elasticsearch/Milvus/server/web reached 1/1 with zero pod restarts, MySQL migrations populated 55 opencoze tables, Redis returned PONG, Elasticsearch 9.1.2 reached green health with project_draft and coze_resource indices, Milvus components reported Healthy, object storage bucket secrets existed and storage assets synced, root and /sign returned 200, public API routes reached the application auth layer with 401 JSON responses, recent logs showed only expected unauthenticated session messages, and test footprints were cleaned up
+  - `mysql:8.0.36` -> `mysql:9.7.1`: skipped because the current Coze Studio template uses a KubeBlocks MySQL Cluster and secret-backed migration flow; the queued raw MySQL container image has no current artifact reference
+  - `nsqio/nsq:v1.2.1` -> `nsqio/nsq:v1.3.0`: validated Coze Studio runtime on Sealos: Template API dry-run/deploy succeeded, MySQL and Redis KubeBlocks clusters reached Running, NSQ lookupd/nsqd reached 1/1, etcd/Elasticsearch/Milvus/server/web reached 1/1 with zero pod restarts, MySQL migrations populated 55 opencoze tables, Redis returned PONG, Elasticsearch 9.1.2 reached green health with project_draft and coze_resource indices, Milvus components reported Healthy, object storage bucket secrets existed and storage assets synced, root and /sign returned 200, public API routes reached the application auth layer with 401 JSON responses, recent logs showed only expected unauthenticated session messages, and test footprints were cleaned up
 - `crmeb`
-  - `joseluisq/mysql-client:8.0.30` -> `joseluisq/mysql-client:8.0.44`
+  - `joseluisq/mysql-client:8.0.30` -> `joseluisq/mysql-client:8.0.44`: updated from queue and passed docker-to-sealos artifact validation
 - `cronicle`
-  - `soulteary/cronicle:0.9.46` -> `soulteary/cronicle:0.9.80`
+  - `soulteary/cronicle:0.9.46` -> `soulteary/cronicle:0.9.80`: newer compatible semver tag found
 - `dataease`
-  - `busybox:1.36.1` -> `busybox:1.38.0`
-  - `registry.cn-qingdao.aliyuncs.com/dataease/dataease:v2.10.12` -> `registry.cn-qingdao.aliyuncs.com/dataease/dataease:v2.10.25`
+  - `busybox:1.36.1` -> `busybox:1.38.0`: updated from queue and passed docker-to-sealos artifact validation
+  - `registry.cn-qingdao.aliyuncs.com/dataease/dataease:v2.10.12` -> `registry.cn-qingdao.aliyuncs.com/dataease/dataease:v2.10.25`: updated from queue and passed docker-to-sealos artifact validation
 - `dbgate`
-  - `dbgate/dbgate:5.3.1-alpine` -> `dbgate/dbgate:7.2.1-alpine`
+  - `dbgate/dbgate:5.3.1-alpine` -> `dbgate/dbgate:7.2.1-alpine`: updated
 - `deeplx`
-  - `ghcr.io/owo-network/deeplx:v0.9.5` -> `ghcr.io/owo-network/deeplx:v1.2.2`
+  - `ghcr.io/owo-network/deeplx:v0.9.5` -> `ghcr.io/owo-network/deeplx:v1.2.2`: newer compatible semver tag found
 - `derper`
-  - `bitnamilegacy/kubectl:1.28.9` -> `bitnamilegacy/kubectl:1.33.4`
-  - `ghcr.io/yangchuansheng/derper:v1.99.0-pre` -> `ghcr.io/yangchuansheng/derper:v1.101.0-pre`
-- `directus`
-  - `directus/directus:11.17.4` -> `directus/directus:12.0.2`
-  - `public.ecr.aws/docker/library/busybox:1.36.1` -> `public.ecr.aws/docker/library/busybox:1.38.0`
-- `docuseal`
-  - `docuseal/docuseal:3.0.1` -> `docuseal/docuseal:3.1.1`
-- `dolibarr`
-  - `mysql:8.0.30` -> `mysql:9.7.1`
-- `drawdb`
-  - `ghcr.io/drawdb-io/drawdb:v1.5.0` -> `ghcr.io/drawdb-io/drawdb:v1.7.0`
-- `edgequake`
-  - `ghcr.io/raphaelmansuy/edgequake-frontend:0.12.2` -> `ghcr.io/raphaelmansuy/edgequake-frontend:0.12.11`
-  - `ghcr.io/raphaelmansuy/edgequake:0.12.2` -> `ghcr.io/raphaelmansuy/edgequake:0.12.11`
-- `elasticsearch`
-  - `busybox:1.37.0` -> `busybox:1.38.0`
-- `emqx`
-  - `emqx/emqx:5.8.9` -> `emqx/emqx:6.2.1`
-- `ever-gauzy`
-  - `busybox:1.36.1` -> `busybox:1.38.0`
-- `evolution-api`
-  - `public.ecr.aws/docker/library/busybox:1.36.1` -> `public.ecr.aws/docker/library/busybox:1.38.0`
-  - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`
-- `featbit-standard`
-  - `featbit/featbit-api-server:5.0.5` -> `featbit/featbit-api-server:5.4.2`
-  - `featbit/featbit-data-analytics-server:5.0.5` -> `featbit/featbit-data-analytics-server:5.4.2`
-  - `featbit/featbit-evaluation-server:5.0.5` -> `featbit/featbit-evaluation-server:5.4.2`
-  - `featbit/featbit-ui:5.0.5` -> `featbit/featbit-ui:5.4.2`
-- `flarum`
-  - `mysql:8.0.30` -> `mysql:9.7.1`
-- `flowise`
-  - `flowiseai/flowise:3.0.5` -> `flowiseai/flowise:3.1.2`
-- `formbricks`
-  - `ghcr.io/formbricks/formbricks:4.9.7` -> `ghcr.io/formbricks/formbricks:5.1.4`
-- `frp`
-  - `bitnamilegacy/kubectl:1.28.9` -> `bitnamilegacy/kubectl:1.33.4`
-- `ghost`
-  - `ghost:6.44.1-alpine` -> `ghost:6.47.0-alpine`
-  - `public.ecr.aws/docker/library/mysql:8.0.30` -> `public.ecr.aws/docker/library/mysql:9.7.1`
-- `gitea`
-  - `gitea/gitea:1.22.0-rootless` -> `gitea/gitea:1.26.4-rootless`
-- `halo`
-  - `halohub/halo:2.18.0` -> `halohub/halo:2.25.4`
-- `hasura`
-  - `hasura/graphql-data-connector:v2.48.11` -> `hasura/graphql-data-connector:v2.49.3`
-- `illa-builder`
-  - `illasoft/illa-builder:v4.8.2` -> `illasoft/illa-builder:v4.8.5`
-- `insforge`
-  - `apecloud/kubeblocks-tools:0.9.3` -> `apecloud/kubeblocks-tools:1.0.2`
-  - `ghcr.io/insforge/insforge-oss:v2.1.8` -> `ghcr.io/insforge/insforge-oss:v2.2.2`
-  - `postgrest/postgrest:v12.2.12` -> `postgrest/postgrest:v13.0.8`
-- `kanboard`
-  - `kanboard/kanboard:v1.2.50` -> `kanboard/kanboard:v1.2.52`
-- `kaneo`
-  - `ghcr.io/usekaneo/api:1.1.8` -> `ghcr.io/usekaneo/api:2.7.7`
-  - `ghcr.io/usekaneo/web:1.1.8` -> `ghcr.io/usekaneo/web:2.7.7`
-- `keycloak`
-  - `quay.io/keycloak/keycloak:26.3.2` -> `quay.io/keycloak/keycloak:26.6.3`
-- `keystone`
-  - `node:22.22.1-alpine` -> `node:26.3.1-alpine`
-- `kuvasz`
-  - `kuvaszmonitoring/kuvasz:3.11.0` -> `kuvaszmonitoring/kuvasz:4.0.1`
-- `langflow`
-  - `langflowai/langflow:1.9.5` -> `langflowai/langflow:1.10.1`
-- `librechat`
-  - `ghcr.io/danny-avila/librechat:v0.7.3` -> `ghcr.io/danny-avila/librechat:v0.8.7`
-- `listmonk`
-  - `busybox:1.37.0` -> `busybox:1.38.0`
-- `llmgateway`
-  - `ghcr.io/theopenco/llmgateway-api:v1.3.0` -> `ghcr.io/theopenco/llmgateway-api:v1.5.0`
-  - `ghcr.io/theopenco/llmgateway-docs:v1.3.0` -> `ghcr.io/theopenco/llmgateway-docs:v1.5.0`
-  - `ghcr.io/theopenco/llmgateway-gateway:v1.3.0` -> `ghcr.io/theopenco/llmgateway-gateway:v1.5.0`
-  - `ghcr.io/theopenco/llmgateway-ui:v1.3.0` -> `ghcr.io/theopenco/llmgateway-ui:v1.5.0`
-  - `ghcr.io/theopenco/llmgateway-worker:v1.3.0` -> `ghcr.io/theopenco/llmgateway-worker:v1.5.0`
-  - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`
-- `lobe-chat-db`
-  - `lobehub/lobe-chat-database:1.143.2` -> `lobehub/lobe-chat-database:1.143.3`
-- `loki`
-  - `busybox:1.37.0` -> `busybox:1.38.0`
-- `mastodon`
-  - `ghcr.io/mastodon/mastodon-streaming:v4.5.11` -> `ghcr.io/mastodon/mastodon-streaming:v4.6.2`
-  - `ghcr.io/mastodon/mastodon:v4.5.11` -> `ghcr.io/mastodon/mastodon:v4.6.2`
-- `matomo`
-  - `matomo:5.10.0-apache` -> `matomo:5.11.2-apache`
-  - `mysql:8.0.44` -> `mysql:9.7.1`
-- `mautic`
-  - `busybox:1.36.1` -> `busybox:1.38.0`
-  - `mysql:8.4.2` -> `mysql:9.7.1`
-- `meilisearch`
-  - `getmeili/meilisearch:v1.45.1` -> `getmeili/meilisearch:v1.48.2`
-- `metabase`
-  - `metabase/metabase:v0.61.3` -> `metabase/metabase:v0.62.3`
-- `minecraft`
-  - `alpine:3.22.4` -> `alpine:3.24.1`
-  - `itzg/minecraft-server:2026.5.3-java25` -> `itzg/minecraft-server:2026.6.1-java25`
-- `mlflow`
-  - `ghcr.io/mlflow/mlflow:v3.12.0` -> `ghcr.io/mlflow/mlflow:v3.14.0`
-- `n8n`
-  - `n8nio/n8n:2.22.4` -> `n8nio/n8n:2.28.1`
-  - `n8nio/runners:2.22.4` -> `n8nio/runners:2.28.1`
-- `nacos`
-  - `mysql:8.0.44` -> `mysql:9.7.1`
-- `netbird`
-  - `netbirdio/dashboard:v2.38.1` -> `netbirdio/dashboard:v2.80.0`
-  - `netbirdio/management:0.71.4` -> `netbirdio/management:0.73.2`
-  - `netbirdio/relay:0.71.4` -> `netbirdio/relay:0.73.2`
-  - `netbirdio/signal:0.71.4` -> `netbirdio/signal:0.73.2`
-- `nexus`
-  - `alpine:3.22.2` -> `alpine:3.24.1`
-  - `sonatype/nexus3:3.92.3` -> `sonatype/nexus3:3.93.1`
-- `nocodb`
-  - `nocodb/nocodb:2026.05.2` -> `nocodb/nocodb:2026.06.1`
-- `node-red`
-  - `nodered/node-red:4.1.10` -> `nodered/node-red:5.0.0`
-- `nofx`
-  - `alpine/openssl:3.5.4` -> `alpine/openssl:3.5.7`
-- `open-webui`
-  - `ghcr.io/open-webui/open-webui:v0.5.4` -> `ghcr.io/open-webui/open-webui:v0.9.6`
-- `openclaw`
-  - `ghcr.io/openclaw/openclaw:2026.3.8` -> `ghcr.io/openclaw/openclaw:2026.6.10`
-- `openlist`
-  - `openlistteam/openlist:v4.0.9-aria2` -> `openlistteam/openlist:v4.2.2-aria2`
-- `openobserve`
-  - `public.ecr.aws/zinclabs/openobserve:v0.90.3` -> `public.ecr.aws/zinclabs/openobserve:v0.91.0`
-- `outline`
-  - `outlinewiki/outline:1.8.0-1` -> `outlinewiki/outline:1.8.2-0`
-- `overleaf`
-  - `sharelatex/sharelatex:6.1.2` -> `sharelatex/sharelatex:6.2.0`
-- `pageplug`
-  - `cloudtogouser/pageplug-ce:v1.9.35` -> `cloudtogouser/pageplug-ce:v1.9.37`
-- `pangolin`
-  - `docker.io/fosrl/pangolin:1.15.2` -> `docker.io/fosrl/pangolin:1.19.2`
-- `paperclip`
-  - `public.ecr.aws/docker/library/busybox:1.36.1` -> `public.ecr.aws/docker/library/busybox:1.38.0`
-- `pdf2zh`
-  - `byaidu/pdf2zh:1.9.6` -> `byaidu/pdf2zh:1.9.11`
-- `perplexica`
-  - `itzcrazykns1337/perplexica:v1.10.2` -> `itzcrazykns1337/perplexica:v1.12.0`
-- `phpmyadmin`
-  - `phpmyadmin:5.2.1` -> `phpmyadmin:5.2.3`
-- `planka`
-  - `busybox:1.36.1` -> `busybox:1.38.0`
-- `postiz`
-  - `busybox:1.36.1` -> `busybox:1.38.0`
-  - `ghcr.io/gitroomhq/postiz-app:v2.21.8` -> `ghcr.io/gitroomhq/postiz-app:v2.21.10`
-- `pocket-id`
-  - `ghcr.io/pocket-id/pocket-id:v2.2.0` -> `ghcr.io/pocket-id/pocket-id:v2.9.0`
-- `pocketbase`
-  - `adrianmusante/pocketbase:0.29.3` -> `adrianmusante/pocketbase:0.39.4`
-- `presenton`
-  - `ghcr.io/presenton/presenton:v0.8.2-beta` -> `ghcr.io/presenton/presenton:v0.8.9-beta`
-- `prestashop`
-  - `mysql:8.0.30` -> `mysql:9.7.1`
-  - `prestashop/prestashop:9.1.3-apache` -> `prestashop/prestashop:9.1.4-apache`
-- `pterodactyl`
-  - `ghcr.io/pterodactyl/panel:v1.12.4` -> `ghcr.io/pterodactyl/panel:v1.14.0`
-  - `public.ecr.aws/docker/library/mysql:8.0.30` -> `public.ecr.aws/docker/library/mysql:9.7.1`
-- `privatebin`
-  - `ghcr.io/privatebin/fs:1.7.4` -> `ghcr.io/privatebin/fs:2.0.4`
-- `quay`
-  - `python:3.12.8-alpine3.20` -> `python:3.14.6-alpine3.24`
-  - `quay.io/projectquay/quay:v3.9.8` -> `quay.io/projectquay/quay:v3.17.3`
-- `rocketchat`
-  - `registry.rocket.chat/rocketchat/rocket.chat:7.9.0` -> `registry.rocket.chat/rocketchat/rocket.chat:8.5.1`
-- `rsshub`
-  - `diygod/rsshub:2024-07-06` -> `diygod/rsshub:2026-06-24`
-- `s-pdf`
-  - `ghcr.io/stirling-tools/stirling-pdf:1.2.0-fat` -> `ghcr.io/stirling-tools/stirling-pdf:2.13.2-fat`
-- `skardi`
-  - `ghcr.io/skardilabs/skardi/skardi-server:0.3.0` -> `ghcr.io/skardilabs/skardi/skardi-server:0.4.0`
-- `stalwart`
-  - `stalwartlabs/stalwart:v0.16.7` -> `stalwartlabs/stalwart:v0.16.10`
-- `strapi`
-  - `vshadbolt/strapi:5.33.0` -> `vshadbolt/strapi:5.49.0`
-- `sub2api`
-  - `weishaw/sub2api:0.1.104` -> `weishaw/sub2api:0.1.138`
-- `surveyking`
-  - `joseluisq/mysql-client:8.0.30` -> `joseluisq/mysql-client:8.0.44`
-  - `surveyking/surveyking:v1.9.0` -> `surveyking/surveyking:v1.12.0`
-- `tailchat`
-  - `moonrailgun/tailchat:1.11.5` -> `moonrailgun/tailchat:1.11.11`
-- `tianji`
-  - `moonrailgun/tianji:1.18.5` -> `moonrailgun/tianji:1.32.7`
-- `tolgee`
-  - `tolgee/tolgee:v3.113.0` -> `tolgee/tolgee:v3.205.5`
-- `tooljet`
-  - `postgrest/postgrest:v12.0.2` -> `postgrest/postgrest:v13.0.8`
-  - `tooljet/tooljet-ce:v3.20.170-lts` -> `tooljet/tooljet-ce:v3.20.186-lts`
-- `tududi`
-  - `chrisvel/tududi:1.1.0` -> `chrisvel/tududi:1.1.1`
-- `typebot`
-  - `axllent/mailpit:v1.30.1` -> `axllent/mailpit:v1.30.2`
-  - `baptistearno/typebot-builder:3.17.1` -> `baptistearno/typebot-builder:3.17.2`
-  - `baptistearno/typebot-viewer:3.17.1` -> `baptistearno/typebot-viewer:3.17.2`
-- `typo3`
-  - `mysql:8.0.30` -> `mysql:9.7.1`
-- `umami`
-  - `ghcr.io/umami-software/umami:3.0.2` -> `ghcr.io/umami-software/umami:3.2.0`
-- `uptime-kuma`
-  - `louislam/uptime-kuma:1.23.13` -> `louislam/uptime-kuma:2.4.0`
-- `webos`
-  - `fs185085781/webos:v1.4.1` -> `fs185085781/webos:v1.4.4`
-- `wewe-rss`
-  - `joseluisq/mysql-client:8.0.30` -> `joseluisq/mysql-client:8.0.44`
-- `woocommerce`
-  - `mysql:8.0.30` -> `mysql:9.7.1`
-  - `wordpress:6.9.1-php8.3-apache` -> `wordpress:7.0.0-php8.5-apache`
-- `wordpress`
-  - `wordpress:6.5.4` -> `wordpress:7.0.0`
-- `yourls`
-  - `mysql:8.0.30` -> `mysql:9.7.1`
-  - `yourls:1.10.1` -> `yourls:1.10.4`
-- `zitadel`
-  - `ghcr.io/zitadel/zitadel:v4.10.1` -> `ghcr.io/zitadel/zitadel:v4.15.3`
-- `zot`
-  - `ghcr.io/project-zot/zot:v2.1.14` -> `ghcr.io/project-zot/zot:v2.1.18`
-  - `httpd:2.4.63-alpine3.22` -> `httpd:2.4.68-alpine3.24`
-
+  - `bitnamilegacy/kubectl:1.28.9` -> `bitnamilegacy/kubectl:1.33.4`: newer compatible semver tag found
+  - `ghcr.io/yangchuansheng/derper:v1.99.0-pre` -> `ghcr.io/yangchuansheng/derper:v1.101.0-pre`: newer compatible semver tag found
 - `dify`
   - `busybox:1.37.0` -> `busybox:1.38.0`: validated Dify runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis KubeBlocks clusters reached Running, pg-init created dify and dify_plugin databases, API, worker, web, plugin-daemon, sandbox, and Weaviate reached ready with zero pod restarts, root redirected to /apps, /apps, /install, /signin, /console/api/setup, and /console/api/system-features returned expected responses, init validation and first-run setup APIs completed, PostgreSQL migrations populated 111 Dify tables and 13 plugin tables, Redis returned PONG, Weaviate ready and sandbox health/code execution checks passed, and test footprints were cleaned up
   - `langgenius/dify-plugin-daemon:0.5.2-local` -> `langgenius/dify-plugin-daemon:0.6.3-local`: validated Dify runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis KubeBlocks clusters reached Running, pg-init created dify and dify_plugin databases, API, worker, web, plugin-daemon, sandbox, and Weaviate reached ready with zero pod restarts, root redirected to /apps, /apps, /install, /signin, /console/api/setup, and /console/api/system-features returned expected responses, init validation and first-run setup APIs completed, PostgreSQL migrations populated 111 Dify tables and 13 plugin tables, Redis returned PONG, Weaviate ready and sandbox health/code execution checks passed, and test footprints were cleaned up
   - `langgenius/dify-sandbox:0.2.12` -> `langgenius/dify-sandbox:0.2.15`: validated Dify runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis KubeBlocks clusters reached Running, pg-init created dify and dify_plugin databases, API, worker, web, plugin-daemon, sandbox, and Weaviate reached ready with zero pod restarts, root redirected to /apps, /apps, /install, /signin, /console/api/setup, and /console/api/system-features returned expected responses, init validation and first-run setup APIs completed, PostgreSQL migrations populated 111 Dify tables and 13 plugin tables, Redis returned PONG, Weaviate ready and sandbox health/code execution checks passed, and test footprints were cleaned up
+- `directus`
+  - `directus/directus:11.17.4` -> `directus/directus:12.0.2`: updated Directus to 12.0.2, normalized PostgreSQL and Redis KubeBlocks metadata/resources, and replaced app readiness helpers with busybox TCP checks under docker-to-sealos rules
+  - `public.ecr.aws/docker/library/busybox:1.36.1` -> `public.ecr.aws/docker/library/busybox:1.38.0`: updated Directus to 12.0.2, normalized PostgreSQL and Redis KubeBlocks metadata/resources, and replaced app readiness helpers with busybox TCP checks under docker-to-sealos rules
+  - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`: removed the raw Redis helper image from the app StatefulSet and replaced Redis readiness with a busybox TCP check under the docker-to-sealos database-service rule
+- `docuseal`
+  - `docuseal/docuseal:3.0.1` -> `docuseal/docuseal:3.1.1`: newer compatible semver tag found
+- `dolibarr`
+  - `mysql:8.0.30` -> `mysql:9.7.1`: newer compatible semver tag found
+- `drawdb`
+  - `ghcr.io/drawdb-io/drawdb:v1.5.0` -> `ghcr.io/drawdb-io/drawdb:v1.7.0`: newer compatible semver tag found
+- `edgequake`
+  - `ghcr.io/raphaelmansuy/edgequake-frontend:0.12.2` -> `ghcr.io/raphaelmansuy/edgequake-frontend:0.12.11`: newer compatible semver tag found
+  - `ghcr.io/raphaelmansuy/edgequake:0.12.2` -> `ghcr.io/raphaelmansuy/edgequake:0.12.11`: newer compatible semver tag found
+- `elasticsearch`
+  - `busybox:1.37.0` -> `busybox:1.38.0`: newer compatible semver tag found
+- `emqx`
+  - `emqx/emqx:5.8.9` -> `emqx/emqx:6.2.1`: newer compatible semver tag found
+- `glitchtip`
+  - `glitchtip/glitchtip:v4.1.5` -> `glitchtip/glitchtip:v6.0.3`: validated GlitchTip runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis KubeBlocks clusters reached Running, pg-init completed, Django migrations applied 121 migrations across 274 public tables, web and worker containers reached ready with zero restarts, root, /login, and /register returned HTTP 200, Redis returned PONG, S3 object storage put/get/delete succeeded using the internal HTTP endpoint, recent web/worker logs showed healthy startup, and test footprints were cleaned up
+- `ever-gauzy`
+  - `busybox:1.36.1` -> `busybox:1.38.0`: newer compatible semver tag found
+- `evolution-api`
+  - `public.ecr.aws/docker/library/busybox:1.36.1` -> `public.ecr.aws/docker/library/busybox:1.38.0`: updated queued Evolution API helper images and normalized database visibility labels, PostgreSQL/Redis readiness gates, Redis URL composition, object-storage env indirection, and PostgreSQL init detection to current docker-to-sealos rules
+  - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`: updated queued Evolution API helper images and normalized database visibility labels, PostgreSQL/Redis readiness gates, Redis URL composition, object-storage env indirection, and PostgreSQL init detection to current docker-to-sealos rules
 - `fastgpt`
   - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-code-sandbox:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-code-sandbox:v4.14.23`: validated FastGPT runtime on Sealos: added the missing YAML document separator before pg-init so Template API dry-run generated resources, Template API deploy succeeded, MongoDB/PostgreSQL/Redis reached Running, pg-init created the aiproxy database, FastGPT/Plugin/Code Sandbox/MCP Server/AIProxy reached 1/1, root and /login returned 200, preLogin and hashed root login succeeded, tokenLogin succeeded, MongoDB fastgpt collections existed, PostgreSQL aiproxy database existed, Redis returned PONG, Plugin and AIProxy health endpoints returned 200, Code Sandbox process pools and MCP server SSE routing were healthy, and test footprints were cleaned up
   - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-mcp_server:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-mcp_server:v4.14.23`: validated FastGPT runtime on Sealos: added the missing YAML document separator before pg-init so Template API dry-run generated resources, Template API deploy succeeded, MongoDB/PostgreSQL/Redis reached Running, pg-init created the aiproxy database, FastGPT/Plugin/Code Sandbox/MCP Server/AIProxy reached 1/1, root and /login returned 200, preLogin and hashed root login succeeded, tokenLogin succeeded, MongoDB fastgpt collections existed, PostgreSQL aiproxy database existed, Redis returned PONG, Plugin and AIProxy health endpoints returned 200, Code Sandbox process pools and MCP server SSE routing were healthy, and test footprints were cleaned up
@@ -315,11 +121,11 @@
   - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.14.26`: validated FastGPT runtime on Sealos: added the missing YAML document separator before pg-init so Template API dry-run generated resources, Template API deploy succeeded, MongoDB/PostgreSQL/Redis reached Running, pg-init created the aiproxy database, FastGPT/Plugin/Code Sandbox/MCP Server/AIProxy reached 1/1, root and /login returned 200, preLogin and hashed root login succeeded, tokenLogin succeeded, MongoDB fastgpt collections existed, PostgreSQL aiproxy database existed, Redis returned PONG, Plugin and AIProxy health endpoints returned 200, Code Sandbox process pools and MCP server SSE routing were healthy, and test footprints were cleaned up
   - `registry.cn-hangzhou.aliyuncs.com/labring/aiproxy:v0.5.8` -> `registry.cn-hangzhou.aliyuncs.com/labring/aiproxy:v0.6.3`: validated FastGPT runtime on Sealos: added the missing YAML document separator before pg-init so Template API dry-run generated resources, Template API deploy succeeded, MongoDB/PostgreSQL/Redis reached Running, pg-init created the aiproxy database, FastGPT/Plugin/Code Sandbox/MCP Server/AIProxy reached 1/1, root and /login returned 200, preLogin and hashed root login succeeded, tokenLogin succeeded, MongoDB fastgpt collections existed, PostgreSQL aiproxy database existed, Redis returned PONG, Plugin and AIProxy health endpoints returned 200, Code Sandbox process pools and MCP server SSE routing were healthy, and test footprints were cleaned up
 - `fastgpt-milvus`
-  - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-code-sandbox:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-code-sandbox:v4.14.23`: validated FastGPT Milvus runtime on Sealos: added http port names for the FastGPT and Code Sandbox containers so Services with targetPort http generated endpoints, Template API dry-run/deploy succeeded, MongoDB/PostgreSQL/Redis/Milvus reached Running, pg-init created the aiproxy database, FastGPT/Plugin/Code Sandbox/MCP Server/AIProxy reached 1/1, root and /login returned 200, preLogin and hashed root login succeeded, tokenLogin succeeded, MongoDB fastgpt collections existed, PostgreSQL aiproxy database existed, Redis returned PONG, Plugin and AIProxy health endpoints returned 200, Code Sandbox process pools and MCP server SSE routing were healthy, Milvus loaded the modeldata vector collection with indexes, object storage buckets and bucket secrets existed, and test footprints were cleaned up
-  - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-mcp_server:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-mcp_server:v4.14.23`: validated FastGPT Milvus runtime on Sealos: added http port names for the FastGPT and Code Sandbox containers so Services with targetPort http generated endpoints, Template API dry-run/deploy succeeded, MongoDB/PostgreSQL/Redis/Milvus reached Running, pg-init created the aiproxy database, FastGPT/Plugin/Code Sandbox/MCP Server/AIProxy reached 1/1, root and /login returned 200, preLogin and hashed root login succeeded, tokenLogin succeeded, MongoDB fastgpt collections existed, PostgreSQL aiproxy database existed, Redis returned PONG, Plugin and AIProxy health endpoints returned 200, Code Sandbox process pools and MCP server SSE routing were healthy, Milvus loaded the modeldata vector collection with indexes, object storage buckets and bucket secrets existed, and test footprints were cleaned up
-  - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-plugin:v0.6.2` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-plugin:v0.6.3`: validated FastGPT Milvus runtime on Sealos: added http port names for the FastGPT and Code Sandbox containers so Services with targetPort http generated endpoints, Template API dry-run/deploy succeeded, MongoDB/PostgreSQL/Redis/Milvus reached Running, pg-init created the aiproxy database, FastGPT/Plugin/Code Sandbox/MCP Server/AIProxy reached 1/1, root and /login returned 200, preLogin and hashed root login succeeded, tokenLogin succeeded, MongoDB fastgpt collections existed, PostgreSQL aiproxy database existed, Redis returned PONG, Plugin and AIProxy health endpoints returned 200, Code Sandbox process pools and MCP server SSE routing were healthy, Milvus loaded the modeldata vector collection with indexes, object storage buckets and bucket secrets existed, and test footprints were cleaned up
-  - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.14.26`: validated FastGPT Milvus runtime on Sealos: added http port names for the FastGPT and Code Sandbox containers so Services with targetPort http generated endpoints, Template API dry-run/deploy succeeded, MongoDB/PostgreSQL/Redis/Milvus reached Running, pg-init created the aiproxy database, FastGPT/Plugin/Code Sandbox/MCP Server/AIProxy reached 1/1, root and /login returned 200, preLogin and hashed root login succeeded, tokenLogin succeeded, MongoDB fastgpt collections existed, PostgreSQL aiproxy database existed, Redis returned PONG, Plugin and AIProxy health endpoints returned 200, Code Sandbox process pools and MCP server SSE routing were healthy, Milvus loaded the modeldata vector collection with indexes, object storage buckets and bucket secrets existed, and test footprints were cleaned up
-  - `registry.cn-hangzhou.aliyuncs.com/labring/aiproxy:v0.5.8` -> `registry.cn-hangzhou.aliyuncs.com/labring/aiproxy:v0.6.3`: validated FastGPT Milvus runtime on Sealos: added http port names for the FastGPT and Code Sandbox containers so Services with targetPort http generated endpoints, Template API dry-run/deploy succeeded, MongoDB/PostgreSQL/Redis/Milvus reached Running, pg-init created the aiproxy database, FastGPT/Plugin/Code Sandbox/MCP Server/AIProxy reached 1/1, root and /login returned 200, preLogin and hashed root login succeeded, tokenLogin succeeded, MongoDB fastgpt collections existed, PostgreSQL aiproxy database existed, Redis returned PONG, Plugin and AIProxy health endpoints returned 200, Code Sandbox process pools and MCP server SSE routing were healthy, Milvus loaded the modeldata vector collection with indexes, object storage buckets and bucket secrets existed, and test footprints were cleaned up
+  - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-code-sandbox:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-code-sandbox:v4.14.23`: validated FastGPT Milvus runtime on Sealos: added http port names for the FastGPT and Code Sandbox containers so Services with targetPort http generated endpoints, Template API dry-run/deploy succeeded, MongoDB/PostgreSQL/Redis/Milvus reached Running, pg-init created the aiproxy database, FastGPT/Plugin/Code Sandbox/MCP Server/AIProxy reached 1/1, FastGPT and Code Sandbox endpoints exposed port 3000, root and /login returned 200, preLogin and hashed root login succeeded, tokenLogin succeeded, MongoDB fastgpt collections existed, PostgreSQL aiproxy database existed, Redis returned PONG, Plugin and AIProxy health endpoints returned 200, Code Sandbox process pools and MCP server SSE routing were healthy, Milvus created and loaded the modeldata vector collection with indexes, object storage buckets and bucket secrets existed, and test footprints were cleaned up
+  - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-mcp_server:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-mcp_server:v4.14.23`: validated FastGPT Milvus runtime on Sealos: added http port names for the FastGPT and Code Sandbox containers so Services with targetPort http generated endpoints, Template API dry-run/deploy succeeded, MongoDB/PostgreSQL/Redis/Milvus reached Running, pg-init created the aiproxy database, FastGPT/Plugin/Code Sandbox/MCP Server/AIProxy reached 1/1, FastGPT and Code Sandbox endpoints exposed port 3000, root and /login returned 200, preLogin and hashed root login succeeded, tokenLogin succeeded, MongoDB fastgpt collections existed, PostgreSQL aiproxy database existed, Redis returned PONG, Plugin and AIProxy health endpoints returned 200, Code Sandbox process pools and MCP server SSE routing were healthy, Milvus created and loaded the modeldata vector collection with indexes, object storage buckets and bucket secrets existed, and test footprints were cleaned up
+  - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-plugin:v0.6.2` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-plugin:v0.6.3`: validated FastGPT Milvus runtime on Sealos: added http port names for the FastGPT and Code Sandbox containers so Services with targetPort http generated endpoints, Template API dry-run/deploy succeeded, MongoDB/PostgreSQL/Redis/Milvus reached Running, pg-init created the aiproxy database, FastGPT/Plugin/Code Sandbox/MCP Server/AIProxy reached 1/1, FastGPT and Code Sandbox endpoints exposed port 3000, root and /login returned 200, preLogin and hashed root login succeeded, tokenLogin succeeded, MongoDB fastgpt collections existed, PostgreSQL aiproxy database existed, Redis returned PONG, Plugin and AIProxy health endpoints returned 200, Code Sandbox process pools and MCP server SSE routing were healthy, Milvus created and loaded the modeldata vector collection with indexes, object storage buckets and bucket secrets existed, and test footprints were cleaned up
+  - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.14.26`: validated FastGPT Milvus runtime on Sealos: added http port names for the FastGPT and Code Sandbox containers so Services with targetPort http generated endpoints, Template API dry-run/deploy succeeded, MongoDB/PostgreSQL/Redis/Milvus reached Running, pg-init created the aiproxy database, FastGPT/Plugin/Code Sandbox/MCP Server/AIProxy reached 1/1, FastGPT and Code Sandbox endpoints exposed port 3000, root and /login returned 200, preLogin and hashed root login succeeded, tokenLogin succeeded, MongoDB fastgpt collections existed, PostgreSQL aiproxy database existed, Redis returned PONG, Plugin and AIProxy health endpoints returned 200, Code Sandbox process pools and MCP server SSE routing were healthy, Milvus created and loaded the modeldata vector collection with indexes, object storage buckets and bucket secrets existed, and test footprints were cleaned up
+  - `registry.cn-hangzhou.aliyuncs.com/labring/aiproxy:v0.5.8` -> `registry.cn-hangzhou.aliyuncs.com/labring/aiproxy:v0.6.3`: validated FastGPT Milvus runtime on Sealos: added http port names for the FastGPT and Code Sandbox containers so Services with targetPort http generated endpoints, Template API dry-run/deploy succeeded, MongoDB/PostgreSQL/Redis/Milvus reached Running, pg-init created the aiproxy database, FastGPT/Plugin/Code Sandbox/MCP Server/AIProxy reached 1/1, FastGPT and Code Sandbox endpoints exposed port 3000, root and /login returned 200, preLogin and hashed root login succeeded, tokenLogin succeeded, MongoDB fastgpt collections existed, PostgreSQL aiproxy database existed, Redis returned PONG, Plugin and AIProxy health endpoints returned 200, Code Sandbox process pools and MCP server SSE routing were healthy, Milvus created and loaded the modeldata vector collection with indexes, object storage buckets and bucket secrets existed, and test footprints were cleaned up
 - `fastgpt-pro`
   - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-code-sandbox:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-code-sandbox:v4.14.23`: validated FastGPT Pro runtime on Sealos: Template API dry-run/deploy succeeded, MongoDB/PostgreSQL/Redis reached Running, pg-init created the aiproxy database, FastGPT/Pro/Plugin/Code Sandbox/MCP Server/AIProxy reached 1/1, all Service endpoints exposed port 3000, root and /login returned 200, preLogin and hashed root login succeeded, tokenLogin succeeded, Pro service returned the admin UI over the cluster Service, MongoDB fastgpt collections and Pro-related collections existed, PostgreSQL aiproxy database existed, Redis returned PONG, Plugin and AIProxy health endpoints returned 200, Code Sandbox process pools and MCP server SSE routing were healthy, object storage buckets and bucket secrets existed, recent Pro/Plugin/AIProxy/Code Sandbox/MCP logs stayed free of runtime errors, and test footprints were cleaned up
   - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-mcp_server:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-mcp_server:v4.14.23`: validated FastGPT Pro runtime on Sealos: Template API dry-run/deploy succeeded, MongoDB/PostgreSQL/Redis reached Running, pg-init created the aiproxy database, FastGPT/Pro/Plugin/Code Sandbox/MCP Server/AIProxy reached 1/1, all Service endpoints exposed port 3000, root and /login returned 200, preLogin and hashed root login succeeded, tokenLogin succeeded, Pro service returned the admin UI over the cluster Service, MongoDB fastgpt collections and Pro-related collections existed, PostgreSQL aiproxy database existed, Redis returned PONG, Plugin and AIProxy health endpoints returned 200, Code Sandbox process pools and MCP server SSE routing were healthy, object storage buckets and bucket secrets existed, recent Pro/Plugin/AIProxy/Code Sandbox/MCP logs stayed free of runtime errors, and test footprints were cleaned up
@@ -327,15 +133,30 @@
   - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-pro:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-pro:v4.14.26`: validated FastGPT Pro runtime on Sealos: Template API dry-run/deploy succeeded, MongoDB/PostgreSQL/Redis reached Running, pg-init created the aiproxy database, FastGPT/Pro/Plugin/Code Sandbox/MCP Server/AIProxy reached 1/1, all Service endpoints exposed port 3000, root and /login returned 200, preLogin and hashed root login succeeded, tokenLogin succeeded, Pro service returned the admin UI over the cluster Service, MongoDB fastgpt collections and Pro-related collections existed, PostgreSQL aiproxy database existed, Redis returned PONG, Plugin and AIProxy health endpoints returned 200, Code Sandbox process pools and MCP server SSE routing were healthy, object storage buckets and bucket secrets existed, recent Pro/Plugin/AIProxy/Code Sandbox/MCP logs stayed free of runtime errors, and test footprints were cleaned up
   - `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.14.22` -> `registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.14.26`: validated FastGPT Pro runtime on Sealos: Template API dry-run/deploy succeeded, MongoDB/PostgreSQL/Redis reached Running, pg-init created the aiproxy database, FastGPT/Pro/Plugin/Code Sandbox/MCP Server/AIProxy reached 1/1, all Service endpoints exposed port 3000, root and /login returned 200, preLogin and hashed root login succeeded, tokenLogin succeeded, Pro service returned the admin UI over the cluster Service, MongoDB fastgpt collections and Pro-related collections existed, PostgreSQL aiproxy database existed, Redis returned PONG, Plugin and AIProxy health endpoints returned 200, Code Sandbox process pools and MCP server SSE routing were healthy, object storage buckets and bucket secrets existed, recent Pro/Plugin/AIProxy/Code Sandbox/MCP logs stayed free of runtime errors, and test footprints were cleaned up
   - `registry.cn-hangzhou.aliyuncs.com/labring/aiproxy:v0.5.8` -> `registry.cn-hangzhou.aliyuncs.com/labring/aiproxy:v0.6.3`: validated FastGPT Pro runtime on Sealos: Template API dry-run/deploy succeeded, MongoDB/PostgreSQL/Redis reached Running, pg-init created the aiproxy database, FastGPT/Pro/Plugin/Code Sandbox/MCP Server/AIProxy reached 1/1, all Service endpoints exposed port 3000, root and /login returned 200, preLogin and hashed root login succeeded, tokenLogin succeeded, Pro service returned the admin UI over the cluster Service, MongoDB fastgpt collections and Pro-related collections existed, PostgreSQL aiproxy database existed, Redis returned PONG, Plugin and AIProxy health endpoints returned 200, Code Sandbox process pools and MCP server SSE routing were healthy, object storage buckets and bucket secrets existed, recent Pro/Plugin/AIProxy/Code Sandbox/MCP logs stayed free of runtime errors, and test footprints were cleaned up
-
-- `glitchtip`
-  - `glitchtip/glitchtip:v4.1.5` -> `glitchtip/glitchtip:v6.0.3`: validated GlitchTip runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis KubeBlocks clusters reached Running, pg-init completed, Django migrations applied 121 migrations across 274 public tables, web and worker containers reached ready with zero restarts, root, /login, and /register returned HTTP 200, Redis returned PONG, S3 object storage put/get/delete succeeded using the internal HTTP endpoint, recent web/worker logs showed healthy startup, and test footprints were cleaned up
-
+- `featbit-standard`
+  - `featbit/featbit-api-server:5.0.5` -> `featbit/featbit-api-server:5.4.2`: newer compatible semver tag found
+  - `featbit/featbit-data-analytics-server:5.0.5` -> `featbit/featbit-data-analytics-server:5.4.2`: newer compatible semver tag found
+  - `featbit/featbit-evaluation-server:5.0.5` -> `featbit/featbit-evaluation-server:5.4.2`: newer compatible semver tag found
+  - `featbit/featbit-ui:5.0.5` -> `featbit/featbit-ui:5.4.2`: newer compatible semver tag found
+- `flarum`
+  - `mysql:8.0.30` -> `mysql:9.7.1`: newer compatible semver tag found
+- `flowise`
+  - `flowiseai/flowise:3.0.5` -> `flowiseai/flowise:3.1.2`: updated queued Flowise image to 3.1.2 and normalized PostgreSQL, object storage env indirection, startup wait helper, Service metadata, App schema, and resource rules to current docker-to-sealos requirements
+- `formbricks`
+  - `ghcr.io/formbricks/formbricks:4.9.7` -> `ghcr.io/formbricks/formbricks:5.1.4`: newer compatible semver tag found
+- `frp`
+  - `bitnamilegacy/kubectl:1.28.9` -> `bitnamilegacy/kubectl:1.33.4`: updated the kubectl helper image from the queue and normalized the touched template contract; docker-to-sealos artifact validation passed
+- `ghost`
+  - `ghost:6.44.1-alpine` -> `ghost:6.47.0-alpine`: updated Ghost application image from queue after object-storage env contract and docker-to-sealos artifact validation passed
+  - `public.ecr.aws/docker/library/mysql:8.0.30` -> `public.ecr.aws/docker/library/mysql:9.7.1`: updated the Ghost MySQL init client to public.ecr.aws/docker/library/mysql:9.7.1 and replaced the StatefulSet MySQL wait helper with a TCP readiness gate to satisfy docker-to-sealos rules
+- `gitea`
+  - `gitea/gitea:1.22.0-rootless` -> `gitea/gitea:1.26.4-rootless`: newer compatible semver tag found
 - `grafana-otel`
   - `grafana/grafana:12.3.0` -> `grafana/grafana:13.1.0`: validated Grafana OTel runtime on Sealos: Template API dry-run/deploy succeeded, OTel Collector, Prometheus, and Grafana reached ready with zero pod restarts after raising Grafana to the 200m/256Mi resource tier, Grafana root and /login returned HTTP 200, Grafana /api/health reported database ok and version 13.1.0, the Prometheus datasource file pointed to the in-cluster Prometheus service, Prometheus /-/ready succeeded, the up query returned 1 for Prometheus and the OTel Collector target with empty lastError fields, OTel Collector 8889 metrics endpoint returned HTTP 200, OTLP HTTP receiver returned 405 for a GET probe, component startup checks showed the OTLP gRPC/HTTP receivers and Prometheus server ready, PVCs bound, and test footprints were cleaned up
   - `otel/opentelemetry-collector:0.99.0` -> `otel/opentelemetry-collector:0.155.0`: validated Grafana OTel runtime on Sealos: Template API dry-run/deploy succeeded, OTel Collector, Prometheus, and Grafana reached ready with zero pod restarts after raising Grafana to the 200m/256Mi resource tier, Grafana root and /login returned HTTP 200, Grafana /api/health reported database ok and version 13.1.0, the Prometheus datasource file pointed to the in-cluster Prometheus service, Prometheus /-/ready succeeded, the up query returned 1 for Prometheus and the OTel Collector target with empty lastError fields, OTel Collector 8889 metrics endpoint returned HTTP 200, OTLP HTTP receiver returned 405 for a GET probe, component startup checks showed the OTLP gRPC/HTTP receivers and Prometheus server ready, PVCs bound, and test footprints were cleaned up
   - `prom/prometheus:v3.8.0` -> `prom/prometheus:v3.12.0`: validated Grafana OTel runtime on Sealos: Template API dry-run/deploy succeeded, OTel Collector, Prometheus, and Grafana reached ready with zero pod restarts after raising Grafana to the 200m/256Mi resource tier, Grafana root and /login returned HTTP 200, Grafana /api/health reported database ok and version 13.1.0, the Prometheus datasource file pointed to the in-cluster Prometheus service, Prometheus /-/ready succeeded, the up query returned 1 for Prometheus and the OTel Collector target with empty lastError fields, OTel Collector 8889 metrics endpoint returned HTTP 200, OTLP HTTP receiver returned 405 for a GET probe, component startup checks showed the OTLP gRPC/HTTP receivers and Prometheus server ready, PVCs bound, and test footprints were cleaned up
-
+- `halo`
+  - `halohub/halo:2.18.0` -> `halohub/halo:2.25.4`: updated
 - `harbor`
   - `goharbor/harbor-core:v2.14.4` -> `goharbor/harbor-core:v2.15.1`: validated Harbor runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis KubeBlocks clusters reached Running, pg-init created the registry database, core, jobservice, portal, registry, registryctl, and Trivy reached ready with zero pod restarts after adding PostgreSQL, Redis, and core startup gates, Harbor core migrated schema through 2.15.0 and reported version v2.15.1, root UI and /api/v2.0/ping returned HTTP 200, admin API login and projects API returned HTTP 200, registry /v2 reached the expected auth challenge, crane push, digest, and manifest retrieval worked for library/codex-smoke, Harbor artifacts API returned the pushed digest, registryctl and Trivy health probes succeeded, PostgreSQL schema_migrations reported 180, Redis returned PONG, object storage bucket secrets and S3 envs were wired, recent startup logs were healthy, and test footprints were cleaned up
   - `goharbor/harbor-jobservice:v2.14.4` -> `goharbor/harbor-jobservice:v2.15.1`: validated Harbor runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis KubeBlocks clusters reached Running, pg-init created the registry database, core, jobservice, portal, registry, registryctl, and Trivy reached ready with zero pod restarts after adding PostgreSQL, Redis, and core startup gates, Harbor core migrated schema through 2.15.0 and reported version v2.15.1, root UI and /api/v2.0/ping returned HTTP 200, admin API login and projects API returned HTTP 200, registry /v2 reached the expected auth challenge, crane push, digest, and manifest retrieval worked for library/codex-smoke, Harbor artifacts API returned the pushed digest, registryctl and Trivy health probes succeeded, PostgreSQL schema_migrations reported 180, Redis returned PONG, object storage bucket secrets and S3 envs were wired, recent startup logs were healthy, and test footprints were cleaned up
@@ -343,28 +164,150 @@
   - `goharbor/harbor-registryctl:v2.14.4` -> `goharbor/harbor-registryctl:v2.15.1`: validated Harbor runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis KubeBlocks clusters reached Running, pg-init created the registry database, core, jobservice, portal, registry, registryctl, and Trivy reached ready with zero pod restarts after adding PostgreSQL, Redis, and core startup gates, Harbor core migrated schema through 2.15.0 and reported version v2.15.1, root UI and /api/v2.0/ping returned HTTP 200, admin API login and projects API returned HTTP 200, registry /v2 reached the expected auth challenge, crane push, digest, and manifest retrieval worked for library/codex-smoke, Harbor artifacts API returned the pushed digest, registryctl and Trivy health probes succeeded, PostgreSQL schema_migrations reported 180, Redis returned PONG, object storage bucket secrets and S3 envs were wired, recent startup logs were healthy, and test footprints were cleaned up
   - `goharbor/registry-photon:v2.14.4` -> `goharbor/registry-photon:v2.15.1`: validated Harbor runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis KubeBlocks clusters reached Running, pg-init created the registry database, core, jobservice, portal, registry, registryctl, and Trivy reached ready with zero pod restarts after adding PostgreSQL, Redis, and core startup gates, Harbor core migrated schema through 2.15.0 and reported version v2.15.1, root UI and /api/v2.0/ping returned HTTP 200, admin API login and projects API returned HTTP 200, registry /v2 reached the expected auth challenge, crane push, digest, and manifest retrieval worked for library/codex-smoke, Harbor artifacts API returned the pushed digest, registryctl and Trivy health probes succeeded, PostgreSQL schema_migrations reported 180, Redis returned PONG, object storage bucket secrets and S3 envs were wired, recent startup logs were healthy, and test footprints were cleaned up
   - `goharbor/trivy-adapter-photon:v2.14.4` -> `goharbor/trivy-adapter-photon:v2.15.1`: validated Harbor runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis KubeBlocks clusters reached Running, pg-init created the registry database, core, jobservice, portal, registry, registryctl, and Trivy reached ready with zero pod restarts after adding PostgreSQL, Redis, and core startup gates, Harbor core migrated schema through 2.15.0 and reported version v2.15.1, root UI and /api/v2.0/ping returned HTTP 200, admin API login and projects API returned HTTP 200, registry /v2 reached the expected auth challenge, crane push, digest, and manifest retrieval worked for library/codex-smoke, Harbor artifacts API returned the pushed digest, registryctl and Trivy health probes succeeded, PostgreSQL schema_migrations reported 180, Redis returned PONG, object storage bucket secrets and S3 envs were wired, recent startup logs were healthy, and test footprints were cleaned up
-
+- `hasura`
+  - `hasura/graphql-data-connector:v2.48.11` -> `hasura/graphql-data-connector:v2.49.3`: updated
+- `illa-builder`
+  - `illasoft/illa-builder:v4.8.2` -> `illasoft/illa-builder:v4.8.5`: newer compatible semver tag found
+- `insforge`
+  - `apecloud/kubeblocks-tools:0.9.3` -> `apecloud/kubeblocks-tools:1.0.2`: newer compatible semver tag found
+  - `ghcr.io/insforge/insforge-oss:v2.1.8` -> `ghcr.io/insforge/insforge-oss:v2.2.2`: newer compatible semver tag found
+  - `postgrest/postgrest:v12.2.12` -> `postgrest/postgrest:v13.0.8`: newer compatible semver tag found
+- `kanboard`
+  - `kanboard/kanboard:v1.2.50` -> `kanboard/kanboard:v1.2.52`: newer compatible semver tag found
+- `kaneo`
+  - `ghcr.io/usekaneo/api:1.1.8` -> `ghcr.io/usekaneo/api:2.7.7`: updated the Kaneo API image to 2.7.7, aligned PostgreSQL 16 initialization and API runtime environment with the v2.7.7 deployment contract, and validated the docker-to-sealos template contract
+  - `ghcr.io/usekaneo/web:1.1.8` -> `ghcr.io/usekaneo/web:2.7.7`: updated the Kaneo web image to 2.7.7, aligned public client and API URLs for the nginx runtime, and normalized Service and Ingress routing under the docker-to-sealos template contract
+- `keycloak`
+  - `quay.io/keycloak/keycloak:26.3.2` -> `quay.io/keycloak/keycloak:26.6.3`: updated
+- `keystone`
+  - `node:22.22.1-alpine` -> `node:26.3.1-alpine`: updated Keystone Node runtime image to node:26.3.1-alpine and normalized PostgreSQL visibility labels, pg-init resources, ConfigMap single-volume mounts, and main startup command to current docker-to-sealos rules
+- `kuvasz`
+  - `kuvaszmonitoring/kuvasz:3.11.0` -> `kuvaszmonitoring/kuvasz:4.0.1`: newer compatible semver tag found
 - `laf`
-  - `quay.io/prometheus/prometheus:v2.45.0` -> `quay.io/prometheus/prometheus:v3.12.0`: validated LAF runtime on Sealos: Template API dry-run/deploy succeeded, MongoDB reached Running, server, web, runtime-exporter, MinIO, and Prometheus reached ready with zero pod restarts, Prometheus was converted to a managed StatefulSet with a 1Gi PVC, /-/ready succeeded, runtime-exporter, database-exporter, and MinIO scrape targets were up, the up query returned 1 for all three targets, web and API routes returned HTTP 200, MongoDB sys_db collections were populated, MinIO console and health endpoints returned HTTP 200, MinIO policy/user jobs completed, the statistics job became best-effort, recent logs stayed free of runtime errors, and test footprints were cleaned up
-
+  - `quay.io/prometheus/prometheus:v2.45.0` -> `quay.io/prometheus/prometheus:v3.12.0`: validated LAF runtime on Sealos: Template API dry-run/deploy succeeded, MongoDB reached Running, server/web/runtime-exporter/MinIO/Prometheus reached ready with zero pod restarts, Prometheus was converted to a managed StatefulSet with a 1Gi PVC, /-/ready succeeded, runtime-exporter/database-exporter/MinIO scrape targets were up, the up query returned 1 for all three targets, web and API routes returned HTTP 200, MongoDB sys_db collections were populated, MinIO console and health endpoints returned HTTP 200, MinIO policy/user jobs completed, the statistics job became best-effort, recent logs stayed free of runtime errors, and test footprints were cleaned up
+- `langflow`
+  - `langflowai/langflow:1.9.5` -> `langflowai/langflow:1.10.1`: updated
 - `langfuse`
   - `clickhouse/clickhouse-server:25.4.2` -> `clickhouse/clickhouse-server:26.5.3`: validated Langfuse runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis KubeBlocks clusters reached Running, pg-init created the langfuse database, ClickHouse 26.5.3, Langfuse web 3.197.1, and worker 3.197.1 reached ready with zero pod restarts, root, sign-up, sign-in, health, readiness, auth providers, and CSRF routes returned HTTP 200, the sign-up API created a smoke user, credentials login returned a session, PostgreSQL reported 75 public tables and 412 Prisma migrations with eval_templates.type present, ClickHouse reported 12 default tables, Redis returned PONG, object storage bucket secrets were wired, recent web/worker/ClickHouse logs stayed free of runtime errors, and test footprints were cleaned up
   - `docker.io/langfuse/langfuse-worker:3.180.0` -> `docker.io/langfuse/langfuse-worker:3.197.1`: validated Langfuse runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis KubeBlocks clusters reached Running, pg-init created the langfuse database, ClickHouse 26.5.3, Langfuse web 3.197.1, and worker 3.197.1 reached ready with zero pod restarts, root, sign-up, sign-in, health, readiness, auth providers, and CSRF routes returned HTTP 200, the sign-up API created a smoke user, credentials login returned a session, PostgreSQL reported 75 public tables and 412 Prisma migrations with eval_templates.type present, ClickHouse reported 12 default tables, Redis returned PONG, object storage bucket secrets were wired, recent web/worker/ClickHouse logs stayed free of runtime errors, and test footprints were cleaned up
   - `docker.io/langfuse/langfuse:3.180.0` -> `docker.io/langfuse/langfuse:3.197.1`: validated Langfuse runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis KubeBlocks clusters reached Running, pg-init created the langfuse database, ClickHouse 26.5.3, Langfuse web 3.197.1, and worker 3.197.1 reached ready with zero pod restarts, root, sign-up, sign-in, health, readiness, auth providers, and CSRF routes returned HTTP 200, the sign-up API created a smoke user, credentials login returned a session, PostgreSQL reported 75 public tables and 412 Prisma migrations with eval_templates.type present, ClickHouse reported 12 default tables, Redis returned PONG, object storage bucket secrets were wired, recent web/worker/ClickHouse logs stayed free of runtime errors, and test footprints were cleaned up
-
+  - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`: skipped because the queued Redis image no longer exists in template/langfuse/index.yaml after prior template contract normalization replaced Redis wait helpers with BusyBox TCP checks and KubeBlocks Redis remains defined through Cluster metadata
+- `librechat`
+  - `ghcr.io/danny-avila/librechat:v0.7.3` -> `ghcr.io/danny-avila/librechat:v0.8.7`: updated LibreChat to v0.8.7 and normalized custom secret handling, Meilisearch pinning, MongoDB visibility labels, Service/Ingress metadata, App schema, and i18n metadata to current docker-to-sealos rules
 - `liebianbao`
-  - `busybox:1.36.1` -> `busybox:1.38.0`: validated LieBianBao runtime on Sealos: Template API dry-run/deploy succeeded, added the App entry resource, aligned MySQL/MongoDB/Redis KubeBlocks resources with the current contract, converted Redis to a single managed component, switched MongoDB host/port to the service FQDN, made the MySQL bootstrap observable, MySQL, MongoDB, and Redis reached Running, the app StatefulSet reached 2/2 with zero restarts, root/login/index.php login routes returned HTTP 200, MySQL imported 548 app tables and seeded admin/web settings, Redis returned PONG, MongoDB ping returned ok, the login form rendered, and test footprints were cleaned up
-  - `nginx:1.25.2` -> `nginx:1.31.2`: validated LieBianBao runtime on Sealos: Template API dry-run/deploy succeeded, added the App entry resource, aligned MySQL/MongoDB/Redis KubeBlocks resources with the current contract, converted Redis to a single managed component, switched MongoDB host/port to the service FQDN, made the MySQL bootstrap observable, MySQL, MongoDB, and Redis reached Running, the app StatefulSet reached 2/2 with zero restarts, root/login/index.php login routes returned HTTP 200, MySQL imported 548 app tables and seeded admin/web settings, Redis returned PONG, MongoDB ping returned ok, the login form rendered, and test footprints were cleaned up
-
+  - `busybox:1.36.1` -> `busybox:1.38.0`: validated LieBianBao runtime on Sealos: Template API dry-run/deploy succeeded, added the App entry resource, aligned MySQL/MongoDB/Redis KubeBlocks resources with the current contract, converted Redis to a single managed component, switched MongoDB host/port to the service FQDN, made the MySQL bootstrap observable, MySQL, MongoDB, and Redis reached Running, the app StatefulSet reached 2/2 with zero restarts, root/login/index.php login routes returned HTTP 200, MySQL imported 548 app tables and seeded admin/web settings, Redis returned PONG, MongoDB ping returned ok, and the login form rendered
+  - `nginx:1.25.2` -> `nginx:1.31.2`: validated LieBianBao runtime on Sealos: Template API dry-run/deploy succeeded, added the App entry resource, aligned MySQL/MongoDB/Redis KubeBlocks resources with the current contract, converted Redis to a single managed component, switched MongoDB host/port to the service FQDN, made the MySQL bootstrap observable, MySQL, MongoDB, and Redis reached Running, the app StatefulSet reached 2/2 with zero restarts, root/login/index.php login routes returned HTTP 200, MySQL imported 548 app tables and seeded admin/web settings, Redis returned PONG, MongoDB ping returned ok, and the login form rendered
+- `listmonk`
+  - `busybox:1.37.0` -> `busybox:1.38.0`: updated
+- `llmgateway`
+  - `ghcr.io/theopenco/llmgateway-api:v1.3.0` -> `ghcr.io/theopenco/llmgateway-api:v1.5.0`: updated queued LLM Gateway v1.5.0 component bundle and normalized database visibility labels, PostgreSQL/Redis readiness gates, PostgreSQL schema wait images, Redis helper waits, and resource requests to current docker-to-sealos rules
+  - `ghcr.io/theopenco/llmgateway-docs:v1.3.0` -> `ghcr.io/theopenco/llmgateway-docs:v1.5.0`: updated queued LLM Gateway v1.5.0 component bundle and normalized database visibility labels, PostgreSQL/Redis readiness gates, PostgreSQL schema wait images, Redis helper waits, and resource requests to current docker-to-sealos rules
+  - `ghcr.io/theopenco/llmgateway-gateway:v1.3.0` -> `ghcr.io/theopenco/llmgateway-gateway:v1.5.0`: updated queued LLM Gateway v1.5.0 component bundle and normalized database visibility labels, PostgreSQL/Redis readiness gates, PostgreSQL schema wait images, Redis helper waits, and resource requests to current docker-to-sealos rules
+  - `ghcr.io/theopenco/llmgateway-ui:v1.3.0` -> `ghcr.io/theopenco/llmgateway-ui:v1.5.0`: updated queued LLM Gateway v1.5.0 component bundle and normalized database visibility labels, PostgreSQL/Redis readiness gates, PostgreSQL schema wait images, Redis helper waits, and resource requests to current docker-to-sealos rules
+  - `ghcr.io/theopenco/llmgateway-worker:v1.3.0` -> `ghcr.io/theopenco/llmgateway-worker:v1.5.0`: updated queued LLM Gateway v1.5.0 component bundle and normalized database visibility labels, PostgreSQL/Redis readiness gates, PostgreSQL schema wait images, Redis helper waits, and resource requests to current docker-to-sealos rules
+  - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`: updated queued LLM Gateway v1.5.0 component bundle and normalized database visibility labels, PostgreSQL/Redis readiness gates, PostgreSQL schema wait images, Redis helper waits, and resource requests to current docker-to-sealos rules
+- `lobe-chat-db`
+  - `lobehub/lobe-chat-database:1.143.2` -> `lobehub/lobe-chat-database:1.143.3`: updated queued Lobe Chat database image and normalized PostgreSQL visibility labels, ACCESS_CODE input declaration, pg-init readiness and resources, database URL env indirection, Service labels/port naming, and Ingress ssl redirect to current docker-to-sealos rules
+- `loki`
+  - `busybox:1.37.0` -> `busybox:1.38.0`: newer compatible semver tag found
+- `mastodon`
+  - `ghcr.io/mastodon/mastodon-streaming:v4.5.11` -> `ghcr.io/mastodon/mastodon-streaming:v4.6.2`: updated queued Mastodon images to v4.6.2 and normalized PostgreSQL wait initContainers and resource ladder values to current docker-to-sealos rules
+  - `ghcr.io/mastodon/mastodon:v4.5.11` -> `ghcr.io/mastodon/mastodon:v4.6.2`: updated queued Mastodon images to v4.6.2 and normalized PostgreSQL wait initContainers and resource ladder values to current docker-to-sealos rules
+- `matomo`
+  - `matomo:5.10.0-apache` -> `matomo:5.11.2-apache`: updated from queue and passed docker-to-sealos artifact validation
+  - `mysql:8.0.44` -> `mysql:9.7.1`: updated from queue and passed docker-to-sealos artifact validation
+- `mautic`
+  - `busybox:1.36.1` -> `busybox:1.38.0`: updated from queue and passed docker-to-sealos artifact validation
+  - `mysql:8.4.2` -> `mysql:9.7.1`: updated from queue and passed docker-to-sealos artifact validation
+- `meilisearch`
+  - `getmeili/meilisearch:v1.45.1` -> `getmeili/meilisearch:v1.48.2`: newer compatible semver tag found
+- `metabase`
+  - `metabase/metabase:v0.61.3` -> `metabase/metabase:v0.62.3`: newer compatible semver tag found
+- `minecraft`
+  - `alpine:3.22.4` -> `alpine:3.24.1`: updated from queue and passed docker-to-sealos artifact validation
+  - `itzg/minecraft-server:2026.5.3-java25` -> `itzg/minecraft-server:2026.6.1-java25`: updated from queue and passed docker-to-sealos artifact validation; preserved the Java 25 runtime tag family for the Minecraft server image
+- `mlflow`
+  - `ghcr.io/mlflow/mlflow:v3.12.0` -> `ghcr.io/mlflow/mlflow:v3.14.0`: updated
+- `n8n`
+  - `n8nio/n8n:2.22.4` -> `n8nio/n8n:2.28.1`: updated
+  - `n8nio/runners:2.22.4` -> `n8nio/runners:2.28.1`: updated
+- `nacos`
+  - `mysql:8.0.44` -> `mysql:9.7.1`: updated from queue and passed docker-to-sealos artifact validation
+- `netbird`
+  - `netbirdio/dashboard:v2.38.1` -> `netbirdio/dashboard:v2.80.0`: updated from queue and passed docker-to-sealos artifact validation
+  - `netbirdio/management:0.71.4` -> `netbirdio/management:0.73.2`: updated from queue and passed docker-to-sealos artifact validation
+  - `netbirdio/relay:0.71.4` -> `netbirdio/relay:0.73.2`: updated from queue and passed docker-to-sealos artifact validation
+  - `netbirdio/signal:0.71.4` -> `netbirdio/signal:0.73.2`: updated from queue and passed docker-to-sealos artifact validation
+- `nexus`
+  - `alpine:3.22.2` -> `alpine:3.24.1`: updated
+  - `sonatype/nexus3:3.92.3` -> `sonatype/nexus3:3.93.1`: updated
+- `nocodb`
+  - `nocodb/nocodb:2026.05.2` -> `nocodb/nocodb:2026.06.1`: newer compatible date tag found
+- `node-red`
+  - `nodered/node-red:4.1.10` -> `nodered/node-red:5.0.0`: newer compatible semver tag found
+- `nofx`
+  - `alpine/openssl:3.5.4` -> `alpine/openssl:3.5.7`: newer compatible semver tag found
+- `open-webui`
+  - `ghcr.io/open-webui/open-webui:v0.5.4` -> `ghcr.io/open-webui/open-webui:v0.9.6`: updated queued Open WebUI image family to ghcr.io/open-webui/open-webui:v0.9.6 and normalized Template locale/i18n metadata, app_host default, init resources and imagePullPolicy, main workload resource requests, Service metadata, and Ingress defaults to current docker-to-sealos rules
+- `openclaw`
+  - `ghcr.io/openclaw/openclaw:2026.3.8` -> `ghcr.io/openclaw/openclaw:2026.6.10`: updated
+- `openlist`
+  - `openlistteam/openlist:v4.0.9-aria2` -> `openlistteam/openlist:v4.2.2-aria2`: newer compatible semver tag found
+- `openobserve`
+  - `public.ecr.aws/zinclabs/openobserve:v0.90.3` -> `public.ecr.aws/zinclabs/openobserve:v0.91.0`: newer compatible semver tag found
+- `outline`
+  - `outlinewiki/outline:1.8.0-1` -> `outlinewiki/outline:1.8.2-0`: updated Outline image from queue and normalized the object-storage boolean input, S3 secret env indirection, and PostgreSQL init resources to current docker-to-sealos rules
+- `overleaf`
+  - `sharelatex/sharelatex:6.1.2` -> `sharelatex/sharelatex:6.2.0`: updated
+- `pageplug`
+  - `cloudtogouser/pageplug-ce:v1.9.35` -> `cloudtogouser/pageplug-ce:v1.9.37`: newer compatible semver tag found
+- `pangolin`
+  - `docker.io/fosrl/pangolin:1.15.2` -> `docker.io/fosrl/pangolin:1.19.2`: updated
+- `paperclip`
+  - `public.ecr.aws/docker/library/busybox:1.36.1` -> `public.ecr.aws/docker/library/busybox:1.38.0`: updated Paperclip busybox helper from queue and normalized PostgreSQL init, startup wait image, S3 secret env indirection, and Sealos resource requests to current docker-to-sealos rules
+- `pdf2zh`
+  - `byaidu/pdf2zh:1.9.6` -> `byaidu/pdf2zh:1.9.11`: newer compatible semver tag found
 - `penpot`
   - `penpotapp/backend:2.1.2` -> `penpotapp/backend:2.16.1`: validated Penpot runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis KubeBlocks clusters reached Running, backend/exporter/frontend reached 1/1, frontend served the root app through Service port 80 targeting container port 8080, /readyz returned OK, root and anonymous profile API returned HTTP 200, backend logs showed migrations applied through 0151 and Penpot 2.16.1 startup, Redis authenticated PONG succeeded, object storage bucket and secret existed, and the test footprint was cleaned up
   - `penpotapp/exporter:2.1.2` -> `penpotapp/exporter:2.16.1`: validated Penpot runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis KubeBlocks clusters reached Running, backend/exporter/frontend reached 1/1, frontend served the root app through Service port 80 targeting container port 8080, /readyz returned OK, root and anonymous profile API returned HTTP 200, backend logs showed migrations applied through 0151 and Penpot 2.16.1 startup, Redis authenticated PONG succeeded, object storage bucket and secret existed, and the test footprint was cleaned up
   - `penpotapp/frontend:2.1.2` -> `penpotapp/frontend:2.16.1`: validated Penpot runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis KubeBlocks clusters reached Running, backend/exporter/frontend reached 1/1, frontend served the root app through Service port 80 targeting container port 8080, /readyz returned OK, root and anonymous profile API returned HTTP 200, backend logs showed migrations applied through 0151 and Penpot 2.16.1 startup, Redis authenticated PONG succeeded, object storage bucket and secret existed, and the test footprint was cleaned up
-
+- `perplexica`
+  - `itzcrazykns1337/perplexica:v1.10.2` -> `itzcrazykns1337/perplexica:v1.12.0`: updated queued Perplexica image to itzcrazykns1337/perplexica:v1.12.0 and normalized ConfigMap labels and mounts, Service metadata and port names, workload labels, and duplicate zh title to current docker-to-sealos rules
+- `phpmyadmin`
+  - `phpmyadmin:5.2.1` -> `phpmyadmin:5.2.3`: newer compatible semver tag found
+- `planka`
+  - `busybox:1.36.1` -> `busybox:1.38.0`: newer compatible semver tag found
+- `pocket-id`
+  - `ghcr.io/pocket-id/pocket-id:v2.2.0` -> `ghcr.io/pocket-id/pocket-id:v2.9.0`: updated
+- `pocketbase`
+  - `adrianmusante/pocketbase:0.29.3` -> `adrianmusante/pocketbase:0.39.4`: updated
 - `posthog`
-  - `docker.redpanda.com/redpandadata/redpanda:v25.1.9` -> `docker.redpanda.com/redpandadata/redpanda:v26.1.10`: validated PostHog runtime on Sealos: Template API dry-run/deploy succeeded, restored the missing YAML document separator before the Ingress, raised Redpanda to the 1Gi resource tier with a 768M working memory setting, PostgreSQL and Redis reached Running, pg-init completed, Redpanda, Zookeeper, ClickHouse, web, worker, plugins, capture, replay-capture, and feature-flags reached ready, root redirected to /preflight, /login and /signup returned HTTP 200, /_health returned ok, Redpanda rpk cluster health was healthy, ClickHouse contained the posthog database, Redis returned PONG, PostgreSQL reported 695 Django migrations, capture connected to Kafka, and test footprints were cleaned up
-  - `zookeeper:3.9.3` -> `zookeeper:3.9.5`: validated PostHog runtime on Sealos: Template API dry-run/deploy succeeded, restored the missing YAML document separator before the Ingress, raised Redpanda to the 1Gi resource tier with a 768M working memory setting, PostgreSQL and Redis reached Running, pg-init completed, Redpanda, Zookeeper, ClickHouse, web, worker, plugins, capture, replay-capture, and feature-flags reached ready, root redirected to /preflight, /login and /signup returned HTTP 200, /_health returned ok, Redpanda rpk cluster health was healthy, ClickHouse contained the posthog database, Redis returned PONG, PostgreSQL reported 695 Django migrations, capture connected to Kafka, and test footprints were cleaned up
-
+  - `docker.redpanda.com/redpandadata/redpanda:v25.1.9` -> `docker.redpanda.com/redpandadata/redpanda:v26.1.10`: validated PostHog runtime on Sealos after Redpanda and Zookeeper updates: Template API dry-run/deploy succeeded, restored the missing YAML document separator before the Ingress, raised the Redpanda container to the 1Gi resource tier with a 768M working memory setting, PostgreSQL and Redis KubeBlocks clusters reached Running, pg-init completed, Redpanda/Zookeeper/ClickHouse and the PostHog web, worker, plugins, capture, replay-capture, and feature-flags workloads reached ready, root redirected to /preflight, /login and /signup returned HTTP 200, /_health returned ok, Redpanda rpk cluster health was healthy, ClickHouse contained the posthog database, Redis returned PONG, PostgreSQL reported 695 Django migrations, capture connected to Kafka, and test footprints were cleaned up
+  - `zookeeper:3.9.3` -> `zookeeper:3.9.5`: validated PostHog runtime on Sealos after Redpanda and Zookeeper updates: Template API dry-run/deploy succeeded, restored the missing YAML document separator before the Ingress, raised the Redpanda container to the 1Gi resource tier with a 768M working memory setting, PostgreSQL and Redis KubeBlocks clusters reached Running, pg-init completed, Redpanda/Zookeeper/ClickHouse and the PostHog web, worker, plugins, capture, replay-capture, and feature-flags workloads reached ready, root redirected to /preflight, /login and /signup returned HTTP 200, /_health returned ok, Redpanda rpk cluster health was healthy, ClickHouse contained the posthog database, Redis returned PONG, PostgreSQL reported 695 Django migrations, capture connected to Kafka, and test footprints were cleaned up
+- `postiz`
+  - `busybox:1.36.1` -> `busybox:1.38.0`: updated Postiz busybox helper images to 1.38.0 while preserving readiness and ownership helper behavior
+  - `elasticsearch:7.17.27` -> `elasticsearch:9.4.2`: kept Elasticsearch 7.17.27 because the 9.4.2 visibility-store major upgrade requires dedicated data compatibility and runtime validation
+  - `ghcr.io/gitroomhq/postiz-app:v2.21.8` -> `ghcr.io/gitroomhq/postiz-app:v2.21.10`: updated Postiz app patch image to v2.21.10 and validated the docker-to-sealos template contract
+  - `temporalio/auto-setup:1.28.1` -> `temporalio/auto-setup:1.29.7`: kept Temporal auto-setup 1.28.1 because the 1.29.7 workflow service update requires dedicated Postiz workflow validation
+- `presenton`
+  - `ghcr.io/presenton/presenton:v0.8.2-beta` -> `ghcr.io/presenton/presenton:v0.8.9-beta`: newer compatible semver tag found
+- `prestashop`
+  - `mysql:8.0.30` -> `mysql:9.7.1`: updated from queue and passed docker-to-sealos artifact validation
+  - `prestashop/prestashop:9.1.3-apache` -> `prestashop/prestashop:9.1.4-apache`: updated from queue and passed docker-to-sealos artifact validation
+- `privatebin`
+  - `ghcr.io/privatebin/fs:1.7.4` -> `ghcr.io/privatebin/fs:2.0.4`: updated queued PrivateBin image to ghcr.io/privatebin/fs:2.0.4 and normalized Template locale/i18n metadata, ConfigMap labels and mounts, resource requests, Service metadata, Ingress defaults, and App type to current docker-to-sealos rules
+- `pterodactyl`
+  - `ghcr.io/pterodactyl/panel:v1.12.4` -> `ghcr.io/pterodactyl/panel:v1.14.0`: updated Pterodactyl panel images to v1.14.0 and validated the docker-to-sealos template contract
+  - `public.ecr.aws/docker/library/mysql:8.0.30` -> `public.ecr.aws/docker/library/mysql:9.7.1`: updated the MySQL client image to 9.7.1 for the init database creation job and replaced app readiness helpers with non-database busybox TCP checks
+  - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`: removed raw Redis helper images from init containers and replaced Redis readiness with busybox TCP checks under the docker-to-sealos database-service rule
+- `quay`
+  - `python:3.12.8-alpine3.20` -> `python:3.14.6-alpine3.24`: newer compatible semver tag found
+  - `quay.io/projectquay/quay:v3.9.8` -> `quay.io/projectquay/quay:v3.17.3`: newer compatible semver tag found
+- `registry`
+  - `joxit/docker-registry-ui:2.5.6-debian` -> `joxit/docker-registry-ui:2.6.0-debian`: updated the Registry UI image to 2.6.0-debian, aligned originImageName, normalized Service and Ingress routing, and validated the docker-to-sealos template contract
+  - `registry:2.8.3` -> `registry:3.1.1`: updated the Registry image to 3.1.1, moved the config mount to the v3 /etc/distribution/config.yml path, normalized ConfigMap and storage wiring, and validated the docker-to-sealos template contract
+- `rocketchat`
+  - `registry.rocket.chat/rocketchat/rocket.chat:7.9.0` -> `registry.rocket.chat/rocketchat/rocket.chat:8.5.1`: newer compatible semver tag found
 - `rocketchat-micro`
   - `natsio/nats-server-config-reloader:0.6.3` -> `natsio/nats-server-config-reloader:0.23.0`: validated Rocket.Chat microservices runtime on Sealos: Template API dry-run/deploy succeeded; fixed MongoDB connection secret-key drift by using the MongoDB Service DNS; added authSource=rocketchat; made mongo-init idempotent; raised the main Rocket.Chat container to the 2Gi resource tier; kept MongoDB at the docker-to-sealos 512Mi component tier; MongoDB, NATS, the main app, account, authorization, DDP streamer, presence, and stream hub reached ready; root /, /health, /api/info, /sockjs/info, and /websocket returned HTTP 200; Rocket.Chat 8.5.1 reported SERVER RUNNING; MongoDB contained 83 collections with seeded users and rooms; NATS varz and config reloader were healthy; metrics endpoints returned HTTP 200; test footprints were cleaned up
   - `rocketchat/account-service:7.9.0` -> `rocketchat/account-service:8.5.1`: validated Rocket.Chat microservices runtime on Sealos: Template API dry-run/deploy succeeded; fixed MongoDB connection secret-key drift by using the MongoDB Service DNS; added authSource=rocketchat; made mongo-init idempotent; raised the main Rocket.Chat container to the 2Gi resource tier; kept MongoDB at the docker-to-sealos 512Mi component tier; MongoDB, NATS, the main app, account, authorization, DDP streamer, presence, and stream hub reached ready; root /, /health, /api/info, /sockjs/info, and /websocket returned HTTP 200; Rocket.Chat 8.5.1 reported SERVER RUNNING; MongoDB contained 83 collections with seeded users and rooms; NATS varz and config reloader were healthy; metrics endpoints returned HTTP 200; test footprints were cleaned up
@@ -373,19 +316,25 @@
   - `rocketchat/presence-service:7.9.0` -> `rocketchat/presence-service:8.5.1`: validated Rocket.Chat microservices runtime on Sealos: Template API dry-run/deploy succeeded; fixed MongoDB connection secret-key drift by using the MongoDB Service DNS; added authSource=rocketchat; made mongo-init idempotent; raised the main Rocket.Chat container to the 2Gi resource tier; kept MongoDB at the docker-to-sealos 512Mi component tier; MongoDB, NATS, the main app, account, authorization, DDP streamer, presence, and stream hub reached ready; root /, /health, /api/info, /sockjs/info, and /websocket returned HTTP 200; Rocket.Chat 8.5.1 reported SERVER RUNNING; MongoDB contained 83 collections with seeded users and rooms; NATS varz and config reloader were healthy; metrics endpoints returned HTTP 200; test footprints were cleaned up
   - `rocketchat/rocket.chat:7.9.0` -> `rocketchat/rocket.chat:8.5.1`: validated Rocket.Chat microservices runtime on Sealos: Template API dry-run/deploy succeeded; fixed MongoDB connection secret-key drift by using the MongoDB Service DNS; added authSource=rocketchat; made mongo-init idempotent; raised the main Rocket.Chat container to the 2Gi resource tier; kept MongoDB at the docker-to-sealos 512Mi component tier; MongoDB, NATS, the main app, account, authorization, DDP streamer, presence, and stream hub reached ready; root /, /health, /api/info, /sockjs/info, and /websocket returned HTTP 200; Rocket.Chat 8.5.1 reported SERVER RUNNING; MongoDB contained 83 collections with seeded users and rooms; NATS varz and config reloader were healthy; metrics endpoints returned HTTP 200; test footprints were cleaned up
   - `rocketchat/stream-hub-service:7.9.0` -> `rocketchat/stream-hub-service:7.13.9`: validated Rocket.Chat microservices runtime on Sealos: Template API dry-run/deploy succeeded; fixed MongoDB connection secret-key drift by using the MongoDB Service DNS; added authSource=rocketchat; made mongo-init idempotent; raised the main Rocket.Chat container to the 2Gi resource tier; kept MongoDB at the docker-to-sealos 512Mi component tier; MongoDB, NATS, the main app, account, authorization, DDP streamer, presence, and stream hub reached ready; root /, /health, /api/info, /sockjs/info, and /websocket returned HTTP 200; Rocket.Chat 8.5.1 reported SERVER RUNNING; MongoDB contained 83 collections with seeded users and rooms; NATS varz and config reloader were healthy; metrics endpoints returned HTTP 200; test footprints were cleaned up
-
+- `rsshub`
+  - `diygod/rsshub:2024-07-06` -> `diygod/rsshub:2026-06-24`: updated the RSSHub image from the queue and normalized Redis, Service, Ingress, App, and metadata contract; docker-to-sealos artifact validation passed
 - `rybbit`
   - `clickhouse/clickhouse-server:25.4.2` -> `clickhouse/clickhouse-server:26.5.3`: validated Rybbit runtime on Sealos: Template API dry-run/deploy succeeded; added a client ConfigMap startup patch for the prebuilt Next.js standalone NEXT_PUBLIC_BACKEND_URL and NEXT_PUBLIC_DISABLE_SIGNUP values; PostgreSQL KubeBlocks reached Running; pg-init completed; ClickHouse 26.5.3, backend, and client reached ready with zero restarts; root, /login, /signup, /api/health, /api/auth/get-session, and /api/config returned HTTP 200 without runtime failure markers; sign-up, session retrieval, and organization creation APIs returned 200; PostgreSQL contained 33 public tables; ClickHouse contained the analytics tables; recent logs were healthy; test footprints were cleaned up
-
+- `s-pdf`
+  - `ghcr.io/stirling-tools/stirling-pdf:1.2.0-fat` -> `ghcr.io/stirling-tools/stirling-pdf:2.13.2-fat`: updated Stirling-PDF image and normalized PostgreSQL init, ConfigMap mounts, init resources, service labels, and locale metadata to current docker-to-sealos rules
 - `signoz`
   - `clickhouse/clickhouse-server:25.5.6` -> `clickhouse/clickhouse-server:26.5.3`: validated SigNoz runtime on Sealos: Template API dry-run/deploy succeeded, fixed the ClickHouse single-node cluster host to 127.0.0.1 so ON CLUSTER migrations execute locally, added migration startup gates, switched the OTel Collector to static config so OTLP receivers stay active, Zookeeper/ClickHouse/SigNoz/Collector reached ready with zero restarts, root and /api/v1/health returned HTTP 200, /api/v1/version reported v0.130.1 with setupCompleted false, ClickHouse 26.5.3 created signoz_analytics/signoz_logs/signoz_metadata/signoz_meter/signoz_metrics/signoz_traces with no pending distributed DDLs, OTLP HTTP trace ingestion returned 200 and wrote codex-signoz-smoke/signoz-template-smoke to ClickHouse, and the test footprints were cleaned up
   - `signoz/signoz-otel-collector:v0.144.2` -> `signoz/signoz-otel-collector:v0.144.5`: validated SigNoz runtime on Sealos: Template API dry-run/deploy succeeded, fixed the ClickHouse single-node cluster host to 127.0.0.1 so ON CLUSTER migrations execute locally, added migration startup gates, switched the OTel Collector to static config so OTLP receivers stay active, Zookeeper/ClickHouse/SigNoz/Collector reached ready with zero restarts, root and /api/v1/health returned HTTP 200, /api/v1/version reported v0.130.1 with setupCompleted false, ClickHouse 26.5.3 created signoz_analytics/signoz_logs/signoz_metadata/signoz_meter/signoz_metrics/signoz_traces with no pending distributed DDLs, OTLP HTTP trace ingestion returned 200 and wrote codex-signoz-smoke/signoz-template-smoke to ClickHouse, and the test footprints were cleaned up
   - `signoz/signoz:v0.117.0` -> `signoz/signoz:v0.130.1`: validated SigNoz runtime on Sealos: Template API dry-run/deploy succeeded, fixed the ClickHouse single-node cluster host to 127.0.0.1 so ON CLUSTER migrations execute locally, added migration startup gates, switched the OTel Collector to static config so OTLP receivers stay active, Zookeeper/ClickHouse/SigNoz/Collector reached ready with zero restarts, root and /api/v1/health returned HTTP 200, /api/v1/version reported v0.130.1 with setupCompleted false, ClickHouse 26.5.3 created signoz_analytics/signoz_logs/signoz_metadata/signoz_meter/signoz_metrics/signoz_traces with no pending distributed DDLs, OTLP HTTP trace ingestion returned 200 and wrote codex-signoz-smoke/signoz-template-smoke to ClickHouse, and the test footprints were cleaned up
   - `signoz/zookeeper:3.7.1` -> `signoz/zookeeper:3.9.3`: validated SigNoz runtime on Sealos: Template API dry-run/deploy succeeded, fixed the ClickHouse single-node cluster host to 127.0.0.1 so ON CLUSTER migrations execute locally, added migration startup gates, switched the OTel Collector to static config so OTLP receivers stay active, Zookeeper/ClickHouse/SigNoz/Collector reached ready with zero restarts, root and /api/v1/health returned HTTP 200, /api/v1/version reported v0.130.1 with setupCompleted false, ClickHouse 26.5.3 created signoz_analytics/signoz_logs/signoz_metadata/signoz_meter/signoz_metrics/signoz_traces with no pending distributed DDLs, OTLP HTTP trace ingestion returned 200 and wrote codex-signoz-smoke/signoz-template-smoke to ClickHouse, and the test footprints were cleaned up
-
-- `twenty`
-  - `twentycrm/twenty:v1.12.0` -> `twentycrm/twenty:v2.16.0`: validated Twenty runtime on Sealos: Template API dry-run/deploy succeeded, fixed the missing YAML document separator before the app StatefulSet, added PostgreSQL and Redis startup gates, added a startupProbe for the v2 migration window, gated the worker on the core."keyValuePair" schema, PostgreSQL and Redis reached Running, pg-init completed, app and worker reached ready with zero restarts, root /, /healthz, /sign-in, /sign-up, and /client-config returned HTTP 200 without browser failure markers, PostgreSQL contained the Twenty core schema and 65 non-system tables, Redis returned PONG, recent app and worker logs stayed healthy, and test footprints were cleaned up
-
+- `skardi`
+  - `ghcr.io/skardilabs/skardi/skardi-server:0.3.0` -> `ghcr.io/skardilabs/skardi/skardi-server:0.4.0`: newer compatible semver tag found
+- `stalwart`
+  - `stalwartlabs/stalwart:v0.16.7` -> `stalwartlabs/stalwart:v0.16.10`: updated Stalwart image from queue and normalized PostgreSQL visibility labels, ConfigMap mount naming, object-storage secret env indirection, and PostgreSQL wait image to current docker-to-sealos rules
+- `strapi`
+  - `vshadbolt/strapi:5.33.0` -> `vshadbolt/strapi:5.49.0`: updated Strapi image and normalized PostgreSQL init, ConfigMap script mount, resources, PVC size, service, and ingress rules
+- `sub2api`
+  - `weishaw/sub2api:0.1.104` -> `weishaw/sub2api:0.1.138`: newer compatible semver tag found
 - `supabase`
   - `darthsim/imgproxy:v3.30.1` -> `darthsim/imgproxy:v4.0.6`: validated Supabase eleven-image bundle on Sealos after template contract normalization: docker-to-sealos consistency check, quality gate, Template API dry-run and deploy passed; instance supabase-rjsifcph reached PostgreSQL Running, pg-init and WAL logical OpsRequest completion, all Supabase workloads ready with zero restarts, wal_level=logical, realtime role/schema/database bootstrap present, storage and edge function HTTP checks passed, protected routes returned expected 401 responses, recent logs stayed healthy, and test footprints were cleaned up
   - `kong:2.8.1` -> `kong:3.9.3`: validated Supabase eleven-image bundle on Sealos after template contract normalization: docker-to-sealos consistency check, quality gate, Template API dry-run and deploy passed; instance supabase-rjsifcph reached PostgreSQL Running, pg-init and WAL logical OpsRequest completion, all Supabase workloads ready with zero restarts, wal_level=logical, realtime role/schema/database bootstrap present, storage and edge function HTTP checks passed, protected routes returned expected 401 responses, recent logs stayed healthy, and test footprints were cleaned up
@@ -398,37 +347,78 @@
   - `supabase/studio:2026.02.16-sha-26c615c` -> `supabase/studio:2026.06.22-sha-2207d7f`: validated Supabase eleven-image bundle on Sealos after template contract normalization: docker-to-sealos consistency check, quality gate, Template API dry-run and deploy passed; instance supabase-rjsifcph reached PostgreSQL Running, pg-init and WAL logical OpsRequest completion, all Supabase workloads ready with zero restarts, wal_level=logical, realtime role/schema/database bootstrap present, storage and edge function HTTP checks passed, protected routes returned expected 401 responses, recent logs stayed healthy, and test footprints were cleaned up
   - `supabase/supavisor:2.7.4` -> `supabase/supavisor:2.9.7`: validated Supabase eleven-image bundle on Sealos after template contract normalization: docker-to-sealos consistency check, quality gate, Template API dry-run and deploy passed; instance supabase-rjsifcph reached PostgreSQL Running, pg-init and WAL logical OpsRequest completion, all Supabase workloads ready with zero restarts, wal_level=logical, realtime role/schema/database bootstrap present, storage and edge function HTTP checks passed, protected routes returned expected 401 responses, recent logs stayed healthy, and test footprints were cleaned up
   - `timberio/vector:0.53.0-alpine` -> `timberio/vector:0.56.0-alpine`: validated Supabase eleven-image bundle on Sealos after template contract normalization: docker-to-sealos consistency check, quality gate, Template API dry-run and deploy passed; instance supabase-rjsifcph reached PostgreSQL Running, pg-init and WAL logical OpsRequest completion, all Supabase workloads ready with zero restarts, wal_level=logical, realtime role/schema/database bootstrap present, storage and edge function HTTP checks passed, protected routes returned expected 401 responses, recent logs stayed healthy, and test footprints were cleaned up
+- `surveyking`
+  - `joseluisq/mysql-client:8.0.30` -> `joseluisq/mysql-client:8.0.44`: updated SurveyKing and mysql-client images and normalized the template to current docker-to-sealos rules
+  - `surveyking/surveyking:v1.9.0` -> `surveyking/surveyking:v1.12.0`: updated SurveyKing and mysql-client images and normalized the template to current docker-to-sealos rules
+- `tailchat`
+  - `moonrailgun/tailchat:1.11.5` -> `moonrailgun/tailchat:1.11.11`: updated queued Tailchat image to 1.11.11 and normalized database credentials, Service/Ingress metadata, categories, and resource ladder values to current docker-to-sealos rules
+- `tianji`
+  - `moonrailgun/tianji:1.18.5` -> `moonrailgun/tianji:1.32.7`: newer compatible semver tag found
+- `tolgee`
+  - `tolgee/tolgee:v3.113.0` -> `tolgee/tolgee:v3.205.5`: updated Tolgee image and normalized PostgreSQL init, object storage secrets, resources, and service labels to current docker-to-sealos rules
+- `tooljet`
+  - `postgrest/postgrest:v12.0.2` -> `postgrest/postgrest:v13.0.8`: updated queued ToolJet and PostgREST images and normalized init resources, PostgreSQL schema wait image, Sealos resource ladder values, and App type to current docker-to-sealos rules
+  - `tooljet/tooljet-ce:v3.20.170-lts` -> `tooljet/tooljet-ce:v3.20.186-lts`: updated queued ToolJet and PostgREST images and normalized init resources, PostgreSQL schema wait image, Sealos resource ladder values, and App type to current docker-to-sealos rules
+- `tududi`
+  - `chrisvel/tududi:1.1.0` -> `chrisvel/tududi:1.1.1`: newer compatible semver tag found
+- `twenty`
+  - `twentycrm/twenty:v1.12.0` -> `twentycrm/twenty:v2.16.0`: validated Twenty runtime on Sealos: Template API dry-run/deploy succeeded, fixed the missing YAML document separator before the app StatefulSet, added PostgreSQL and Redis startup gates, added a startupProbe for the v2 migration window, gated the worker on the core."keyValuePair" schema, PostgreSQL and Redis reached Running, pg-init completed, app and worker reached ready with zero restarts, root /, /healthz, /sign-in, /sign-up, and /client-config returned HTTP 200 without browser failure markers, PostgreSQL contained the Twenty core schema and 65 non-system tables, Redis returned PONG, recent app and worker logs stayed healthy, and test footprints were cleaned up
+- `typebot`
+  - `axllent/mailpit:v1.30.1` -> `axllent/mailpit:v1.30.2`: updated Typebot builder/viewer to 3.17.2 and Mailpit to 1.30.2, normalized PostgreSQL/Redis database visibility, object storage env indirection, Redis URL composition, resource requests, and readiness helpers under docker-to-sealos rules
+  - `baptistearno/typebot-builder:3.17.1` -> `baptistearno/typebot-builder:3.17.2`: updated Typebot builder/viewer to 3.17.2 and Mailpit to 1.30.2, normalized PostgreSQL/Redis database visibility, object storage env indirection, Redis URL composition, resource requests, and readiness helpers under docker-to-sealos rules
+  - `baptistearno/typebot-viewer:3.17.1` -> `baptistearno/typebot-viewer:3.17.2`: updated Typebot builder/viewer to 3.17.2 and Mailpit to 1.30.2, normalized PostgreSQL/Redis database visibility, object storage env indirection, Redis URL composition, resource requests, and readiness helpers under docker-to-sealos rules
+  - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`: removed the raw Redis helper image from Typebot app initContainers and replaced Redis readiness with busybox TCP checks under the docker-to-sealos database-service rule
+- `typo3`
+  - `mysql:8.0.30` -> `mysql:9.7.1`: updated from queue and passed docker-to-sealos artifact validation
+- `umami`
+  - `ghcr.io/umami-software/umami:3.0.2` -> `ghcr.io/umami-software/umami:3.2.0`: updated
+- `uptime-kuma`
+  - `louislam/uptime-kuma:1.23.13` -> `louislam/uptime-kuma:2.4.0`: updated
+- `webos`
+  - `fs185085781/webos:v1.4.1` -> `fs185085781/webos:v1.4.4`: newer compatible semver tag found
+- `wewe-rss`
+  - `joseluisq/mysql-client:8.0.30` -> `joseluisq/mysql-client:8.0.44`: updated mysql-client helper image and normalized the template to the current docker-to-sealos rules
+- `woocommerce`
+  - `mysql:8.0.30` -> `mysql:9.7.1`: updated from queue and passed docker-to-sealos artifact validation
+  - `wordpress:6.9.1-php8.3-apache` -> `wordpress:7.0.0-php8.5-apache`: updated from queue and passed docker-to-sealos artifact validation
+- `wordpress`
+  - `wordpress:6.5.4` -> `wordpress:7.0.0`: updated WordPress image and normalized MySQL secret wiring, resources, service, ingress, locale, and database labels to current docker-to-sealos rules
 - `wrenai`
   - `ghcr.io/canner/wren-ai-service:0.15.17` -> `ghcr.io/canner/wren-ai-service:0.29.3`: validated WrenAI runtime bundle on Sealos after aligning the ai-service 0.29.3 pipeline config, adding the wren_ibis engine provider, preserving input-backed OpenAI key mappings, upgrading PostgreSQL metadata to 16.4.0, and adding a UI PostgreSQL init gate; Template API dry-run/deploy passed, instance wrenai-inhmtlwk reached PostgreSQL Running, pg-init completed, ai-service, engine, ibis-server, qdrant, and UI reached ready with zero pod restarts, ai-service /health and qdrant /healthz passed through an in-cluster probe, external UI root returned HTTP 200, startup logs stayed healthy, and test footprints were cleaned up
   - `ghcr.io/canner/wren-engine-ibis:0.14.3` -> `ghcr.io/canner/wren-engine-ibis:0.25.0`: validated WrenAI runtime bundle on Sealos after aligning the ai-service 0.29.3 pipeline config, adding the wren_ibis engine provider, preserving input-backed OpenAI key mappings, upgrading PostgreSQL metadata to 16.4.0, and adding a UI PostgreSQL init gate; Template API dry-run/deploy passed, instance wrenai-inhmtlwk reached PostgreSQL Running, pg-init completed, ai-service, engine, ibis-server, qdrant, and UI reached ready with zero pod restarts, ai-service /health and qdrant /healthz passed through an in-cluster probe, external UI root returned HTTP 200, startup logs stayed healthy, and test footprints were cleaned up
   - `ghcr.io/canner/wren-engine:0.14.3` -> `ghcr.io/canner/wren-engine:0.24.6`: validated WrenAI runtime bundle on Sealos after aligning the ai-service 0.29.3 pipeline config, adding the wren_ibis engine provider, preserving input-backed OpenAI key mappings, upgrading PostgreSQL metadata to 16.4.0, and adding a UI PostgreSQL init gate; Template API dry-run/deploy passed, instance wrenai-inhmtlwk reached PostgreSQL Running, pg-init completed, ai-service, engine, ibis-server, qdrant, and UI reached ready with zero pod restarts, ai-service /health and qdrant /healthz passed through an in-cluster probe, external UI root returned HTTP 200, startup logs stayed healthy, and test footprints were cleaned up
   - `ghcr.io/canner/wren-ui:0.20.1` -> `ghcr.io/canner/wren-ui:0.32.2`: validated WrenAI runtime bundle on Sealos after aligning the ai-service 0.29.3 pipeline config, adding the wren_ibis engine provider, preserving input-backed OpenAI key mappings, upgrading PostgreSQL metadata to 16.4.0, and adding a UI PostgreSQL init gate; Template API dry-run/deploy passed, instance wrenai-inhmtlwk reached PostgreSQL Running, pg-init completed, ai-service, engine, ibis-server, qdrant, and UI reached ready with zero pod restarts, ai-service /health and qdrant /healthz passed through an in-cluster probe, external UI root returned HTTP 200, startup logs stayed healthy, and test footprints were cleaned up
   - `qdrant/qdrant:v1.13.4` -> `qdrant/qdrant:v1.18.2`: validated WrenAI runtime bundle on Sealos after aligning the ai-service 0.29.3 pipeline config, adding the wren_ibis engine provider, preserving input-backed OpenAI key mappings, upgrading PostgreSQL metadata to 16.4.0, and adding a UI PostgreSQL init gate; Template API dry-run/deploy passed, instance wrenai-inhmtlwk reached PostgreSQL Running, pg-init completed, ai-service, engine, ibis-server, qdrant, and UI reached ready with zero pod restarts, ai-service /health and qdrant /healthz passed through an in-cluster probe, external UI root returned HTTP 200, startup logs stayed healthy, and test footprints were cleaned up
+- `yourls`
+  - `mysql:8.0.30` -> `mysql:9.7.1`: updated from queue and passed docker-to-sealos artifact validation
+  - `yourls:1.10.1` -> `yourls:1.10.4`: updated from queue and passed docker-to-sealos artifact validation
+- `zitadel`
+  - `ghcr.io/zitadel/zitadel:v4.10.1` -> `ghcr.io/zitadel/zitadel:v4.15.3`: newer compatible semver tag found
+- `zot`
+  - `ghcr.io/project-zot/zot:v2.1.14` -> `ghcr.io/project-zot/zot:v2.1.18`: updated Zot and httpd images and normalized object storage, ConfigMap, and mount rules to current docker-to-sealos requirements
+  - `httpd:2.4.63-alpine3.22` -> `httpd:2.4.68-alpine3.24`: updated Zot and httpd images and normalized object storage, ConfigMap, and mount rules to current docker-to-sealos requirements
 
 ## Validation-Needed Templates
 - None
 
 ## Blocked Templates
 - `erpnext`
-  - `frappe/erpnext:v16.21.1` -> `frappe/erpnext:v16.25.0`: blocked after live Sealos validation: Template API dry-run/deploy succeeded, MySQL and Redis reached Running, and configure completed, then bench new-site failed during Frappe DocType migration with MySQL error 1101 on User.onboarding_status on both ac-mysql-8.0.30-1 and a mysql-8.4.2 trial. Frappe reported the detected MySQL versions below the MariaDB 10.6 support line. A safe update needs an approved KubeBlocks MariaDB 10.6+ path or dedicated database strategy; test footprints were cleaned up
-  - `public.ecr.aws/docker/library/busybox:1.36.1` -> `public.ecr.aws/docker/library/busybox:1.38.0`: blocked after live Sealos validation: Template API dry-run/deploy succeeded, MySQL and Redis reached Running, and configure completed, then bench new-site failed during Frappe DocType migration with MySQL error 1101 on User.onboarding_status on both ac-mysql-8.0.30-1 and a mysql-8.4.2 trial. Frappe reported the detected MySQL versions below the MariaDB 10.6 support line. A safe update needs an approved KubeBlocks MariaDB 10.6+ path or dedicated database strategy; test footprints were cleaned up
+  - `frappe/erpnext:v16.21.1` -> `frappe/erpnext:v16.25.0`: blocked after live Sealos validation and MariaDB KubeBlocks probe: Template API dry-run/deploy with the attempted ERPNext update reached MySQL and Redis Running and configure completed, then bench new-site failed during Frappe DocType migration with MySQL error 1101 on User.onboarding_status on ac-mysql-8.0.30-1 and a mysql-8.4.2 trial. Frappe reported the detected MySQL versions below the MariaDB 10.6 support line. The follow-up KubeBlocks MariaDB probe used componentDef mariadb and serviceVersion 10.6.15, matching the official KubeBlocks MariaDB standalone addon shape, but the current Sealos cluster reported PreCheckFailed: no matched component definition found: mariadb. The ERPNext template changes were reverted from the PR; a safe update needs a cluster-installed KubeBlocks MariaDB ComponentDefinition or an approved dedicated database strategy.
+  - `mariadb:11.4.7` -> `mariadb:12.3.2`: blocked with the ERPNext update: the raw MariaDB service image requires conversion to an approved KubeBlocks MariaDB Cluster before shipment, and the current Sealos cluster probe for componentDef mariadb serviceVersion 10.6.15 failed with PreCheckFailed: no matched component definition found: mariadb. Keep the baseline MariaDB resource out of the shipped PR until that database path is available.
+  - `public.ecr.aws/docker/library/busybox:1.36.1` -> `public.ecr.aws/docker/library/busybox:1.38.0`: blocked after live Sealos validation and MariaDB KubeBlocks probe: Template API dry-run/deploy with the attempted ERPNext update reached MySQL and Redis Running and configure completed, then bench new-site failed during Frappe DocType migration with MySQL error 1101 on User.onboarding_status on ac-mysql-8.0.30-1 and a mysql-8.4.2 trial. Frappe reported the detected MySQL versions below the MariaDB 10.6 support line. The follow-up KubeBlocks MariaDB probe used componentDef mariadb and serviceVersion 10.6.15, matching the official KubeBlocks MariaDB standalone addon shape, but the current Sealos cluster reported PreCheckFailed: no matched component definition found: mariadb. The ERPNext template changes were reverted from the PR; a safe update needs a cluster-installed KubeBlocks MariaDB ComponentDefinition or an approved dedicated database strategy.
+  - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`: blocked with the ERPNext update: the raw Redis helper images can be replaced only as part of the ERPNext database/runtime normalization, and that update remains blocked by the missing approved MariaDB path. Keep the baseline Redis helper images out of the shipped PR until ERPNext runtime validation can pass.
 
 ## Skipped Templates
 - `refly`
   - `mautic/mautic:5.2.3-fpm` -> `mautic/mautic:7.1.2-fpm`: skipped because mautic/mautic is used only as an Elasticsearch data ownership helper in the Refly template and is not part of the Refly application release surface
 
 ## Skipped Candidates
-- `langfuse`
-  - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`: skipped because the queued Redis image no longer exists in template/langfuse/index.yaml after prior template contract normalization replaced Redis wait helpers with BusyBox TCP checks and KubeBlocks Redis remains defined through Cluster metadata
-- `erpnext`
-  - `mariadb:11.4.7` -> `mariadb:12.3.2`: skipped because the queued MariaDB image no longer exists in template/erpnext/index.yaml after prior template contract normalization replaced the raw MariaDB workload with a KubeBlocks MySQL Cluster
-  - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`: skipped because the queued Redis image no longer exists in template/erpnext/index.yaml after prior template contract normalization replaced raw Redis helpers with KubeBlocks Redis wiring and non-database TCP checks
 - `coze-studio`
   - `mysql:8.0.36` -> `mysql:9.7.1`: skipped because the current Coze Studio template uses a KubeBlocks MySQL Cluster and secret-backed migration flow; the queued raw MySQL container image has no current artifact reference
 - `directus`
   - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`: removed the raw Redis helper image from the app StatefulSet and replaced Redis readiness with a busybox TCP check under the docker-to-sealos database-service rule
-- `typebot`
-  - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`: removed the raw Redis helper image from Typebot app initContainers and replaced Redis readiness with busybox TCP checks under the docker-to-sealos database-service rule
+- `langfuse`
+  - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`: skipped because the queued Redis image no longer exists in template/langfuse/index.yaml after prior template contract normalization replaced Redis wait helpers with BusyBox TCP checks and KubeBlocks Redis remains defined through Cluster metadata
 - `postiz`
   - `elasticsearch:7.17.27` -> `elasticsearch:9.4.2`: kept Elasticsearch 7.17.27 because the 9.4.2 visibility-store major upgrade requires dedicated data compatibility and runtime validation
   - `temporalio/auto-setup:1.28.1` -> `temporalio/auto-setup:1.29.7`: kept Temporal auto-setup 1.28.1 because the 1.29.7 workflow service update requires dedicated Postiz workflow validation
@@ -436,3 +426,5 @@
   - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`: removed raw Redis helper images from init containers and replaced Redis readiness with busybox TCP checks under the docker-to-sealos database-service rule
 - `refly`
   - `mautic/mautic:5.2.3-fpm` -> `mautic/mautic:7.1.2-fpm`: skipped because mautic/mautic is used only as an Elasticsearch data ownership helper in the Refly template and is not part of the Refly application release surface
+- `typebot`
+  - `public.ecr.aws/docker/library/redis:7.2.7-alpine` -> `public.ecr.aws/docker/library/redis:8.8.0-alpine`: removed the raw Redis helper image from Typebot app initContainers and replaced Redis readiness with busybox TCP checks under the docker-to-sealos database-service rule
