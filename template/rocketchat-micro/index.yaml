@@ -134,32 +134,32 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-mongo-mongodb-account-root
                   key: password
-            - name: MONGO_HOST
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-mongo-mongodb-account-root
-                  key: host
           command:
             - /bin/bash
             - -c
             - |
-              # Wait for MongoDB to be ready
-              until mongosh "mongodb://root:${MONGO_INITDB_ROOT_PASSWORD}@${MONGO_HOST}:27017/admin" --eval "db.adminCommand('ping')" &>/dev/null; do
+              set -eu
+
+              until mongosh "mongodb://root:${MONGO_INITDB_ROOT_PASSWORD}@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017/admin" --eval "db.adminCommand('ping')" &>/dev/null; do
                 echo "Waiting for MongoDB..."
                 sleep 2
               done
-              
-              # Create rocketchat database and user
-              mongosh "mongodb://root:${MONGO_INITDB_ROOT_PASSWORD}@${MONGO_HOST}:27017/admin" <<EOF
-              use rocketchat
-              db.createUser({
-                user: "rocketchat",
-                pwd: "rocketchat",
-                roles: [
-                  { role: "readWrite", db: "rocketchat" },
-                  { role: "clusterMonitor", db: "admin" }
-                ]
-              })
+
+              mongosh "mongodb://root:${MONGO_INITDB_ROOT_PASSWORD}@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017/admin" <<'EOF'
+              const dbName = "rocketchat";
+              const username = "rocketchat";
+              const password = "rocketchat";
+              const roles = [
+                { role: "readWrite", db: dbName },
+                { role: "clusterMonitor", db: "admin" }
+              ];
+              const rocketChatDb = db.getSiblingDB(dbName);
+
+              if (rocketChatDb.getUser(username)) {
+                rocketChatDb.updateUser(username, { pwd: password, roles });
+              } else {
+                rocketChatDb.createUser({ user: username, pwd: password, roles });
+              }
               EOF
           resources:
             requests:
@@ -261,15 +261,10 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-mongo-mongodb-account-root
                   key: password
-            - name: MONGO_ENDPOINT
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-mongo-mongodb-account-root
-                  key: endpoint
             - name: MONGO_URL
-              value: mongodb://rocketchat:rocketchat@$(MONGO_ENDPOINT)/rocketchat?replicaSet=${{ defaults.app_name }}-mongo-mongodb
+              value: mongodb://rocketchat:rocketchat@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017/rocketchat?replicaSet=${{ defaults.app_name }}-mongo-mongodb&authSource=rocketchat
             - name: MONGO_OPLOG_URL
-              value: mongodb://root:$(MONGO_ROOT_PASSWORD)@$(MONGO_ENDPOINT)/local?replicaSet=${{ defaults.app_name }}-mongo-mongodb&authSource=admin
+              value: mongodb://root:$(MONGO_ROOT_PASSWORD)@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017/local?replicaSet=${{ defaults.app_name }}-mongo-mongodb&authSource=admin
             - name: ROOT_URL
               value: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
             - name: OVERWRITE_SETTING_Prometheus_Enabled
@@ -318,10 +313,10 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 102Mi
+              memory: 204Mi
             limits:
               cpu: 1
-              memory: 1024Mi
+              memory: 2048Mi
 
 ---
 # NATS StatefulSet for microservices communication
@@ -556,13 +551,8 @@ spec:
             secretKeyRef:
               name: ${{ defaults.app_name }}-mongo-mongodb-account-root
               key: password
-        - name: MONGO_ENDPOINT
-          valueFrom:
-            secretKeyRef:
-              name: ${{ defaults.app_name }}-mongo-mongodb-account-root
-              key: endpoint
         - name: MONGO_URL
-          value: mongodb://rocketchat:rocketchat@$(MONGO_ENDPOINT)/rocketchat?replicaSet=${{ defaults.app_name }}-mongo-mongodb
+          value: mongodb://rocketchat:rocketchat@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017/rocketchat?replicaSet=${{ defaults.app_name }}-mongo-mongodb&authSource=rocketchat
         - name: TRANSPORTER
           value: nats://${{ defaults.app_name }}-nats:4222
         - name: MOLECULER_LOG_LEVEL
@@ -646,13 +636,8 @@ spec:
             secretKeyRef:
               name: ${{ defaults.app_name }}-mongo-mongodb-account-root
               key: password
-        - name: MONGO_ENDPOINT
-          valueFrom:
-            secretKeyRef:
-              name: ${{ defaults.app_name }}-mongo-mongodb-account-root
-              key: endpoint
         - name: MONGO_URL
-          value: mongodb://rocketchat:rocketchat@$(MONGO_ENDPOINT)/rocketchat?replicaSet=${{ defaults.app_name }}-mongo-mongodb
+          value: mongodb://rocketchat:rocketchat@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017/rocketchat?replicaSet=${{ defaults.app_name }}-mongo-mongodb&authSource=rocketchat
         - name: TRANSPORTER
           value: nats://${{ defaults.app_name }}-nats:4222
         - name: MOLECULER_LOG_LEVEL
@@ -736,13 +721,8 @@ spec:
             secretKeyRef:
               name: ${{ defaults.app_name }}-mongo-mongodb-account-root
               key: password
-        - name: MONGO_ENDPOINT
-          valueFrom:
-            secretKeyRef:
-              name: ${{ defaults.app_name }}-mongo-mongodb-account-root
-              key: endpoint
         - name: MONGO_URL
-          value: mongodb://rocketchat:rocketchat@$(MONGO_ENDPOINT)/rocketchat?replicaSet=${{ defaults.app_name }}-mongo-mongodb
+          value: mongodb://rocketchat:rocketchat@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017/rocketchat?replicaSet=${{ defaults.app_name }}-mongo-mongodb&authSource=rocketchat
         - name: TRANSPORTER
           value: nats://${{ defaults.app_name }}-nats:4222
         - name: MOLECULER_LOG_LEVEL
@@ -835,13 +815,8 @@ spec:
             secretKeyRef:
               name: ${{ defaults.app_name }}-mongo-mongodb-account-root
               key: password
-        - name: MONGO_ENDPOINT
-          valueFrom:
-            secretKeyRef:
-              name: ${{ defaults.app_name }}-mongo-mongodb-account-root
-              key: endpoint
         - name: MONGO_URL
-          value: mongodb://rocketchat:rocketchat@$(MONGO_ENDPOINT)/rocketchat?replicaSet=${{ defaults.app_name }}-mongo-mongodb
+          value: mongodb://rocketchat:rocketchat@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017/rocketchat?replicaSet=${{ defaults.app_name }}-mongo-mongodb&authSource=rocketchat
         - name: TRANSPORTER
           value: nats://${{ defaults.app_name }}-nats:4222
         - name: MOLECULER_LOG_LEVEL
@@ -925,15 +900,10 @@ spec:
             secretKeyRef:
               name: ${{ defaults.app_name }}-mongo-mongodb-account-root
               key: password
-        - name: MONGO_ENDPOINT
-          valueFrom:
-            secretKeyRef:
-              name: ${{ defaults.app_name }}-mongo-mongodb-account-root
-              key: endpoint
         - name: MONGO_URL
-          value: mongodb://rocketchat:rocketchat@$(MONGO_ENDPOINT)/rocketchat?replicaSet=${{ defaults.app_name }}-mongo-mongodb
+          value: mongodb://rocketchat:rocketchat@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017/rocketchat?replicaSet=${{ defaults.app_name }}-mongo-mongodb&authSource=rocketchat
         - name: MONGO_OPLOG_URL
-          value: mongodb://root:$(MONGO_ROOT_PASSWORD)@$(MONGO_ENDPOINT)/local?replicaSet=${{ defaults.app_name }}-mongo-mongodb&authSource=admin
+          value: mongodb://root:$(MONGO_ROOT_PASSWORD)@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017/local?replicaSet=${{ defaults.app_name }}-mongo-mongodb&authSource=admin
         - name: TRANSPORTER
           value: nats://${{ defaults.app_name }}-nats:4222
         - name: MOLECULER_LOG_LEVEL
