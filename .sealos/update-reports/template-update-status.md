@@ -1,9 +1,9 @@
 # Template Update Status
 
-- Updated templates: 128
-- Updated candidates: 214
-- Validation-needed templates: 7
-- Validation-needed candidates: 31
+- Updated templates: 129
+- Updated candidates: 216
+- Validation-needed templates: 6
+- Validation-needed candidates: 29
 - Blocked templates: 1
 - Blocked candidates: 2
 - Skipped templates: 1
@@ -361,10 +361,11 @@
   - `penpotapp/exporter:2.1.2` -> `penpotapp/exporter:2.16.1`: validated Penpot runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis KubeBlocks clusters reached Running, backend/exporter/frontend reached 1/1, frontend served the root app through Service port 80 targeting container port 8080, /readyz returned OK, root and anonymous profile API returned HTTP 200, backend logs showed migrations applied through 0151 and Penpot 2.16.1 startup, Redis authenticated PONG succeeded, object storage bucket and secret existed, and the test footprint was cleaned up
   - `penpotapp/frontend:2.1.2` -> `penpotapp/frontend:2.16.1`: validated Penpot runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis KubeBlocks clusters reached Running, backend/exporter/frontend reached 1/1, frontend served the root app through Service port 80 targeting container port 8080, /readyz returned OK, root and anonymous profile API returned HTTP 200, backend logs showed migrations applied through 0151 and Penpot 2.16.1 startup, Redis authenticated PONG succeeded, object storage bucket and secret existed, and the test footprint was cleaned up
 
-## Validation-Needed Templates
 - `posthog`
-  - `docker.redpanda.com/redpandadata/redpanda:v25.1.9` -> `docker.redpanda.com/redpandadata/redpanda:v26.1.10`: updated PostHog Redpanda and Zookeeper images after template contract normalization; focused runtime validation is required for Redpanda startup/storage compatibility, Zookeeper startup, PostHog Kafka connectivity, plugin/capture/feature-flag services, ClickHouse writes, migrations, and first-run login before merge confidence
-  - `zookeeper:3.9.3` -> `zookeeper:3.9.5`: updated PostHog Redpanda and Zookeeper images after template contract normalization; focused runtime validation is required for Redpanda startup/storage compatibility, Zookeeper startup, PostHog Kafka connectivity, plugin/capture/feature-flag services, ClickHouse writes, migrations, and first-run login before merge confidence
+  - `docker.redpanda.com/redpandadata/redpanda:v25.1.9` -> `docker.redpanda.com/redpandadata/redpanda:v26.1.10`: validated PostHog runtime on Sealos: Template API dry-run/deploy succeeded, restored the missing YAML document separator before the Ingress, raised Redpanda to the 1Gi resource tier with a 768M working memory setting, PostgreSQL and Redis reached Running, pg-init completed, Redpanda, Zookeeper, ClickHouse, web, worker, plugins, capture, replay-capture, and feature-flags reached ready, root redirected to /preflight, /login and /signup returned HTTP 200, /_health returned ok, Redpanda rpk cluster health was healthy, ClickHouse contained the posthog database, Redis returned PONG, PostgreSQL reported 695 Django migrations, capture connected to Kafka, and test footprints were cleaned up
+  - `zookeeper:3.9.3` -> `zookeeper:3.9.5`: validated PostHog runtime on Sealos: Template API dry-run/deploy succeeded, restored the missing YAML document separator before the Ingress, raised Redpanda to the 1Gi resource tier with a 768M working memory setting, PostgreSQL and Redis reached Running, pg-init completed, Redpanda, Zookeeper, ClickHouse, web, worker, plugins, capture, replay-capture, and feature-flags reached ready, root redirected to /preflight, /login and /signup returned HTTP 200, /_health returned ok, Redpanda rpk cluster health was healthy, ClickHouse contained the posthog database, Redis returned PONG, PostgreSQL reported 695 Django migrations, capture connected to Kafka, and test footprints were cleaned up
+
+## Validation-Needed Templates
 - `rocketchat-micro`
   - `natsio/nats-server-config-reloader:0.6.3` -> `natsio/nats-server-config-reloader:0.23.0`: updated Rocket.Chat microservices images and NATS config reloader after template contract normalization; focused runtime validation is required for Rocket.Chat 7 to 8 service family compatibility, NATS config reload, MongoDB connectivity, microservice registration, DDP/presence/stream hub routes, public web login, and metrics endpoints before merge confidence
   - `rocketchat/account-service:7.9.0` -> `rocketchat/account-service:8.5.1`: updated Rocket.Chat microservices images and NATS config reloader after template contract normalization; focused runtime validation is required for Rocket.Chat 7 to 8 service family compatibility, NATS config reload, MongoDB connectivity, microservice registration, DDP/presence/stream hub routes, public web login, and metrics endpoints before merge confidence
