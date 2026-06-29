@@ -1,0 +1,742 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: appwrite
+spec:
+  title: Appwrite
+  url: https://appwrite.io/
+  gitRepo: https://github.com/appwrite/appwrite
+  author: Sealos
+  description: Open-source backend platform for building applications with authentication, databases, storage, functions, and APIs.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/appwrite/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/appwrite/logo.png
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/appwrite/website-screenshot.webp
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: Appwrite 是开源后端平台，提供认证、数据库、存储、函数和 API 能力。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/appwrite/README_zh.md
+  categories:
+    - backend
+    - dev-ops
+    - tool
+  defaults:
+    app_name:
+      type: string
+      value: appwrite-${{ random(8) }}
+    app_host:
+      type: string
+      value: appwrite-${{ random(8) }}
+    openssl_key:
+      type: string
+      value: ${{ random(32) }}
+    executor_secret:
+      type: string
+      value: ${{ random(32) }}
+  inputs:
+    use_object_storage:
+      description: Store Appwrite user uploads in Sealos S3-compatible object storage
+      type: boolean
+      default: 'false'
+      required: false
+
+---
+${{ if(inputs.use_object_storage === 'true') }}
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  policy: private
+
+---
+${{ endif() }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-mongo
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/managed-by: kbcli
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-mongo
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-mongo
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-mongo
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-mongo
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-mongo
+  labels:
+    kb.io/database: mongodb-8.0.4
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    clusterdefinition.kubeblocks.io/name: mongodb
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys:
+      - kubernetes.io/hostname
+  componentSpecs:
+    - componentDef: mongodb
+      name: mongodb
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-mongo
+      serviceVersion: 8.0.4
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-redis
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-redis
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-redis
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    kb.io/database: redis-7.2.7
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/version: 7.2.7
+    clusterversion.kubeblocks.io/name: redis-7.2.7
+    clusterdefinition.kubeblocks.io/name: redis
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys:
+      - kubernetes.io/hostname
+  clusterDefinitionRef: redis
+  topology: replication
+  terminationPolicy: Delete
+  componentSpecs:
+    - name: redis
+      componentDef: redis-7
+      replicas: 1
+      enabledLogs:
+        - running
+      env:
+        - name: CUSTOM_SENTINEL_MASTER_NAME
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      serviceVersion: 7.2.7
+      switchPolicy:
+        type: Noop
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+    - name: redis-sentinel
+      componentDef: redis-sentinel-7
+      replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      serviceVersion: 7.2.7
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-etcvn-appwritevn-redisvn-compatvn-redisvn-compatvn-php: |
+    <?php
+    $file = '/usr/src/code/vendor/utopia-php/queue/src/Queue/Connection/Redis.php';
+    $source = file_get_contents($file);
+    $needle = "        if (\$this->readTimeout >= 0) {\n";
+    if (strpos($source, '$this->redis->auth($auth);') === false) {
+        $patch = "        if (\$this->user || \$this->password) {\n            \$auth = \$this->user ? [\$this->user, \$this->password ?? ''] : \$this->password;\n            \$this->redis->auth(\$auth);\n        }\n\n";
+        $patched = str_replace($needle, $patch . $needle, $source);
+        if ($patched === $source) {
+            fwrite(STDERR, "Failed to patch Appwrite Redis queue connection.\n");
+            exit(1);
+        }
+        file_put_contents($file, $patched);
+    }
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: appwrite/appwrite:1.9.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      initContainers:
+        - name: wait-for-data-store
+          image: busybox:1.36.1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MONGO_HOST
+              value: ${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: MONGO_PORT
+              value: '27017'
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until nc -z "$MONGO_HOST" "$MONGO_PORT"; do
+                sleep 2
+              done
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+        - name: wait-for-cache
+          image: busybox:1.36.1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until nc -z "$REDIS_HOST" "$REDIS_PORT"; do
+                sleep 2
+              done
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: appwrite/appwrite:1.9.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - php /etc/appwrite-redis-compat/redis-compat.php && exec php -e app/http.php
+          ports:
+            - name: http
+              containerPort: 80
+          env:
+            - name: _APP_ENV
+              value: production
+            - name: _APP_EDITION
+              value: self-hosted
+            - name: _APP_WORKER_PER_CORE
+              value: '1'
+            - name: _APP_LOCALE
+              value: en
+            - name: _APP_OPENSSL_KEY_V1
+              value: ${{ defaults.openssl_key }}
+            - name: _APP_DOMAIN
+              value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: _APP_DOMAIN_TARGET_CNAME
+              value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: _APP_DOMAIN_TARGET_A
+              value: ''
+            - name: _APP_DOMAIN_TARGET_AAAA
+              value: ''
+            - name: _APP_DOMAIN_TARGET_CAA
+              value: digicert.com
+            - name: _APP_CONSOLE_HOSTNAMES
+              value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: _APP_CONSOLE_DOMAIN
+              value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: _APP_CONSOLE_SCHEMA
+              value: appwriteio
+            - name: _APP_DOMAIN_FUNCTIONS
+              value: functions-${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: _APP_DOMAIN_SITES
+              value: sites-${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: _APP_OPTIONS_FORCE_HTTPS
+              value: enabled
+            - name: _APP_OPTIONS_ROUTER_FORCE_HTTPS
+              value: enabled
+            - name: _APP_OPTIONS_ROUTER_PROTECTION
+              value: disabled
+            - name: _APP_CONSOLE_WHITELIST_ROOT
+              value: enabled
+            - name: _APP_CONSOLE_WHITELIST_EMAILS
+              value: ''
+            - name: _APP_CONSOLE_SESSION_ALERTS
+              value: disabled
+            - name: _APP_DB_ADAPTER
+              value: mongodb
+            - name: _APP_DB_HOST
+              value: ${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: _APP_DB_PORT
+              value: '27017'
+            - name: _APP_DB_SCHEMA
+              value: appwrite
+            - name: _APP_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mongo-mongodb-account-root
+                  key: username
+            - name: _APP_DB_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mongo-mongodb-account-root
+                  key: password
+            - name: _APP_DB_ROOT_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mongo-mongodb-account-root
+                  key: password
+            - name: _APP_REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: _APP_REDIS_PORT
+              value: '6379'
+            - name: _APP_REDIS_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: username
+            - name: _APP_REDIS_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
+            - name: _APP_EXECUTOR_SECRET
+              value: ${{ defaults.executor_secret }}
+            - name: _APP_STORAGE_LIMIT
+              value: '30000000'
+            - name: _APP_STORAGE_PREVIEW_LIMIT
+              value: '20000000'
+            - name: _APP_STORAGE_ANTIVIRUS
+              value: disabled
+            ${{ if(inputs.use_object_storage === 'true') }}
+            - name: _APP_STORAGE_DEVICE
+              value: s3
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            - name: _APP_STORAGE_S3_ENDPOINT
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+            - name: _APP_STORAGE_S3_ACCESS_KEY
+              value: $(S3_ACCESS_KEY_ID)
+            - name: _APP_STORAGE_S3_SECRET
+              value: $(S3_SECRET_ACCESS_KEY)
+            - name: _APP_STORAGE_S3_BUCKET
+              value: $(S3_BUCKET)
+            - name: _APP_STORAGE_S3_REGION
+              value: us-east-1
+            ${{ else() }}
+            - name: _APP_STORAGE_DEVICE
+              value: local
+            ${{ endif() }}
+            - name: _APP_SMTP_HOST
+              value: ''
+            - name: _APP_SMTP_PORT
+              value: ''
+            - name: _APP_SMTP_USERNAME
+              value: ''
+            - name: _APP_SMTP_PASSWORD
+              value: ''
+            - name: _APP_SMTP_SECURE
+              value: ''
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 50m
+              memory: 51Mi
+          startupProbe:
+            tcpSocket:
+              port: http
+            failureThreshold: 60
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: vn-storage
+              mountPath: /storage
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /etc/appwrite-redis-compat/redis-compat.php
+              subPath: vn-etcvn-appwritevn-redisvn-compatvn-redisvn-compatvn-php
+      volumes:
+        - name: ${{ defaults.app_name }}-cm
+          configMap:
+            name: ${{ defaults.app_name }}
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-storage
+        labels:
+          cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+        annotations:
+          path: /storage
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+        storageClassName: openebs-backup
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-console
+  annotations:
+    originImageName: appwrite/console:7.8.26
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}-console
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-console
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-console
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-console
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-console
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-console
+          image: appwrite/console:7.8.26
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+          startupProbe:
+            tcpSocket:
+              port: http
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-console
+  labels:
+    app: ${{ defaults.app_name }}-console
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-console
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-console
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-console
+  labels:
+    app: ${{ defaults.app_name }}-console
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-console
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /console
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-console
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/appwrite/logo.png
+  name: Appwrite
+  type: link

@@ -1,0 +1,908 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: firecrawl
+spec:
+  title: Firecrawl
+  url: https://firecrawl.dev/
+  gitRepo: https://github.com/firecrawl/firecrawl
+  author: Sealos
+  description: Self-hosted web crawling and scraping API that turns websites into clean LLM-ready data.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/firecrawl/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/firecrawl/logo.png
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/firecrawl/website-screenshot.webp
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: Firecrawl 是自托管网页抓取和爬取 API，可将网站内容转换为适合大模型使用的结构化数据。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/firecrawl/README_zh.md
+  categories:
+    - ai
+    - dev-ops
+    - tool
+  defaults:
+    app_name:
+      type: string
+      value: firecrawl-${{ random(8) }}
+    app_host:
+      type: string
+      value: firecrawl-${{ random(8) }}
+    bull_auth_key:
+      type: string
+      value: ${{ random(40) }}
+  inputs:
+    openai_api_key:
+      description: Optional OpenAI API key for AI extraction features
+      type: string
+      default: ''
+      required: false
+    openai_base_url:
+      description: Optional OpenAI-compatible API base URL
+      type: string
+      default: ''
+      required: false
+    model_name:
+      description: Optional model name used by AI extraction features
+      type: string
+      default: ''
+      required: false
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  terminationPolicy: Delete
+  componentSpecs:
+    - name: postgresql
+      componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
+      replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-redis-redis
+  annotations:
+    originImageName: redis:7.2.7-alpine
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}-redis-redis
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-redis-redis
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}-redis-redis
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-redis-redis
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-redis-redis
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ${{ defaults.app_name }}-redis-redis
+          image: redis:7.2.7-alpine
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsGroup: 999
+            runAsUser: 999
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - /usr/local/bin/redis-server
+          args:
+            - --appendonly
+            - 'no'
+          ports:
+            - name: redis
+              containerPort: 6379
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          readinessProbe:
+            tcpSocket:
+              port: redis
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: redis
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-redis-redis
+  labels:
+    app: ${{ defaults.app_name }}-redis-redis
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-redis-redis
+spec:
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-redis-redis
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-rabbitmq
+  annotations:
+    originImageName: rabbitmq:3.13.7-management
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+    docker-to-sealos.resource-override-source: "Live test showed RabbitMQ OOMKilled at the baseline 200m/256Mi during Firecrawl startup; 300m/384Mi stayed within the template resource budget."
+  labels:
+    app: ${{ defaults.app_name }}-rabbitmq
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-rabbitmq
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}-rabbitmq
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-rabbitmq
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-rabbitmq
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 999
+        runAsGroup: 999
+        runAsUser: 999
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: fix-rabbitmq-cookie
+          image: busybox:1.36.1
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsGroup: 999
+            runAsUser: 999
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              if [ -f /var/lib/rabbitmq/.erlang.cookie ]; then
+                chmod 600 /var/lib/rabbitmq/.erlang.cookie
+              fi
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          volumeMounts:
+            - name: vn-varvn-libvn-rabbitmq
+              mountPath: /var/lib/rabbitmq
+      containers:
+        - name: ${{ defaults.app_name }}-rabbitmq
+          image: rabbitmq:3.13.7-management
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: amqp
+              containerPort: 5672
+              protocol: TCP
+            - name: management
+              containerPort: 15672
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 300m
+              memory: 384Mi
+            requests:
+              cpu: 30m
+              memory: 39Mi
+          readinessProbe:
+            tcpSocket:
+              port: amqp
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: amqp
+            initialDelaySeconds: 120
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          volumeMounts:
+            - name: vn-varvn-libvn-rabbitmq
+              mountPath: /var/lib/rabbitmq
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /var/lib/rabbitmq
+          value: '1'
+        name: vn-varvn-libvn-rabbitmq
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-rabbitmq
+  labels:
+    app: ${{ defaults.app_name }}-rabbitmq
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-rabbitmq
+spec:
+  ports:
+    - name: amqp
+      port: 5672
+      targetPort: 5672
+      protocol: TCP
+    - name: management
+      port: 15672
+      targetPort: 15672
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-rabbitmq
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-playwright
+  annotations:
+    originImageName: ghcr.io/firecrawl/playwright-service@sha256:f5ee76305462a3e43daf3f4f4fe2d63b57a13acc2d115214629e8feb888b289e
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}-playwright
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-playwright
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-playwright
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-playwright
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ${{ defaults.app_name }}-playwright
+          image: ghcr.io/firecrawl/playwright-service@sha256:f5ee76305462a3e43daf3f4f4fe2d63b57a13acc2d115214629e8feb888b289e
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: PORT
+              value: '3000'
+            - name: MAX_CONCURRENT_PAGES
+              value: '2'
+            - name: BLOCK_MEDIA
+              value: 'true'
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-playwright
+  labels:
+    app: ${{ defaults.app_name }}-playwright
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-playwright
+spec:
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-playwright
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/firecrawl/firecrawl@sha256:3eee4a4059d78da747fc04db4649b35c0f2cdd50cb618a8e444b2e7f256b583c
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+    docker-to-sealos.resource-override-source: "Live Sealos validation on 2026-06-11: Firecrawl API was OOMKilled at 1Gi after NUQ schema initialization; 1536Mi with NUQ_WORKER_COUNT=1 completed a POST /v1/scrape request."
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: init-nuq-schema
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: POSTGRES_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: POSTGRES_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export PGPASSWORD="$POSTGRES_PASSWORD"
+              until pg_isready -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER"; do
+                sleep 2
+              done
+              psql -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+              CREATE EXTENSION IF NOT EXISTS pgcrypto;
+              CREATE EXTENSION IF NOT EXISTS pg_cron;
+              CREATE SCHEMA IF NOT EXISTS nuq;
+
+              SELECT 'CREATE TYPE nuq.job_status AS ENUM (''queued'', ''active'', ''completed'', ''failed'')'
+              WHERE NOT EXISTS (
+                SELECT 1
+                FROM pg_type type
+                JOIN pg_namespace namespace ON namespace.oid = type.typnamespace
+                WHERE namespace.nspname = 'nuq' AND type.typname = 'job_status'
+              );
+              \gexec
+
+              SELECT 'CREATE TYPE nuq.group_status AS ENUM (''active'', ''completed'', ''cancelled'')'
+              WHERE NOT EXISTS (
+                SELECT 1
+                FROM pg_type type
+                JOIN pg_namespace namespace ON namespace.oid = type.typnamespace
+                WHERE namespace.nspname = 'nuq' AND type.typname = 'group_status'
+              );
+              \gexec
+
+              CREATE TABLE IF NOT EXISTS nuq.queue_scrape (
+                id uuid NOT NULL DEFAULT gen_random_uuid(),
+                status nuq.job_status NOT NULL DEFAULT 'queued'::nuq.job_status,
+                data jsonb,
+                created_at timestamp with time zone NOT NULL DEFAULT now(),
+                priority int NOT NULL DEFAULT 0,
+                lock uuid,
+                locked_at timestamp with time zone,
+                stalls integer,
+                finished_at timestamp with time zone,
+                listen_channel_id text,
+                returnvalue jsonb,
+                failedreason text,
+                owner_id uuid,
+                group_id uuid,
+                CONSTRAINT queue_scrape_pkey PRIMARY KEY (id)
+              );
+
+              CREATE INDEX IF NOT EXISTS queue_scrape_active_locked_at_idx ON nuq.queue_scrape USING btree (locked_at) WHERE (status = 'active'::nuq.job_status);
+              CREATE INDEX IF NOT EXISTS nuq_queue_scrape_queued_optimal_2_idx ON nuq.queue_scrape (priority ASC, created_at ASC, id) WHERE (status = 'queued'::nuq.job_status);
+              CREATE INDEX IF NOT EXISTS nuq_queue_scrape_failed_created_at_idx ON nuq.queue_scrape USING btree (created_at) WHERE (status = 'failed'::nuq.job_status);
+              CREATE INDEX IF NOT EXISTS nuq_queue_scrape_completed_standalone_created_at_idx ON nuq.queue_scrape USING btree (created_at) WHERE (status = 'completed'::nuq.job_status AND group_id IS NULL);
+              CREATE INDEX IF NOT EXISTS nuq_queue_scrape_failed_standalone_created_at_idx ON nuq.queue_scrape USING btree (created_at) WHERE (status = 'failed'::nuq.job_status AND group_id IS NULL);
+              CREATE INDEX IF NOT EXISTS nuq_queue_scrape_group_id_idx ON nuq.queue_scrape (group_id) WHERE group_id IS NOT NULL;
+              CREATE INDEX IF NOT EXISTS nuq_queue_scrape_group_owner_mode_idx ON nuq.queue_scrape (group_id, owner_id) WHERE ((data->>'mode') = 'single_urls');
+              CREATE INDEX IF NOT EXISTS nuq_queue_scrape_group_mode_status_idx ON nuq.queue_scrape (group_id, status) WHERE ((data->>'mode') = 'single_urls');
+              CREATE INDEX IF NOT EXISTS nuq_queue_scrape_group_completed_listing_idx ON nuq.queue_scrape (group_id, finished_at ASC, created_at ASC) WHERE (status = 'completed'::nuq.job_status AND (data->>'mode') = 'single_urls');
+              CREATE INDEX IF NOT EXISTS idx_queue_scrape_group_status ON nuq.queue_scrape (group_id, status) WHERE status IN ('active', 'queued');
+
+              CREATE TABLE IF NOT EXISTS nuq.queue_scrape_backlog (
+                id uuid NOT NULL DEFAULT gen_random_uuid(),
+                data jsonb,
+                created_at timestamp with time zone NOT NULL DEFAULT now(),
+                priority int NOT NULL DEFAULT 0,
+                listen_channel_id text,
+                owner_id uuid,
+                group_id uuid,
+                times_out_at timestamptz,
+                CONSTRAINT queue_scrape_backlog_pkey PRIMARY KEY (id)
+              );
+
+              CREATE INDEX IF NOT EXISTS nuq_queue_scrape_backlog_owner_id_idx ON nuq.queue_scrape_backlog (owner_id);
+              CREATE INDEX IF NOT EXISTS nuq_queue_scrape_backlog_group_mode_idx ON nuq.queue_scrape_backlog (group_id) WHERE ((data->>'mode') = 'single_urls');
+              CREATE INDEX IF NOT EXISTS nuq_queue_scrape_backlog_times_out_at_idx ON nuq.queue_scrape_backlog (times_out_at);
+              CREATE INDEX IF NOT EXISTS idx_queue_scrape_backlog_group_id ON nuq.queue_scrape_backlog (group_id);
+
+              CREATE TABLE IF NOT EXISTS nuq.queue_crawl_finished (
+                id uuid NOT NULL DEFAULT gen_random_uuid(),
+                status nuq.job_status NOT NULL DEFAULT 'queued'::nuq.job_status,
+                data jsonb,
+                created_at timestamp with time zone NOT NULL DEFAULT now(),
+                priority int NOT NULL DEFAULT 0,
+                lock uuid,
+                locked_at timestamp with time zone,
+                stalls integer,
+                finished_at timestamp with time zone,
+                listen_channel_id text,
+                returnvalue jsonb,
+                failedreason text,
+                owner_id uuid,
+                group_id uuid,
+                CONSTRAINT queue_crawl_finished_pkey PRIMARY KEY (id)
+              );
+
+              CREATE INDEX IF NOT EXISTS queue_crawl_finished_active_locked_at_idx ON nuq.queue_crawl_finished USING btree (locked_at) WHERE (status = 'active'::nuq.job_status);
+              CREATE INDEX IF NOT EXISTS nuq_queue_crawl_finished_queued_optimal_2_idx ON nuq.queue_crawl_finished (priority ASC, created_at ASC, id) WHERE (status = 'queued'::nuq.job_status);
+              CREATE INDEX IF NOT EXISTS nuq_queue_crawl_finished_failed_created_at_idx ON nuq.queue_crawl_finished USING btree (created_at) WHERE (status = 'failed'::nuq.job_status);
+              CREATE INDEX IF NOT EXISTS nuq_queue_crawl_finished_completed_created_at_idx ON nuq.queue_crawl_finished USING btree (created_at) WHERE (status = 'completed'::nuq.job_status);
+              CREATE INDEX IF NOT EXISTS nuq_queue_crawl_finished_completed_standalone_created_at_idx ON nuq.queue_crawl_finished USING btree (created_at) WHERE (status = 'completed'::nuq.job_status AND group_id IS NULL);
+              CREATE INDEX IF NOT EXISTS nuq_queue_crawl_finished_failed_standalone_created_at_idx ON nuq.queue_crawl_finished USING btree (created_at) WHERE (status = 'failed'::nuq.job_status AND group_id IS NULL);
+              CREATE INDEX IF NOT EXISTS nuq_queue_crawl_finished_group_id_idx ON nuq.queue_crawl_finished (group_id) WHERE group_id IS NOT NULL;
+
+              CREATE TABLE IF NOT EXISTS nuq.group_crawl (
+                id uuid NOT NULL,
+                status nuq.group_status NOT NULL DEFAULT 'active'::nuq.group_status,
+                created_at timestamptz NOT NULL DEFAULT now(),
+                owner_id uuid NOT NULL,
+                ttl int8 NOT NULL DEFAULT 86400000,
+                expires_at timestamptz,
+                CONSTRAINT group_crawl_pkey PRIMARY KEY (id)
+              );
+
+              CREATE INDEX IF NOT EXISTS idx_group_crawl_status ON nuq.group_crawl (status) WHERE status = 'active'::nuq.group_status;
+              CREATE INDEX IF NOT EXISTS nuq_group_crawl_completed_expires_at_idx ON nuq.group_crawl (expires_at) WHERE status = 'completed'::nuq.group_status;
+
+              SELECT cron.schedule(
+                'nuq_queue_scrape_clean_completed',
+                '*/5 * * * *',
+                'DELETE FROM nuq.queue_scrape WHERE status = ''completed''::nuq.job_status AND created_at < now() - interval ''1 hour'' AND group_id IS NULL;'
+              )
+              WHERE NOT EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'nuq_queue_scrape_clean_completed');
+
+              SELECT cron.schedule(
+                'nuq_queue_scrape_clean_failed',
+                '*/5 * * * *',
+                'DELETE FROM nuq.queue_scrape WHERE status = ''failed''::nuq.job_status AND created_at < now() - interval ''6 hours'' AND group_id IS NULL;'
+              )
+              WHERE NOT EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'nuq_queue_scrape_clean_failed');
+
+              SELECT cron.schedule(
+                'nuq_queue_scrape_backlog_reaper',
+                '* * * * *',
+                'DELETE FROM nuq.queue_scrape_backlog WHERE times_out_at < now();'
+              )
+              WHERE NOT EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'nuq_queue_scrape_backlog_reaper');
+
+              SELECT cron.schedule(
+                'nuq_queue_crawl_finished_clean_completed',
+                '*/5 * * * *',
+                'DELETE FROM nuq.queue_crawl_finished WHERE status = ''completed''::nuq.job_status AND created_at < now() - interval ''1 hour'' AND group_id IS NULL;'
+              )
+              WHERE NOT EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'nuq_queue_crawl_finished_clean_completed');
+
+              SELECT cron.schedule(
+                'nuq_queue_crawl_finished_clean_failed',
+                '*/5 * * * *',
+                'DELETE FROM nuq.queue_crawl_finished WHERE status = ''failed''::nuq.job_status AND created_at < now() - interval ''6 hours'' AND group_id IS NULL;'
+              )
+              WHERE NOT EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'nuq_queue_crawl_finished_clean_failed');
+
+              SELECT cron.schedule(
+                'nuq_group_crawl_finished',
+                '15 seconds',
+                'WITH finished_groups AS (UPDATE nuq.group_crawl SET status = ''completed''::nuq.group_status, expires_at = now() + MAKE_INTERVAL(secs => nuq.group_crawl.ttl / 1000) WHERE status = ''active''::nuq.group_status AND NOT EXISTS (SELECT 1 FROM nuq.queue_scrape WHERE status IN (''active'', ''queued'') AND group_id = nuq.group_crawl.id) AND NOT EXISTS (SELECT 1 FROM nuq.queue_scrape_backlog WHERE group_id = nuq.group_crawl.id) RETURNING id, owner_id) INSERT INTO nuq.queue_crawl_finished (data, owner_id, group_id) SELECT ''{}''::jsonb, owner_id, id FROM finished_groups;'
+              )
+              WHERE NOT EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'nuq_group_crawl_finished');
+
+              SELECT cron.schedule(
+                'nuq_group_crawl_clean',
+                '* * * * *',
+                'WITH victims AS (SELECT id FROM nuq.group_crawl WHERE status = ''completed''::nuq.group_status AND expires_at < now() ORDER BY expires_at LIMIT 500 FOR UPDATE SKIP LOCKED), cleaned_groups AS (DELETE FROM nuq.group_crawl WHERE id IN (SELECT id FROM victims) RETURNING id), cleaned_jobs_queue_scrape AS (DELETE FROM nuq.queue_scrape WHERE group_id IN (SELECT id FROM cleaned_groups)), cleaned_jobs_queue_scrape_backlog AS (DELETE FROM nuq.queue_scrape_backlog WHERE group_id IN (SELECT id FROM cleaned_groups)), cleaned_jobs_crawl_finished AS (DELETE FROM nuq.queue_crawl_finished WHERE group_id IN (SELECT id FROM cleaned_groups)) SELECT 1;'
+              )
+              WHERE NOT EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'nuq_group_crawl_clean');
+              SQL
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+        - name: wait-for-redis
+          image: redis:7.2.7-alpine
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: FC_REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: FC_REDIS_PORT
+              value: '6379'
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until redis-cli -h "$FC_REDIS_HOST" -p "$FC_REDIS_PORT" ping >/dev/null 2>&1; do
+                sleep 2
+              done
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+        - name: wait-for-rabbitmq
+          image: busybox:1.36.1
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: RABBITMQ_HOST
+              value: ${{ defaults.app_name }}-rabbitmq.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until nc -z "$RABBITMQ_HOST" 5672; do
+                sleep 2
+              done
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: ghcr.io/firecrawl/firecrawl@sha256:3eee4a4059d78da747fc04db4649b35c0f2cdd50cb618a8e444b2e7f256b583c
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - node
+            - dist/src/harness.js
+            - --start-docker
+          env:
+            - name: POSTGRES_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: POSTGRES_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: POSTGRES_DB
+              value: postgres
+            - name: REDIS_URL
+              value: redis://${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local:6379
+            - name: REDIS_RATE_LIMIT_URL
+              value: redis://${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local:6379
+            - name: PLAYWRIGHT_MICROSERVICE_URL
+              value: http://${{ defaults.app_name }}-playwright:3000/scrape
+            - name: NUQ_RABBITMQ_URL
+              value: amqp://${{ defaults.app_name }}-rabbitmq:5672
+            - name: HOST
+              value: 0.0.0.0
+            - name: PORT
+              value: '3002'
+            - name: EXTRACT_WORKER_PORT
+              value: '3004'
+            - name: WORKER_PORT
+              value: '3005'
+            - name: ENV
+              value: local
+            - name: USE_DB_AUTHENTICATION
+              value: 'false'
+            - name: NUM_WORKERS_PER_QUEUE
+              value: '2'
+            - name: CRAWL_CONCURRENT_REQUESTS
+              value: '2'
+            - name: MAX_CONCURRENT_JOBS
+              value: '2'
+            - name: BROWSER_POOL_SIZE
+              value: '2'
+            - name: NUQ_WORKER_COUNT
+              value: '1'
+            - name: SCRAPE_MAX_PDF_PREFETCHES
+              value: '1'
+            - name: SCRAPE_MAX_DOCUMENT_PREFETCHES
+              value: '1'
+            - name: BULL_AUTH_KEY
+              value: ${{ defaults.bull_auth_key }}
+            - name: OPENAI_API_KEY
+              value: ${{ inputs.openai_api_key }}
+            - name: OPENAI_BASE_URL
+              value: ${{ inputs.openai_base_url }}
+            - name: MODEL_NAME
+              value: ${{ inputs.model_name }}
+          ports:
+            - name: http
+              containerPort: 3002
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 1536Mi
+            requests:
+              cpu: 100m
+              memory: 384Mi
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            failureThreshold: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - name: http
+      port: 3002
+      targetPort: 3002
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 3002
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/firecrawl/logo.png
+  name: Firecrawl
+  type: link

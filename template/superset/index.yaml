@@ -1,0 +1,821 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: superset
+spec:
+  title: Apache Superset
+  url: https://superset.apache.org/
+  gitRepo: https://github.com/apache/superset
+  author: Sealos
+  description: Modern data exploration and visualization platform for dashboards, charts, and SQL analytics.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/superset/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/superset/logo.svg
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/superset/website-screenshot.webp
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: 现代化数据探索与可视化平台，用于仪表盘、图表和 SQL 分析。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/superset/README_zh.md
+  categories:
+    - tool
+    - monitor
+  defaults:
+    app_name:
+      type: string
+      value: superset-${{ random(8) }}
+    app_host:
+      type: string
+      value: superset-${{ random(8) }}
+    secret_key:
+      type: string
+      value: ${{ random(64) }}
+  inputs:
+    admin_username:
+      description: Initial Superset administrator username.
+      type: string
+      required: true
+    admin_password:
+      description: Initial Superset administrator password for the admin account.
+      type: string
+      required: true
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  terminationPolicy: Delete
+  componentSpecs:
+    - name: postgresql
+      componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
+      replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: OnFailure
+      containers:
+        - name: pg-init
+          image: postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 20m
+              memory: 25Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_DATABASE
+              value: superset
+            - name: PGPASSWORD
+              value: $(PG_PASSWORD)
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; do
+                sleep 2
+              done
+              if ! psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='superset'" | grep -q 1; then
+                psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE "superset";'
+              fi
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-redis
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-redis
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    kb.io/database: redis-7.2.7
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/version: 7.2.7
+    clusterversion.kubeblocks.io/name: redis-7.2.7
+    clusterdefinition.kubeblocks.io/name: redis
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys:
+      - kubernetes.io/hostname
+  clusterDefinitionRef: redis
+  topology: replication
+  terminationPolicy: Delete
+  componentSpecs:
+    - name: redis
+      componentDef: redis-7
+      replicas: 1
+      enabledLogs:
+        - running
+      env:
+        - name: CUSTOM_SENTINEL_MASTER_NAME
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      serviceVersion: 7.2.7
+      switchPolicy:
+        type: Noop
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+    - name: redis-sentinel
+      componentDef: redis-sentinel-7
+      replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      serviceVersion: 7.2.7
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-appvn-pythonpathvn-supersetvn-configvn-py: |
+    from copy import deepcopy
+    import logging
+    import os
+
+    from superset.config import THEME_DEFAULT as SUPERSET_THEME_DEFAULT
+    from superset.config import THEME_DARK as SUPERSET_THEME_DARK
+    from superset.utils.logging_configurator import DefaultLoggingConfigurator
+
+    SECRET_KEY = os.environ["SUPERSET_SECRET_KEY"]
+    SQLALCHEMY_DATABASE_URI = os.environ["SUPERSET__SQLALCHEMY_DATABASE_URI"]
+    REDIS_HOST = os.environ["REDIS_HOST"]
+    REDIS_PORT = os.environ.get("REDIS_PORT", "6379")
+    REDIS_PASSWORD = os.environ["REDIS_PASSWORD"]
+    CACHE_CONFIG = {
+        "CACHE_TYPE": "RedisCache",
+        "CACHE_DEFAULT_TIMEOUT": 300,
+        "CACHE_KEY_PREFIX": "superset_cache_",
+        "CACHE_REDIS_HOST": REDIS_HOST,
+        "CACHE_REDIS_PORT": int(REDIS_PORT),
+        "CACHE_REDIS_PASSWORD": REDIS_PASSWORD,
+        "CACHE_REDIS_DB": 1,
+    }
+    DATA_CACHE_CONFIG = CACHE_CONFIG
+    RESULTS_BACKEND = CACHE_CONFIG
+    RATELIMIT_STORAGE_URI = f"redis://default:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/2"
+    WTF_CSRF_ENABLED = True
+    FEATURE_FLAGS = {"ALERT_REPORTS": True}
+
+    SPINNER_URL = "/static/assets/images/loading.gif"
+    THEME_DEFAULT = deepcopy(SUPERSET_THEME_DEFAULT)
+    THEME_DEFAULT["token"]["brandSpinnerUrl"] = SPINNER_URL
+    THEME_DEFAULT["token"]["brandSpinnerSvg"] = None
+    THEME_DARK = deepcopy(SUPERSET_THEME_DARK) if SUPERSET_THEME_DARK else None
+    if THEME_DARK:
+        THEME_DARK["token"]["brandSpinnerUrl"] = SPINNER_URL
+        THEME_DARK["token"]["brandSpinnerSvg"] = None
+
+    class SealosLogFilter(logging.Filter):
+        def filter(self, record):
+            message = record.getMessage()
+            if message == "Failed to add user to db session: Class 'werkzeug.local.LocalProxy' is not mapped":
+                return False
+            if record.name == "superset.views.error_handling" and message == "HTTPException" and record.exc_info:
+                exc = record.exc_info[1]
+                if exc.__class__.__name__ == "NotFound":
+                    return False
+            return True
+
+    class SealosLoggingConfigurator(DefaultLoggingConfigurator):
+        def configure_logging(self, app_config, debug_mode):
+            super().configure_logging(app_config, debug_mode)
+            noise_filter = SealosLogFilter()
+            root_logger = logging.getLogger()
+            root_logger.addFilter(noise_filter)
+            for handler in root_logger.handlers:
+                handler.addFilter(noise_filter)
+            error_logger = logging.getLogger("superset.views.error_handling")
+            error_logger.addFilter(noise_filter)
+            for handler in error_logger.handlers:
+                handler.addFilter(noise_filter)
+            logging.getLogger("superset.core.mcp.core_mcp_injection").setLevel(logging.WARNING)
+
+    LOGGING_CONFIGURATOR = SealosLoggingConfigurator()
+  vn-appvn-sealosvn-entrypointvn-sh: |
+    set -eu
+
+    wait_tcp() {
+      host="$1"
+      port="$2"
+      for i in $(seq 1 120); do
+        if python - "$host" "$port" <<'PY'
+    import socket
+    import sys
+
+    try:
+        socket.create_connection((sys.argv[1], int(sys.argv[2])), 5).close()
+    except OSError:
+        raise SystemExit(1)
+    PY
+        then
+          return 0
+        fi
+        sleep 2
+      done
+      return 1
+    }
+
+    load_file_env() {
+      var="$1"
+      file="$2"
+      for i in $(seq 1 120); do
+        if [ -s "$file" ]; then
+          export "$var=$(cat "$file")"
+          return 0
+        fi
+        sleep 2
+      done
+      echo "missing required secret file: $file" >&2
+      return 1
+    }
+
+    if [ -z "${REDIS_PASSWORD:-}" ]; then
+      load_file_env REDIS_PASSWORD /app/sealos/secrets/redis/password
+    fi
+
+    PIP_DISABLE_PIP_VERSION_CHECK=1 pip install --no-cache-dir --target /tmp/python-deps psycopg2-binary >/tmp/psycopg2-install.log 2>&1 || {
+      cat /tmp/psycopg2-install.log >&2
+      exit 1
+    }
+    export PYTHONPATH="/tmp/python-deps:${PYTHONPATH:-}"
+    wait_tcp "$PG_HOST" "$PG_PORT"
+    wait_tcp "$REDIS_HOST" "$REDIS_PORT"
+
+    case "$1" in
+      init)
+        superset db upgrade
+        superset fab create-admin --username "$ADMIN_USERNAME" --firstname Superset --lastname Admin --email admin@superset.local --password "$ADMIN_PASSWORD" || true
+        superset init
+        ;;
+      wait)
+        for i in $(seq 1 120); do
+          if superset fab list-users >/dev/null 2>&1; then
+            exit 0
+          fi
+          sleep 3
+        done
+        exit 1
+        ;;
+      start)
+        exec /app/.venv/bin/gunicorn \
+          --bind 0.0.0.0:8088 \
+          --workers 1 \
+          --worker-class gthread \
+          --threads 8 \
+          --timeout 120 \
+          "superset.app:create_app()"
+        ;;
+      *)
+        echo "usage: $0 init|wait|start" >&2
+        exit 2
+        ;;
+    esac
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-init
+  annotations:
+    docker-to-sealos.resource-override-source: "Live Sealos validation: the Superset initialization Job was OOMKilled with the namespace default 64Mi memory limit while running database migrations."
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: OnFailure
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ${{ defaults.app_name }}-init
+          image: apachesuperset.docker.scarf.sh/apache/superset:6.1.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 100m
+              memory: 102Mi
+            limits:
+              cpu: 1
+              memory: 1024Mi
+          command:
+            - /bin/sh
+            - /app/sealos/entrypoint.sh
+            - init
+          env:
+            - name: SUPERSET_SECRET_KEY
+              value: ${{ defaults.secret_key }}
+            - name: ADMIN_USERNAME
+              value: ${{ inputs.admin_username }}
+            - name: ADMIN_PASSWORD
+              value: ${{ inputs.admin_password }}
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: SUPERSET__SQLALCHEMY_DATABASE_URI
+              value: postgresql+psycopg2://$(PG_USER):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/superset
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc
+            - name: REDIS_PORT
+              value: "6379"
+          volumeMounts:
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /app/pythonpath/superset_config.py
+              subPath: vn-appvn-pythonpathvn-supersetvn-configvn-py
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /app/sealos/entrypoint.sh
+              subPath: vn-appvn-sealosvn-entrypointvn-sh
+            - name: redis-password
+              mountPath: /app/sealos/secrets/redis
+              readOnly: true
+      volumes:
+        - name: ${{ defaults.app_name }}-cm
+          configMap:
+            name: ${{ defaults.app_name }}
+            items:
+              - key: vn-appvn-pythonpathvn-supersetvn-configvn-py
+                path: vn-appvn-pythonpathvn-supersetvn-configvn-py
+              - key: vn-appvn-sealosvn-entrypointvn-sh
+                path: vn-appvn-sealosvn-entrypointvn-sh
+        - name: redis-password
+          secret:
+            secretName: ${{ defaults.app_name }}-redis-redis-account-default
+            optional: true
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: apachesuperset.docker.scarf.sh/apache/superset:6.1.0
+    docker-to-sealos.resource-override-source: "Live Sealos validation: the Superset main web container was OOMKilled at the 512Mi ladder value during authenticated runtime inspection; 1024Mi keeps the web process stable."
+    deploy.cloud.sealos.io/minReplicas: "1"
+    deploy.cloud.sealos.io/maxReplicas: "1"
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: wait-for-init
+          image: apachesuperset.docker.scarf.sh/apache/superset:6.1.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - /bin/sh
+            - /app/sealos/entrypoint.sh
+            - wait
+          env:
+            - name: SUPERSET_SECRET_KEY
+              value: ${{ defaults.secret_key }}
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: SUPERSET__SQLALCHEMY_DATABASE_URI
+              value: postgresql+psycopg2://$(PG_USER):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/superset
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc
+            - name: REDIS_PORT
+              value: "6379"
+          volumeMounts:
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /app/pythonpath/superset_config.py
+              subPath: vn-appvn-pythonpathvn-supersetvn-configvn-py
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /app/sealos/entrypoint.sh
+              subPath: vn-appvn-sealosvn-entrypointvn-sh
+            - name: redis-password
+              mountPath: /app/sealos/secrets/redis
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 51Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: apachesuperset.docker.scarf.sh/apache/superset:6.1.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - /bin/sh
+            - -c
+            - exec /bin/sh /app/sealos/entrypoint.sh start
+          env:
+            - name: SUPERSET_SECRET_KEY
+              value: ${{ defaults.secret_key }}
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: SUPERSET__SQLALCHEMY_DATABASE_URI
+              value: postgresql+psycopg2://$(PG_USER):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/superset
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc
+            - name: REDIS_PORT
+              value: "6379"
+          ports:
+            - name: http
+              containerPort: 8088
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 50m
+              memory: 102Mi
+            limits:
+              cpu: 500m
+              memory: 1024Mi
+          volumeMounts:
+            - name: vn-appvn-superset-home
+              mountPath: /app/superset_home
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /app/pythonpath/superset_config.py
+              subPath: vn-appvn-pythonpathvn-supersetvn-configvn-py
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /app/sealos/entrypoint.sh
+              subPath: vn-appvn-sealosvn-entrypointvn-sh
+            - name: redis-password
+              mountPath: /app/sealos/secrets/redis
+              readOnly: true
+      volumes:
+        - name: ${{ defaults.app_name }}-cm
+          configMap:
+            name: ${{ defaults.app_name }}
+            items:
+              - key: vn-appvn-pythonpathvn-supersetvn-configvn-py
+                path: vn-appvn-pythonpathvn-supersetvn-configvn-py
+              - key: vn-appvn-sealosvn-entrypointvn-sh
+                path: vn-appvn-sealosvn-entrypointvn-sh
+        - name: redis-password
+          secret:
+            secretName: ${{ defaults.app_name }}-redis-redis-account-default
+            optional: true
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-appvn-superset-home
+        annotations:
+          path: /app/superset_home
+          value: "1"
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  selector:
+    app: ${{ defaults.app_name }}
+  ports:
+    - name: http
+      port: 8088
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 8088
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/superset/logo.svg
+  name: Apache Superset
+  type: link
