@@ -592,6 +592,58 @@ spec:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-appvn-patchvn-standalonevn-mjs: |-
+    import fs from "node:fs";
+    import path from "node:path";
+
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "";
+    const disableSignup = process.env.NEXT_PUBLIC_DISABLE_SIGNUP || "";
+    const replacements = [
+      ['"NEXT_PUBLIC_BACKEND_URL":""', `"NEXT_PUBLIC_BACKEND_URL":"${backendUrl}"`],
+      ['NEXT_PUBLIC_BACKEND_URL:""', `NEXT_PUBLIC_BACKEND_URL:"${backendUrl}"`],
+      ['baseURL:""', `baseURL:"${backendUrl}"`],
+      ['"NEXT_PUBLIC_DISABLE_SIGNUP":""', `"NEXT_PUBLIC_DISABLE_SIGNUP":"${disableSignup}"`],
+      ['NEXT_PUBLIC_DISABLE_SIGNUP:""', `NEXT_PUBLIC_DISABLE_SIGNUP:"${disableSignup}"`],
+    ];
+
+    function patchFile(filePath) {
+      const original = fs.readFileSync(filePath, "utf8");
+      let updated = original;
+
+      for (const [from, to] of replacements) {
+        updated = updated.split(from).join(to);
+      }
+
+      if (updated !== original) {
+        fs.writeFileSync(filePath, updated);
+      }
+    }
+
+    function walk(dir) {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const fullPath = path.join(dir, entry.name);
+
+        if (entry.isDirectory()) {
+          walk(fullPath);
+          continue;
+        }
+
+        if (entry.isFile() && (fullPath.endsWith(".js") || fullPath.endsWith(".json"))) {
+          patchFile(fullPath);
+        }
+      }
+    }
+
+    walk("/app");
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -626,6 +678,10 @@ spec:
         - name: ${{ defaults.app_name }}
           image: ghcr.io/rybbit-io/rybbit-client:sha-aa404ba
           imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - node /app/patch-standalone.mjs && exec node server.js
           env:
             - name: NODE_ENV
               value: production
@@ -668,6 +724,14 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 3
             failureThreshold: 6
+          volumeMounts:
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /app/patch-standalone.mjs
+              subPath: vn-appvn-patchvn-standalonevn-mjs
+      volumes:
+        - name: ${{ defaults.app_name }}-cm
+          configMap:
+            name: ${{ defaults.app_name }}
 ---
 apiVersion: v1
 kind: Service

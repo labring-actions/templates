@@ -1,9 +1,9 @@
 # Template Update Status
 
-- Updated templates: 130
-- Updated candidates: 223
-- Validation-needed templates: 5
-- Validation-needed candidates: 22
+- Updated templates: 131
+- Updated candidates: 224
+- Validation-needed templates: 4
+- Validation-needed candidates: 21
 - Blocked templates: 1
 - Blocked candidates: 2
 - Skipped templates: 1
@@ -374,9 +374,10 @@
   - `rocketchat/rocket.chat:7.9.0` -> `rocketchat/rocket.chat:8.5.1`: validated Rocket.Chat microservices runtime on Sealos: Template API dry-run/deploy succeeded; fixed MongoDB connection secret-key drift by using the MongoDB Service DNS; added authSource=rocketchat; made mongo-init idempotent; raised the main Rocket.Chat container to the 2Gi resource tier; kept MongoDB at the docker-to-sealos 512Mi component tier; MongoDB, NATS, the main app, account, authorization, DDP streamer, presence, and stream hub reached ready; root /, /health, /api/info, /sockjs/info, and /websocket returned HTTP 200; Rocket.Chat 8.5.1 reported SERVER RUNNING; MongoDB contained 83 collections with seeded users and rooms; NATS varz and config reloader were healthy; metrics endpoints returned HTTP 200; test footprints were cleaned up
   - `rocketchat/stream-hub-service:7.9.0` -> `rocketchat/stream-hub-service:7.13.9`: validated Rocket.Chat microservices runtime on Sealos: Template API dry-run/deploy succeeded; fixed MongoDB connection secret-key drift by using the MongoDB Service DNS; added authSource=rocketchat; made mongo-init idempotent; raised the main Rocket.Chat container to the 2Gi resource tier; kept MongoDB at the docker-to-sealos 512Mi component tier; MongoDB, NATS, the main app, account, authorization, DDP streamer, presence, and stream hub reached ready; root /, /health, /api/info, /sockjs/info, and /websocket returned HTTP 200; Rocket.Chat 8.5.1 reported SERVER RUNNING; MongoDB contained 83 collections with seeded users and rooms; NATS varz and config reloader were healthy; metrics endpoints returned HTTP 200; test footprints were cleaned up
 
-## Validation-Needed Templates
 - `rybbit`
-  - `clickhouse/clickhouse-server:25.4.2` -> `clickhouse/clickhouse-server:26.5.3`: updated Rybbit ClickHouse image candidate; focused runtime validation is required for ClickHouse 25.x to 26.x storage compatibility, ingestion writes, analytics queries, backend startup, and first-run account flow before merge confidence
+  - `clickhouse/clickhouse-server:25.4.2` -> `clickhouse/clickhouse-server:26.5.3`: validated Rybbit runtime on Sealos: Template API dry-run/deploy succeeded; added a client ConfigMap startup patch for the prebuilt Next.js standalone NEXT_PUBLIC_BACKEND_URL and NEXT_PUBLIC_DISABLE_SIGNUP values; PostgreSQL KubeBlocks reached Running; pg-init completed; ClickHouse 26.5.3, backend, and client reached ready with zero restarts; root, /login, /signup, /api/health, /api/auth/get-session, and /api/config returned HTTP 200 without runtime failure markers; sign-up, session retrieval, and organization creation APIs returned 200; PostgreSQL contained 33 public tables; ClickHouse contained the analytics tables; recent logs were healthy; test footprints were cleaned up
+
+## Validation-Needed Templates
 - `signoz`
   - `clickhouse/clickhouse-server:25.5.6` -> `clickhouse/clickhouse-server:26.5.3`: updated the Signoz ClickHouse, collector, Signoz, and Zookeeper image bundle; focused runtime validation is required for ClickHouse migrations/storage, collector ingestion, dashboard startup, and Zookeeper coordination before merge confidence
   - `signoz/signoz-otel-collector:v0.144.2` -> `signoz/signoz-otel-collector:v0.144.5`: updated the Signoz ClickHouse, collector, Signoz, and Zookeeper image bundle; focused runtime validation is required for ClickHouse migrations/storage, collector ingestion, dashboard startup, and Zookeeper coordination before merge confidence
