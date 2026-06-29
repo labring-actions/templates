@@ -339,6 +339,19 @@ data:
         THEME_DARK["token"]["brandSpinnerUrl"] = SPINNER_URL
         THEME_DARK["token"]["brandSpinnerSvg"] = None
 
+    BENIGN_NOT_FOUND_PATHS = {
+        "/favicon.ico",
+        "/robots.txt",
+        "/site.webmanifest",
+        "/browserconfig.xml",
+        "/apple-touch-icon.png",
+        "/apple-touch-icon-precomposed.png",
+    }
+    BENIGN_NOT_FOUND_PREFIXES = (
+        "/static/",
+        "/.well-known/appspecific/",
+    )
+
     class SealosLogFilter(logging.Filter):
         def filter(self, record):
             message = record.getMessage()
@@ -350,8 +363,10 @@ data:
                     try:
                         from flask import has_request_context, request
 
-                        if has_request_context() and request.path.startswith("/static/"):
-                            return False
+                        if has_request_context():
+                            path = request.path
+                            if path in BENIGN_NOT_FOUND_PATHS or path.startswith(BENIGN_NOT_FOUND_PREFIXES):
+                                return False
                     except RuntimeError:
                         pass
             return True
@@ -364,6 +379,11 @@ data:
             root_logger.addFilter(noise_filter)
             for handler in root_logger.handlers:
                 handler.addFilter(noise_filter)
+            error_logger = logging.getLogger("superset.views.error_handling")
+            error_logger.addFilter(noise_filter)
+            for handler in error_logger.handlers:
+                handler.addFilter(noise_filter)
+            logging.getLogger("superset.core.mcp.core_mcp_injection").setLevel(logging.WARNING)
 
     LOGGING_CONFIGURATOR = SealosLoggingConfigurator()
   vn-appvn-sealosvn-entrypointvn-sh: |
@@ -408,7 +428,10 @@ data:
       load_file_env REDIS_PASSWORD /app/sealos/secrets/redis/password
     fi
 
-    pip install --no-cache-dir --target /tmp/python-deps psycopg2-binary
+    PIP_DISABLE_PIP_VERSION_CHECK=1 pip install --no-cache-dir --target /tmp/python-deps psycopg2-binary >/tmp/psycopg2-install.log 2>&1 || {
+      cat /tmp/psycopg2-install.log >&2
+      exit 1
+    }
     export PYTHONPATH="/tmp/python-deps:${PYTHONPATH:-}"
     wait_tcp "$PG_HOST" "$PG_PORT"
     wait_tcp "$REDIS_HOST" "$REDIS_PORT"
@@ -456,10 +479,23 @@ spec:
     spec:
       automountServiceAccountToken: false
       restartPolicy: OnFailure
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: ${{ defaults.app_name }}-init
           image: apachesuperset.docker.scarf.sh/apache/superset:6.1.0
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           resources:
             requests:
               cpu: 100m
@@ -553,10 +589,23 @@ spec:
         app: ${{ defaults.app_name }}
     spec:
       automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
       initContainers:
         - name: wait-for-init
           image: apachesuperset.docker.scarf.sh/apache/superset:6.1.0
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           command:
             - /bin/sh
             - /app/sealos/entrypoint.sh
@@ -611,6 +660,11 @@ spec:
         - name: ${{ defaults.app_name }}
           image: apachesuperset.docker.scarf.sh/apache/superset:6.1.0
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           command:
             - /bin/sh
             - -c
