@@ -1,9 +1,9 @@
 # Template Update Status
 
-- Updated templates: 122
-- Updated candidates: 196
-- Validation-needed templates: 13
-- Validation-needed candidates: 49
+- Updated templates: 123
+- Updated candidates: 199
+- Validation-needed templates: 12
+- Validation-needed candidates: 46
 - Blocked templates: 1
 - Blocked candidates: 2
 - Skipped templates: 1
@@ -331,12 +331,13 @@
 - `glitchtip`
   - `glitchtip/glitchtip:v4.1.5` -> `glitchtip/glitchtip:v6.0.3`: validated GlitchTip runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis KubeBlocks clusters reached Running, pg-init completed, Django migrations applied 121 migrations across 274 public tables, web and worker containers reached ready with zero restarts, root, /login, and /register returned HTTP 200, Redis returned PONG, S3 object storage put/get/delete succeeded using the internal HTTP endpoint, recent web/worker logs showed healthy startup, and test footprints were cleaned up
 
+- `grafana-otel`
+  - `grafana/grafana:12.3.0` -> `grafana/grafana:13.1.0`: validated Grafana OTel runtime on Sealos: Template API dry-run/deploy succeeded, OTel Collector, Prometheus, and Grafana reached ready with zero pod restarts after raising Grafana to the 200m/256Mi resource tier, Grafana root and /login returned HTTP 200, Grafana /api/health reported database ok and version 13.1.0, the Prometheus datasource file pointed to the in-cluster Prometheus service, Prometheus /-/ready succeeded, the up query returned 1 for Prometheus and the OTel Collector target with empty lastError fields, OTel Collector 8889 metrics endpoint returned HTTP 200, OTLP HTTP receiver returned 405 for a GET probe, component startup checks showed the OTLP gRPC/HTTP receivers and Prometheus server ready, PVCs bound, and test footprints were cleaned up
+  - `otel/opentelemetry-collector:0.99.0` -> `otel/opentelemetry-collector:0.155.0`: validated Grafana OTel runtime on Sealos: Template API dry-run/deploy succeeded, OTel Collector, Prometheus, and Grafana reached ready with zero pod restarts after raising Grafana to the 200m/256Mi resource tier, Grafana root and /login returned HTTP 200, Grafana /api/health reported database ok and version 13.1.0, the Prometheus datasource file pointed to the in-cluster Prometheus service, Prometheus /-/ready succeeded, the up query returned 1 for Prometheus and the OTel Collector target with empty lastError fields, OTel Collector 8889 metrics endpoint returned HTTP 200, OTLP HTTP receiver returned 405 for a GET probe, component startup checks showed the OTLP gRPC/HTTP receivers and Prometheus server ready, PVCs bound, and test footprints were cleaned up
+  - `prom/prometheus:v3.8.0` -> `prom/prometheus:v3.12.0`: validated Grafana OTel runtime on Sealos: Template API dry-run/deploy succeeded, OTel Collector, Prometheus, and Grafana reached ready with zero pod restarts after raising Grafana to the 200m/256Mi resource tier, Grafana root and /login returned HTTP 200, Grafana /api/health reported database ok and version 13.1.0, the Prometheus datasource file pointed to the in-cluster Prometheus service, Prometheus /-/ready succeeded, the up query returned 1 for Prometheus and the OTel Collector target with empty lastError fields, OTel Collector 8889 metrics endpoint returned HTTP 200, OTLP HTTP receiver returned 405 for a GET probe, component startup checks showed the OTLP gRPC/HTTP receivers and Prometheus server ready, PVCs bound, and test footprints were cleaned up
+
 ## Validation-Needed Templates
 
-- `grafana-otel`
-  - `grafana/grafana:12.3.0` -> `grafana/grafana:13.1.0`: updated Grafana, Prometheus, and OpenTelemetry Collector images, normalized ConfigMap mounts and labels, and requires focused runtime validation for the monitoring bundle public Grafana entry, collector ingest ports, and Prometheus scrape path
-  - `otel/opentelemetry-collector:0.99.0` -> `otel/opentelemetry-collector:0.155.0`: updated Grafana, Prometheus, and OpenTelemetry Collector images, normalized ConfigMap mounts and labels, and requires focused runtime validation for the monitoring bundle public Grafana entry, collector ingest ports, and Prometheus scrape path
-  - `prom/prometheus:v3.8.0` -> `prom/prometheus:v3.12.0`: updated Grafana, Prometheus, and OpenTelemetry Collector images, normalized ConfigMap mounts and labels, and requires focused runtime validation for the monitoring bundle public Grafana entry, collector ingest ports, and Prometheus scrape path
 - `harbor`
   - `goharbor/harbor-core:v2.14.4` -> `goharbor/harbor-core:v2.15.1`: updated Harbor core, jobservice, portal, registry, registryctl, and Trivy adapter images from v2.14.4 to v2.15.1 as one Harbor runtime bundle; focused runtime validation is required for PostgreSQL/Redis connectivity, object storage registry backend, portal/core/API login, jobservice execution, registry push/pull paths, registryctl health, Trivy scan flow, and first-run admin login before merge confidence
   - `goharbor/harbor-jobservice:v2.14.4` -> `goharbor/harbor-jobservice:v2.15.1`: updated Harbor core, jobservice, portal, registry, registryctl, and Trivy adapter images from v2.14.4 to v2.15.1 as one Harbor runtime bundle; focused runtime validation is required for PostgreSQL/Redis connectivity, object storage registry backend, portal/core/API login, jobservice execution, registry push/pull paths, registryctl health, Trivy scan flow, and first-run admin login before merge confidence

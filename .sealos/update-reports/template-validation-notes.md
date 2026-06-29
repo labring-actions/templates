@@ -214,7 +214,7 @@ Validation gaps:
 - `librechat`: single-template docker-to-sealos consistency check passed after LibreChat v0.8.7 image update, custom Secret envFrom cleanup, Meilisearch sidecar pinning, generated runtime secrets, MongoDB visibility labels, Service and Ingress metadata, and App schema normalization.
 - `keystone`: single-template docker-to-sealos consistency check passed after Node 26.3.1 image update, PostgreSQL visibility labels, pg-init Job resources, ConfigMap single-volume mount normalization, and main startup command cleanup.
 - `appflowy`: single-template docker-to-sealos consistency check passed after AppFlowy Cloud/Worker/Web/GoTrue image updates, boolean object-storage branching, approved object-storage env indirection, Redis FQDN wiring, and originImageName alignment.
-- `grafana-otel`: single-template docker-to-sealos consistency check passed after Grafana, Prometheus, and OpenTelemetry Collector image updates, ConfigMap label and mount normalization, helper resource additions, Service labels, and Simplified Chinese metadata.
+- `grafana-otel`: single-template docker-to-sealos consistency check passed after Grafana, Prometheus, and OpenTelemetry Collector image updates, ConfigMap label and mount normalization, helper resource additions, Service labels, and Simplified Chinese metadata. Live Sealos validation passed for Template API dry-run/deploy, OTel Collector, Prometheus, and Grafana readiness with zero pod restarts after raising Grafana to the 200m/256Mi resource tier, root and /login HTTP 200, Grafana /api/health database ok on version 13.1.0, provisioned Prometheus datasource, Prometheus /-/ready, Prometheus up query for itself and the OTel Collector target, OTel metrics and OTLP HTTP receiver probes, startup checks, PVC binding, and cleanup.
 - `glitchtip`: single-template docker-to-sealos consistency check passed after v6.0.3 image update, PostgreSQL 16.4.0 metadata and idempotent pg-init, Redis/database/object-storage env normalization, Service/Ingress defaults, resources, and App schema cleanup. Live Sealos validation passed for Template API dry-run/deploy, PostgreSQL and Redis Running, pg-init, 121 Django migrations, 274 public tables, web/worker readiness, root/login/register HTTP 200, Redis PONG, S3 put/get/delete through the internal HTTP endpoint, healthy startup logs, and cleanup.
 - `penpot`: single-template docker-to-sealos consistency check passed after Penpot frontend/backend/exporter image updates, PostgreSQL 16.4 metadata and idempotent pg-init, Redis/PostgreSQL URL composition, object-storage env indirection, Service/Ingress/App schema, and resource normalization.
 - `twenty`: single-template docker-to-sealos consistency check passed after v2.16.0 image update, official v2 env alignment, PostgreSQL 16.4.0 metadata, pg-init readiness/idempotency, Redis FQDN wiring, generated secret envs, resource ladder values, Service/Ingress metadata, and App schema normalization.
@@ -239,8 +239,8 @@ Validation gaps:
 - `refly`: skipped the mautic/mautic helper candidate because it is used only as an Elasticsearch data ownership helper in the Refly template and is not part of the Refly application release surface.
 
 Remaining queue:
-- Validation-needed templates: 13
-- Validation-needed candidates: 49
+- Validation-needed templates: 12
+- Validation-needed candidates: 46
 - Blocked templates: 1
 - Blocked candidates: 2
 - Skipped templates: 1
