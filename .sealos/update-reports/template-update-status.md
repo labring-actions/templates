@@ -1,9 +1,9 @@
 # Template Update Status
 
-- Updated templates: 125
-- Updated candidates: 206
-- Validation-needed templates: 10
-- Validation-needed candidates: 39
+- Updated templates: 126
+- Updated candidates: 209
+- Validation-needed templates: 9
+- Validation-needed candidates: 36
 - Blocked templates: 1
 - Blocked candidates: 2
 - Skipped templates: 1
@@ -347,12 +347,12 @@
 - `laf`
   - `quay.io/prometheus/prometheus:v2.45.0` -> `quay.io/prometheus/prometheus:v3.12.0`: validated LAF runtime on Sealos: Template API dry-run/deploy succeeded, MongoDB reached Running, server, web, runtime-exporter, MinIO, and Prometheus reached ready with zero pod restarts, Prometheus was converted to a managed StatefulSet with a 1Gi PVC, /-/ready succeeded, runtime-exporter, database-exporter, and MinIO scrape targets were up, the up query returned 1 for all three targets, web and API routes returned HTTP 200, MongoDB sys_db collections were populated, MinIO console and health endpoints returned HTTP 200, MinIO policy/user jobs completed, the statistics job became best-effort, recent logs stayed free of runtime errors, and test footprints were cleaned up
 
-## Validation-Needed Templates
-
 - `langfuse`
-  - `clickhouse/clickhouse-server:25.4.2` -> `clickhouse/clickhouse-server:26.5.3`: updated Langfuse web, worker, and ClickHouse images; focused runtime validation is required for PostgreSQL init, ClickHouse migrations/storage, Redis connectivity, S3/object storage paths, worker jobs, web startup, secret handling, and first-run login before merge confidence
-  - `docker.io/langfuse/langfuse-worker:3.180.0` -> `docker.io/langfuse/langfuse-worker:3.197.1`: updated Langfuse web, worker, and ClickHouse images; focused runtime validation is required for PostgreSQL init, ClickHouse migrations/storage, Redis connectivity, S3/object storage paths, worker jobs, web startup, secret handling, and first-run login before merge confidence
-  - `docker.io/langfuse/langfuse:3.180.0` -> `docker.io/langfuse/langfuse:3.197.1`: updated Langfuse web, worker, and ClickHouse images; focused runtime validation is required for PostgreSQL init, ClickHouse migrations/storage, Redis connectivity, S3/object storage paths, worker jobs, web startup, secret handling, and first-run login before merge confidence
+  - `clickhouse/clickhouse-server:25.4.2` -> `clickhouse/clickhouse-server:26.5.3`: validated Langfuse runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis KubeBlocks clusters reached Running, pg-init created the langfuse database, ClickHouse 26.5.3, Langfuse web 3.197.1, and worker 3.197.1 reached ready with zero pod restarts, root, sign-up, sign-in, health, readiness, auth providers, and CSRF routes returned HTTP 200, the sign-up API created a smoke user, credentials login returned a session, PostgreSQL reported 75 public tables and 412 Prisma migrations with eval_templates.type present, ClickHouse reported 12 default tables, Redis returned PONG, object storage bucket secrets were wired, recent web/worker/ClickHouse logs stayed free of runtime errors, and test footprints were cleaned up
+  - `docker.io/langfuse/langfuse-worker:3.180.0` -> `docker.io/langfuse/langfuse-worker:3.197.1`: validated Langfuse runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis KubeBlocks clusters reached Running, pg-init created the langfuse database, ClickHouse 26.5.3, Langfuse web 3.197.1, and worker 3.197.1 reached ready with zero pod restarts, root, sign-up, sign-in, health, readiness, auth providers, and CSRF routes returned HTTP 200, the sign-up API created a smoke user, credentials login returned a session, PostgreSQL reported 75 public tables and 412 Prisma migrations with eval_templates.type present, ClickHouse reported 12 default tables, Redis returned PONG, object storage bucket secrets were wired, recent web/worker/ClickHouse logs stayed free of runtime errors, and test footprints were cleaned up
+  - `docker.io/langfuse/langfuse:3.180.0` -> `docker.io/langfuse/langfuse:3.197.1`: validated Langfuse runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis KubeBlocks clusters reached Running, pg-init created the langfuse database, ClickHouse 26.5.3, Langfuse web 3.197.1, and worker 3.197.1 reached ready with zero pod restarts, root, sign-up, sign-in, health, readiness, auth providers, and CSRF routes returned HTTP 200, the sign-up API created a smoke user, credentials login returned a session, PostgreSQL reported 75 public tables and 412 Prisma migrations with eval_templates.type present, ClickHouse reported 12 default tables, Redis returned PONG, object storage bucket secrets were wired, recent web/worker/ClickHouse logs stayed free of runtime errors, and test footprints were cleaned up
+
+## Validation-Needed Templates
 - `liebianbao`
   - `busybox:1.36.1` -> `busybox:1.38.0`: updated LieBianBao BusyBox and Nginx helper images; focused runtime validation is required for PHP startup, Nginx static/PHP routing, MongoDB/Redis/MySQL connectivity, MySQL init data import, and first-run admin flow before merge confidence
   - `nginx:1.25.2` -> `nginx:1.31.2`: updated LieBianBao BusyBox and Nginx helper images; focused runtime validation is required for PHP startup, Nginx static/PHP routing, MongoDB/Redis/MySQL connectivity, MySQL init data import, and first-run admin flow before merge confidence
