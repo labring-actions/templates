@@ -1,0 +1,365 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: mirofish
+spec:
+  title: MiroFish
+  url: https://666ghj.github.io/mirofish-demo/
+  gitRepo: https://github.com/666ghj/MiroFish
+  author: Sealos
+  description: MiroFish is an open-source swarm intelligence simulation engine for building digital worlds and forecasting scenarios with multi-agent workflows.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/mirofish/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/mirofish/logo.png
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/mirofish/website-screenshot.webp
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: MiroFish 是开源群体智能仿真引擎，可通过多智能体工作流构建数字世界并推演未来场景。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/mirofish/README_zh.md
+  categories:
+    - ai
+    - tool
+  defaults:
+    app_name:
+      type: string
+      value: mirofish-${{ random(8) }}
+    app_host:
+      type: string
+      value: mirofish-${{ random(8) }}
+    secret_key:
+      type: string
+      value: MiroFish@${{ random(32) }}!1
+  inputs:
+    llm_api_key:
+      description: OpenAI-compatible LLM API key used by MiroFish simulation and report generation.
+      type: string
+      default: replace-with-your-llm-api-key
+      required: true
+    llm_base_url:
+      description: OpenAI-compatible API base URL for the LLM provider.
+      type: string
+      default: https://api.openai.com/v1
+      required: true
+    llm_model_name:
+      description: Chat model name used by MiroFish.
+      type: string
+      default: gpt-4o-mini
+      required: true
+    zep_api_key:
+      description: Zep Cloud API key used for graph memory.
+      type: string
+      default: replace-with-your-zep-api-key
+      required: true
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-backend
+  annotations:
+    originImageName: ghcr.io/666ghj/mirofish:v0.1.2
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}-backend
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-backend
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}-backend
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-backend
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-backend
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-backend
+          image: ghcr.io/666ghj/mirofish:v0.1.2
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+          args:
+            - exec npm run backend
+          env:
+            - name: SECRET_KEY
+              value: ${{ defaults.secret_key }}
+            - name: FLASK_HOST
+              value: 0.0.0.0
+            - name: FLASK_PORT
+              value: '5001'
+            - name: FLASK_DEBUG
+              value: 'false'
+            - name: LLM_API_KEY
+              value: ${{ inputs.llm_api_key }}
+            - name: LLM_BASE_URL
+              value: ${{ inputs.llm_base_url }}
+            - name: LLM_MODEL_NAME
+              value: ${{ inputs.llm_model_name }}
+            - name: ZEP_API_KEY
+              value: ${{ inputs.zep_api_key }}
+            - name: OASIS_DEFAULT_MAX_ROUNDS
+              value: '10'
+          ports:
+            - name: http
+              containerPort: 5001
+              protocol: TCP
+          startupProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 36
+          readinessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 20m
+              memory: 25Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          volumeMounts:
+            - name: vn-appvn-backendvn-uploads
+              mountPath: /app/backend/uploads
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /app/backend/uploads
+          value: '1'
+        name: vn-appvn-backendvn-uploads
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/666ghj/mirofish:v0.1.2
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: ghcr.io/666ghj/mirofish:v0.1.2
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+          args:
+            - |
+              cat > frontend/vite.sealos.config.mjs <<'EOF'
+              import base from './vite.config.js'
+
+              export default {
+                ...base,
+                server: {
+                  ...(base.server || {}),
+                  host: '0.0.0.0',
+                  port: 5173,
+                  strictPort: true,
+                  allowedHosts: true
+                }
+              }
+              EOF
+              cd frontend
+              exec npx vite --config vite.sealos.config.mjs
+          env:
+            - name: VITE_API_BASE_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+          ports:
+            - name: http
+              containerPort: 5173
+              protocol: TCP
+          startupProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 36
+          readinessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 20m
+              memory: 25Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-backend
+  labels:
+    app: ${{ defaults.app_name }}-backend
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-backend
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 5001
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-backend
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 5173
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-backend
+  labels:
+    app: ${{ defaults.app_name }}-backend
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-backend
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /api
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-backend
+                port:
+                  number: 5001
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 5173
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/mirofish/logo.png
+  name: MiroFish
+  type: link
