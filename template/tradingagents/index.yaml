@@ -106,13 +106,15 @@ metadata:
     app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 data:
-  app.py: |
+  vn-appvn-py: |
     import datetime as dt
     import os
-    import subprocess
+    import traceback
     import textwrap
 
     import gradio as gr
+    from tradingagents.default_config import DEFAULT_CONFIG
+    from tradingagents.graph.trading_graph import TradingAgentsGraph
 
     PROVIDER = os.environ.get("LLM_PROVIDER", "openai")
 
@@ -141,36 +143,47 @@ data:
         if not ticker:
             return "Enter a ticker symbol before starting an analysis."
 
-        command = [
-            "python",
-            "-m",
-            "cli.main",
-            "analyze",
-            "--ticker",
-            ticker,
-            "--date",
-            analysis_date,
-            "--llm-provider",
-            PROVIDER,
-        ]
-        if depth:
-            command.extend(["--research-depth", str(depth)])
-
         try:
-            result = subprocess.run(
-                command,
-                cwd="/home/appuser/app",
-                text=True,
-                capture_output=True,
-                timeout=1800,
+            depth_value = int(depth or 1)
+            config = DEFAULT_CONFIG.copy()
+            config["llm_provider"] = PROVIDER
+            config["max_debate_rounds"] = depth_value
+            config["max_risk_discuss_rounds"] = depth_value
+            config["data_cache_dir"] = os.environ.get(
+                "TRADINGAGENTS_CACHE_DIR",
+                "/home/appuser/.tradingagents/cache",
             )
-        except subprocess.TimeoutExpired:
-            return "Analysis timed out after 30 minutes. Increase resources or run a narrower analysis."
+            config["memory_log_path"] = os.environ.get(
+                "TRADINGAGENTS_MEMORY_LOG_PATH",
+                "/home/appuser/.tradingagents/memory/trading_memory.md",
+            )
+            config["results_dir"] = os.environ.get(
+                "TRADINGAGENTS_RESULTS_DIR",
+                "/home/appuser/.tradingagents/logs",
+            )
 
-        output = "\n".join(part for part in [result.stdout, result.stderr] if part)
-        if result.returncode != 0:
-            return f"Command failed with exit code {result.returncode}.\n\n{output[-8000:]}"
-        return output[-12000:] or "Analysis completed."
+            graph = TradingAgentsGraph(
+                selected_analysts=["market", "social", "news", "fundamentals"],
+                config=config,
+                debug=False,
+            )
+            final_state, decision = graph.propagate(ticker, analysis_date)
+        except Exception:
+            return "Analysis failed.\n\n" + traceback.format_exc()[-8000:]
+
+        sections = [
+            ("Market report", final_state.get("market_report")),
+            ("Sentiment report", final_state.get("sentiment_report")),
+            ("News report", final_state.get("news_report")),
+            ("Fundamentals report", final_state.get("fundamentals_report")),
+            ("Trader plan", final_state.get("trader_investment_plan")),
+            ("Final decision", decision),
+        ]
+        output = []
+        for title, content in sections:
+            if content:
+                output.append(f"## {title}\n{content}")
+        return "\n\n".join(output)[-12000:] or "Analysis completed."
 
     with gr.Blocks(title="TradingAgents") as demo:
         gr.Markdown(
@@ -196,11 +209,6 @@ data:
         status_button.click(status, outputs=status_output)
 
     demo.queue(default_concurrency_limit=1).launch(server_name="0.0.0.0", server_port=7860)
-  start.sh: |
-    #!/bin/sh
-    set -eu
-    cd /home/appuser/app
-    exec /home/appuser/venv/bin/python /opt/tradingagents/app.py
 
 ---
 apiVersion: apps/v1
@@ -283,11 +291,11 @@ spec:
               mountPath: /home/appuser
           resources:
             limits:
-              cpu: 1000m
+              cpu: 1
               memory: 1024Mi
             requests:
               cpu: 100m
-              memory: 256Mi
+              memory: 102Mi
       containers:
         - name: ${{ defaults.app_name }}
           image: python:3.12-slim
@@ -298,8 +306,9 @@ spec:
               drop:
                 - ALL
           command:
-            - /bin/sh
-            - /opt/tradingagents/start.sh
+            - /home/appuser/venv/bin/python
+            - /home/appuser/app/sealos_launcher.py
+          workingDir: /home/appuser/app
           env:
             - name: PYTHONUNBUFFERED
               value: '1'
@@ -337,11 +346,11 @@ spec:
               protocol: TCP
           resources:
             limits:
-              cpu: 1000m
+              cpu: 1
               memory: 1024Mi
             requests:
               cpu: 100m
-              memory: 256Mi
+              memory: 102Mi
           startupProbe:
             httpGet:
               path: /
@@ -365,13 +374,13 @@ spec:
           volumeMounts:
             - name: vn-homevn-appuser
               mountPath: /home/appuser
-            - name: ${{ defaults.app_name }}
-              mountPath: /opt/tradingagents
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /home/appuser/app/sealos_launcher.py
+              subPath: vn-appvn-py
       volumes:
-        - name: ${{ defaults.app_name }}
+        - name: ${{ defaults.app_name }}-cm
           configMap:
             name: ${{ defaults.app_name }}
-            defaultMode: 0755
   volumeClaimTemplates:
     - metadata:
         annotations:
