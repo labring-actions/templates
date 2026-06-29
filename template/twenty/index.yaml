@@ -302,6 +302,7 @@ spec:
   terminationPolicy: Delete
   topology: replication
 
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -338,6 +339,72 @@ spec:
           volumeMounts:
             - name: vn-appvn-packagesvn-twentyvn-servervn-vn-localvn-storage
               mountPath: /app/packages/twenty-server/.local-storage
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+        - name: wait-for-postgres
+          image: twentycrm/twenty:v2.16.0
+          imagePullPolicy: IfNotPresent
+          workingDir: /app
+          env:
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_DATABASE_URL
+              value: postgres://$(PG_USERNAME):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/twenty
+          command:
+            - node
+            - -e
+            - "const { Client } = require('pg'); async function wait() { for (let i = 0; i < 120; i += 1) { const client = new Client({ connectionString: process.env.PG_DATABASE_URL }); try { await client.connect(); await client.query('SELECT 1'); await client.end(); return; } catch (error) { try { await client.end(); } catch (_) {} console.log('waiting for twenty postgres'); await new Promise((resolve) => setTimeout(resolve, 5000)); } } throw new Error('timed out waiting for twenty postgres'); } wait().catch((error) => { console.error(error); process.exit(1); });"
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+        - name: wait-for-redis
+          image: busybox:1.38.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: "6379"
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z "${REDIS_HOST}" "${REDIS_PORT}"; do
+                echo waiting for twenty redis
+                sleep 5
+              done
           resources:
             limits:
               cpu: 100m
@@ -406,6 +473,14 @@ spec:
           ports:
             - containerPort: 3000
               name: http
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+              scheme: HTTP
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 120
           livenessProbe:
             httpGet:
               path: /healthz
@@ -471,6 +546,45 @@ spec:
         app: ${{ defaults.app_name }}-worker
     spec:
       automountServiceAccountToken: false
+      initContainers:
+        - name: wait-for-twenty-schema
+          image: twentycrm/twenty:v2.16.0
+          imagePullPolicy: IfNotPresent
+          workingDir: /app
+          env:
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_DATABASE_URL
+              value: postgres://$(PG_USERNAME):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/twenty
+          command:
+            - node
+            - -e
+            - "const { Client } = require('pg'); async function wait() { for (let i = 0; i < 120; i += 1) { const client = new Client({ connectionString: process.env.PG_DATABASE_URL }); try { await client.connect(); const result = await client.query('SELECT COALESCE(to_regclass($1)::text, $2) AS rel', ['core.\"keyValuePair\"', '']); await client.end(); if (result.rows[0].rel) return; } catch (error) { try { await client.end(); } catch (_) {} } console.log('waiting for twenty core schema'); await new Promise((resolve) => setTimeout(resolve, 5000)); } throw new Error('timed out waiting for twenty core schema'); } wait().catch((error) => { console.error(error); process.exit(1); });"
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
       containers:
         - name: ${{ defaults.app_name }}-worker
           image: twentycrm/twenty:v2.16.0

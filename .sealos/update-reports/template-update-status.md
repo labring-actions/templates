@@ -1,9 +1,9 @@
 # Template Update Status
 
-- Updated templates: 132
-- Updated candidates: 228
-- Validation-needed templates: 3
-- Validation-needed candidates: 17
+- Updated templates: 133
+- Updated candidates: 229
+- Validation-needed templates: 2
+- Validation-needed candidates: 16
 - Blocked templates: 1
 - Blocked candidates: 2
 - Skipped templates: 1
@@ -383,6 +383,9 @@
   - `signoz/signoz:v0.117.0` -> `signoz/signoz:v0.130.1`: validated SigNoz runtime on Sealos: Template API dry-run/deploy succeeded, fixed the ClickHouse single-node cluster host to 127.0.0.1 so ON CLUSTER migrations execute locally, added migration startup gates, switched the OTel Collector to static config so OTLP receivers stay active, Zookeeper/ClickHouse/SigNoz/Collector reached ready with zero restarts, root and /api/v1/health returned HTTP 200, /api/v1/version reported v0.130.1 with setupCompleted false, ClickHouse 26.5.3 created signoz_analytics/signoz_logs/signoz_metadata/signoz_meter/signoz_metrics/signoz_traces with no pending distributed DDLs, OTLP HTTP trace ingestion returned 200 and wrote codex-signoz-smoke/signoz-template-smoke to ClickHouse, and the test footprints were cleaned up
   - `signoz/zookeeper:3.7.1` -> `signoz/zookeeper:3.9.3`: validated SigNoz runtime on Sealos: Template API dry-run/deploy succeeded, fixed the ClickHouse single-node cluster host to 127.0.0.1 so ON CLUSTER migrations execute locally, added migration startup gates, switched the OTel Collector to static config so OTLP receivers stay active, Zookeeper/ClickHouse/SigNoz/Collector reached ready with zero restarts, root and /api/v1/health returned HTTP 200, /api/v1/version reported v0.130.1 with setupCompleted false, ClickHouse 26.5.3 created signoz_analytics/signoz_logs/signoz_metadata/signoz_meter/signoz_metrics/signoz_traces with no pending distributed DDLs, OTLP HTTP trace ingestion returned 200 and wrote codex-signoz-smoke/signoz-template-smoke to ClickHouse, and the test footprints were cleaned up
 
+- `twenty`
+  - `twentycrm/twenty:v1.12.0` -> `twentycrm/twenty:v2.16.0`: validated Twenty runtime on Sealos: Template API dry-run/deploy succeeded, fixed the missing YAML document separator before the app StatefulSet, added PostgreSQL and Redis startup gates, added a startupProbe for the v2 migration window, gated the worker on the core."keyValuePair" schema, PostgreSQL and Redis reached Running, pg-init completed, app and worker reached ready with zero restarts, root /, /healthz, /sign-in, /sign-up, and /client-config returned HTTP 200 without browser failure markers, PostgreSQL contained the Twenty core schema and 65 non-system tables, Redis returned PONG, recent app and worker logs stayed healthy, and test footprints were cleaned up
+
 ## Validation-Needed Templates
 - `supabase`
   - `darthsim/imgproxy:v3.30.1` -> `darthsim/imgproxy:v4.0.6`: updated Supabase eleven-image bundle after template contract normalization; focused runtime validation is required for official bundle compatibility, Kong 2 to 3 gateway behavior, imgproxy 3 to 4 changes, Storage/Realtime/Functions/Auth/Meta/Analytics startup, Supavisor pooling, Vector log routing, database migrations, and first-run login before merge confidence
@@ -396,8 +399,7 @@
   - `supabase/studio:2026.02.16-sha-26c615c` -> `supabase/studio:2026.06.22-sha-2207d7f`: updated Supabase eleven-image bundle after template contract normalization; focused runtime validation is required for official bundle compatibility, Kong 2 to 3 gateway behavior, imgproxy 3 to 4 changes, Storage/Realtime/Functions/Auth/Meta/Analytics startup, Supavisor pooling, Vector log routing, database migrations, and first-run login before merge confidence
   - `supabase/supavisor:2.7.4` -> `supabase/supavisor:2.9.7`: updated Supabase eleven-image bundle after template contract normalization; focused runtime validation is required for official bundle compatibility, Kong 2 to 3 gateway behavior, imgproxy 3 to 4 changes, Storage/Realtime/Functions/Auth/Meta/Analytics startup, Supavisor pooling, Vector log routing, database migrations, and first-run login before merge confidence
   - `timberio/vector:0.53.0-alpine` -> `timberio/vector:0.56.0-alpine`: updated Supabase eleven-image bundle after template contract normalization; focused runtime validation is required for official bundle compatibility, Kong 2 to 3 gateway behavior, imgproxy 3 to 4 changes, Storage/Realtime/Functions/Auth/Meta/Analytics startup, Supavisor pooling, Vector log routing, database migrations, and first-run login before merge confidence
-- `twenty`
-  - `twentycrm/twenty:v1.12.0` -> `twentycrm/twenty:v2.16.0`: updated Twenty to v2.16.0, aligned official v2 runtime environment variables, PostgreSQL 16.4.0 metadata, idempotent pg-init, Redis FQDN wiring, generated secrets, resource ladder values, Service/Ingress labels, and App schema; focused runtime validation is required for the v1 to v2 migration and first-run login path
+
 - `wrenai`
   - `ghcr.io/canner/wren-ai-service:0.15.17` -> `ghcr.io/canner/wren-ai-service:0.29.3`: updated and normalized the WrenAI AI service, engine, ibis server, UI, and Qdrant runtime bundle; focused runtime validation is required for official bundle compatibility, Qdrant persistence, PostgreSQL initialization, engine/API startup, UI routes, and data-source query flows before merge confidence
   - `ghcr.io/canner/wren-engine-ibis:0.14.3` -> `ghcr.io/canner/wren-engine-ibis:0.25.0`: updated and normalized the WrenAI AI service, engine, ibis server, UI, and Qdrant runtime bundle; focused runtime validation is required for official bundle compatibility, Qdrant persistence, PostgreSQL initialization, engine/API startup, UI routes, and data-source query flows before merge confidence
