@@ -24,11 +24,23 @@ spec:
     app_name:
       type: string
       value: penpot-${{ random(8) }}
+    penpot_secret_key:
+      type: string
+      value: ${{ random(64) }}
 
   i18n:
     zh:
       description: '开源设计与代码协作工具，支持团队进行产品设计、原型制作和交付协作。'
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/penpot/README_zh.md'
+
+---
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}-private
+spec:
+  policy: private
+
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -40,11 +52,43 @@ metadata:
   name: ${{ defaults.app_name }}-pg
 
 ---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+
+---
 apiVersion: apps.kubeblocks.io/v1alpha1
 kind: Cluster
 metadata:
-  finalizers:
-    - cluster.kubeblocks.io/finalizer
   labels:
     kb.io/database: postgresql-16.4.0
     clusterdefinition.kubeblocks.io/name: postgresql
@@ -85,43 +129,9 @@ spec:
             resources:
               requests:
                 storage: 1Gi
-
+            storageClassName: openebs-backup
   terminationPolicy: Delete
   tolerations: []
-
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
-    app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-pg
-rules:
-  - apiGroups:
-      - '*'
-    resources:
-      - '*'
-    verbs:
-      - '*'
-
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
-    app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-pg
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: ${{ defaults.app_name }}-pg
-subjects:
-  - kind: ServiceAccount
-    name: ${{ defaults.app_name }}-pg
 
 ---
 apiVersion: batch/v1
@@ -159,8 +169,8 @@ spec:
                 sleep 2
               done
               pg_isready -h "${PG_ENDPOINT%:*}" -p "${PG_ENDPOINT##*:}" -U postgres -d postgres >/dev/null 2>&1
-              if ! psql "postgresql://postgres:$(PG_PASSWORD)@$(PG_ENDPOINT)/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='penpot'" | grep -q 1; then
-                psql "postgresql://postgres:$(PG_PASSWORD)@$(PG_ENDPOINT)/postgres" -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"penpot\";"
+              if ! psql "postgresql://postgres:${PG_PASSWORD}@${PG_ENDPOINT}/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='penpot'" | grep -q 1; then
+                psql "postgresql://postgres:${PG_PASSWORD}@${PG_ENDPOINT}/postgres" -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"penpot\";"
               fi
           resources:
             limits:
@@ -184,16 +194,49 @@ metadata:
   name: ${{ defaults.app_name }}-redis
 
 ---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-redis
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-redis
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-redis
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-redis
+    namespace: ${{ SEALOS_NAMESPACE }}
+
+---
 apiVersion: apps.kubeblocks.io/v1alpha1
 kind: Cluster
 metadata:
-  finalizers:
-    - cluster.kubeblocks.io/finalizer
   name: ${{ defaults.app_name }}-redis
   labels:
     clusterdefinition.kubeblocks.io/name: redis
     kb.io/database: redis-7.2.7
-    app.kubernetes.io/instance: ${{ defaults.app_name }}
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
     app.kubernetes.io/version: 7.2.7
     helm.sh/chart: redis-cluster-0.9.0
     sealos-db-provider-cr: ${{ defaults.app_name }}-redis
@@ -233,70 +276,8 @@ spec:
             resources:
               requests:
                 storage: 1Gi
-    - componentDef: redis-sentinel-7
-      name: redis-sentinel
-      replicas: 1
-      resources:
-        limits:
-          cpu: 500m
-          memory: 512Mi
-        requests:
-          cpu: 50m
-          memory: 51Mi
-      serviceVersion: 7.2.7
-      volumeClaimTemplates:
-        - name: data
-          spec:
-            accessModes:
-              - ReadWriteOnce
-            resources:
-              requests:
-                storage: 1Gi
+            storageClassName: openebs-backup
   terminationPolicy: Delete
-  topology: replication
-
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
-    app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-redis
-rules:
-  - apiGroups:
-      - '*'
-    resources:
-      - '*'
-    verbs:
-      - '*'
-
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
-    app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-redis
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: ${{ defaults.app_name }}-redis
-subjects:
-  - kind: ServiceAccount
-    name: ${{ defaults.app_name }}-redis
-    namespace: ${{ SEALOS_NAMESPACE }}
-
----
-apiVersion: objectstorage.sealos.io/v1
-kind: ObjectStorageBucket
-metadata:
-  name: ${{ defaults.app_name }}-private
-spec:
-  policy: private
 
 ---
 apiVersion: apps/v1
@@ -338,6 +319,8 @@ spec:
               value: "0.0.0.0"
             - name: PENPOT_PUBLIC_URI
               value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: PENPOT_SECRET_KEY
+              value: ${{ defaults.penpot_secret_key }}
             - name: DATABASE_HOST
               valueFrom:
                 secretKeyRef:
@@ -361,7 +344,7 @@ spec:
             - name: PENPOT_DATABASE_URI
               value: "postgresql://$(DATABASE_HOST):$(DATABASE_PORT)/penpot"
             - name: REDIS_HOST
-              value: ${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
             - name: REDIS_PORT
               value: '6379'
             - name: REDIS_USER
@@ -407,7 +390,7 @@ spec:
             - name: PENPOT_STORAGE_ASSETS_S3_ENDPOINT
               value: "https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)"
             - name: PENPOT_TELEMETRY_ENABLED
-              value: true
+              value: "true"
             - name: PENPOT_SMTP_DEFAULT_FROM
               value: no-reply@example.com
             - name: PENPOT_SMTP_DEFAULT_REPLY_TO
@@ -417,13 +400,13 @@ spec:
             - name: PENPOT_SMTP_PORT
               value: "1025"
             - name: PENPOT_SMTP_USERNAME
-              value: 
+              value: ""
             - name: PENPOT_SMTP_PASSWORD
-              value: 
+              value: ""
             - name: PENPOT_SMTP_TLS
-              value: false
+              value: "false"
             - name: PENPOT_SMTP_SSL
-              value: false
+              value: "false"
           resources:
             requests:
               cpu: 100m
@@ -488,8 +471,10 @@ spec:
           env:
             - name: PENPOT_PUBLIC_URI
               value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: PENPOT_SECRET_KEY
+              value: ${{ defaults.penpot_secret_key }}
             - name: REDIS_HOST
-              value: ${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
             - name: REDIS_PORT
               value: '6379'
             - name: REDIS_USER
@@ -506,11 +491,11 @@ spec:
               value: "redis://$(REDIS_USER):$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)/0"
           resources:
             requests:
-              cpu: 10m
-              memory: 12Mi
+              cpu: 50m
+              memory: 51Mi
             limits:
-              cpu: 100m
-              memory: 128Mi
+              cpu: 500m
+              memory: 512Mi
           ports:
             - containerPort: 6061
           imagePullPolicy: IfNotPresent
@@ -573,30 +558,32 @@ spec:
               value: "http://${{ defaults.app_name }}-backend:6060"
             - name: PENPOT_EXPORTER_URI
               value: "http://${{ defaults.app_name }}-exporter:6061"
+            - name: PENPOT_SECRET_KEY
+              value: ${{ defaults.penpot_secret_key }}
           resources:
             requests:
-              cpu: 10m
-              memory: 12Mi
-            limits:
               cpu: 100m
-              memory: 128Mi
+              memory: 102Mi
+            limits:
+              cpu: 1
+              memory: 1024Mi
           ports:
             - name: http
               protocol: TCP
-              containerPort: 80
+              containerPort: 8080
           livenessProbe:
             exec:
               command:
               - /bin/sh
               - -c
-              - curl -sf http://localhost:80/readyz | grep -i 'ok'
+              - curl -sf http://localhost:8080/ >/dev/null
             initialDelaySeconds: 20
           readinessProbe:
             exec:
               command:
               - /bin/sh
               - -c
-              - curl -sf http://localhost:80/readyz | grep -i 'ok'
+              - curl -sf http://localhost:8080/readyz | grep -i 'ok'
             initialDelaySeconds: 20
           imagePullPolicy: IfNotPresent
 
@@ -612,7 +599,7 @@ spec:
   ports:
     - name: http
       port: 80
-      targetPort: 80
+      targetPort: http
   selector:
     app: ${{ defaults.app_name }}-frontend
 

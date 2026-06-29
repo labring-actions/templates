@@ -1,9 +1,9 @@
 # Template Update Status
 
-- Updated templates: 127
-- Updated candidates: 211
-- Validation-needed templates: 8
-- Validation-needed candidates: 34
+- Updated templates: 128
+- Updated candidates: 214
+- Validation-needed templates: 7
+- Validation-needed candidates: 31
 - Blocked templates: 1
 - Blocked candidates: 2
 - Skipped templates: 1
@@ -356,11 +356,12 @@
   - `busybox:1.36.1` -> `busybox:1.38.0`: validated LieBianBao runtime on Sealos: Template API dry-run/deploy succeeded, added the App entry resource, aligned MySQL/MongoDB/Redis KubeBlocks resources with the current contract, converted Redis to a single managed component, switched MongoDB host/port to the service FQDN, made the MySQL bootstrap observable, MySQL, MongoDB, and Redis reached Running, the app StatefulSet reached 2/2 with zero restarts, root/login/index.php login routes returned HTTP 200, MySQL imported 548 app tables and seeded admin/web settings, Redis returned PONG, MongoDB ping returned ok, the login form rendered, and test footprints were cleaned up
   - `nginx:1.25.2` -> `nginx:1.31.2`: validated LieBianBao runtime on Sealos: Template API dry-run/deploy succeeded, added the App entry resource, aligned MySQL/MongoDB/Redis KubeBlocks resources with the current contract, converted Redis to a single managed component, switched MongoDB host/port to the service FQDN, made the MySQL bootstrap observable, MySQL, MongoDB, and Redis reached Running, the app StatefulSet reached 2/2 with zero restarts, root/login/index.php login routes returned HTTP 200, MySQL imported 548 app tables and seeded admin/web settings, Redis returned PONG, MongoDB ping returned ok, the login form rendered, and test footprints were cleaned up
 
-## Validation-Needed Templates
 - `penpot`
-  - `penpotapp/backend:2.1.2` -> `penpotapp/backend:2.16.1`: updated the Penpot frontend, backend, and exporter image bundle, aligned PostgreSQL 16.4 metadata and idempotent pg-init, normalized Redis and PostgreSQL URL composition, approved object-storage env indirection, Service/Ingress/App schema, and requires focused runtime validation for frontend/backend/exporter startup, database migration, S3 asset uploads, and first-run login path
-  - `penpotapp/exporter:2.1.2` -> `penpotapp/exporter:2.16.1`: updated the Penpot frontend, backend, and exporter image bundle, aligned PostgreSQL 16.4 metadata and idempotent pg-init, normalized Redis and PostgreSQL URL composition, approved object-storage env indirection, Service/Ingress/App schema, and requires focused runtime validation for frontend/backend/exporter startup, database migration, S3 asset uploads, and first-run login path
-  - `penpotapp/frontend:2.1.2` -> `penpotapp/frontend:2.16.1`: updated the Penpot frontend, backend, and exporter image bundle, aligned PostgreSQL 16.4 metadata and idempotent pg-init, normalized Redis and PostgreSQL URL composition, approved object-storage env indirection, Service/Ingress/App schema, and requires focused runtime validation for frontend/backend/exporter startup, database migration, S3 asset uploads, and first-run login path
+  - `penpotapp/backend:2.1.2` -> `penpotapp/backend:2.16.1`: validated Penpot runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis KubeBlocks clusters reached Running, backend/exporter/frontend reached 1/1, frontend served the root app through Service port 80 targeting container port 8080, /readyz returned OK, root and anonymous profile API returned HTTP 200, backend logs showed migrations applied through 0151 and Penpot 2.16.1 startup, Redis authenticated PONG succeeded, object storage bucket and secret existed, and the test footprint was cleaned up
+  - `penpotapp/exporter:2.1.2` -> `penpotapp/exporter:2.16.1`: validated Penpot runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis KubeBlocks clusters reached Running, backend/exporter/frontend reached 1/1, frontend served the root app through Service port 80 targeting container port 8080, /readyz returned OK, root and anonymous profile API returned HTTP 200, backend logs showed migrations applied through 0151 and Penpot 2.16.1 startup, Redis authenticated PONG succeeded, object storage bucket and secret existed, and the test footprint was cleaned up
+  - `penpotapp/frontend:2.1.2` -> `penpotapp/frontend:2.16.1`: validated Penpot runtime on Sealos: Template API dry-run/deploy succeeded, PostgreSQL and Redis KubeBlocks clusters reached Running, backend/exporter/frontend reached 1/1, frontend served the root app through Service port 80 targeting container port 8080, /readyz returned OK, root and anonymous profile API returned HTTP 200, backend logs showed migrations applied through 0151 and Penpot 2.16.1 startup, Redis authenticated PONG succeeded, object storage bucket and secret existed, and the test footprint was cleaned up
+
+## Validation-Needed Templates
 - `posthog`
   - `docker.redpanda.com/redpandadata/redpanda:v25.1.9` -> `docker.redpanda.com/redpandadata/redpanda:v26.1.10`: updated PostHog Redpanda and Zookeeper images after template contract normalization; focused runtime validation is required for Redpanda startup/storage compatibility, Zookeeper startup, PostHog Kafka connectivity, plugin/capture/feature-flag services, ClickHouse writes, migrations, and first-run login before merge confidence
   - `zookeeper:3.9.3` -> `zookeeper:3.9.5`: updated PostHog Redpanda and Zookeeper images after template contract normalization; focused runtime validation is required for Redpanda startup/storage compatibility, Zookeeper startup, PostHog Kafka connectivity, plugin/capture/feature-flag services, ClickHouse writes, migrations, and first-run login before merge confidence
