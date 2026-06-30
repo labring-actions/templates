@@ -34,15 +34,15 @@ Sealos 模板内置 EaglercraftX 服务端镜像、WebSocket 游戏入口、启�
 这个模板会部署一个有状态服务：
 
 - **EaglerCraft Server**：在单个容器中运行浏览器客户端、WebSocket 网关、Paper 运行时和管理桥接服务
-- **游戏入口**：端口 `5200`，通过部署根 URL 暴露，用于浏览器游戏和多人连接
-- **管理面板**：端口 `5201`，通过 `/admin` 暴露，用于基于 RCON 的服务器管理
+- **游戏入口**：端口 `5200`，通过部署根 URL 暴露，用于浏览器游戏和 Multiplayer 服务器入口
+- **管理面板**：端口 `5201`，通过同一个公网域名下的 `/admin` 和 `/api` 暴露，用于基于 RCON 的服务器管理
 - **持久化存储**：一个 1 GiB 持久卷挂载到 `/eaglerX-1.8-server/server-data`，保存生成的世界数据
 
 **配置：**
 
 `minecraft_version` 输入会设置 `MINECRAFT_VERSION`；选择 `1.12` 启动 Paper 1.12.2，选择 `1.8` 启动 Paper 1.8.8。`rcon_password` 输入会设置 `RCON_PASSWORD`。当 `/admin` 面板提示登录时，使用部署时填写的密码进入管理界面。
 
-Sealos 会在 Ingress 层终止 TLS，并将同一个公网域名路由到两个后端端口：`/` 进入端口 `5200` 的浏览器游戏客户端和 WebSocket 多人游戏入口，`/admin` 进入端口 `5201` 的管理面板。
+Sealos 会在 Ingress 层终止 TLS，并将一个公网 HTTPS 域名路由到两个后端端口：`/` 进入端口 `5200` 的浏览器游戏客户端和 Multiplayer 入口；`/admin`、`/admin.css`、`/admin.js`、`/api`、`/dynmap` 进入端口 `5201` 的管理面板和 RCON API。
 
 **许可证信息：**
 
@@ -68,6 +68,7 @@ Sealos 是基于 Kubernetes 的 AI 云操作系统，统一应用部署、运维
 3. 等待部署完成，通常需要 2-3 分钟。部署完成后会跳转到 Canvas。后续需要调整时，可以在对话框中描述需求让 AI 修改，也可以点击相关资源卡片修改设置。
 4. 通过生成的 URL 访问服务器：
    - **游戏客户端**：打开 `https://[your-app-url]` 加载浏览器客户端并开始游玩。
+   - **多人服务器入口**：在 EaglercraftX Multiplayer 对话框中添加服务器或直接连接，填写公网主机名，例如 `[your-app-url-host]`。
    - **管理面板**：打开 `https://[your-app-url]/admin`，使用部署时填写的 RCON 密码登录。
 
 ## 配置
@@ -81,12 +82,12 @@ Sealos 是基于 Kubernetes 的 AI 云操作系统，统一应用部署、运维
 
 ### 玩家连接方式
 
-使用部署根 URL 进入浏览器游戏。客户端出现 `press any key to continue`（按任意键继续）时，随便按一个键，设置名称和皮肤，然后按顺序点击 **Multiplayer** -> **Direct Connect** -> **Connect to Server**。
+使用部署根 URL 进入浏览器游戏。客户端出现 `press any key to continue`（按任意键继续）时，随便按一个键，设置名称和皮肤，然后点击 **Multiplayer**。使用 **Add Server** 或 **Direct Connect** 加入当前部署。
 
-输入 Sealos 公网域名，也就是 Sealos 为当前部署生成的公网域名。在 EaglercraftX 直接连接输入框中，可以使用同一主机名的安全 WebSocket 形式：
+输入公网主机名，保留纯主机名形式，无需添加 `https://` 或 `wss://` 前缀：
 
 ```text
-wss://[your-app-url-host]
+[your-app-url-host]
 ```
 
 加入服务器后，注册玩家密码前移动会被阻止。打开聊天框并执行：
@@ -121,8 +122,8 @@ https://[your-app-url]/admin
 
 **玩家无法从浏览器客户端连接**
 
-- 原因：客户端需要当前部署域名对应的公网 WebSocket 入口。
-- 解决方案：使用根应用 URL 打开内置客户端，或在 EaglercraftX 多人连接流程中输入 `wss://[your-app-url-host]`。
+- 原因：客户端 Multiplayer 服务器输入框需要主机名。
+- 解决方案：只复制 App URL 中的公网主机名，例如 `[your-app-url-host]`，省略 URL 协议前缀。
 
 **重启后世界数据消失**
 

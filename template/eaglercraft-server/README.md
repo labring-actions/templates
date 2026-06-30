@@ -34,15 +34,15 @@ The Sealos template includes the EaglercraftX server image, WebSocket game endpo
 This template deploys one stateful service:
 
 - **EaglerCraft Server**: Browser client, WebSocket gateway, Paper runtime, and admin bridge in one container
-- **Game Endpoint**: Port `5200`, exposed at the deployment root URL for browser gameplay and multiplayer access
-- **Admin Panel**: Port `5201`, exposed at `/admin` for RCON-backed server administration
+- **Game Endpoint**: Port `5200`, exposed at the deployment root URL for browser gameplay and Multiplayer server entry
+- **Admin Panel**: Port `5201`, exposed through `/admin` and `/api` on the same public host for RCON-backed server administration
 - **Persistent Storage**: One 1 GiB volume mounted at `/eaglerX-1.8-server/server-data` for generated world data
 
 **Configuration:**
 
 The `minecraft_version` input sets `MINECRAFT_VERSION`; choose `1.12` for Paper 1.12.2 or `1.8` for Paper 1.8.8. The `rcon_password` input sets `RCON_PASSWORD`. Use that password when the `/admin` panel prompts for access.
 
-Sealos terminates TLS at the Ingress layer and routes the same public host to two backend ports: `/` reaches the browser game client and WebSocket multiplayer endpoint on port `5200`, while `/admin` reaches the management panel on port `5201`.
+Sealos terminates TLS at the Ingress layer and routes one public HTTPS host to two backend ports: `/` reaches the browser game client and Multiplayer entry on port `5200`; `/admin`, `/admin.css`, `/admin.js`, `/api`, and `/dynmap` reach the management surface on port `5201`.
 
 **License Information:**
 
@@ -68,6 +68,7 @@ Deploy EaglerCraft Server on Sealos and run a persistent browser-playable world 
 3. Wait for deployment to complete, typically 2-3 minutes. After deployment, you will be redirected to the Canvas. For later changes, describe your requirements in the dialog to let AI apply updates, or click the relevant resource cards to modify settings.
 4. Access your server via the provided URL:
    - **Game Client**: Open `https://[your-app-url]` to load the browser client and play.
+   - **Multiplayer Server Entry**: In the EaglercraftX Multiplayer dialog, add or direct-connect to the public host only, for example `[your-app-url-host]`.
    - **Admin Panel**: Open `https://[your-app-url]/admin` and log in with the RCON password you entered during deployment.
 
 ## Configuration
@@ -81,12 +82,12 @@ After deployment, configure EaglerCraft Server through:
 
 ### Connecting Players
 
-Use the deployment root URL for browser gameplay. When the client shows `press any key to continue`, press any key, set your player name and skin, then click **Multiplayer** -> **Direct Connect** -> **Connect to Server**.
+Use the deployment root URL for browser gameplay. When the client shows `press any key to continue`, press any key, set your player name and skin, then click **Multiplayer**. Use **Add Server** or **Direct Connect** to join the deployment.
 
-Enter the public Sealos domain that was created for the deployment. In EaglercraftX direct connection fields, the secure WebSocket form of the same host is:
+Enter the public host exactly as a hostname, without an `https://` or `wss://` prefix:
 
 ```text
-wss://[your-app-url-host]
+[your-app-url-host]
 ```
 
 After joining the server, movement is blocked until the player account is registered. Open chat and run:
@@ -121,8 +122,8 @@ To scale your server:
 
 **Players cannot connect from the browser client**
 
-- Cause: The client needs the public WebSocket endpoint for the deployed host.
-- Solution: Use the root app URL for the bundled client or enter the host as `wss://[your-app-url-host]` in an EaglercraftX multiplayer flow.
+- Cause: The client expects a hostname in the Multiplayer server field.
+- Solution: Copy only the public host from the App URL, such as `[your-app-url-host]`, and leave out URL prefixes.
 
 **World data disappears after restart**
 
