@@ -461,6 +461,229 @@ data:
           MaximumAttempts: 0
 
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-auth-init
+  labels:
+    app: ${{ defaults.app_name }}-auth-init
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-auth-init
+data:
+  vn-scriptsvn-authvn-initvn-sh: |
+    set -eu
+    until pg_isready -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}" >/dev/null 2>&1; do
+      sleep 2
+    done
+
+    database_ready=0
+    cat >/tmp/airbyte-database-ready.sql <<'SQL'
+    SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'db-airbyte')::int;
+    SQL
+    for _ in $(seq 1 180); do
+      database_ready="$(
+        psql -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}" -d postgres -v ON_ERROR_STOP=1 -At -f /tmp/airbyte-database-ready.sql
+      )"
+      if [ "${database_ready}" = "1" ]; then
+        break
+      fi
+      sleep 2
+    done
+    if [ "${database_ready}" != "1" ]; then
+      echo "Airbyte database was not created in time" >&2
+      exit 1
+    fi
+
+    ready=0
+    cat >/tmp/airbyte-auth-tables-ready.sql <<'SQL'
+    SELECT (
+      to_regclass('public.organization') IS NOT NULL
+      AND to_regclass('public.workspace') IS NOT NULL
+      AND to_regclass('public."user"') IS NOT NULL
+    )::int;
+    SQL
+    for _ in $(seq 1 180); do
+      ready="$(
+        psql -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}" -d db-airbyte -v ON_ERROR_STOP=1 -At -f /tmp/airbyte-auth-tables-ready.sql
+      )"
+      if [ "${ready}" = "1" ]; then
+        break
+      fi
+      sleep 2
+    done
+    if [ "${ready}" != "1" ]; then
+      echo "Airbyte auth tables were not created in time" >&2
+      exit 1
+    fi
+
+    seeded=0
+    cat >/tmp/airbyte-default-records-ready.sql <<'SQL'
+    SELECT (
+      EXISTS (SELECT 1 FROM organization WHERE id = '00000000-0000-0000-0000-000000000000')
+      AND EXISTS (SELECT 1 FROM "user" WHERE id = '00000000-0000-0000-0000-000000000000')
+      AND EXISTS (SELECT 1 FROM workspace WHERE tombstone = false)
+    )::int;
+    SQL
+    for _ in $(seq 1 180); do
+      seeded="$(
+        psql -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}" -d db-airbyte -v ON_ERROR_STOP=1 -At -f /tmp/airbyte-default-records-ready.sql
+      )"
+      if [ "${seeded}" = "1" ]; then
+        break
+      fi
+      sleep 2
+    done
+    if [ "${seeded}" != "1" ]; then
+      echo "Airbyte default organization, user, or workspace was not seeded in time" >&2
+      exit 1
+    fi
+
+    psql -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}" -d db-airbyte -v ON_ERROR_STOP=1 -v admin_email="${ADMIN_EMAIL}" <<'SQL'
+    UPDATE organization
+    SET email = :'admin_email',
+        name = COALESCE(NULLIF(name, ''), 'Default Organization')
+    WHERE id = '00000000-0000-0000-0000-000000000000';
+
+    UPDATE "user"
+    SET email = :'admin_email',
+        name = COALESCE(NULLIF(name, ''), 'Default User')
+    WHERE id = '00000000-0000-0000-0000-000000000000';
+
+    UPDATE workspace
+    SET email = :'admin_email',
+        initial_setup_complete = true,
+        display_setup_wizard = false
+    WHERE tombstone = false;
+    SQL
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-server
+  labels:
+    app: ${{ defaults.app_name }}-server
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-server
+data:
+  vn-scriptsvn-waitvn-authvn-statevn-sh: |
+    set -eu
+
+    check_job="${APP_NAME}-auth-state-check"
+    kubectl delete job "${check_job}" --ignore-not-found --wait=true
+    cat <<YAML | kubectl apply -f -
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: ${check_job}
+    spec:
+      backoffLimit: 3
+      ttlSecondsAfterFinished: 300
+      template:
+        spec:
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          containers:
+            - name: auth-state-check
+              image: postgres:16.4-alpine
+              imagePullPolicy: IfNotPresent
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                runAsGroup: 999
+                runAsNonRoot: true
+                runAsUser: 999
+                seccompProfile:
+                  type: RuntimeDefault
+              command:
+                - /bin/sh
+                - /scripts/auth-state-check.sh
+              env:
+                - name: DATABASE_HOST
+                  valueFrom:
+                    secretKeyRef:
+                      name: ${APP_NAME}-pg-conn-credential
+                      key: host
+                - name: DATABASE_PORT
+                  valueFrom:
+                    secretKeyRef:
+                      name: ${APP_NAME}-pg-conn-credential
+                      key: port
+                - name: DATABASE_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: ${APP_NAME}-pg-conn-credential
+                      key: username
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: ${APP_NAME}-pg-conn-credential
+                      key: password
+                - name: ADMIN_EMAIL
+                  value: "${ADMIN_EMAIL}"
+              volumeMounts:
+                - name: server-scripts
+                  mountPath: /scripts/auth-state-check.sh
+                  subPath: vn-scriptsvn-authvn-statevn-checkvn-sh
+                  readOnly: true
+              resources:
+                limits:
+                  cpu: 100m
+                  memory: 128Mi
+                requests:
+                  cpu: 10m
+                  memory: 12Mi
+          volumes:
+            - name: server-scripts
+              configMap:
+                name: ${APP_NAME}-server
+    YAML
+
+    if ! kubectl wait --for=condition=complete --timeout=600s "job/${check_job}"; then
+      kubectl logs "job/${check_job}" --tail=200 || true
+      exit 1
+    fi
+  vn-scriptsvn-authvn-statevn-checkvn-sh: |
+    set -eu
+    until pg_isready -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}" >/dev/null 2>&1; do
+      sleep 2
+    done
+
+    state_ready=0
+    for _ in $(seq 1 180); do
+      state_ready="$(
+        psql -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}" -d db-airbyte -v ON_ERROR_STOP=1 -At -v admin_email="${ADMIN_EMAIL}" 2>/tmp/airbyte-auth-state-check.err <<'SQL' || true
+    SELECT (
+      EXISTS (
+        SELECT 1 FROM organization
+        WHERE id = '00000000-0000-0000-0000-000000000000'
+          AND email = :'admin_email'
+      )
+      AND EXISTS (
+        SELECT 1 FROM "user"
+        WHERE id = '00000000-0000-0000-0000-000000000000'
+          AND email = :'admin_email'
+      )
+      AND EXISTS (
+        SELECT 1 FROM workspace
+        WHERE tombstone = false
+          AND email = :'admin_email'
+          AND initial_setup_complete = true
+          AND display_setup_wizard = false
+      )
+    )::int;
+    SQL
+      )"
+      if [ "${state_ready}" = "1" ]; then
+        exit 0
+      fi
+      sleep 2
+    done
+    cat /tmp/airbyte-auth-state-check.err >&2 2>/dev/null || true
+    echo "Airbyte auth state was not ready in time" >&2
+    exit 1
+
+---
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -509,6 +732,16 @@ spec:
         - name: pg-init
           image: postgres:16.4-alpine
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsGroup: 999
+            runAsNonRoot: true
+            runAsUser: 999
+            seccompProfile:
+              type: RuntimeDefault
           env:
             - name: PG_HOST
               valueFrom:
@@ -539,12 +772,18 @@ spec:
               until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; do
                 sleep 2
               done
-              if ! createdb -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" db-airbyte 2>/tmp/createdb.err; then
-                if ! psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='db-airbyte'" | grep -q 1; then
-                  cat /tmp/createdb.err >&2
-                  exit 1
+              for _ in $(seq 1 180); do
+                if psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='db-airbyte'" | grep -q 1; then
+                  exit 0
                 fi
-              fi
+                if createdb -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" db-airbyte 2>/tmp/createdb.err; then
+                  exit 0
+                fi
+                sleep 2
+              done
+              cat /tmp/createdb.err >&2 2>/dev/null || true
+              echo "Airbyte database was not created in time" >&2
+              exit 1
           resources:
             limits:
               cpu: 200m
@@ -603,44 +842,27 @@ spec:
             requests:
               cpu: 10m
               memory: 12Mi
-        - name: init-db-airbyte
-          image: postgres:16.4-alpine
+        - name: wait-pg-init
+          image: bitnamilegacy/kubectl:1.33.4
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsGroup: 1001
+            runAsNonRoot: true
+            runAsUser: 1001
+            seccompProfile:
+              type: RuntimeDefault
           command:
             - /bin/sh
-            - -c
+            - -ec
             - |
-              set -eu
-              until pg_isready -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}"; do
-                sleep 2
-              done
-              if ! createdb -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}" db-airbyte 2>/tmp/createdb.err; then
-                if ! psql -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='db-airbyte'" | grep -q 1; then
-                  cat /tmp/createdb.err >&2
-                  exit 1
-                fi
-              fi
+              kubectl wait --for=condition=complete --timeout=600s "job/${APP_NAME}-pg-init"
           env:
-            - name: DATABASE_HOST
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: host
-            - name: DATABASE_PORT
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: port
-            - name: DATABASE_USER
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: username
-            - name: PGPASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: password
+            - name: APP_NAME
+              value: ${{ defaults.app_name }}
           resources:
             limits:
               cpu: 200m
@@ -806,94 +1028,19 @@ spec:
         - name: auth-init
           image: postgres:16.4-alpine
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsGroup: 999
+            runAsNonRoot: true
+            runAsUser: 999
+            seccompProfile:
+              type: RuntimeDefault
           command:
             - /bin/sh
-            - -c
-            - |
-              set -eu
-              until pg_isready -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}"; do
-                sleep 2
-              done
-
-              database_ready=0
-              cat >/tmp/airbyte-database-ready.sql <<'SQL'
-              SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'db-airbyte')::int;
-              SQL
-              for _ in $(seq 1 180); do
-                database_ready="$(
-                  psql -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}" -d postgres -v ON_ERROR_STOP=1 -At -f /tmp/airbyte-database-ready.sql
-                )"
-                if [ "${database_ready}" = "1" ]; then
-                  break
-                fi
-                sleep 2
-              done
-              if [ "${database_ready}" != "1" ]; then
-                echo "Airbyte database was not created in time" >&2
-                exit 1
-              fi
-
-              ready=0
-              cat >/tmp/airbyte-auth-tables-ready.sql <<'SQL'
-              SELECT (
-                to_regclass('public.organization') IS NOT NULL
-                AND to_regclass('public.workspace') IS NOT NULL
-                AND to_regclass('public."user"') IS NOT NULL
-              )::int;
-              SQL
-              for _ in $(seq 1 180); do
-                ready="$(
-                  psql -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}" -d db-airbyte -v ON_ERROR_STOP=1 -At -f /tmp/airbyte-auth-tables-ready.sql
-                )"
-                if [ "${ready}" = "1" ]; then
-                  break
-                fi
-                sleep 2
-              done
-              if [ "${ready}" != "1" ]; then
-                echo "Airbyte auth tables were not created in time" >&2
-                exit 1
-              fi
-
-              seeded=0
-              cat >/tmp/airbyte-default-records-ready.sql <<'SQL'
-              SELECT (
-                EXISTS (SELECT 1 FROM organization WHERE id = '00000000-0000-0000-0000-000000000000')
-                AND EXISTS (SELECT 1 FROM "user" WHERE id = '00000000-0000-0000-0000-000000000000')
-                AND EXISTS (SELECT 1 FROM workspace WHERE tombstone = false)
-              )::int;
-              SQL
-              for _ in $(seq 1 180); do
-                seeded="$(
-                  psql -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}" -d db-airbyte -v ON_ERROR_STOP=1 -At -f /tmp/airbyte-default-records-ready.sql
-                )"
-                if [ "${seeded}" = "1" ]; then
-                  break
-                fi
-                sleep 2
-              done
-              if [ "${seeded}" != "1" ]; then
-                echo "Airbyte default organization, user, or workspace was not seeded in time" >&2
-                exit 1
-              fi
-
-              psql -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}" -d db-airbyte -v ON_ERROR_STOP=1 -v admin_email="${ADMIN_EMAIL}" <<'SQL'
-              UPDATE organization
-              SET email = :'admin_email',
-                  name = COALESCE(NULLIF(name, ''), 'Default Organization')
-              WHERE id = '00000000-0000-0000-0000-000000000000';
-
-              UPDATE "user"
-              SET email = :'admin_email',
-                  name = COALESCE(NULLIF(name, ''), 'Default User')
-              WHERE id = '00000000-0000-0000-0000-000000000000';
-
-              UPDATE workspace
-              SET email = :'admin_email',
-                  initial_setup_complete = true,
-                  display_setup_wizard = false
-              WHERE tombstone = false;
-              SQL
+            - /scripts/auth-init.sh
           env:
             - name: DATABASE_HOST
               valueFrom:
@@ -917,6 +1064,11 @@ spec:
                   key: password
             - name: ADMIN_EMAIL
               value: ${{ inputs.auth_admin_email }}
+          volumeMounts:
+            - name: ${{ defaults.app_name }}-auth-init-cm
+              mountPath: /scripts/auth-init.sh
+              subPath: vn-scriptsvn-authvn-initvn-sh
+              readOnly: true
           resources:
             limits:
               cpu: 200m
@@ -924,6 +1076,10 @@ spec:
             requests:
               cpu: 20m
               memory: 25Mi
+      volumes:
+        - name: ${{ defaults.app_name }}-auth-init-cm
+          configMap:
+            name: ${{ defaults.app_name }}-auth-init
 
 ---
 apiVersion: apps/v1
@@ -953,7 +1109,7 @@ spec:
       serviceAccountName: ${{ defaults.app_name }}-admin
       automountServiceAccountToken: false
       initContainers:
-        - name: wait-auth-init
+        - name: wait-auth-state
           image: bitnamilegacy/kubectl:1.33.4
           imagePullPolicy: IfNotPresent
           securityContext:
@@ -968,14 +1124,12 @@ spec:
               type: RuntimeDefault
           command:
             - /bin/sh
-            - -ec
-            - |
-              until [ "$(kubectl get job "${APP_NAME}-auth-init" -o jsonpath='{.status.succeeded}' 2>/dev/null)" = "1" ]; do
-                sleep 2
-              done
+            - /scripts/wait-auth-state.sh
           env:
             - name: APP_NAME
               value: ${{ defaults.app_name }}
+            - name: ADMIN_EMAIL
+              value: ${{ inputs.auth_admin_email }}
           resources:
             limits:
               cpu: 100m
@@ -986,6 +1140,14 @@ spec:
           volumeMounts:
             - name: ${{ defaults.app_name }}-server-kube-api
               mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              readOnly: true
+            - name: ${{ defaults.app_name }}-server-cm
+              mountPath: /scripts/wait-auth-state.sh
+              subPath: vn-scriptsvn-waitvn-authvn-statevn-sh
+              readOnly: true
+            - name: ${{ defaults.app_name }}-server-cm
+              mountPath: /scripts/auth-state-check.sh
+              subPath: vn-scriptsvn-authvn-statevn-checkvn-sh
               readOnly: true
       containers:
         - name: ${{ defaults.app_name }}-server
@@ -1109,7 +1271,7 @@ spec:
                   name: ${{ defaults.app_name }}
                   key: SERVER_MICRONAUT_ENVIRONMENTS
             - name: AIRBYTE_SERVER_OPTS
-              value: "-Dorg.apache.logging.log4j.simplelog.StatusLogger.level=OFF -XX:+EnableDynamicAgentLoading"
+              value: "-Dlog4j2.statusLoggerLevel=OFF -Dorg.apache.logging.log4j.simplelog.StatusLogger.level=OFF -XX:+EnableDynamicAgentLoading"
             - name: SEGMENT_WRITE_KEY
               valueFrom:
                 configMapKeyRef:
@@ -1335,6 +1497,9 @@ spec:
                     - path: namespace
                       fieldRef:
                         fieldPath: metadata.namespace
+        - name: ${{ defaults.app_name }}-server-cm
+          configMap:
+            name: ${{ defaults.app_name }}-server
 ---
 apiVersion: apps/v1
 kind: Deployment
