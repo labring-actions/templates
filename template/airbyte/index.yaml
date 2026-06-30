@@ -39,15 +39,13 @@ spec:
       type: string
       value: ${{ random(32) }}
   inputs:
-    auth_admin_username:
-      description: "Initial Airbyte admin username."
+    auth_admin_email:
+      description: "Initial Airbyte admin email address."
       type: string
-      default: "admin"
       required: true
     auth_admin_password:
       description: "Initial Airbyte admin password."
       type: string
-      default: "${{ random(24) }}"
       required: true
 
 ---
@@ -220,6 +218,7 @@ rules:
       - "*"
     resources:
       - jobs
+      - jobs/status
       - pods
       - pods/log
       - pods/exec
@@ -710,13 +709,17 @@ spec:
                   key: AB_KUBERNETES_SECRET_NAME
             - name: AB_INSTANCE_ADMIN_PASSWORD
               value: ${{ inputs.auth_admin_password }}
+            - name: INITIAL_USER_EMAIL
+              value: ${{ inputs.auth_admin_email }}
+            - name: INITIAL_USER_PASSWORD
+              value: ${{ inputs.auth_admin_password }}
             - name: AB_INSTANCE_ADMIN_PASSWORD_SECRET_KEY
               valueFrom:
                 configMapKeyRef:
                   name: ${{ defaults.app_name }}
                   key: AB_INSTANCE_ADMIN_PASSWORD_SECRET_KEY
             - name: AB_INSTANCE_ADMIN_CLIENT_ID
-              value: ${{ inputs.auth_admin_username }}
+              value: "admin"
             - name: AB_INSTANCE_ADMIN_CLIENT_ID_SECRET_KEY
               valueFrom:
                 configMapKeyRef:
@@ -755,6 +758,174 @@ spec:
               memory: 204Mi
 
 ---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-auth-init
+spec:
+  completions: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      serviceAccountName: ${{ defaults.app_name }}-admin
+      automountServiceAccountToken: true
+      restartPolicy: Never
+      initContainers:
+        - name: wait-pg-conn-secret
+          image: bitnamilegacy/kubectl:1.33.4
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsGroup: 1001
+            runAsNonRoot: true
+            runAsUser: 1001
+            seccompProfile:
+              type: RuntimeDefault
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until kubectl get secret "${APP_NAME}-pg-conn-credential" >/dev/null 2>&1; do
+                sleep 2
+              done
+          env:
+            - name: APP_NAME
+              value: ${{ defaults.app_name }}
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+      containers:
+        - name: auth-init
+          image: postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              until pg_isready -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}"; do
+                sleep 2
+              done
+
+              database_ready=0
+              cat >/tmp/airbyte-database-ready.sql <<'SQL'
+              SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'db-airbyte')::int;
+              SQL
+              for _ in $(seq 1 180); do
+                database_ready="$(
+                  psql -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}" -d postgres -v ON_ERROR_STOP=1 -At -f /tmp/airbyte-database-ready.sql
+                )"
+                if [ "${database_ready}" = "1" ]; then
+                  break
+                fi
+                sleep 2
+              done
+              if [ "${database_ready}" != "1" ]; then
+                echo "Airbyte database was not created in time" >&2
+                exit 1
+              fi
+
+              ready=0
+              cat >/tmp/airbyte-auth-tables-ready.sql <<'SQL'
+              SELECT (
+                to_regclass('public.organization') IS NOT NULL
+                AND to_regclass('public.workspace') IS NOT NULL
+                AND to_regclass('public."user"') IS NOT NULL
+              )::int;
+              SQL
+              for _ in $(seq 1 180); do
+                ready="$(
+                  psql -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}" -d db-airbyte -v ON_ERROR_STOP=1 -At -f /tmp/airbyte-auth-tables-ready.sql
+                )"
+                if [ "${ready}" = "1" ]; then
+                  break
+                fi
+                sleep 2
+              done
+              if [ "${ready}" != "1" ]; then
+                echo "Airbyte auth tables were not created in time" >&2
+                exit 1
+              fi
+
+              seeded=0
+              cat >/tmp/airbyte-default-records-ready.sql <<'SQL'
+              SELECT (
+                EXISTS (SELECT 1 FROM organization WHERE id = '00000000-0000-0000-0000-000000000000')
+                AND EXISTS (SELECT 1 FROM "user" WHERE id = '00000000-0000-0000-0000-000000000000')
+                AND EXISTS (SELECT 1 FROM workspace WHERE tombstone = false)
+              )::int;
+              SQL
+              for _ in $(seq 1 180); do
+                seeded="$(
+                  psql -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}" -d db-airbyte -v ON_ERROR_STOP=1 -At -f /tmp/airbyte-default-records-ready.sql
+                )"
+                if [ "${seeded}" = "1" ]; then
+                  break
+                fi
+                sleep 2
+              done
+              if [ "${seeded}" != "1" ]; then
+                echo "Airbyte default organization, user, or workspace was not seeded in time" >&2
+                exit 1
+              fi
+
+              psql -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}" -d db-airbyte -v ON_ERROR_STOP=1 -v admin_email="${ADMIN_EMAIL}" <<'SQL'
+              UPDATE organization
+              SET email = :'admin_email',
+                  name = COALESCE(NULLIF(name, ''), 'Default Organization')
+              WHERE id = '00000000-0000-0000-0000-000000000000';
+
+              UPDATE "user"
+              SET email = :'admin_email',
+                  name = COALESCE(NULLIF(name, ''), 'Default User')
+              WHERE id = '00000000-0000-0000-0000-000000000000';
+
+              UPDATE workspace
+              SET email = :'admin_email',
+                  initial_setup_complete = true,
+                  display_setup_wizard = false
+              WHERE tombstone = false;
+              SQL
+          env:
+            - name: DATABASE_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: DATABASE_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: DATABASE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: ADMIN_EMAIL
+              value: ${{ inputs.auth_admin_email }}
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -782,7 +953,7 @@ spec:
       serviceAccountName: ${{ defaults.app_name }}-admin
       automountServiceAccountToken: false
       initContainers:
-        - name: wait-pg-conn-secret
+        - name: wait-auth-init
           image: bitnamilegacy/kubectl:1.33.4
           imagePullPolicy: IfNotPresent
           securityContext:
@@ -799,7 +970,7 @@ spec:
             - /bin/sh
             - -ec
             - |
-              until kubectl get secret "${APP_NAME}-pg-conn-credential" >/dev/null 2>&1; do
+              until [ "$(kubectl get job "${APP_NAME}-auth-init" -o jsonpath='{.status.succeeded}' 2>/dev/null)" = "1" ]; do
                 sleep 2
               done
           env:
@@ -883,8 +1054,12 @@ spec:
                   key: INTERNAL_API_HOST
             - name: AB_INSTANCE_ADMIN_PASSWORD
               value: ${{ inputs.auth_admin_password }}
+            - name: INITIAL_USER_EMAIL
+              value: ${{ inputs.auth_admin_email }}
+            - name: INITIAL_USER_PASSWORD
+              value: ${{ inputs.auth_admin_password }}
             - name: AB_INSTANCE_ADMIN_CLIENT_ID
-              value: ${{ inputs.auth_admin_username }}
+              value: "admin"
             - name: AB_INSTANCE_ADMIN_CLIENT_SECRET
               value: ${{ defaults.workload_api_bearer_token }}
             - name: AB_JWT_SIGNATURE_SECRET
