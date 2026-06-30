@@ -1,12 +1,12 @@
 # Deploy and Host EaglerCraft Server on Sealos
 
-EaglerCraft Server packages the EaglercraftX browser client, WebSocket game access, Paper server runtime, and an RCON-backed admin panel. This template deploys a Paper 1.12.2 server with persistent world data on Sealos Cloud.
+EaglerCraft Server packages the EaglercraftX browser client, WebSocket game access, Paper server runtime, and an RCON-backed admin panel. This template deploys Paper 1.12.2 by default and can also launch a Paper 1.8.8 server with persistent world data on Sealos Cloud.
 
 ![EaglerCraft Server Screenshot](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/eaglercraft-server/website-screenshot.webp)
 
 ## About Hosting EaglerCraft Server
 
-EaglerCraft Server lets players open a Minecraft-style game client directly in the browser and connect to a self-hosted Paper server over secure WebSocket access. The published image contains both 1.8 and 1.12 runtime trees; this template selects `MINECRAFT_VERSION=1.12` for the Paper 1.12.2 runtime.
+EaglerCraft Server lets players open a Minecraft-style game client directly in the browser and connect to a self-hosted Paper server over secure WebSocket access. The published image contains both 1.8 and 1.12 runtime trees; this template exposes a `minecraft_version` choice that sets `MINECRAFT_VERSION`, with `1.12` selected by default.
 
 The Sealos template deploys EaglerCraft Server as a single StatefulSet with one persistent volume mounted at `/eaglerX-1.8-server/server-data`. That mount preserves generated world data while keeping the image's runtime scripts and version directories intact.
 
@@ -15,7 +15,7 @@ The Sealos template deploys EaglerCraft Server as a single StatefulSet with one 
 - **Browser-Based Minecraft Sessions**: Run a multiplayer game server that players can join from ChromeOS, tablets, school devices, and other browser-only environments.
 - **Classroom or Club Servers**: Provide a shared Minecraft-style world without distributing desktop clients.
 - **Private Community Worlds**: Keep a persistent Paper server online for a small group with managed storage and automatic HTTPS.
-- **Plugin and Configuration Testing**: Test Paper 1.12.2 server changes in an isolated, disposable deployment.
+- **Plugin and Configuration Testing**: Test Paper 1.12.2 or 1.8.8 server changes in an isolated, disposable deployment.
 
 ## Dependencies for EaglerCraft Server Hosting
 
@@ -33,14 +33,14 @@ The Sealos template includes the EaglercraftX server image, WebSocket game endpo
 
 This template deploys one stateful service:
 
-- **EaglerCraft Server**: Browser client, WebSocket gateway, Paper 1.12.2 runtime, and admin bridge in one container
+- **EaglerCraft Server**: Browser client, WebSocket gateway, Paper runtime, and admin bridge in one container
 - **Game Endpoint**: Port `5200`, exposed at the deployment root URL for browser gameplay and multiplayer access
 - **Admin Panel**: Port `5201`, exposed at `/admin` for RCON-backed server administration
 - **Persistent Storage**: One 1 GiB volume mounted at `/eaglerX-1.8-server/server-data` for generated world data
 
 **Configuration:**
 
-The template sets `MINECRAFT_VERSION=1.12` and generates a strong `RCON_PASSWORD` automatically. Use the generated password when the `/admin` panel prompts for access.
+The `minecraft_version` input sets `MINECRAFT_VERSION`; choose `1.12` for Paper 1.12.2 or `1.8` for Paper 1.8.8. The template also generates a strong `RCON_PASSWORD` automatically. Use the generated password when the `/admin` panel prompts for access.
 
 Sealos terminates TLS at the Ingress layer and routes the same public host to two backend ports: `/` reaches the browser game client on port `5200`, while `/admin` reaches the management panel on port `5201`.
 
@@ -64,7 +64,7 @@ Deploy EaglerCraft Server on Sealos and run a persistent browser-playable world 
 ## Deployment Guide
 
 1. Open the [EaglerCraft Server template](https://sealos.io/products/app-store/eaglercraft-server) and click **Deploy Now**.
-2. Review the generated app name, host, and RCON password in the popup dialog.
+2. Review the generated app name, host, Minecraft version, and RCON password in the popup dialog. The default Minecraft version is `1.12`; choose `1.8` when you want the Paper 1.8.8 runtime.
 3. Wait for deployment to complete, typically 2-3 minutes. After deployment, you will be redirected to the Canvas. For later changes, describe your requirements in the dialog to let AI apply updates, or click the relevant resource cards to modify settings.
 4. Access your server via the provided URL:
    - **Game Client**: Open `https://[your-app-url]` to load the browser client and play.
@@ -81,10 +81,18 @@ After deployment, configure EaglerCraft Server through:
 
 ### Connecting Players
 
-Use the deployment root URL for browser gameplay. For multiplayer server lists or direct connection flows inside an EaglercraftX client, use the secure WebSocket form of the same host:
+Use the deployment root URL for browser gameplay. When the client shows `press any key to continue`, press any key, set your player name and skin, then click **Multiplayer** -> **Direct Connect** -> **Connect to Server**.
+
+Enter the public Sealos domain that was created for the deployment. In EaglercraftX direct connection fields, the secure WebSocket form of the same host is:
 
 ```text
 wss://[your-app-url-host]
+```
+
+After joining the server, movement is blocked until the player account is registered. Open chat and run:
+
+```text
+/register <password>
 ```
 
 The admin panel uses the same public host with `/admin`:
