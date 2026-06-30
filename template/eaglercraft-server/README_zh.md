@@ -40,9 +40,9 @@ Sealos 模板内置 EaglercraftX 服务端镜像、WebSocket 游戏入口、启�
 
 **配置：**
 
-`minecraft_version` 输入会设置 `MINECRAFT_VERSION`；选择 `1.12` 启动 Paper 1.12.2，选择 `1.8` 启动 Paper 1.8.8。模板也会自动生成强度足够的 `RCON_PASSWORD`。当 `/admin` 面板提示登录时，使用生成的密码进入管理界面。
+`minecraft_version` 输入会设置 `MINECRAFT_VERSION`；选择 `1.12` 启动 Paper 1.12.2，选择 `1.8` 启动 Paper 1.8.8。`rcon_password` 输入会设置 `RCON_PASSWORD`。当 `/admin` 面板提示登录时，使用部署时填写的密码进入管理界面。
 
-Sealos 会在 Ingress 层终止 TLS，并将同一个公网域名路由到两个后端端口：`/` 进入端口 `5200` 的浏览器游戏客户端，`/admin` 进入端口 `5201` 的管理面板。
+Sealos 会在 Ingress 层终止 TLS，并将同一个公网域名路由到两个后端端口：`/` 进入端口 `5200` 的浏览器游戏客户端和 WebSocket 多人游戏入口，`/admin` 进入端口 `5201` 的管理面板。
 
 **许可证信息：**
 
@@ -64,18 +64,18 @@ Sealos 是基于 Kubernetes 的 AI 云操作系统，统一应用部署、运维
 ## 部署指南
 
 1. 打开 [EaglerCraft Server 模板](https://sealos.io/products/app-store/eaglercraft-server)，点击 **Deploy Now**。
-2. 在弹窗中检查生成的应用名称、访问域名、Minecraft 版本和 RCON 密码。默认 Minecraft 版本是 `1.12`；需要 Paper 1.8.8 运行时时选择 `1.8`。
+2. 在弹窗中检查生成的应用名称和访问域名，选择 Minecraft 版本，并填写 RCON 密码。默认 Minecraft 版本是 `1.12`；需要 Paper 1.8.8 运行时时选择 `1.8`。
 3. 等待部署完成，通常需要 2-3 分钟。部署完成后会跳转到 Canvas。后续需要调整时，可以在对话框中描述需求让 AI 修改，也可以点击相关资源卡片修改设置。
 4. 通过生成的 URL 访问服务器：
    - **游戏客户端**：打开 `https://[your-app-url]` 加载浏览器客户端并开始游玩。
-   - **管理面板**：打开 `https://[your-app-url]/admin`，使用生成的 RCON 密码登录。
+   - **管理面板**：打开 `https://[your-app-url]/admin`，使用部署时填写的 RCON 密码登录。
 
 ## 配置
 
 部署完成后，可以通过以下方式配置 EaglerCraft Server：
 
 - **浏览器客户端**：打开根 URL，使用内置的浏览器游戏客户端。
-- **管理面板**：打开 `/admin`，输入生成的 RCON 密码使用管理界面。
+- **管理面板**：打开 `/admin`，输入部署表单里的 RCON 密码使用管理界面。
 - **Canvas AI 对话**：描述 CPU、内存、存储或环境变量调整需求，让 AI 应用变更。
 - **资源卡片**：点击 StatefulSet、Service、Ingress 或存储卡片查看并修改设置。
 
@@ -117,7 +117,7 @@ https://[your-app-url]/admin
 **管理面板要求输入密码**
 
 - 原因：管理面板由 `RCON_PASSWORD` 保护。
-- 解决方案：使用部署参数中生成的 `rcon_password` 值。
+- 解决方案：使用部署参数中的 `rcon_password` 值。
 
 **玩家无法从浏览器客户端连接**
 

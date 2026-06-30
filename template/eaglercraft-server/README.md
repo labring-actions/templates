@@ -40,9 +40,9 @@ This template deploys one stateful service:
 
 **Configuration:**
 
-The `minecraft_version` input sets `MINECRAFT_VERSION`; choose `1.12` for Paper 1.12.2 or `1.8` for Paper 1.8.8. The template also generates a strong `RCON_PASSWORD` automatically. Use the generated password when the `/admin` panel prompts for access.
+The `minecraft_version` input sets `MINECRAFT_VERSION`; choose `1.12` for Paper 1.12.2 or `1.8` for Paper 1.8.8. The `rcon_password` input sets `RCON_PASSWORD`. Use that password when the `/admin` panel prompts for access.
 
-Sealos terminates TLS at the Ingress layer and routes the same public host to two backend ports: `/` reaches the browser game client on port `5200`, while `/admin` reaches the management panel on port `5201`.
+Sealos terminates TLS at the Ingress layer and routes the same public host to two backend ports: `/` reaches the browser game client and WebSocket multiplayer endpoint on port `5200`, while `/admin` reaches the management panel on port `5201`.
 
 **License Information:**
 
@@ -64,18 +64,18 @@ Deploy EaglerCraft Server on Sealos and run a persistent browser-playable world 
 ## Deployment Guide
 
 1. Open the [EaglerCraft Server template](https://sealos.io/products/app-store/eaglercraft-server) and click **Deploy Now**.
-2. Review the generated app name, host, Minecraft version, and RCON password in the popup dialog. The default Minecraft version is `1.12`; choose `1.8` when you want the Paper 1.8.8 runtime.
+2. Review the generated app name and host, choose the Minecraft version, and enter an RCON password in the popup dialog. The default Minecraft version is `1.12`; choose `1.8` when you want the Paper 1.8.8 runtime.
 3. Wait for deployment to complete, typically 2-3 minutes. After deployment, you will be redirected to the Canvas. For later changes, describe your requirements in the dialog to let AI apply updates, or click the relevant resource cards to modify settings.
 4. Access your server via the provided URL:
    - **Game Client**: Open `https://[your-app-url]` to load the browser client and play.
-   - **Admin Panel**: Open `https://[your-app-url]/admin` and log in with the generated RCON password.
+   - **Admin Panel**: Open `https://[your-app-url]/admin` and log in with the RCON password you entered during deployment.
 
 ## Configuration
 
 After deployment, configure EaglerCraft Server through:
 
 - **Browser Client**: Open the root URL and use the in-browser game client.
-- **Admin Panel**: Open `/admin` and enter the generated RCON password to use the RCON-backed management surface.
+- **Admin Panel**: Open `/admin` and enter the RCON password from the deployment form to use the RCON-backed management surface.
 - **Canvas AI Dialog**: Describe CPU, memory, storage, or environment changes and let AI apply them.
 - **Resource Cards**: Click the StatefulSet, Service, Ingress, or storage cards to inspect and modify settings.
 
@@ -117,7 +117,7 @@ To scale your server:
 **The admin panel asks for a password**
 
 - Cause: The admin panel is protected by `RCON_PASSWORD`.
-- Solution: Use the generated `rcon_password` value from the deployment parameters.
+- Solution: Use the `rcon_password` value from the deployment parameters.
 
 **Players cannot connect from the browser client**
 
