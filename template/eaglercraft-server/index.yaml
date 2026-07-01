@@ -4,10 +4,10 @@ metadata:
   name: eaglercraft-server
 spec:
   title: "EaglerCraft Server"
-  url: "https://github.com/yangchuansheng/eaglercraft-server"
+  url: "https://sealos.io/blog/eaglercraft-server/"
   gitRepo: "https://github.com/yangchuansheng/eaglercraft-server"
   author: "Sealos"
-  description: "EaglerCraft 1.12.1 Minecraft server that runs in web browsers with WebSocket support"
+  description: "EaglercraftX server image with browser gameplay, WebSocket access, admin panel, and persistent Paper world data"
   readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/eaglercraft-server/README.md'
   icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/eaglercraft-server/logo.svg'
   screenshots:
@@ -16,8 +16,7 @@ spec:
   locale: en
   i18n:
     zh:
-      title: "EaglerCraft 服务器"
-      description: "可在网页浏览器中运行的 EaglerCraft 1.12.1 Minecraft 服务器，支持 WebSocket 连接"
+      description: "EaglercraftX 服务器镜像，支持网页端游戏、WebSocket 连接、管理面板和持久化 Paper 世界数据"
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/eaglercraft-server/README_zh.md'
   categories:
     - game
@@ -25,21 +24,32 @@ spec:
     app_host:
       type: string
       value: eaglercraft-${{ random(8) }}
-    app_host_http:
-      type: string
-      value: eaglercraft-${{ random(8) }}
     app_name:
       type: string
       value: eaglercraft-${{ random(8) }}
+  inputs:
+    minecraft_version:
+      description: Minecraft server version. Choose 1.12 for Paper 1.12.2 or 1.8 for Paper 1.8.8.
+      type: choice
+      default: "1.12"
+      required: true
+      options:
+        - "1.12"
+        - "1.8"
+    rcon_password:
+      description: RCON password for the admin panel and server command bridge.
+      type: string
+      required: true
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: ghcr.io/yangchuansheng/eaglerx1.8server:1.12.1
+    originImageName: ghcr.io/yangchuansheng/eaglerx1.8server:1.12.1@sha256:fc4da0d4bc7dc6aed9ed284085366f8f57b298a3f2f31572dbd35832c2e84810
     deploy.cloud.sealos.io/minReplicas: "1"
     deploy.cloud.sealos.io/maxReplicas: "1"
+    docker-to-sealos.resource-override-source: "live validation on 2026-06-30: 256Mi OOMKilled during startup and 512Mi reached 511Mi with OOMKilled during EaglercraftX server startup; 1024Mi is the next Sealos memory ladder entry"
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
@@ -64,56 +74,40 @@ spec:
       terminationGracePeriodSeconds: 10
       containers:
         - name: ${{ defaults.app_name }}
-          image: ghcr.io/yangchuansheng/eaglerx1.8server:1.12.1
+          image: ghcr.io/yangchuansheng/eaglerx1.8server:1.12.1@sha256:fc4da0d4bc7dc6aed9ed284085366f8f57b298a3f2f31572dbd35832c2e84810
           imagePullPolicy: IfNotPresent
-          env: []
+          env:
+            - name: APP_DIR
+              value: /eaglerX-1.8-server
+            - name: IMAGE_APP_DIR
+              value: /opt/eaglerX-1.8-server-image
+            - name: MINECRAFT_VERSION
+              value: ${{ inputs.minecraft_version }}
+            - name: RCON_PASSWORD
+              value: ${{ inputs.rcon_password }}
+            - name: SERVER_DATA_DIR
+              value: /eaglerX-1.8-server/server-data
           resources:
             requests:
-              cpu: 50m
+              cpu: 20m
               memory: 102Mi
             limits:
-              cpu: 500m
+              cpu: 200m
               memory: 1024Mi
           ports:
             - containerPort: 5200
-              name: websocket
+              name: game
             - containerPort: 5201
-              name: http
+              name: admin
           volumeMounts:
-            - name: vn-eaglerx-1vn-8-servervn-servervn-world
-              mountPath: /eaglerX-1.8-server/server/world/
-            - name: vn-eaglerx-1vn-8-servervn-servervn-world-nether
-              mountPath: /eaglerX-1.8-server/server/world_nether/
-            - name: vn-eaglerx-1vn-8-servervn-servervn-world-the-end
-              mountPath: /eaglerX-1.8-server/server/world_the_end/
+            - name: vn-eaglerxvn-1vn-8vn-servervn-server-data
+              mountPath: /eaglerX-1.8-server/server-data
   volumeClaimTemplates:
     - metadata:
         annotations:
-          path: /eaglerX-1.8-server/server/world/
+          path: /eaglerX-1.8-server/server-data
           value: "1"
-        name: vn-eaglerx-1vn-8-servervn-servervn-world
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 1Gi
-    - metadata:
-        annotations:
-          path: /eaglerX-1.8-server/server/world_nether/
-          value: "1"
-        name: vn-eaglerx-1vn-8-servervn-servervn-world-nether
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 1Gi
-    - metadata:
-        annotations:
-          path: /eaglerX-1.8-server/server/world_the_end/
-          value: "1"
-        name: vn-eaglerx-1vn-8-servervn-servervn-world-the-end
+        name: vn-eaglerxvn-1vn-8vn-servervn-server-data
       spec:
         accessModes:
           - ReadWriteOnce
@@ -127,16 +121,18 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
+  type: ClusterIP
   ports:
     - port: 5200
       targetPort: 5200
-      name: websocket
+      name: game
       protocol: TCP
     - port: 5201
       targetPort: 5201
-      name: http
+      name: admin
       protocol: TCP
   selector:
     app: ${{ defaults.app_name }}
@@ -147,20 +143,66 @@ kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/proxy-body-size: 32m
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
-    nginx.ingress.kubernetes.io/backend-protocol: WS
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
 spec:
   rules:
     - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       http:
         paths:
+          - pathType: Prefix
+            path: /api
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 5201
+          - pathType: Prefix
+            path: /admin
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 5201
+          - pathType: Prefix
+            path: /admin.css
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 5201
+          - pathType: Prefix
+            path: /admin.js
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 5201
+          - pathType: Prefix
+            path: /dynmap
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 5201
           - pathType: Prefix
             path: /
             backend:
@@ -174,33 +216,16 @@ spec:
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
 
 ---
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+apiVersion: app.sealos.io/v1
+kind: App
 metadata:
-  name: ${{ defaults.app_name }}-http
+  name: ${{ defaults.app_name }}
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host_http }}
-  annotations:
-    kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/proxy-body-size: 32m
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
-    nginx.ingress.kubernetes.io/backend-protocol: WS
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
 spec:
-  rules:
-    - host: ${{ defaults.app_host_http }}.${{ SEALOS_CLOUD_DOMAIN }}
-      http:
-        paths:
-          - pathType: Prefix
-            path: /
-            backend:
-              service:
-                name: ${{ defaults.app_name }}
-                port:
-                  number: 5201
-  tls:
-    - hosts:
-        - ${{ defaults.app_host_http }}.${{ SEALOS_CLOUD_DOMAIN }}
-      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/eaglercraft-server/logo.svg
+  name: EaglerCraft Server
+  type: link
