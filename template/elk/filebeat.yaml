@@ -1,0 +1,226 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: filebeat
+spec:
+  title: "Filebeat"
+  url: "https://github.com/elastic/helm-charts"
+  gitRepo: "https://github.com/elastic/helm-charts"
+  author: "Elastic"
+  description: "Lightweight shipper for forwarding logs to Logstash."
+  readme: "https://raw.githubusercontent.com/elastic/helm-charts/main/filebeat/README.md"
+  icon: "https://raw.githubusercontent.com/elastic/beats/main/libbeat/docs/images/beats-icon-color.svg"
+  templateType: inline
+  draft: true
+  defaults:
+    app_name:
+      type: string
+      value: filebeat
+  inputs:
+    elasticsearch_namespace:
+      description: "Namespace for Filebeat and Logstash"
+      type: string
+      default: "ns-admin"
+      required: true
+    filebeat_requests_cpu:
+      description: "CPU requests for Filebeat"
+      type: string
+      default: "100m"
+      required: true
+    filebeat_limits_cpu:
+      description: "CPU limits for Filebeat"
+      type: string
+      default: "300m"
+      required: true
+    filebeat_requests_memory:
+      description: "Memory requests for Filebeat"
+      type: string
+      default: "200Mi"
+      required: true
+    filebeat_limits_memory:
+      description: "Memory limits for Filebeat"
+      type: string
+      default: "500Mi"
+      required: true
+---
+# Source: filebeat/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: filebeat
+  namespace: ${{ inputs.elasticsearch_namespace }}
+  labels:
+    app: "filebeat"
+---
+# Source: filebeat/templates/clusterrole.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: filebeat
+  labels:
+    app: "filebeat"
+rules:
+  - apiGroups: [""]
+    resources:
+      - namespaces
+      - pods
+      - nodes
+    verbs:
+      - get
+      - list
+      - watch
+---
+# Source: filebeat/templates/clusterrolebinding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: filebeat
+  labels:
+    app: "filebeat"
+subjects:
+  - kind: ServiceAccount
+    name: filebeat
+    namespace: ${{ inputs.elasticsearch_namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: filebeat
+---
+# Source: filebeat/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: filebeat-config
+  namespace: ${{ inputs.elasticsearch_namespace }}
+  labels:
+    app: "filebeat"
+data:
+  filebeat.yml: |
+    filebeat.inputs:
+      - type: filestream
+        id: container-logs
+        enabled: true
+        paths:
+          - /var/log/containers/*.log
+        parsers:
+          - container: ~
+        prospector.scanner.symlinks: true
+
+    processors:
+      - add_kubernetes_metadata:
+          host: ${NODE_NAME}
+          matchers:
+            - logs_path:
+                logs_path: "/var/log/containers/"
+      - drop_event:
+          when:
+            or:
+              - equals:
+                  kubernetes.container.name: "filebeat"
+              - equals:
+                  kubernetes.container.name: "logstash"
+
+    output.logstash:
+      hosts: ["logstash.${POD_NAMESPACE}.svc:5044"]
+
+    logging.metrics.enabled: false
+---
+# Source: filebeat/templates/daemonset.yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: filebeat
+  namespace: ${{ inputs.elasticsearch_namespace }}
+  labels:
+    app: "filebeat"
+spec:
+  selector:
+    matchLabels:
+      app: "filebeat"
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: "filebeat"
+    spec:
+      serviceAccountName: filebeat
+      terminationGracePeriodSeconds: 30
+      hostNetwork: false
+      dnsPolicy: ClusterFirst
+      containers:
+        - name: filebeat
+          image: docker.elastic.co/beats/filebeat:8.5.1
+          imagePullPolicy: IfNotPresent
+          args:
+            - -c
+            - /usr/share/filebeat/filebeat.yml
+            - -e
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          securityContext:
+            runAsUser: 0
+          resources:
+            requests:
+              cpu: ${{ inputs.filebeat_requests_cpu }}
+              memory: ${{ inputs.filebeat_requests_memory }}
+            limits:
+              cpu: ${{ inputs.filebeat_limits_cpu }}
+              memory: ${{ inputs.filebeat_limits_memory }}
+          volumeMounts:
+            - name: config
+              mountPath: /usr/share/filebeat/filebeat.yml
+              subPath: filebeat.yml
+              readOnly: true
+            - name: varlogcontainers
+              mountPath: /var/log/containers
+              readOnly: true
+            - name: varlogpods
+              mountPath: /var/log/pods
+              readOnly: true
+            - name: data
+              mountPath: /usr/share/filebeat/data
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - test -d /usr/share/filebeat/data
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pgrep filebeat
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+      volumes:
+        - name: config
+          configMap:
+            defaultMode: 416
+            name: filebeat-config
+        - name: varlogcontainers
+          hostPath:
+            path: /var/log/containers
+        - name: varlogpods
+          hostPath:
+            path: /var/log/pods
+        - name: data
+          hostPath:
+            path: /var/lib/filebeat-data
+            type: DirectoryOrCreate

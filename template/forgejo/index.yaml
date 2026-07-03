@@ -1,0 +1,356 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: forgejo
+spec:
+  title: Forgejo
+  url: https://forgejo.org
+  gitRepo: https://codeberg.org/forgejo/forgejo
+  author: Forgejo
+  description: A self-hosted lightweight software forge for Git hosting, code review, packages, and collaboration.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/forgejo/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/forgejo/logo.svg
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: 可自托管的轻量级软件协作平台，提供 Git 托管、代码评审、软件包和团队协作能力。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/forgejo/README_zh.md
+  categories:
+    - dev-ops
+    - tool
+  defaults:
+    app_host:
+      type: string
+      value: forgejo-${{ random(8) }}
+    app_name:
+      type: string
+      value: forgejo-${{ random(8) }}
+    internal_token:
+      type: string
+      value: ${{ random(64) }}
+    jwt_secret:
+      type: string
+      value: ${{ random(64) }}
+    secret_key:
+      type: string
+      value: ${{ random(64) }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - "*"
+    resources:
+      - "*"
+    verbs:
+      - "*"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-14.8.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+  annotations: {}
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys: []
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-14.8.0
+  componentSpecs:
+    - componentDefRef: postgresql
+      monitor: true
+      name: postgresql
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+  tolerations: []
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: codeberg.org/forgejo/forgejo:15.0.2-rootless
+    deploy.cloud.sealos.io/minReplicas: "1"
+    deploy.cloud.sealos.io/maxReplicas: "1"
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  serviceName: ${{ defaults.app_name }}
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsUser: 1000
+      initContainers:
+        - name: ${{ defaults.app_name }}-wait-pg
+          image: postgres:14-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: WAIT_TARGET
+              value: ${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: WAIT_PORT
+              value: "5432"
+            - name: WAIT_USER
+              value: postgres
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              until pg_isready -h "${WAIT_TARGET}" -p "${WAIT_PORT}" -U "${WAIT_USER}" -d postgres >/dev/null 2>&1; do
+                sleep 2
+              done
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: codeberg.org/forgejo/forgejo:15.0.2-rootless
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: GITEA__database__DB_TYPE
+              value: postgres
+            - name: GITEA__database__HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: GITEA__database__NAME
+              value: postgres
+            - name: GITEA__database__USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: GITEA__database__PASSWD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: GITEA__server__DOMAIN
+              value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: GITEA__server__ROOT_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/
+            - name: GITEA__server__PROTOCOL
+              value: http
+            - name: GITEA__server__HTTP_PORT
+              value: "3000"
+            - name: GITEA__server__START_SSH_SERVER
+              value: "false"
+            - name: GITEA__server__SSH_PORT
+              value: "22"
+            - name: GITEA__server__LFS_START_SERVER
+              value: "true"
+            - name: GITEA__security__INSTALL_LOCK
+              value: "true"
+            - name: GITEA__security__SECRET_KEY
+              value: ${{ defaults.secret_key }}
+            - name: GITEA__security__INTERNAL_TOKEN
+              value: ${{ defaults.internal_token }}
+            - name: GITEA__oauth2__JWT_SECRET
+              value: ${{ defaults.jwt_secret }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          livenessProbe:
+            httpGet:
+              path: /api/healthz
+              port: 3000
+              scheme: HTTP
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /api/healthz
+              port: 3000
+              scheme: HTTP
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 6
+          startupProbe:
+            httpGet:
+              path: /api/healthz
+              port: 3000
+              scheme: HTTP
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 30
+          volumeMounts:
+            - name: vn-varvn-libvn-gitea
+              mountPath: /var/lib/gitea
+            - name: vn-etcvn-gitea
+              mountPath: /etc/gitea
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-varvn-libvn-gitea
+        annotations:
+          path: /var/lib/gitea
+          value: "1"
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+    - metadata:
+        name: vn-etcvn-gitea
+        annotations:
+          path: /etc/gitea
+          value: "1"
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 3000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/forgejo/logo.svg
+  name: Forgejo
+  type: link

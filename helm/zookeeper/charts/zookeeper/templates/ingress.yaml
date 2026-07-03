@@ -1,0 +1,35 @@
+{{- if and .Values.sealos.ingress.enabled .Values.zookeeper.config.adminServerEnabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "zookeeper.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ include "zookeeper.name" . | quote }}
+    cloud.sealos.io/app-deploy-manager: {{ include "zookeeper.name" . | quote }}
+    cloud.sealos.io/app-deploy-manager-domain: {{ .Values.sealos.hostPrefix | quote }}
+  annotations:
+    kubernetes.io/ingress.class: {{ .Values.sealos.ingressClassName | quote }}
+    nginx.ingress.kubernetes.io/proxy-body-size: 8m
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+spec:
+  ingressClassName: {{ .Values.sealos.ingressClassName | quote }}
+  tls:
+    - hosts:
+        - {{ .Values.sealos.hostPrefix }}.{{ .Values.sealos.cloudDomain }}
+      secretName: {{ .Values.sealos.certSecretName }}
+  rules:
+    - host: {{ .Values.sealos.hostPrefix }}.{{ .Values.sealos.cloudDomain }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "zookeeper.name" . }}
+                port:
+                  name: admin
+{{- end }}

@@ -1,0 +1,115 @@
+{{- if .Values.skywalking.banyandb.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: skywalking-banyandb
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: "skywalking"
+    component: "banyandb"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: "skywalking"
+      component: "banyandb"
+  template:
+    metadata:
+      labels:
+        app: "skywalking"
+        component: "banyandb"
+{{- with .Values.skywalking.banyandb.podAnnotations }}
+      annotations:
+{{ toYaml . | nindent 8 }}
+{{- end }}
+    spec:
+{{- with .Values.skywalking.imagePullSecrets }}
+      imagePullSecrets:
+{{ toYaml . | nindent 8 }}
+{{- end }}
+{{- with .Values.skywalking.banyandb.podSecurityContext }}
+      securityContext:
+{{ toYaml . | nindent 8 }}
+{{- end }}
+      containers:
+        - name: banyandb
+          image: "{{ .Values.skywalking.banyandb.image.repository }}:{{ .Values.skywalking.banyandb.image.tag }}"
+          imagePullPolicy: "{{ .Values.skywalking.banyandb.image.pullPolicy }}"
+          args:
+            - standalone
+          ports:
+            - name: grpc
+              containerPort: {{ .Values.skywalking.banyandb.service.grpcPort }}
+            - name: http
+              containerPort: {{ .Values.skywalking.banyandb.service.httpPort }}
+          env:
+            - name: BYDB_NODE_HOST_PROVIDER
+              value: ip
+            - name: BYDB_GRPC_HOST
+              value: 0.0.0.0
+            - name: BYDB_HTTP_HOST
+              value: 0.0.0.0
+            - name: BYDB_STREAM_ROOT_PATH
+              value: {{ printf "%s/stream" .Values.skywalking.banyandb.persistence.mountPath | quote }}
+            - name: BYDB_MEASURE_ROOT_PATH
+              value: {{ printf "%s/measure" .Values.skywalking.banyandb.persistence.mountPath | quote }}
+            - name: BYDB_METADATA_ROOT_PATH
+              value: {{ printf "%s/metadata" .Values.skywalking.banyandb.persistence.mountPath | quote }}
+{{- with .Values.skywalking.banyandb.extraEnv }}
+{{ toYaml . | nindent 12 }}
+{{- end }}
+{{- if .Values.skywalking.banyandb.probes.readiness.enabled }}
+          readinessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: {{ .Values.skywalking.banyandb.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.skywalking.banyandb.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.skywalking.banyandb.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.skywalking.banyandb.probes.readiness.failureThreshold }}
+{{- end }}
+{{- if .Values.skywalking.banyandb.probes.liveness.enabled }}
+          livenessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: {{ .Values.skywalking.banyandb.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.skywalking.banyandb.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.skywalking.banyandb.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.skywalking.banyandb.probes.liveness.failureThreshold }}
+{{- end }}
+          resources:
+            requests:
+              cpu: {{ .Values.skywalking.banyandb.requests.cpu | quote }}
+              memory: {{ .Values.skywalking.banyandb.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.skywalking.banyandb.limits.cpu | quote }}
+              memory: {{ .Values.skywalking.banyandb.limits.memory | quote }}
+{{- with .Values.skywalking.banyandb.securityContext }}
+          securityContext:
+{{ toYaml . | nindent 12 }}
+{{- end }}
+          volumeMounts:
+            - name: banyandb-data
+              mountPath: {{ .Values.skywalking.banyandb.persistence.mountPath | quote }}
+{{- with .Values.skywalking.banyandb.nodeSelector }}
+      nodeSelector:
+{{ toYaml . | nindent 8 }}
+{{- end }}
+{{- with .Values.skywalking.banyandb.affinity }}
+      affinity:
+{{ toYaml . | nindent 8 }}
+{{- end }}
+{{- with .Values.skywalking.banyandb.tolerations }}
+      tolerations:
+{{ toYaml . | nindent 8 }}
+{{- end }}
+      volumes:
+        - name: banyandb-data
+{{- if .Values.skywalking.banyandb.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ default "skywalking-banyandb-data" .Values.skywalking.banyandb.persistence.existingClaim }}
+{{- else }}
+          emptyDir: {}
+{{- end }}
+{{- end }}

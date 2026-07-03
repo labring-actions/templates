@@ -1,0 +1,257 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .elasticsearchNamespace }}
+---
+# Source: kibana/templates/cert-manager-certificate.yaml
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: kibana-certs
+  namespace: {{ .elasticsearchNamespace }}
+  labels:
+    app: "kibana"
+spec:
+  secretName: {{ .kibanaTLSSecretName }}
+  commonName: kibana
+  duration: 2160h
+  renewBefore: 360h
+  privateKey:
+    algorithm: RSA
+    size: 2048
+  usages:
+    - server auth
+  dnsNames:
+    - kibana
+    - kibana.{{ .elasticsearchNamespace }}.svc
+    - kibana.{{ .elasticsearchNamespace }}.svc.cluster.local
+  issuerRef:
+    name: elasticsearch-ca-issuer
+    kind: Issuer
+---
+# Source: kibana/templates/secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kibana-system-credentials
+  namespace: {{ .elasticsearchNamespace }}
+  labels:
+    app: "kibana"
+type: Opaque
+stringData:
+  username: kibana_system
+  password: "{{ .kibanaSystemPassword }}"
+---
+# Source: kibana/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kibana-config
+  namespace: {{ .elasticsearchNamespace }}
+  labels:
+    app: "kibana"
+data:
+  kibana.yml: |
+    server.name: kibana
+    server.host: "0.0.0.0"
+    server.ssl.enabled: true
+    server.ssl.certificate: /usr/share/kibana/config/certs/tls.crt
+    server.ssl.key: /usr/share/kibana/config/certs/tls.key
+
+    elasticsearch.hosts: ["https://elasticsearch-master.{{ .elasticsearchNamespace }}.svc:9200"]
+    elasticsearch.username: kibana_system
+    elasticsearch.password: ${KIBANA_SYSTEM_PASSWORD}
+    elasticsearch.ssl.certificateAuthorities: ["/usr/share/kibana/config/elasticsearch-ca/tls.crt"]
+    elasticsearch.ssl.verificationMode: full
+
+    xpack.encryptedSavedObjects.encryptionKey: "0123456789abcdef0123456789abcdef"
+    monitoring.ui.container.elasticsearch.enabled: true
+---
+# Source: kibana/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: kibana
+  namespace: {{ .elasticsearchNamespace }}
+  labels:
+    app: "kibana"
+spec:
+  type: ClusterIP
+  selector:
+    app: "kibana"
+  ports:
+    - name: https
+      protocol: TCP
+      port: 5601
+      targetPort: 5601
+---
+# Source: kibana/templates/ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kibana
+  namespace: {{ .elasticsearchNamespace }}
+  labels:
+    app: "kibana"
+    cloud.sealos.io/app-deploy-manager-domain: kibana
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+    nginx.ingress.kubernetes.io/proxy-ssl-verify: "false"
+spec:
+  tls:
+    - hosts:
+        - kibana.{{ .SEALOS_CLOUD_DOMAIN }}
+      secretName: {{ .SEALOS_CERT_SECRET_NAME }}
+  rules:
+    - host: kibana.{{ .SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: kibana
+                port:
+                  number: 5601
+---
+# Source: kibana/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kibana
+  namespace: {{ .elasticsearchNamespace }}
+  labels:
+    app: "kibana"
+spec:
+  replicas: {{ .kibanaReplicas }}
+  selector:
+    matchLabels:
+      app: "kibana"
+  template:
+    metadata:
+      labels:
+        app: "kibana"
+    spec:
+      initContainers:
+        - name: configure-kibana-system-user
+          image: docker.elastic.co/elasticsearch/elasticsearch:8.5.1
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+
+              i=0
+              while [ "$i" -lt 60 ]; do
+                code="$(curl -s -o /tmp/kibana-system-user.out -w "%{http_code}" \
+                  --cacert /usr/share/kibana/config/elasticsearch-ca/tls.crt \
+                  -u "elastic:${ELASTIC_PASSWORD}" \
+                  -H 'Content-Type: application/json' \
+                  -X POST "https://elasticsearch-master.{{ .elasticsearchNamespace }}.svc:9200/_security/user/kibana_system/_password" \
+                  -d "{\"password\":\"${KIBANA_SYSTEM_PASSWORD}\"}" || true)"
+
+                if [ "$code" = "200" ]; then
+                  exit 0
+                fi
+
+                echo "Waiting for Elasticsearch security API, last HTTP code: ${code}"
+                i=$((i + 1))
+                sleep 5
+              done
+
+              cat /tmp/kibana-system-user.out
+              exit 1
+          env:
+            - name: ELASTIC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: elasticsearch-master-credentials
+                  key: password
+            - name: KIBANA_SYSTEM_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: kibana-system-credentials
+                  key: password
+          volumeMounts:
+            - name: elasticsearch-ca
+              mountPath: /usr/share/kibana/config/elasticsearch-ca
+              readOnly: true
+      containers:
+        - name: kibana
+          image: docker.elastic.co/kibana/kibana:8.5.1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: https
+              containerPort: 5601
+          env:
+            - name: KIBANA_SYSTEM_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: kibana-system-credentials
+                  key: password
+          readinessProbe:
+            httpGet:
+              scheme: HTTPS
+              path: /login
+              port: 5601
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              scheme: HTTPS
+              path: /login
+              port: 5601
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: {{ .kibanaRequestsCPU }}
+              memory: {{ .kibanaRequestsMemory }}
+            limits:
+              cpu: {{ .kibanaLimitsCPU }}
+              memory: {{ .kibanaLimitsMemory }}
+          volumeMounts:
+            - name: kibana-config
+              mountPath: /usr/share/kibana/config/kibana.yml
+              subPath: kibana.yml
+              readOnly: true
+            - name: kibana-certs
+              mountPath: /usr/share/kibana/config/certs
+              readOnly: true
+            - name: elasticsearch-ca
+              mountPath: /usr/share/kibana/config/elasticsearch-ca
+              readOnly: true
+      volumes:
+        - name: kibana-config
+          configMap:
+            name: kibana-config
+        - name: kibana-certs
+          secret:
+            secretName: {{ .kibanaTLSSecretName }}
+        - name: elasticsearch-ca
+          secret:
+            secretName: {{ .elasticsearchCASecretName }}
+---
+# Source: kibana/templates/app.yaml
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: kibana
+  namespace: {{ .elasticsearchNamespace }}
+  labels:
+    app: "kibana"
+spec:
+  data:
+    url: https://kibana.{{ .SEALOS_CLOUD_DOMAIN }}/login
+  displayType: normal
+  icon: "https://raw.githubusercontent.com/elastic/elasticsearch/main/distribution/packages/rpm/src/main/resources/logo/elastic.gif"
+  name: "Kibana"
+  type: link

@@ -1,0 +1,65 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "zookeeper.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ include "zookeeper.name" . | quote }}
+    cloud.sealos.io/app-deploy-manager: {{ include "zookeeper.name" . | quote }}
+data:
+  zoo.cfg: |
+    tickTime={{ .Values.zookeeper.config.tickTime }}
+    dataDir={{ .Values.zookeeper.paths.dataDir }}
+    dataLogDir={{ .Values.zookeeper.paths.dataLogDir }}
+    clientPort={{ .Values.zookeeper.service.clientPort }}
+    clientPortAddress=0.0.0.0
+    initLimit={{ .Values.zookeeper.config.initLimit }}
+    syncLimit={{ .Values.zookeeper.config.syncLimit }}
+    maxClientCnxns={{ .Values.zookeeper.config.maxClientCnxns }}
+    autopurge.snapRetainCount={{ .Values.zookeeper.config.autopurgeSnapRetainCount }}
+    autopurge.purgeInterval={{ .Values.zookeeper.config.autopurgePurgeInterval }}
+    4lw.commands.whitelist={{ .Values.zookeeper.config.fourLetterWordsWhitelist }}
+    quorumListenOnAllIPs={{ .Values.zookeeper.config.quorumListenOnAllIPs }}
+    admin.enableServer={{ .Values.zookeeper.config.adminServerEnabled }}
+    admin.serverAddress=0.0.0.0
+    admin.serverPort={{ .Values.zookeeper.service.adminPort }}
+{{- $name := include "zookeeper.name" . }}
+{{- $headlessName := include "zookeeper.headlessName" . }}
+{{- $namespace := .Release.Namespace }}
+{{- $quorumPort := .Values.zookeeper.service.quorumPort }}
+{{- $electionPort := .Values.zookeeper.service.electionPort }}
+{{- $clientPort := .Values.zookeeper.service.clientPort }}
+{{- range $i := until (int .Values.zookeeper.replicas) }}
+    server.{{ add $i 1 }}={{ $name }}-{{ $i }}.{{ $headlessName }}.{{ $namespace }}.svc.cluster.local:{{ $quorumPort }}:{{ $electionPort }};{{ $clientPort }}
+{{- end }}
+{{- range .Values.zookeeper.config.extraProperties }}
+    {{ .name }}={{ .value }}
+{{- end }}
+  sealos-start-zookeeper.sh: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    mkdir -p "${ZOO_DATA_DIR}" "${ZOO_DATA_LOG_DIR}" "${ZOO_LOG_DIR}"
+
+    ordinal="${HOSTNAME##*-}"
+    if [[ ! "${ordinal}" =~ ^[0-9]+$ ]]; then
+      echo "Unable to derive ZooKeeper server id from HOSTNAME=${HOSTNAME}" >&2
+      exit 1
+    fi
+
+    server_id=$((ordinal + 1))
+    echo "${server_id}" > "${ZOO_DATA_DIR}/myid"
+
+    if [[ ! -d "${ZOO_DATA_DIR}/version-2" ]] && ! compgen -G "${ZOO_DATA_DIR}/snapshot.*" >/dev/null; then
+      touch "${ZOO_DATA_DIR}/initialize"
+    fi
+
+    if [[ ! -x "${ZOOKEEPER_HOME}/bin/zkServer.sh" ]]; then
+      echo "${ZOOKEEPER_HOME}/bin/zkServer.sh is missing or not executable" >&2
+      exit 1
+    fi
+
+    export ZOO_LOG_DIR
+    export JVMFLAGS="-Xms${ZOO_HEAP_MIN} -Xmx${ZOO_HEAP_MAX} ${ZOO_EXTRA_JVM_FLAGS:-}"
+
+    exec "${ZOOKEEPER_HOME}/bin/zkServer.sh" start-foreground "${ZOOKEEPER_HOME}/conf/zoo.cfg"

@@ -1,0 +1,201 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "zookeeper.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ include "zookeeper.name" . | quote }}
+    cloud.sealos.io/app-deploy-manager: {{ include "zookeeper.name" . | quote }}
+  annotations:
+    originImageName: {{ include "zookeeper.image" . | quote }}
+    deploy.cloud.sealos.io/minReplicas: "1"
+    deploy.cloud.sealos.io/maxReplicas: {{ .Values.zookeeper.replicas | quote }}
+spec:
+  replicas: {{ .Values.zookeeper.replicas }}
+  revisionHistoryLimit: 1
+  podManagementPolicy: Parallel
+  serviceName: {{ include "zookeeper.headlessName" . | quote }}
+  selector:
+    matchLabels:
+      app: {{ include "zookeeper.name" . | quote }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "zookeeper.name" . | quote }}
+        cloud.sealos.io/app-deploy-manager: {{ include "zookeeper.name" . | quote }}
+{{- with .Values.zookeeper.podAnnotations }}
+      annotations:
+{{ toYaml . | nindent 8 }}
+{{- end }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+{{- with .Values.zookeeper.imagePullSecrets }}
+      imagePullSecrets:
+{{ toYaml . | nindent 8 }}
+{{- end }}
+{{- with .Values.zookeeper.podSecurityContext }}
+      securityContext:
+{{ toYaml . | nindent 8 }}
+{{- end }}
+      containers:
+        - name: {{ include "zookeeper.name" . }}
+          image: "{{ .Values.zookeeper.image.repository }}:{{ .Values.zookeeper.image.tag }}"
+          imagePullPolicy: "{{ .Values.zookeeper.image.pullPolicy }}"
+          command:
+            - /bin/bash
+            - -ec
+          args:
+            - |
+              exec /bin/bash "{{ .Values.zookeeper.paths.install }}/conf/sealos-start-zookeeper.sh"
+          ports:
+            - name: client
+              containerPort: {{ .Values.zookeeper.service.clientPort }}
+            - name: quorum
+              containerPort: {{ .Values.zookeeper.service.quorumPort }}
+            - name: election
+              containerPort: {{ .Values.zookeeper.service.electionPort }}
+            - name: admin
+              containerPort: {{ .Values.zookeeper.service.adminPort }}
+          env:
+            - name: ZOOKEEPER_HOME
+              value: {{ .Values.zookeeper.paths.install | quote }}
+            - name: ZOO_DATA_DIR
+              value: {{ .Values.zookeeper.paths.dataDir | quote }}
+            - name: ZOO_DATA_LOG_DIR
+              value: {{ .Values.zookeeper.paths.dataLogDir | quote }}
+            - name: ZOO_LOG_DIR
+              value: {{ .Values.zookeeper.paths.logDir | quote }}
+            - name: ZOO_HEAP_MIN
+              value: {{ .Values.zookeeper.jvm.minHeap | quote }}
+            - name: ZOO_HEAP_MAX
+              value: {{ .Values.zookeeper.jvm.maxHeap | quote }}
+            - name: ZOO_EXTRA_JVM_FLAGS
+              value: {{ .Values.zookeeper.jvm.extraFlags | quote }}
+{{- with .Values.zookeeper.extraEnv }}
+{{ toYaml . | nindent 12 }}
+{{- end }}
+{{- if .Values.zookeeper.probes.startup.enabled }}
+          startupProbe:
+            exec:
+              command:
+                - /bin/bash
+                - -ec
+                - |
+                  python3 - <<'PY'
+                  import socket
+                  import sys
+
+                  try:
+                      with socket.create_connection(("127.0.0.1", {{ .Values.zookeeper.service.clientPort }}), {{ .Values.zookeeper.probes.startup.timeoutSeconds }}) as sock:
+                          sock.sendall(b"ruok\n")
+                          data = sock.recv(32)
+                      sys.exit(0 if b"imok" in data else 1)
+                  except Exception:
+                      sys.exit(1)
+                  PY
+            failureThreshold: {{ .Values.zookeeper.probes.startup.failureThreshold }}
+            periodSeconds: {{ .Values.zookeeper.probes.startup.periodSeconds }}
+            timeoutSeconds: {{ .Values.zookeeper.probes.startup.timeoutSeconds }}
+{{- end }}
+{{- if .Values.zookeeper.probes.readiness.enabled }}
+          readinessProbe:
+            exec:
+              command:
+                - /bin/bash
+                - -ec
+                - |
+                  python3 - <<'PY'
+                  import socket
+                  import sys
+
+                  try:
+                      with socket.create_connection(("127.0.0.1", {{ .Values.zookeeper.service.clientPort }}), {{ .Values.zookeeper.probes.readiness.timeoutSeconds }}) as sock:
+                          sock.sendall(b"ruok\n")
+                          data = sock.recv(32)
+                      sys.exit(0 if b"imok" in data else 1)
+                  except Exception:
+                      sys.exit(1)
+                  PY
+            periodSeconds: {{ .Values.zookeeper.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.zookeeper.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.zookeeper.probes.readiness.failureThreshold }}
+{{- end }}
+{{- if .Values.zookeeper.probes.liveness.enabled }}
+          livenessProbe:
+            exec:
+              command:
+                - /bin/bash
+                - -ec
+                - |
+                  python3 - <<'PY'
+                  import socket
+                  import sys
+
+                  try:
+                      with socket.create_connection(("127.0.0.1", {{ .Values.zookeeper.service.clientPort }}), {{ .Values.zookeeper.probes.liveness.timeoutSeconds }}) as sock:
+                          sock.sendall(b"ruok\n")
+                          data = sock.recv(32)
+                      sys.exit(0 if b"imok" in data else 1)
+                  except Exception:
+                      sys.exit(1)
+                  PY
+            initialDelaySeconds: {{ .Values.zookeeper.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.zookeeper.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.zookeeper.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.zookeeper.probes.liveness.failureThreshold }}
+{{- end }}
+          resources:
+            requests:
+              cpu: {{ .Values.zookeeper.resources.requests.cpu | quote }}
+              memory: {{ .Values.zookeeper.resources.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.zookeeper.resources.limits.cpu | quote }}
+              memory: {{ .Values.zookeeper.resources.limits.memory | quote }}
+{{- with .Values.zookeeper.securityContext }}
+          securityContext:
+{{ toYaml . | nindent 12 }}
+{{- end }}
+          volumeMounts:
+            - name: zookeeper-config
+              mountPath: {{ printf "%s/conf/zoo.cfg" .Values.zookeeper.paths.install | quote }}
+              subPath: zoo.cfg
+              readOnly: true
+            - name: zookeeper-config
+              mountPath: {{ printf "%s/conf/sealos-start-zookeeper.sh" .Values.zookeeper.paths.install | quote }}
+              subPath: sealos-start-zookeeper.sh
+              readOnly: true
+            - name: vn-varvn-libvn-zookeeper
+              mountPath: {{ .Values.zookeeper.paths.dataRoot | quote }}
+      volumes:
+        - name: zookeeper-config
+          configMap:
+            name: {{ include "zookeeper.name" . }}
+            defaultMode: 0555
+{{- with .Values.zookeeper.nodeSelector }}
+      nodeSelector:
+{{ toYaml . | nindent 8 }}
+{{- end }}
+{{- with .Values.zookeeper.affinity }}
+      affinity:
+{{ toYaml . | nindent 8 }}
+{{- end }}
+{{- with .Values.zookeeper.tolerations }}
+      tolerations:
+{{ toYaml . | nindent 8 }}
+{{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-varvn-libvn-zookeeper
+        annotations:
+          path: {{ .Values.zookeeper.paths.dataRoot | quote }}
+          value: {{ .Values.zookeeper.persistence.size | quote }}
+      spec:
+        accessModes:
+{{- toYaml .Values.zookeeper.persistence.accessModes | nindent 10 }}
+{{- if .Values.zookeeper.persistence.storageClass }}
+        storageClassName: {{ .Values.zookeeper.persistence.storageClass | quote }}
+{{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.zookeeper.persistence.size | quote }}

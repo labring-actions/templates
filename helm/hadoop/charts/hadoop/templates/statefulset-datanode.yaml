@@ -1,0 +1,169 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "hadoop.dataNodeName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ include "hadoop.dataNodeName" . | quote }}
+    cloud.sealos.io/app-deploy-manager: {{ include "hadoop.dataNodeName" . | quote }}
+  annotations:
+    originImageName: {{ include "hadoop.image" . | quote }}
+    deploy.cloud.sealos.io/minReplicas: "1"
+    deploy.cloud.sealos.io/maxReplicas: {{ .Values.hadoop.dataNode.replicas | quote }}
+spec:
+  replicas: {{ .Values.hadoop.dataNode.replicas }}
+  revisionHistoryLimit: 1
+  serviceName: {{ include "hadoop.dataNodeName" . | quote }}
+  selector:
+    matchLabels:
+      app: {{ include "hadoop.dataNodeName" . | quote }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "hadoop.dataNodeName" . | quote }}
+        cloud.sealos.io/app-deploy-manager: {{ include "hadoop.dataNodeName" . | quote }}
+{{- with .Values.hadoop.dataNode.podAnnotations }}
+      annotations:
+{{ toYaml . | nindent 8 }}
+{{- end }}
+    spec:
+      automountServiceAccountToken: false
+{{- with .Values.hadoop.imagePullSecrets }}
+      imagePullSecrets:
+{{ toYaml . | nindent 8 }}
+{{- end }}
+{{- with .Values.hadoop.dataNode.podSecurityContext }}
+      securityContext:
+{{ toYaml . | nindent 8 }}
+{{- end }}
+      containers:
+        - name: {{ include "hadoop.dataNodeName" . }}
+          image: "{{ .Values.hadoop.image.repository }}:{{ .Values.hadoop.image.tag }}"
+          imagePullPolicy: "{{ .Values.hadoop.image.pullPolicy }}"
+          command:
+            - /bin/bash
+            - -ec
+          args:
+            - |
+              until {{ .Values.hadoop.paths.home }}/bin/hdfs --config {{ .Values.hadoop.paths.conf }} dfsadmin -fs hdfs://{{ include "hadoop.nameNodeHost" . }}:{{ .Values.hadoop.nameNode.service.rpcPort }} -safemode get >/dev/null 2>&1; do
+                echo "waiting for NameNode"
+                sleep 5
+              done
+              mkdir -p {{ .Values.hadoop.paths.dataRoot }}/data {{ .Values.hadoop.paths.tmpDir }} {{ .Values.hadoop.paths.logDir }} {{ .Values.hadoop.paths.pidDir }}
+              exec {{ .Values.hadoop.paths.home }}/bin/hdfs --config {{ .Values.hadoop.paths.conf }} datanode
+          ports:
+            - name: data
+              containerPort: {{ .Values.hadoop.dataNode.service.dataPort }}
+            - name: ipc
+              containerPort: {{ .Values.hadoop.dataNode.service.ipcPort }}
+            - name: http
+              containerPort: {{ .Values.hadoop.dataNode.service.httpPort }}
+          env:
+            - name: HADOOP_HOME
+              value: {{ .Values.hadoop.paths.home | quote }}
+            - name: HADOOP_CONF_DIR
+              value: {{ .Values.hadoop.paths.conf | quote }}
+            - name: HADOOP_LOG_DIR
+              value: {{ .Values.hadoop.paths.logDir | quote }}
+            - name: HADOOP_PID_DIR
+              value: {{ .Values.hadoop.paths.pidDir | quote }}
+{{- with .Values.hadoop.dataNode.extraEnv }}
+{{ toYaml . | nindent 12 }}
+{{- end }}
+{{- if .Values.hadoop.dataNode.probes.startup.enabled }}
+          startupProbe:
+            httpGet:
+              path: {{ .Values.hadoop.dataNode.probes.startup.path | quote }}
+              port: http
+            failureThreshold: {{ .Values.hadoop.dataNode.probes.startup.failureThreshold }}
+            periodSeconds: {{ .Values.hadoop.dataNode.probes.startup.periodSeconds }}
+            timeoutSeconds: {{ .Values.hadoop.dataNode.probes.startup.timeoutSeconds }}
+{{- end }}
+{{- if .Values.hadoop.dataNode.probes.readiness.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.hadoop.dataNode.probes.readiness.path | quote }}
+              port: http
+            periodSeconds: {{ .Values.hadoop.dataNode.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.hadoop.dataNode.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.hadoop.dataNode.probes.readiness.failureThreshold }}
+{{- end }}
+{{- if .Values.hadoop.dataNode.probes.liveness.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.hadoop.dataNode.probes.liveness.path | quote }}
+              port: http
+            initialDelaySeconds: {{ .Values.hadoop.dataNode.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.hadoop.dataNode.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.hadoop.dataNode.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.hadoop.dataNode.probes.liveness.failureThreshold }}
+{{- end }}
+          resources:
+            requests:
+              cpu: {{ .Values.hadoop.dataNode.requests.cpu | quote }}
+              memory: {{ .Values.hadoop.dataNode.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.hadoop.dataNode.limits.cpu | quote }}
+              memory: {{ .Values.hadoop.dataNode.limits.memory | quote }}
+{{- with .Values.hadoop.dataNode.securityContext }}
+          securityContext:
+{{ toYaml . | nindent 12 }}
+{{- end }}
+          volumeMounts:
+            - name: hadoop-config
+              mountPath: {{ printf "%s/core-site.xml" .Values.hadoop.paths.conf | quote }}
+              subPath: core-site.xml
+              readOnly: true
+            - name: hadoop-config
+              mountPath: {{ printf "%s/hdfs-site.xml" .Values.hadoop.paths.conf | quote }}
+              subPath: hdfs-site.xml
+              readOnly: true
+            - name: hadoop-config
+              mountPath: {{ printf "%s/yarn-site.xml" .Values.hadoop.paths.conf | quote }}
+              subPath: yarn-site.xml
+              readOnly: true
+            - name: hadoop-config
+              mountPath: {{ printf "%s/mapred-site.xml" .Values.hadoop.paths.conf | quote }}
+              subPath: mapred-site.xml
+              readOnly: true
+            - name: hadoop-config
+              mountPath: {{ printf "%s/capacity-scheduler.xml" .Values.hadoop.paths.conf | quote }}
+              subPath: capacity-scheduler.xml
+              readOnly: true
+            - name: hadoop-config
+              mountPath: {{ printf "%s/hadoop-env.sh" .Values.hadoop.paths.conf | quote }}
+              subPath: hadoop-env.sh
+              readOnly: true
+            - name: vn-optvn-hadoopvn-data
+              mountPath: {{ .Values.hadoop.paths.dataRoot | quote }}
+      volumes:
+        - name: hadoop-config
+          configMap:
+            name: {{ include "hadoop.configName" . }}
+{{- with .Values.hadoop.dataNode.nodeSelector }}
+      nodeSelector:
+{{ toYaml . | nindent 8 }}
+{{- end }}
+{{- with .Values.hadoop.dataNode.affinity }}
+      affinity:
+{{ toYaml . | nindent 8 }}
+{{- end }}
+{{- with .Values.hadoop.dataNode.tolerations }}
+      tolerations:
+{{ toYaml . | nindent 8 }}
+{{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-optvn-hadoopvn-data
+        annotations:
+          path: {{ .Values.hadoop.paths.dataRoot | quote }}
+          value: {{ .Values.hadoop.dataNode.persistence.size | quote }}
+      spec:
+        accessModes:
+{{- toYaml .Values.hadoop.dataNode.persistence.accessModes | nindent 10 }}
+{{- if .Values.hadoop.dataNode.persistence.storageClass }}
+        storageClassName: {{ .Values.hadoop.dataNode.persistence.storageClass | quote }}
+{{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.hadoop.dataNode.persistence.size | quote }}

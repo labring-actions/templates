@@ -1,0 +1,153 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "yarn.nodeManagerName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ include "yarn.nodeManagerName" . | quote }}
+    cloud.sealos.io/app-deploy-manager: {{ include "yarn.nodeManagerName" . | quote }}
+  annotations:
+    originImageName: {{ include "yarn.image" . | quote }}
+    deploy.cloud.sealos.io/minReplicas: "1"
+    deploy.cloud.sealos.io/maxReplicas: {{ .Values.yarn.nodeManager.replicas | quote }}
+spec:
+  replicas: {{ .Values.yarn.nodeManager.replicas }}
+  revisionHistoryLimit: 1
+  serviceName: {{ include "yarn.nodeManagerName" . | quote }}
+  selector:
+    matchLabels:
+      app: {{ include "yarn.nodeManagerName" . | quote }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "yarn.nodeManagerName" . | quote }}
+        cloud.sealos.io/app-deploy-manager: {{ include "yarn.nodeManagerName" . | quote }}
+{{- with .Values.yarn.nodeManager.podAnnotations }}
+      annotations:
+{{ toYaml . | nindent 8 }}
+{{- end }}
+    spec:
+      automountServiceAccountToken: false
+{{- with .Values.yarn.imagePullSecrets }}
+      imagePullSecrets:
+{{ toYaml . | nindent 8 }}
+{{- end }}
+{{- with .Values.yarn.nodeManager.podSecurityContext }}
+      securityContext:
+{{ toYaml . | nindent 8 }}
+{{- end }}
+      containers:
+        - name: {{ include "yarn.nodeManagerName" . }}
+          image: "{{ .Values.yarn.image.repository }}:{{ .Values.yarn.image.tag }}"
+          imagePullPolicy: "{{ .Values.yarn.image.pullPolicy }}"
+          command:
+            - /bin/bash
+            - -ec
+          args:
+            - |
+              mkdir -p {{ .Values.yarn.paths.dataRoot }}/nm/local {{ .Values.yarn.paths.dataRoot }}/nm/logs {{ .Values.yarn.paths.tmpDir }} {{ .Values.yarn.paths.logDir }} {{ .Values.yarn.paths.pidDir }}
+              exec {{ .Values.yarn.paths.home }}/bin/yarn --config {{ .Values.yarn.paths.conf }} nodemanager
+          ports:
+            - name: localizer
+              containerPort: {{ .Values.yarn.nodeManager.service.localizerPort }}
+            - name: nm
+              containerPort: {{ .Values.yarn.nodeManager.service.nodeManagerPort }}
+            - name: http
+              containerPort: {{ .Values.yarn.nodeManager.service.webPort }}
+          env:
+            - name: HADOOP_HOME
+              value: {{ .Values.yarn.paths.home | quote }}
+            - name: HADOOP_CONF_DIR
+              value: {{ .Values.yarn.paths.conf | quote }}
+            - name: HADOOP_LOG_DIR
+              value: {{ .Values.yarn.paths.logDir | quote }}
+            - name: HADOOP_PID_DIR
+              value: {{ .Values.yarn.paths.pidDir | quote }}
+{{- with .Values.yarn.nodeManager.extraEnv }}
+{{ toYaml . | nindent 12 }}
+{{- end }}
+{{- if .Values.yarn.nodeManager.probes.readiness.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.yarn.nodeManager.probes.readiness.path | quote }}
+              port: http
+            initialDelaySeconds: {{ .Values.yarn.nodeManager.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.yarn.nodeManager.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.yarn.nodeManager.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.yarn.nodeManager.probes.readiness.failureThreshold }}
+{{- end }}
+{{- if .Values.yarn.nodeManager.probes.liveness.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.yarn.nodeManager.probes.liveness.path | quote }}
+              port: http
+            initialDelaySeconds: {{ .Values.yarn.nodeManager.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.yarn.nodeManager.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.yarn.nodeManager.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.yarn.nodeManager.probes.liveness.failureThreshold }}
+{{- end }}
+          resources:
+            requests:
+              cpu: {{ .Values.yarn.nodeManager.requests.cpu | quote }}
+              memory: {{ .Values.yarn.nodeManager.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.yarn.nodeManager.limits.cpu | quote }}
+              memory: {{ .Values.yarn.nodeManager.limits.memory | quote }}
+{{- with .Values.yarn.nodeManager.securityContext }}
+          securityContext:
+{{ toYaml . | nindent 12 }}
+{{- end }}
+          volumeMounts:
+            - name: yarn-config
+              mountPath: {{ printf "%s/core-site.xml" .Values.yarn.paths.conf | quote }}
+              subPath: core-site.xml
+              readOnly: true
+            - name: yarn-config
+              mountPath: {{ printf "%s/yarn-site.xml" .Values.yarn.paths.conf | quote }}
+              subPath: yarn-site.xml
+              readOnly: true
+            - name: yarn-config
+              mountPath: {{ printf "%s/mapred-site.xml" .Values.yarn.paths.conf | quote }}
+              subPath: mapred-site.xml
+              readOnly: true
+            - name: yarn-config
+              mountPath: {{ printf "%s/capacity-scheduler.xml" .Values.yarn.paths.conf | quote }}
+              subPath: capacity-scheduler.xml
+              readOnly: true
+            - name: yarn-config
+              mountPath: {{ printf "%s/hadoop-env.sh" .Values.yarn.paths.conf | quote }}
+              subPath: hadoop-env.sh
+              readOnly: true
+            - name: vn-optvn-hadoopvn-data
+              mountPath: {{ .Values.yarn.paths.dataRoot | quote }}
+      volumes:
+        - name: yarn-config
+          configMap:
+            name: {{ include "yarn.configName" . }}
+{{- with .Values.yarn.nodeManager.nodeSelector }}
+      nodeSelector:
+{{ toYaml . | nindent 8 }}
+{{- end }}
+{{- with .Values.yarn.nodeManager.affinity }}
+      affinity:
+{{ toYaml . | nindent 8 }}
+{{- end }}
+{{- with .Values.yarn.nodeManager.tolerations }}
+      tolerations:
+{{ toYaml . | nindent 8 }}
+{{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-optvn-hadoopvn-data
+        annotations:
+          path: {{ .Values.yarn.paths.dataRoot | quote }}
+          value: {{ .Values.yarn.nodeManager.persistence.size | quote }}
+      spec:
+        accessModes:
+{{- toYaml .Values.yarn.nodeManager.persistence.accessModes | nindent 10 }}
+{{- if .Values.yarn.nodeManager.persistence.storageClass }}
+        storageClassName: {{ .Values.yarn.nodeManager.persistence.storageClass | quote }}
+{{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.yarn.nodeManager.persistence.size | quote }}

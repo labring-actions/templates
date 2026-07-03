@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: skywalking-ui
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: "skywalking"
+    component: "ui"
+spec:
+  replicas: {{ .Values.skywalking.ui.replicas }}
+  selector:
+    matchLabels:
+      app: "skywalking"
+      component: "ui"
+  template:
+    metadata:
+      labels:
+        app: "skywalking"
+        component: "ui"
+{{- with .Values.skywalking.ui.podAnnotations }}
+      annotations:
+{{ toYaml . | nindent 8 }}
+{{- end }}
+    spec:
+{{- with .Values.skywalking.imagePullSecrets }}
+      imagePullSecrets:
+{{ toYaml . | nindent 8 }}
+{{- end }}
+{{- with .Values.skywalking.ui.podSecurityContext }}
+      securityContext:
+{{ toYaml . | nindent 8 }}
+{{- end }}
+      containers:
+        - name: ui
+          image: "{{ .Values.skywalking.ui.image.repository }}:{{ .Values.skywalking.ui.image.tag }}"
+          imagePullPolicy: "{{ .Values.skywalking.ui.image.pullPolicy }}"
+          ports:
+            - name: http
+              containerPort: {{ .Values.skywalking.ui.service.port }}
+          env:
+            - name: SW_SERVER_PORT
+              value: {{ .Values.skywalking.ui.service.port | quote }}
+            - name: SW_OAP_ADDRESS
+              value: {{ .Values.skywalking.ui.oapAddress | quote }}
+            - name: SW_ZIPKIN_ADDRESS
+              value: {{ .Values.skywalking.ui.zipkinAddress | quote }}
+{{- with .Values.skywalking.ui.extraEnv }}
+{{ toYaml . | nindent 12 }}
+{{- end }}
+{{- if .Values.skywalking.ui.probes.readiness.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.skywalking.ui.probes.readiness.path | quote }}
+              port: http
+            initialDelaySeconds: {{ .Values.skywalking.ui.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.skywalking.ui.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.skywalking.ui.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.skywalking.ui.probes.readiness.failureThreshold }}
+{{- end }}
+{{- if .Values.skywalking.ui.probes.liveness.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.skywalking.ui.probes.liveness.path | quote }}
+              port: http
+            initialDelaySeconds: {{ .Values.skywalking.ui.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.skywalking.ui.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.skywalking.ui.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.skywalking.ui.probes.liveness.failureThreshold }}
+{{- end }}
+          resources:
+            requests:
+              cpu: {{ .Values.skywalking.ui.requests.cpu | quote }}
+              memory: {{ .Values.skywalking.ui.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.skywalking.ui.limits.cpu | quote }}
+              memory: {{ .Values.skywalking.ui.limits.memory | quote }}
+{{- with .Values.skywalking.ui.securityContext }}
+          securityContext:
+{{ toYaml . | nindent 12 }}
+{{- end }}
+{{- with .Values.skywalking.ui.nodeSelector }}
+      nodeSelector:
+{{ toYaml . | nindent 8 }}
+{{- end }}
+{{- with .Values.skywalking.ui.affinity }}
+      affinity:
+{{ toYaml . | nindent 8 }}
+{{- end }}
+{{- with .Values.skywalking.ui.tolerations }}
+      tolerations:
+{{ toYaml . | nindent 8 }}
+{{- end }}

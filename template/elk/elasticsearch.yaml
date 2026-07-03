@@ -1,0 +1,473 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: elasticsearch
+spec:
+  title: "Elasticsearch"
+  url: "https://github.com/elastic/helm-charts"
+  gitRepo: "https://github.com/elastic/helm-charts"
+  author: "Elasticsearch"
+  description: "Free and Open, Distributed, RESTful Search Engine."
+  readme: "https://raw.githubusercontent.com/elastic/helm-charts/main/README.md"
+  icon: "https://raw.githubusercontent.com/elastic/elasticsearch/main/distribution/packages/rpm/src/main/resources/logo/elastic.gif"
+  templateType: inline
+  draft: true
+  defaults:
+    elasticsearch_passwd:
+      type: string
+      value: ${{ random(24) }}
+    app_name:
+      type: string
+      value: elasticsearch-master
+  inputs:
+    elasticsearch_namespace:
+      description: "Namespace for Elasticsearch deployment"
+      type: string
+      default: "ns-admin"
+      required: true
+    elasticsearch_storage:
+      description: "Storage size for elasticsearch in Gi"
+      type: number
+      default: "100"
+      required: true
+    elasticsearch_storage_class:
+      description: "StorageClass name for Elasticsearch PVC"
+      type: string
+      default: "openebs-hostpath"
+      required: true
+    elasticsearch_requests_cpu:
+      description: "CPU requests for each Elasticsearch pod"
+      type: string
+      default: "1"
+      required: true
+    elasticsearch_limits_cpu:
+      description: "CPU limits for each Elasticsearch pod"
+      type: string
+      default: "2"
+      required: true
+    elasticsearch_requests_memory:
+      description: "Memory requests for each Elasticsearch pod"
+      type: string
+      default: "4Gi"
+      required: true
+    elasticsearch_limits_memory:
+      description: "Memory limits for each Elasticsearch pod"
+      type: string
+      default: "8Gi"
+      required: true
+    elasticsearch_java_heap:
+      description: "JVM heap size for each Elasticsearch pod"
+      type: string
+      default: "4g"
+      required: true
+    elasticsearch_tls_secret_name:
+      description: "TLS secret name managed by cert-manager containing tls.crt, tls.key and ca.crt"
+      type: string
+      default: "elasticsearch-master-certs"
+      required: true
+---
+# Source: elasticsearch/templates/cert-manager-selfsigned-issuer.yaml
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: elasticsearch-selfsigned
+  namespace: ${{ inputs.elasticsearch_namespace }}
+  labels:
+    app: "elasticsearch-master"
+    cloud.sealos.io/app-deploy-manager: elasticsearch-master
+spec:
+  selfSigned: {}
+---
+# Source: elasticsearch/templates/cert-manager-ca-certificate.yaml
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: elasticsearch-ca
+  namespace: ${{ inputs.elasticsearch_namespace }}
+  labels:
+    app: "elasticsearch-master"
+    cloud.sealos.io/app-deploy-manager: elasticsearch-master
+spec:
+  isCA: true
+  commonName: elasticsearch-ca
+  secretName: elasticsearch-ca-secret
+  duration: 87600h
+  renewBefore: 720h
+  privateKey:
+    algorithm: RSA
+    size: 2048
+  issuerRef:
+    name: elasticsearch-selfsigned
+    kind: Issuer
+---
+# Source: elasticsearch/templates/cert-manager-ca-issuer.yaml
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: elasticsearch-ca-issuer
+  namespace: ${{ inputs.elasticsearch_namespace }}
+  labels:
+    app: "elasticsearch-master"
+    cloud.sealos.io/app-deploy-manager: elasticsearch-master
+spec:
+  ca:
+    secretName: elasticsearch-ca-secret
+---
+# Source: elasticsearch/templates/cert-manager-node-certificate.yaml
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: elasticsearch-master-certs
+  namespace: ${{ inputs.elasticsearch_namespace }}
+  labels:
+    app: "elasticsearch-master"
+    cloud.sealos.io/app-deploy-manager: elasticsearch-master
+spec:
+  secretName: ${{ inputs.elasticsearch_tls_secret_name }}
+  commonName: elasticsearch-master
+  duration: 2160h
+  renewBefore: 360h
+  privateKey:
+    algorithm: RSA
+    size: 2048
+  usages:
+    - server auth
+    - client auth
+  dnsNames:
+    - elasticsearch-master
+    - elasticsearch-master.${{ inputs.elasticsearch_namespace }}.svc
+    - elasticsearch-master.${{ inputs.elasticsearch_namespace }}.svc.cluster.local
+    - elasticsearch-master-headless
+    - elasticsearch-master-headless.${{ inputs.elasticsearch_namespace }}.svc
+    - elasticsearch-master-headless.${{ inputs.elasticsearch_namespace }}.svc.cluster.local
+    - elasticsearch-master-0.elasticsearch-master-headless.${{ inputs.elasticsearch_namespace }}.svc
+    - elasticsearch-master-0.elasticsearch-master-headless.${{ inputs.elasticsearch_namespace }}.svc.cluster.local
+    - elasticsearch-master-1.elasticsearch-master-headless.${{ inputs.elasticsearch_namespace }}.svc
+    - elasticsearch-master-1.elasticsearch-master-headless.${{ inputs.elasticsearch_namespace }}.svc.cluster.local
+    - elasticsearch-master-2.elasticsearch-master-headless.${{ inputs.elasticsearch_namespace }}.svc
+    - elasticsearch-master-2.elasticsearch-master-headless.${{ inputs.elasticsearch_namespace }}.svc.cluster.local
+  issuerRef:
+    name: elasticsearch-ca-issuer
+    kind: Issuer
+---
+# Source: elasticsearch/templates/secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: elasticsearch-master-credentials
+  namespace: ${{ inputs.elasticsearch_namespace }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: elasticsearch-master
+    app: "elasticsearch-master"
+type: Opaque
+stringData:
+  username: elastic
+  password: ${{ defaults.elasticsearch_passwd }}
+---
+# Source: elasticsearch/templates/service.yaml
+kind: Service
+apiVersion: v1
+metadata:
+  name: elasticsearch-master
+  namespace: ${{ inputs.elasticsearch_namespace }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: elasticsearch-master
+    app: "elasticsearch-master"
+spec:
+  type: ClusterIP
+  selector:
+    app: "elasticsearch-master"
+  publishNotReadyAddresses: false
+  ports:
+    - name: http
+      protocol: TCP
+      port: 9200
+    - name: transport
+      protocol: TCP
+      port: 9300
+---
+# Source: elasticsearch/templates/service.yaml
+kind: Service
+apiVersion: v1
+metadata:
+  name: elasticsearch-master-headless
+  namespace: ${{ inputs.elasticsearch_namespace }}
+  labels:
+    app: "elasticsearch-master"
+    cloud.sealos.io/app-deploy-manager: elasticsearch-master
+  annotations:
+    service.alpha.kubernetes.io/tolerate-unready-endpoints: "true"
+spec:
+  clusterIP: None # This is needed for statefulset hostnames like elasticsearch-0 to resolve
+  # Create endpoints also if the related pod isn't ready
+  publishNotReadyAddresses: true
+  selector:
+    app: "elasticsearch-master"
+  ports:
+    - name: http
+      port: 9200
+    - name: transport
+      port: 9300
+---
+# Source: elasticsearch/templates/poddisruptionbudget.yaml
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: elasticsearch-master-pdb
+  namespace: ${{ inputs.elasticsearch_namespace }}
+  labels:
+    app: "elasticsearch-master"
+    cloud.sealos.io/app-deploy-manager: elasticsearch-master
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: "elasticsearch-master"
+---
+# Source: elasticsearch/templates/statefulset.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: elasticsearch-master
+  namespace: ${{ inputs.elasticsearch_namespace }}
+  labels:
+    app: "elasticsearch-master"
+    cloud.sealos.io/app-deploy-manager: elasticsearch-master
+  annotations:
+    esMajorVersion: "8"
+spec:
+  serviceName: elasticsearch-master-headless
+  selector:
+    matchLabels:
+      app: "elasticsearch-master"
+  replicas: 3
+  podManagementPolicy: Parallel
+  updateStrategy:
+    type: RollingUpdate
+  volumeClaimTemplates:
+    - metadata:
+        name: elasticsearch-master
+        annotations:
+          value: " ${{ inputs.elasticsearch_storage }} "
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: ${{ inputs.elasticsearch_storage_class }}
+        resources:
+          requests:
+            storage: ${{ inputs.elasticsearch_storage }}Gi
+  template:
+    metadata:
+      name: "elasticsearch-master"
+      labels:
+        app: "elasticsearch-master"
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
+      automountServiceAccountToken: true
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - "elasticsearch-master"
+              topologyKey: kubernetes.io/hostname
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: "elasticsearch-master"
+      terminationGracePeriodSeconds: 180
+      initContainers:
+        - name: configure-sysctl
+          image: "docker.elastic.co/elasticsearch/elasticsearch:8.5.1"
+          imagePullPolicy: "IfNotPresent"
+          command:
+            - sh
+            - -c
+            - sysctl -w vm.max_map_count=262144
+          securityContext:
+            privileged: true
+      volumes:
+        - name: elasticsearch-certs
+          secret:
+            secretName: ${{ inputs.elasticsearch_tls_secret_name }}
+      enableServiceLinks: true
+      containers:
+        - name: "elasticsearch-master"
+          securityContext:
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 1000
+          image: "docker.elastic.co/elasticsearch/elasticsearch:8.5.1"
+          imagePullPolicy: "IfNotPresent"
+          readinessProbe:
+            exec:
+              command:
+                - bash
+                - -c
+                - |
+                  set -e
+
+                  if [ -z "${ELASTIC_PASSWORD}" ]; then
+                    echo "ELASTIC_PASSWORD variable is missing, exiting"
+                    exit 1
+                  fi
+
+                  export NSS_SDB_USE_CACHE=no
+
+                  http () {
+                    local path="${1}"
+                    local args="${2}"
+                    set -- -XGET -s
+
+                    if [ "$args" != "" ]; then
+                      set -- "$@" $args
+                    fi
+
+                    set -- "$@" -u "elastic:${ELASTIC_PASSWORD}"
+
+                    curl --output /dev/null -k "$@" "https://127.0.0.1:9200${path}"
+                  }
+
+                  HTTP_CODE=$(http "/" "-w %{http_code}")
+                  RC=$?
+                  if [[ ${RC} -ne 0 ]]; then
+                    echo "Elasticsearch node health check failed with RC ${RC}"
+                    exit ${RC}
+                  fi
+
+                  if [[ ${HTTP_CODE} == "200" ]]; then
+                    exit 0
+                  fi
+
+                  echo "Elasticsearch node health check failed with HTTP code ${HTTP_CODE}"
+                  exit 1
+            failureThreshold: 6
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 5
+          startupProbe:
+            exec:
+              command:
+                - bash
+                - -c
+                - |
+                  set -e
+
+                  if [ -z "${ELASTIC_PASSWORD}" ]; then
+                    echo "ELASTIC_PASSWORD variable is missing, exiting"
+                    exit 1
+                  fi
+
+                  export NSS_SDB_USE_CACHE=no
+
+                  curl --output /dev/null -k -u "elastic:${ELASTIC_PASSWORD}" \
+                    "https://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=1s"
+            failureThreshold: 30
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command:
+                - bash
+                - -c
+                - |
+                  set -e
+
+                  if [ -z "${ELASTIC_PASSWORD}" ]; then
+                    echo "ELASTIC_PASSWORD variable is missing, exiting"
+                    exit 1
+                  fi
+
+                  export NSS_SDB_USE_CACHE=no
+
+                  HTTP_CODE=$(curl --output /dev/null -k -s -w "%{http_code}" \
+                    -u "elastic:${ELASTIC_PASSWORD}" \
+                    "https://127.0.0.1:9200/")
+
+                  if [[ "${HTTP_CODE}" == "200" ]]; then
+                    exit 0
+                  fi
+
+                  echo "Elasticsearch node liveness check failed with HTTP code ${HTTP_CODE}"
+                  exit 1
+            failureThreshold: 3
+            initialDelaySeconds: 90
+            periodSeconds: 20
+            successThreshold: 1
+            timeoutSeconds: 5
+          ports:
+            - name: http
+              containerPort: 9200
+            - name: transport
+              containerPort: 9300
+          resources:
+            limits:
+              cpu: ${{ inputs.elasticsearch_limits_cpu }}
+              memory: ${{ inputs.elasticsearch_limits_memory }}
+            requests:
+              cpu: ${{ inputs.elasticsearch_requests_cpu }}
+              memory: ${{ inputs.elasticsearch_requests_memory }}
+          env:
+            - name: ES_JAVA_OPTS
+              value: "-Xms${{ inputs.elasticsearch_java_heap }} -Xmx${{ inputs.elasticsearch_java_heap }}"
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: node.name
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: cluster.initial_master_nodes
+              value: "elasticsearch-master-0,elasticsearch-master-1,elasticsearch-master-2"
+            - name: node.roles
+              value: "master,data,ingest,remote_cluster_client,transform"
+            - name: discovery.seed_hosts
+              value: "elasticsearch-master-headless"
+            - name: cluster.name
+              value: "elasticsearch"
+            - name: network.host
+              value: "0.0.0.0"
+            - name: ELASTIC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: elasticsearch-master-credentials
+                  key: password
+            - name: xpack.security.enabled
+              value: "true"
+            - name: xpack.security.transport.ssl.enabled
+              value: "true"
+            - name: xpack.security.http.ssl.enabled
+              value: "true"
+            - name: xpack.security.transport.ssl.verification_mode
+              value: "certificate"
+            - name: xpack.security.transport.ssl.key
+              value: "/usr/share/elasticsearch/config/certs/tls.key"
+            - name: xpack.security.transport.ssl.certificate
+              value: "/usr/share/elasticsearch/config/certs/tls.crt"
+            - name: xpack.security.transport.ssl.certificate_authorities
+              value: "/usr/share/elasticsearch/config/certs/ca.crt"
+            - name: xpack.security.http.ssl.key
+              value: "/usr/share/elasticsearch/config/certs/tls.key"
+            - name: xpack.security.http.ssl.certificate
+              value: "/usr/share/elasticsearch/config/certs/tls.crt"
+            - name: xpack.security.http.ssl.certificate_authorities
+              value: "/usr/share/elasticsearch/config/certs/ca.crt"
+          volumeMounts:
+            - name: "elasticsearch-master"
+              mountPath: /usr/share/elasticsearch/data
+            - name: elasticsearch-certs
+              mountPath: /usr/share/elasticsearch/config/certs
+              readOnly: true

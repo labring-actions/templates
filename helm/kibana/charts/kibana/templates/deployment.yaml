@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kibana
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: "kibana"
+spec:
+  replicas: {{ .Values.kibana.replicas }}
+  selector:
+    matchLabels:
+      app: "kibana"
+  template:
+    metadata:
+      labels:
+        app: "kibana"
+    spec:
+      containers:
+        - name: kibana
+          image: "{{ .Values.kibana.image.repository }}:{{ .Values.kibana.image.tag }}"
+          imagePullPolicy: "{{ .Values.kibana.image.pullPolicy }}"
+          ports:
+            - name: https
+              containerPort: 5601
+          env:
+            - name: ELASTICSEARCH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: elasticsearch-master-credentials
+                  key: password
+          readinessProbe:
+            httpGet:
+              scheme: HTTPS
+              path: /login
+              port: 5601
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              scheme: HTTPS
+              path: /login
+              port: 5601
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: {{ .Values.kibana.requests.cpu | quote }}
+              memory: {{ .Values.kibana.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.kibana.limits.cpu | quote }}
+              memory: {{ .Values.kibana.limits.memory | quote }}
+          volumeMounts:
+            - name: kibana-config
+              mountPath: /usr/share/kibana/config/kibana.yml
+              subPath: kibana.yml
+              readOnly: true
+            - name: kibana-certs
+              mountPath: /usr/share/kibana/config/certs
+              readOnly: true
+            - name: elasticsearch-ca
+              mountPath: /usr/share/kibana/config/elasticsearch-ca
+              readOnly: true
+      volumes:
+        - name: kibana-config
+          configMap:
+            name: kibana-config
+        - name: kibana-certs
+          secret:
+            secretName: {{ .Values.kibana.tlsSecretName }}
+        - name: elasticsearch-ca
+          secret:
+            secretName: {{ .Values.elasticsearch.caSecretName }}

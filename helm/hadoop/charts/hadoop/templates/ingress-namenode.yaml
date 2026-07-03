@@ -1,0 +1,47 @@
+{{- if .Values.sealos.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "hadoop.nameNodeName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ include "hadoop.nameNodeName" . | quote }}
+    cloud.sealos.io/app-deploy-manager: {{ include "hadoop.nameNodeName" . | quote }}
+    cloud.sealos.io/app-deploy-manager-domain: {{ .Values.sealos.nameNode.hostPrefix | quote }}
+  annotations:
+    kubernetes.io/ingress.class: {{ .Values.sealos.ingressClassName | quote }}
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+{{- if .Values.sealos.ingressClassName }}
+  ingressClassName: {{ .Values.sealos.ingressClassName | quote }}
+{{- end }}
+  tls:
+    - hosts:
+        - {{ .Values.sealos.nameNode.hostPrefix }}.{{ .Values.sealos.cloudDomain }}
+      secretName: {{ .Values.sealos.certSecretName }}
+  rules:
+    - host: {{ .Values.sealos.nameNode.hostPrefix }}.{{ .Values.sealos.cloudDomain }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "hadoop.nameNodeName" . }}
+                port:
+                  name: http
+{{- end }}

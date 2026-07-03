@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: filebeat-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: "filebeat"
+data:
+  filebeat.yml: |
+    filebeat.inputs:
+      - type: filestream
+        id: container-logs
+        enabled: true
+        paths:
+          - /var/log/containers/*.log
+        parsers:
+          - container: ~
+        prospector.scanner.symlinks: true
+
+    processors:
+      - add_kubernetes_metadata:
+          host: ${NODE_NAME}
+          matchers:
+            - logs_path:
+                logs_path: "/var/log/containers/"
+      - drop_event:
+          when:
+            or:
+              - equals:
+                  kubernetes.container.name: "filebeat"
+              - equals:
+                  kubernetes.container.name: "logstash"
+
+    output.logstash:
+      hosts: ["logstash.${POD_NAMESPACE}.svc:5044"]
+
+    logging.metrics.enabled: false

@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: skywalking-oap
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: "skywalking"
+    component: "oap"
+spec:
+  replicas: {{ .Values.skywalking.oap.replicas }}
+  selector:
+    matchLabels:
+      app: "skywalking"
+      component: "oap"
+  template:
+    metadata:
+      labels:
+        app: "skywalking"
+        component: "oap"
+{{- with .Values.skywalking.oap.podAnnotations }}
+      annotations:
+{{ toYaml . | nindent 8 }}
+{{- end }}
+    spec:
+{{- with .Values.skywalking.imagePullSecrets }}
+      imagePullSecrets:
+{{ toYaml . | nindent 8 }}
+{{- end }}
+{{- with .Values.skywalking.oap.podSecurityContext }}
+      securityContext:
+{{ toYaml . | nindent 8 }}
+{{- end }}
+      containers:
+        - name: oap
+          image: "{{ .Values.skywalking.oap.image.repository }}:{{ .Values.skywalking.oap.image.tag }}"
+          imagePullPolicy: "{{ .Values.skywalking.oap.image.pullPolicy }}"
+          ports:
+            - name: grpc
+              containerPort: {{ .Values.skywalking.oap.service.grpcPort }}
+            - name: http
+              containerPort: {{ .Values.skywalking.oap.service.httpPort }}
+            - name: zipkin
+              containerPort: {{ .Values.skywalking.oap.service.zipkinPort }}
+          env:
+            - name: SW_STORAGE
+              value: {{ .Values.skywalking.oap.storage.type | quote }}
+            - name: SW_STORAGE_BANYANDB_TARGETS
+              value: {{ .Values.skywalking.oap.storage.banyandbTargets | quote }}
+{{- with .Values.skywalking.oap.extraEnv }}
+{{ toYaml . | nindent 12 }}
+{{- end }}
+{{- if .Values.skywalking.oap.probes.readiness.enabled }}
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: {{ .Values.skywalking.oap.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.skywalking.oap.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.skywalking.oap.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.skywalking.oap.probes.readiness.failureThreshold }}
+{{- end }}
+{{- if .Values.skywalking.oap.probes.liveness.enabled }}
+          livenessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: {{ .Values.skywalking.oap.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.skywalking.oap.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.skywalking.oap.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.skywalking.oap.probes.liveness.failureThreshold }}
+{{- end }}
+          resources:
+            requests:
+              cpu: {{ .Values.skywalking.oap.requests.cpu | quote }}
+              memory: {{ .Values.skywalking.oap.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.skywalking.oap.limits.cpu | quote }}
+              memory: {{ .Values.skywalking.oap.limits.memory | quote }}
+{{- with .Values.skywalking.oap.securityContext }}
+          securityContext:
+{{ toYaml . | nindent 12 }}
+{{- end }}
+{{- with .Values.skywalking.oap.nodeSelector }}
+      nodeSelector:
+{{ toYaml . | nindent 8 }}
+{{- end }}
+{{- with .Values.skywalking.oap.affinity }}
+      affinity:
+{{ toYaml . | nindent 8 }}
+{{- end }}
+{{- with .Values.skywalking.oap.tolerations }}
+      tolerations:
+{{ toYaml . | nindent 8 }}
+{{- end }}
