@@ -339,6 +339,102 @@ data:
 apiVersion: v1
 kind: ConfigMap
 metadata:
+  name: ${{ defaults.app_name }}-init-appdata
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-init-appdata
+    app: ${{ defaults.app_name }}-init-appdata
+data:
+  vn-optvn-apitablevn-waitvn-dbvn-readyvn-sh: |
+    set -eu
+    export MYSQL_PWD="${MYSQL_PASSWORD}"
+    mysql_base="mysql --protocol=TCP -h${MYSQL_HOST} -P${MYSQL_PORT} -u${MYSQL_USER} ${MYSQL_DATABASE} --batch --skip-column-names --connect-timeout=5"
+    for i in $(seq 1 180); do
+      ready_tables="$(${mysql_base} -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name IN ('apitable_db_changelog','apitable_datasheet','apitable_node','apitable_space','apitable_user');" 2>/dev/null || true)"
+      ready_marker="$(${mysql_base} -e "SELECT COUNT(*) FROM apitable_db_changelog WHERE ID = 'V1.13-20250116-001';" 2>/dev/null || true)"
+      if [ "${ready_tables}" = "5" ] && [ "${ready_marker}" = "1" ]; then
+        exit 0
+      fi
+      echo "Waiting for APITable database migrations (${i}/180)"
+      sleep 2
+    done
+    echo "APITable database migrations did not become ready" >&2
+    exit 1
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-backend-server
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-backend-server
+    app: ${{ defaults.app_name }}-backend-server
+data:
+  vn-optvn-apitablevn-waitvn-dbvn-readyvn-sh: |
+    set -eu
+    export MYSQL_PWD="${MYSQL_PASSWORD}"
+    mysql_base="mysql --protocol=TCP -h${MYSQL_HOST} -P${MYSQL_PORT} -u${MYSQL_USER} ${MYSQL_DATABASE} --batch --skip-column-names --connect-timeout=5"
+    for i in $(seq 1 180); do
+      ready_tables="$(${mysql_base} -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name IN ('apitable_db_changelog','apitable_datasheet','apitable_node','apitable_space','apitable_user');" 2>/dev/null || true)"
+      ready_marker="$(${mysql_base} -e "SELECT COUNT(*) FROM apitable_db_changelog WHERE ID = 'V1.13-20250116-001';" 2>/dev/null || true)"
+      if [ "${ready_tables}" = "5" ] && [ "${ready_marker}" = "1" ]; then
+        exit 0
+      fi
+      echo "Waiting for APITable database migrations (${i}/180)"
+      sleep 2
+    done
+    echo "APITable database migrations did not become ready" >&2
+    exit 1
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-room-server
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-room-server
+    app: ${{ defaults.app_name }}-room-server
+data:
+  vn-optvn-apitablevn-waitvn-dbvn-readyvn-sh: |
+    set -eu
+    export MYSQL_PWD="${MYSQL_PASSWORD}"
+    mysql_base="mysql --protocol=TCP -h${MYSQL_HOST} -P${MYSQL_PORT} -u${MYSQL_USER} ${MYSQL_DATABASE} --batch --skip-column-names --connect-timeout=5"
+    for i in $(seq 1 180); do
+      ready_tables="$(${mysql_base} -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name IN ('apitable_db_changelog','apitable_datasheet','apitable_node','apitable_space','apitable_user');" 2>/dev/null || true)"
+      ready_marker="$(${mysql_base} -e "SELECT COUNT(*) FROM apitable_db_changelog WHERE ID = 'V1.13-20250116-001';" 2>/dev/null || true)"
+      if [ "${ready_tables}" = "5" ] && [ "${ready_marker}" = "1" ]; then
+        exit 0
+      fi
+      echo "Waiting for APITable database migrations (${i}/180)"
+      sleep 2
+    done
+    echo "APITable database migrations did not become ready" >&2
+    exit 1
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-databus-server
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-databus-server
+    app: ${{ defaults.app_name }}-databus-server
+data:
+  vn-optvn-apitablevn-waitvn-dbvn-readyvn-sh: |
+    set -eu
+    export MYSQL_PWD="${MYSQL_PASSWORD}"
+    mysql_base="mysql --protocol=TCP -h${MYSQL_HOST} -P${MYSQL_PORT} -u${MYSQL_USER} ${MYSQL_DATABASE} --batch --skip-column-names --connect-timeout=5"
+    for i in $(seq 1 180); do
+      ready_tables="$(${mysql_base} -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name IN ('apitable_db_changelog','apitable_datasheet','apitable_node','apitable_space','apitable_user');" 2>/dev/null || true)"
+      ready_marker="$(${mysql_base} -e "SELECT COUNT(*) FROM apitable_db_changelog WHERE ID = 'V1.13-20250116-001';" 2>/dev/null || true)"
+      if [ "${ready_tables}" = "5" ] && [ "${ready_marker}" = "1" ]; then
+        exit 0
+      fi
+      echo "Waiting for APITable database migrations (${i}/180)"
+      sleep 2
+    done
+    echo "APITable database migrations did not become ready" >&2
+    exit 1
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
   name: ${{ defaults.app_name }}-gateway
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-gateway
@@ -878,7 +974,7 @@ spec:
       restartPolicy: OnFailure
       automountServiceAccountToken: false
       initContainers:
-        - name: ${{ defaults.app_name }}-wait-mysql
+        - name: ${{ defaults.app_name }}-wait-db-ready
           image: mysql:9.7.1
           imagePullPolicy: IfNotPresent
           env:
@@ -902,14 +998,11 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-mysql-conn-credential
                   key: password
+            - name: MYSQL_DATABASE
+              value: apitable
           command:
             - /bin/sh
-            - -c
-            - |
-              set -eu
-              until mysqladmin ping -h"${MYSQL_HOST}" -P"${MYSQL_PORT}" -u"${MYSQL_USER}" -p"${MYSQL_PASSWORD}" --silent; do
-                sleep 2
-              done
+            - /opt/apitable/wait-db-ready.sh
           resources:
             requests:
               cpu: 10m
@@ -917,6 +1010,10 @@ spec:
             limits:
               cpu: 100m
               memory: 128Mi
+          volumeMounts:
+            - name: ${{ defaults.app_name }}-init-appdata-cm
+              mountPath: /opt/apitable/wait-db-ready.sh
+              subPath: vn-optvn-apitablevn-waitvn-dbvn-readyvn-sh
       containers:
         - name: ${{ defaults.app_name }}-init-appdata
           image: apitable/init-appdata@sha256:4fa2ed5d1a5a3e2f7bd449352ec3054747127aabe4f91c62fc13f4660b25558b
@@ -954,6 +1051,10 @@ spec:
             limits:
               cpu: 500m
               memory: 1024Mi
+      volumes:
+        - name: ${{ defaults.app_name }}-init-appdata-cm
+          configMap:
+            name: ${{ defaults.app_name }}-init-appdata
   ttlSecondsAfterFinished: 300
 ---
 apiVersion: apps/v1
@@ -981,8 +1082,8 @@ spec:
     spec:
       automountServiceAccountToken: false
       initContainers:
-        - name: ${{ defaults.app_name }}-wait-deps
-          image: busybox:1.38.0
+        - name: ${{ defaults.app_name }}-wait-db-ready
+          image: mysql:9.7.1
           imagePullPolicy: IfNotPresent
           env:
             - name: MYSQL_HOST
@@ -990,12 +1091,45 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-mysql-conn-credential
                   key: host
+            - name: MYSQL_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: port
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: username
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: password
+            - name: MYSQL_DATABASE
+              value: apitable
+          command:
+            - /bin/sh
+            - /opt/apitable/wait-db-ready.sh
+          resources:
+            requests:
+              cpu: 10m
+              memory: 12Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: ${{ defaults.app_name }}-backend-server-cm
+              mountPath: /opt/apitable/wait-db-ready.sh
+              subPath: vn-optvn-apitablevn-waitvn-dbvn-readyvn-sh
+        - name: ${{ defaults.app_name }}-wait-deps
+          image: busybox:1.38.0
+          imagePullPolicy: IfNotPresent
           command:
             - /bin/sh
             - -c
             - |
               set -eu
-              until nc -z "${MYSQL_HOST}" 3306; do sleep 2; done
               until nc -z ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local 6379; do sleep 2; done
               until nc -z ${{ defaults.app_name }}-rabbitmq.${{ SEALOS_NAMESPACE }}.svc.cluster.local 5672; do sleep 2; done
           resources:
@@ -1005,6 +1139,10 @@ spec:
             limits:
               cpu: 100m
               memory: 128Mi
+      volumes:
+        - name: ${{ defaults.app_name }}-backend-server-cm
+          configMap:
+            name: ${{ defaults.app_name }}-backend-server
       containers:
         - name: ${{ defaults.app_name }}-backend-server
           image: apitable/backend-server:v1.13.0-beta.1_2016
@@ -1185,8 +1323,8 @@ spec:
     spec:
       automountServiceAccountToken: false
       initContainers:
-        - name: ${{ defaults.app_name }}-wait-deps
-          image: busybox:1.38.0
+        - name: ${{ defaults.app_name }}-wait-db-ready
+          image: mysql:9.7.1
           imagePullPolicy: IfNotPresent
           env:
             - name: MYSQL_HOST
@@ -1194,12 +1332,45 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-mysql-conn-credential
                   key: host
+            - name: MYSQL_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: port
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: username
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: password
+            - name: MYSQL_DATABASE
+              value: apitable
+          command:
+            - /bin/sh
+            - /opt/apitable/wait-db-ready.sh
+          resources:
+            requests:
+              cpu: 10m
+              memory: 12Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: ${{ defaults.app_name }}-room-server-cm
+              mountPath: /opt/apitable/wait-db-ready.sh
+              subPath: vn-optvn-apitablevn-waitvn-dbvn-readyvn-sh
+        - name: ${{ defaults.app_name }}-wait-deps
+          image: busybox:1.38.0
+          imagePullPolicy: IfNotPresent
           command:
             - /bin/sh
             - -c
             - |
               set -eu
-              until nc -z "${MYSQL_HOST}" 3306; do sleep 2; done
               until nc -z ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local 6379; do sleep 2; done
               until nc -z ${{ defaults.app_name }}-rabbitmq.${{ SEALOS_NAMESPACE }}.svc.cluster.local 5672; do sleep 2; done
           resources:
@@ -1209,6 +1380,10 @@ spec:
             limits:
               cpu: 100m
               memory: 128Mi
+      volumes:
+        - name: ${{ defaults.app_name }}-room-server-cm
+          configMap:
+            name: ${{ defaults.app_name }}-room-server
       containers:
         - name: ${{ defaults.app_name }}-room-server
           image: apitable/room-server:v1.13.0-beta.1_2016
@@ -1468,8 +1643,8 @@ spec:
     spec:
       automountServiceAccountToken: false
       initContainers:
-        - name: ${{ defaults.app_name }}-wait-deps
-          image: busybox:1.38.0
+        - name: ${{ defaults.app_name }}-wait-db-ready
+          image: mysql:9.7.1
           imagePullPolicy: IfNotPresent
           env:
             - name: MYSQL_HOST
@@ -1477,12 +1652,45 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-mysql-conn-credential
                   key: host
+            - name: MYSQL_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: port
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: username
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: password
+            - name: MYSQL_DATABASE
+              value: apitable
+          command:
+            - /bin/sh
+            - /opt/apitable/wait-db-ready.sh
+          resources:
+            requests:
+              cpu: 10m
+              memory: 12Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: ${{ defaults.app_name }}-databus-server-cm
+              mountPath: /opt/apitable/wait-db-ready.sh
+              subPath: vn-optvn-apitablevn-waitvn-dbvn-readyvn-sh
+        - name: ${{ defaults.app_name }}-wait-deps
+          image: busybox:1.38.0
+          imagePullPolicy: IfNotPresent
           command:
             - /bin/sh
             - -c
             - |
               set -eu
-              until nc -z "${MYSQL_HOST}" 3306; do sleep 2; done
               until nc -z ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local 6379; do sleep 2; done
           resources:
             requests:
@@ -1491,6 +1699,10 @@ spec:
             limits:
               cpu: 200m
               memory: 256Mi
+      volumes:
+        - name: ${{ defaults.app_name }}-databus-server-cm
+          configMap:
+            name: ${{ defaults.app_name }}-databus-server
       containers:
         - name: ${{ defaults.app_name }}-databus-server
           image: apitable/databus-server@sha256:462fa8bea11df94642b80a58d683aaf9995d79061588843a9d6b7ee66a421600
