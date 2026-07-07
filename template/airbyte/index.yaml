@@ -496,6 +496,7 @@ data:
     cat >/tmp/airbyte-auth-tables-ready.sql <<'SQL'
     SELECT (
       to_regclass('public.organization') IS NOT NULL
+      AND to_regclass('public.permission') IS NOT NULL
       AND to_regclass('public.workspace') IS NOT NULL
       AND to_regclass('public."user"') IS NOT NULL
     )::int;
@@ -690,6 +691,18 @@ data:
           AND email = :'admin_email'
           AND initial_setup_complete = true
           AND display_setup_wizard = false
+      )
+      AND EXISTS (
+        SELECT 1
+        FROM permission
+        JOIN workspace ON permission.workspace_id = workspace.id
+        WHERE permission.user_id = '00000000-0000-0000-0000-000000000000'::uuid
+          AND workspace.tombstone = false
+          AND permission.permission_type IN (
+            'workspace_admin'::permission_type,
+            'workspace_editor'::permission_type,
+            'workspace_reader'::permission_type
+          )
       )
     )::int;
     SQL
