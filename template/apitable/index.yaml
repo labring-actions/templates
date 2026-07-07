@@ -31,7 +31,14 @@ spec:
     rabbitmq_password:
       type: string
       value: ${{ random(32) }}
+  inputs:
+    use_sealos_objectstorage:
+      description: Use the Sealos ObjectStorage bucket for APITable attachments, images, and uploads.
+      type: boolean
+      default: 'true'
+      required: false
 ---
+${{ if(inputs.use_sealos_objectstorage === 'true') }}
 apiVersion: objectstorage.sealos.io/v1
 kind: ObjectStorageBucket
 metadata:
@@ -40,6 +47,8 @@ metadata:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   policy: private
+---
+${{ endif() }}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -717,6 +726,8 @@ spec:
         app: ${{ defaults.app_name }}-rabbitmq
     spec:
       automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ${{ defaults.app_name }}
       terminationGracePeriodSeconds: 30
       containers:
         - name: ${{ defaults.app_name }}-rabbitmq
@@ -898,10 +909,10 @@ spec:
           resources:
             requests:
               cpu: 50m
-              memory: 102Mi
+              memory: 100Mi
             limits:
               cpu: 500m
-              memory: 1024Mi
+              memory: 1G
   ttlSecondsAfterFinished: 300
 ---
 apiVersion: batch/v1
@@ -997,10 +1008,10 @@ spec:
           resources:
             requests:
               cpu: 50m
-              memory: 102Mi
+              memory: 100Mi
             limits:
               cpu: 500m
-              memory: 1024Mi
+              memory: 1G
       volumes:
         - name: ${{ defaults.app_name }}-init-appdata-cm
           configMap:
@@ -1031,6 +1042,8 @@ spec:
         app: ${{ defaults.app_name }}-backend-server
     spec:
       automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ${{ defaults.app_name }}
       initContainers:
         - name: ${{ defaults.app_name }}-wait-db-ready
           image: mysql:9.7.1
@@ -1150,6 +1163,7 @@ spec:
               value: ${{ defaults.rabbitmq_password }}
             - name: RABBITMQ_VHOST
               value: /
+${{ if(inputs.use_sealos_objectstorage === 'true') }}
             - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
@@ -1182,6 +1196,7 @@ spec:
               value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
             - name: AWS_REGION
               value: us-east-1
+${{ endif() }}
           ports:
             - containerPort: 8081
               name: http
@@ -1211,10 +1226,10 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 102Mi
+              memory: 100Mi
             limits:
               cpu: 1
-              memory: 1024Mi
+              memory: 1G
 ---
 apiVersion: v1
 kind: Service
@@ -1254,6 +1269,8 @@ spec:
         app: ${{ defaults.app_name }}-room-server
     spec:
       automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ${{ defaults.app_name }}
       initContainers:
         - name: ${{ defaults.app_name }}-wait-db-ready
           image: mysql:9.7.1
@@ -1381,6 +1398,7 @@ spec:
               value: ${{ defaults.rabbitmq_password }}
             - name: RABBITMQ_VHOST
               value: /
+${{ if(inputs.use_sealos_objectstorage === 'true') }}
             - name: OSS_BUCKET
               valueFrom:
                 secretKeyRef:
@@ -1393,6 +1411,7 @@ spec:
                   key: external
             - name: OSS_HOST
               value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+${{ endif() }}
           ports:
             - containerPort: 3333
               name: http
@@ -1434,10 +1453,10 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 102Mi
+              memory: 100Mi
             limits:
               cpu: 1
-              memory: 1024Mi
+              memory: 1G
 ---
 apiVersion: v1
 kind: Service
@@ -1488,6 +1507,8 @@ spec:
         app: ${{ defaults.app_name }}-web-server
     spec:
       automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ${{ defaults.app_name }}
       containers:
         - name: ${{ defaults.app_name }}-web-server
           image: apitable/web-server:v1.13.0-beta.1_2016
@@ -1566,6 +1587,8 @@ spec:
         app: ${{ defaults.app_name }}-databus-server
     spec:
       automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ${{ defaults.app_name }}
       initContainers:
         - name: ${{ defaults.app_name }}-wait-db-ready
           image: mysql:9.7.1
@@ -1731,11 +1754,14 @@ spec:
         app: ${{ defaults.app_name }}-imageproxy-server
     spec:
       automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ${{ defaults.app_name }}
       containers:
         - name: ${{ defaults.app_name }}-imageproxy-server
           image: apitable/imageproxy-server:v0.13.4-alpha_build13
           imagePullPolicy: IfNotPresent
           env:
+${{ if(inputs.use_sealos_objectstorage === 'true') }}
             - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
               valueFrom:
                 secretKeyRef:
@@ -1743,6 +1769,7 @@ spec:
                   key: external
             - name: BASEURL
               value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+${{ endif() }}
           ports:
             - containerPort: 8080
               name: http
@@ -1808,6 +1835,8 @@ spec:
         app: ${{ defaults.app_name }}-gateway
     spec:
       automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ${{ defaults.app_name }}
       containers:
         - name: ${{ defaults.app_name }}-gateway
           image: nginx:1.31.2-alpine
@@ -1818,6 +1847,7 @@ spec:
           args:
             - exec /bin/sh /etc/nginx/templates/apitable-entrypoint.sh
           env:
+${{ if(inputs.use_sealos_objectstorage === 'true') }}
             - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
               valueFrom:
                 secretKeyRef:
@@ -1825,6 +1855,7 @@ spec:
                   key: external
             - name: OBJECT_STORAGE_EXTERNAL_ENDPOINT
               value: $(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+${{ endif() }}
           ports:
             - containerPort: 80
               name: http
