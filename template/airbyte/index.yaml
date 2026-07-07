@@ -285,13 +285,12 @@ data:
   IDENTITY_PROVIDER_TYPE: "simple"
   AIRBYTE_URL: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
   AIRBYTE_SERVER_HOST: "${{ defaults.app_name }}-server:8001"
-  API_URL: "/api/v1/"
   CONFIG_API_HOST: "http://${{ defaults.app_name }}-server:8001"
   CONFIG_ROOT: "/configs"
   CONFIGS_DATABASE_MINIMUM_FLYWAY_MIGRATION_VERSION: "0.35.15.001"
   INTERNAL_API_HOST: "http://${{ defaults.app_name }}-server:8001"
   WORKLOAD_API_HOST: "http://${{ defaults.app_name }}-server:8001"
-  AIRBYTE_API_HOST: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/api/public"
+  AIRBYTE_API_HOST: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/api/public/v1"
   JOB_MAIN_CONTAINER_CPU_LIMIT: ""
   JOB_MAIN_CONTAINER_CPU_REQUEST: ""
   JOB_MAIN_CONTAINER_MEMORY_LIMIT: ""
@@ -974,10 +973,10 @@ spec:
           resources:
             limits:
               cpu: "1"
-              memory: 2048Mi
+              memory: 2G
             requests:
               cpu: 100m
-              memory: 204Mi
+              memory: 200Mi
 
 ---
 apiVersion: batch/v1
@@ -1226,6 +1225,12 @@ spec:
               value: ${{ defaults.workload_api_bearer_token }}
             - name: AB_JWT_SIGNATURE_SECRET
               value: ${{ defaults.jwt_signature_secret }}
+            - name: MICRONAUT_SECURITY_TOKEN_JWT_GENERATOR_REFRESH_TOKEN_SECRET
+              value: ${{ defaults.jwt_refresh_secret }}
+            - name: MICRONAUT_SECURITY_TOKEN_GENERATOR_ACCESS_TOKEN_EXPIRATION
+              value: "86400"
+            - name: MICRONAUT_SECURITY_TOKEN_COOKIE_COOKIE_MAX_AGE
+              value: "PT24H"
             - name: IDENTITY_PROVIDER_TYPE
               valueFrom:
                 configMapKeyRef:
@@ -1476,10 +1481,10 @@ spec:
           resources:
             limits:
               cpu: 200m
-              memory: 1024Mi
+              memory: 1G
             requests:
               cpu: 20m
-              memory: 102Mi
+              memory: 100Mi
       volumes:
         - name: ${{ defaults.app_name }}-server-kube-api
           projected:
@@ -1526,7 +1531,7 @@ spec:
         sealos.io/service-account-token-reason: "Airbyte worker launches Kubernetes workloads."
     spec:
       serviceAccountName: ${{ defaults.app_name }}-admin
-      automountServiceAccountToken: true
+      automountServiceAccountToken: false
       initContainers:
         - name: wait-pg-conn-secret
           image: bitnamilegacy/kubectl:1.33.4
@@ -1558,6 +1563,10 @@ spec:
             requests:
               cpu: 10m
               memory: 12Mi
+          volumeMounts:
+            - name: ${{ defaults.app_name }}-worker-kube-api
+              mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              readOnly: true
       containers:
         - name: ${{ defaults.app_name }}-worker
           image: airbyte/worker:2.1.0
@@ -1883,6 +1892,27 @@ spec:
             requests:
               cpu: 20m
               memory: 51Mi
+          volumeMounts:
+            - name: ${{ defaults.app_name }}-worker-kube-api
+              mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              readOnly: true
+      volumes:
+        - name: ${{ defaults.app_name }}-worker-kube-api
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  expirationSeconds: 3607
+              - configMap:
+                  name: kube-root-ca.crt
+                  items:
+                    - key: ca.crt
+                      path: ca.crt
+              - downwardAPI:
+                  items:
+                    - path: namespace
+                      fieldRef:
+                        fieldPath: metadata.namespace
 
 ---
 apiVersion: apps/v1
@@ -2084,10 +2114,10 @@ spec:
           resources:
             limits:
               cpu: 200m
-              memory: 1024Mi
+              memory: 1G
             requests:
               cpu: 20m
-              memory: 102Mi
+              memory: 100Mi
           volumeMounts:
             - name: ${{ defaults.app_name }}-cron-cm
               mountPath: /opt/airbyte/cron-entrypoint.sh
