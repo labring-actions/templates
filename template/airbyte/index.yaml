@@ -39,15 +39,13 @@ spec:
       type: string
       value: ${{ random(32) }}
   inputs:
-    auth_admin_username:
-      description: "Initial Airbyte admin username."
+    auth_admin_email:
+      description: "Initial Airbyte admin email address."
       type: string
-      default: "admin"
       required: true
     auth_admin_password:
       description: "Initial Airbyte admin password."
       type: string
-      default: "${{ random(24) }}"
       required: true
 
 ---
@@ -116,15 +114,14 @@ spec:
   affinity:
     podAntiAffinity: Preferred
     tenancy: SharedNode
-  clusterDefinitionRef: postgresql
-  clusterVersionRef: postgresql-16.4.0
   componentSpecs:
     - name: postgresql
-      componentDefRef: postgresql
+      componentDef: postgresql
       disableExporter: true
       enabledLogs:
         - running
       replicas: 1
+      serviceVersion: "16.4.0"
       serviceAccountName: ${{ defaults.app_name }}-pg
       switchPolicy:
         type: Noop
@@ -147,6 +144,65 @@ spec:
   terminationPolicy: Delete
 
 ---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-conn-sync
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-pg-conn-sync
+spec:
+  backoffLimit: 12
+  template:
+    spec:
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      automountServiceAccountToken: true
+      restartPolicy: Never
+      containers:
+        - name: pg-conn-sync
+          image: bitnamilegacy/kubectl:1.33.4
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsGroup: 1001
+            runAsNonRoot: true
+            runAsUser: 1001
+            seccompProfile:
+              type: RuntimeDefault
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              account_secret="${APP_NAME}-pg-postgresql-account-postgres"
+              conn_secret="${APP_NAME}-pg-conn-credential"
+              host="${APP_NAME}-pg-postgresql-postgresql"
+              port="5432"
+              until kubectl get secret "${account_secret}" >/dev/null 2>&1; do
+                sleep 2
+              done
+              username="$(kubectl get secret "${account_secret}" -o jsonpath='{.data.username}' | base64 -d)"
+              password="$(kubectl get secret "${account_secret}" -o jsonpath='{.data.password}' | base64 -d)"
+              kubectl create secret generic "${conn_secret}" \
+                --from-literal=host="${host}" \
+                --from-literal=port="${port}" \
+                --from-literal=username="${username}" \
+                --from-literal=password="${password}" \
+                --from-literal=endpoint="${host}:${port}" \
+                --dry-run=client -o yaml | kubectl apply -f -
+          env:
+            - name: APP_NAME
+              value: ${{ defaults.app_name }}
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+
+---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -162,6 +218,7 @@ rules:
       - "*"
     resources:
       - jobs
+      - jobs/status
       - pods
       - pods/log
       - pods/exec
@@ -209,21 +266,32 @@ metadata:
     app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 data:
-  AIRBYTE_VERSION: "0.63.11"
+  AIRBYTE_VERSION: "2.1.0"
   AIRBYTE_EDITION: "community"
-  AIRBYTE_URL: ""
+  AIRBYTE_CLUSTER_TYPE: "hybrid"
+  CLUSTER_TYPE: "hybrid"
+  API_AUTHORIZATION_ENABLED: "false"
+  CONNECTOR_REGISTRY_SEED_PROVIDER: "remote"
+  ENTERPRISE_SOURCE_STUBS_URL: "https://connectors.airbyte.com/files/resources/connector_stubs/v1/connector_stubs.json"
+  MANIFEST_SERVER_API_HOST: "http://${{ defaults.app_name }}-server:8001"
+  AB_AUTH_SECRET_CREATION_ENABLED: "true"
+  AB_KUBERNETES_SECRET_NAME: "${{ defaults.app_name }}-auth-secrets"
+  AB_INSTANCE_ADMIN_PASSWORD_SECRET_KEY: "instance-admin-password"
+  AB_INSTANCE_ADMIN_CLIENT_ID_SECRET_KEY: "instance-admin-client-id"
+  AB_INSTANCE_ADMIN_CLIENT_SECRET_SECRET_KEY: "instance-admin-client-secret"
+  AB_JWT_SIGNATURE_SECRET_KEY: "jwt-signature-secret"
+  DATAPLANE_CLIENT_ID_SECRET_KEY: "dataplane-client-id"
+  DATAPLANE_CLIENT_SECRET_SECRET_KEY: "dataplane-client-secret"
+  IDENTITY_PROVIDER_TYPE: "simple"
+  AIRBYTE_URL: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
   AIRBYTE_SERVER_HOST: "${{ defaults.app_name }}-server:8001"
   API_URL: "/api/v1/"
-  CONNECTOR_BUILDER_API_URL: "/connector-builder-api"
   CONFIG_API_HOST: "http://${{ defaults.app_name }}-server:8001"
   CONFIG_ROOT: "/configs"
   CONFIGS_DATABASE_MINIMUM_FLYWAY_MIGRATION_VERSION: "0.35.15.001"
   INTERNAL_API_HOST: "http://${{ defaults.app_name }}-server:8001"
-  WORKLOAD_API_HOST: "http://localhost"
-  KEYCLOAK_INTERNAL_HOST: "localhost"
-  CONNECTOR_BUILDER_API_HOST: "${{ defaults.app_name }}-connector-builder-server:80"
-  CONNECTOR_BUILDER_SERVER_API_HOST: "http://${{ defaults.app_name }}-connector-builder-server:80"
-  AIRBYTE_API_HOST: "http://localhost:8001/api/public"
+  WORKLOAD_API_HOST: "http://${{ defaults.app_name }}-server:8001"
+  AIRBYTE_API_HOST: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/api/public"
   JOB_MAIN_CONTAINER_CPU_LIMIT: ""
   JOB_MAIN_CONTAINER_CPU_REQUEST: ""
   JOB_MAIN_CONTAINER_MEMORY_LIMIT: ""
@@ -242,7 +310,7 @@ data:
   TEMPORAL_HOST: "${{ defaults.app_name }}-temporal:7233"
   TEMPORAL_WORKER_PORTS: "9001,9002,9003,9004,9005,9006,9007,9008,9009,9010,9011,9012,9013,9014,9015,9016,9017,9018,9019,9020,9021,9022,9023,9024,9025,9026,9027,9028,9029,9030"
   TRACKING_STRATEGY: "segment"
-  WEBAPP_URL: "http://${{ defaults.app_name }}-webapp:80"
+  WEBAPP_URL: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
   WORKER_ENVIRONMENT: "kubernetes"
   WORKSPACE_DOCKER_MOUNT: "airbyte_workspace"
   WORKSPACE_ROOT: "/workspace"
@@ -260,10 +328,93 @@ data:
   SHOULD_RUN_NOTIFY_WORKFLOWS: "true"
   MAX_NOTIFY_WORKERS: "5"
   WORKLOAD_LAUNCHER_PARALLELISM: "10"
+  CONTROL_PLANE_TOKEN_ENDPOINT: "http://${{ defaults.app_name }}-server:8001/api/v1/dataplanes/token"
+  JOB_KUBE_CONNECTOR_IMAGE_REGISTRY: ""
+  CONNECTOR_SIDECAR_IMAGE: "airbyte/connector-sidecar:2.1.0"
+  CONTAINER_ORCHESTRATOR_ENABLED: "true"
+  CONTAINER_ORCHESTRATOR_IMAGE: "airbyte/container-orchestrator:2.1.0"
+  WORKLOAD_INIT_IMAGE: "airbyte/workload-init-container:2.1.0"
+  CONTAINER_ORCHESTRATOR_SECRET_NAME: ""
+  CONTAINER_ORCHESTRATOR_SECRET_MOUNT_PATH: "/secrets/gcp-creds"
+  CONTAINER_ORCHESTRATOR_DATA_PLANE_CREDS_SECRET_MOUNT_PATH: "/secrets/dataplane-creds"
+  CONTAINER_ORCHESTRATOR_DATA_PLANE_CREDS_SECRET_NAME: ""
+  CONTAINER_ORCHESTRATOR_DATA_PLANE_CREDS_SECRET_KEY: "sa.json"
+  CONTAINER_ORCHESTRATOR_JAVA_OPTS: ""
+  KUBERNETES_CLIENT_MAX_IDLE_CONNECTIONS: "100"
+  KUBERNETES_CLIENT_MAX_RETRIES: ""
+  MAX_CHECK_WORKERS: "30"
+  MAX_SYNC_WORKERS: "30"
+  AWS_DEFAULT_REGION: ""
+  AWS_AUTHENTICATION_TYPE: "access-key"
+  JOB_KUBE_SERVICEACCOUNT: "${{ defaults.app_name }}-admin"
+  JOB_KUBE_NAMESPACE: ""
+  JOB_KUBE_LOCAL_VOLUME_ENABLED: "false"
+  JOB_KUBE_MAIN_CONTAINER_IMAGE_PULL_SECRET: ""
+  JOB_KUBE_ANNOTATIONS: ""
+  JOB_KUBE_LABELS: ""
+  JOB_KUBE_NODE_SELECTORS: ""
+  JOB_KUBE_TOLERATIONS: ""
   WORKLOAD_LAUNCHER_ENABLED: "false"
   WORKLOAD_API_SERVER_ENABLED: "false"
   PUB_SUB_ENABLED: "false"
   PUB_SUB_TOPIC_NAME: ""
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-cron
+  labels:
+    app: ${{ defaults.app_name }}-cron
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-cron
+data:
+  vn-optvn-airbytevn-cronvn-entrypointvn-sh: |
+    set -eu
+    until curl -fsS "${INTERNAL_API_HOST}/api/v1/health" >/dev/null 2>&1; do
+      sleep 3
+    done
+
+    patch_home="/tmp/airbyte-cron-app"
+    patch_jar="io.airbyte-airbyte-cron-${AIRBYTE_VERSION}.jar"
+    rm -rf "${patch_home}"
+    mkdir -p "${patch_home}/bin" "${patch_home}/lib"
+    cp /app/airbyte-app/bin/airbyte-cron "${patch_home}/bin/airbyte-cron"
+    chmod +x "${patch_home}/bin/airbyte-cron"
+    for file in /app/airbyte-app/lib/*; do
+      base="${file##*/}"
+      if [ "${base}" = "${patch_jar}" ]; then
+        continue
+      fi
+      ln -s "${file}" "${patch_home}/lib/${base}"
+    done
+    SRC="/app/airbyte-app/lib/${patch_jar}" DST="${patch_home}/lib/${patch_jar}" python - <<'PYCRON'
+    import os
+    import zipfile
+
+    src = os.environ["SRC"]
+    dst = os.environ["DST"]
+    remove = set([
+        "io/airbyte/cron/jobs/ConnectionEntitlementsValidator.class",
+        "io/airbyte/cron/jobs/ConnectionEntitlementsValidatorKt.class",
+        "io/airbyte/cron/jobs/ConnectionEntitlementsValidator$WhenMappings.class",
+        "io/airbyte/cron/jobs/$ConnectionEntitlementsValidator$Definition.class",
+        "io/airbyte/cron/jobs/$ConnectionEntitlementsValidator$Definition$Exec.class",
+        "META-INF/micronaut/io.micronaut.inject.BeanDefinitionReference/io.airbyte.cron.jobs.$ConnectionEntitlementsValidator$Definition",
+    ])
+    removed = set()
+    with zipfile.ZipFile(src, "r") as zin:
+        with zipfile.ZipFile(dst, "w") as zout:
+            for item in zin.infolist():
+                if item.filename in remove:
+                    removed.add(item.filename)
+                    continue
+                zout.writestr(item, zin.read(item.filename))
+    missing = remove - removed
+    if missing:
+        raise RuntimeError("missing cron classes: " + ",".join(sorted(missing)))
+    PYCRON
+
+    exec /entrypoint.sh /bin/bash -c "${patch_home}/bin/airbyte-cron"
 
 ---
 apiVersion: v1
@@ -274,7 +425,7 @@ metadata:
     app: ${{ defaults.app_name }}-temporal
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-temporal
 data:
-  development.yaml: |
+  vn-etcvn-temporalvn-configvn-dynamicconfigvn-developmentvn-yaml: |
     frontend.enableClientVersionCheck:
       - value: true
         constraints: {}
@@ -310,6 +461,340 @@ data:
           MaximumAttempts: 0
 
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-auth-init
+  labels:
+    app: ${{ defaults.app_name }}-auth-init
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-auth-init
+data:
+  vn-scriptsvn-authvn-initvn-sh: |
+    set -eu
+    until pg_isready -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}" >/dev/null 2>&1; do
+      sleep 2
+    done
+
+    database_ready=0
+    cat >/tmp/airbyte-database-ready.sql <<'SQL'
+    SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'db-airbyte')::int;
+    SQL
+    for _ in $(seq 1 180); do
+      database_ready="$(
+        psql -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}" -d postgres -v ON_ERROR_STOP=1 -At -f /tmp/airbyte-database-ready.sql
+      )"
+      if [ "${database_ready}" = "1" ]; then
+        break
+      fi
+      sleep 2
+    done
+    if [ "${database_ready}" != "1" ]; then
+      echo "Airbyte database was not created in time" >&2
+      exit 1
+    fi
+
+    ready=0
+    cat >/tmp/airbyte-auth-tables-ready.sql <<'SQL'
+    SELECT (
+      to_regclass('public.organization') IS NOT NULL
+      AND to_regclass('public.workspace') IS NOT NULL
+      AND to_regclass('public."user"') IS NOT NULL
+    )::int;
+    SQL
+    for _ in $(seq 1 180); do
+      ready="$(
+        psql -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}" -d db-airbyte -v ON_ERROR_STOP=1 -At -f /tmp/airbyte-auth-tables-ready.sql
+      )"
+      if [ "${ready}" = "1" ]; then
+        break
+      fi
+      sleep 2
+    done
+    if [ "${ready}" != "1" ]; then
+      echo "Airbyte auth tables were not created in time" >&2
+      exit 1
+    fi
+
+    seeded=0
+    cat >/tmp/airbyte-default-records-ready.sql <<'SQL'
+    SELECT (
+      EXISTS (SELECT 1 FROM organization WHERE id = '00000000-0000-0000-0000-000000000000')
+      AND EXISTS (SELECT 1 FROM "user" WHERE id = '00000000-0000-0000-0000-000000000000')
+      AND EXISTS (SELECT 1 FROM workspace WHERE tombstone = false)
+    )::int;
+    SQL
+    for _ in $(seq 1 180); do
+      seeded="$(
+        psql -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}" -d db-airbyte -v ON_ERROR_STOP=1 -At -f /tmp/airbyte-default-records-ready.sql
+      )"
+      if [ "${seeded}" = "1" ]; then
+        break
+      fi
+      sleep 2
+    done
+    if [ "${seeded}" != "1" ]; then
+      echo "Airbyte default organization, user, or workspace was not seeded in time" >&2
+      exit 1
+    fi
+
+    psql -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}" -d db-airbyte -v ON_ERROR_STOP=1 -v admin_email="${ADMIN_EMAIL}" <<'SQL'
+    UPDATE organization
+    SET email = :'admin_email',
+        name = COALESCE(NULLIF(name, ''), 'Default Organization')
+    WHERE id = '00000000-0000-0000-0000-000000000000';
+
+    UPDATE "user"
+    SET email = :'admin_email',
+        name = COALESCE(NULLIF(name, ''), 'Default User')
+    WHERE id = '00000000-0000-0000-0000-000000000000';
+
+    UPDATE workspace
+    SET email = :'admin_email',
+        initial_setup_complete = true,
+        display_setup_wizard = false
+    WHERE tombstone = false;
+    SQL
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-server
+  labels:
+    app: ${{ defaults.app_name }}-server
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-server
+data:
+  vn-scriptsvn-waitvn-authvn-statevn-sh: |
+    set -eu
+
+    check_job="${APP_NAME}-auth-state-check"
+    kubectl delete job "${check_job}" --ignore-not-found --wait=true
+    cat <<YAML | kubectl apply -f -
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: ${check_job}
+    spec:
+      backoffLimit: 3
+      ttlSecondsAfterFinished: 300
+      template:
+        spec:
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          containers:
+            - name: auth-state-check
+              image: postgres:16.4-alpine
+              imagePullPolicy: IfNotPresent
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                runAsGroup: 999
+                runAsNonRoot: true
+                runAsUser: 999
+                seccompProfile:
+                  type: RuntimeDefault
+              command:
+                - /bin/sh
+                - /scripts/auth-state-check.sh
+              env:
+                - name: DATABASE_HOST
+                  valueFrom:
+                    secretKeyRef:
+                      name: ${APP_NAME}-pg-conn-credential
+                      key: host
+                - name: DATABASE_PORT
+                  valueFrom:
+                    secretKeyRef:
+                      name: ${APP_NAME}-pg-conn-credential
+                      key: port
+                - name: DATABASE_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: ${APP_NAME}-pg-conn-credential
+                      key: username
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: ${APP_NAME}-pg-conn-credential
+                      key: password
+                - name: ADMIN_EMAIL
+                  value: "${ADMIN_EMAIL}"
+              volumeMounts:
+                - name: server-scripts
+                  mountPath: /scripts/auth-state-check.sh
+                  subPath: vn-scriptsvn-authvn-statevn-checkvn-sh
+                  readOnly: true
+              resources:
+                limits:
+                  cpu: 100m
+                  memory: 128Mi
+                requests:
+                  cpu: 10m
+                  memory: 12Mi
+          volumes:
+            - name: server-scripts
+              configMap:
+                name: ${APP_NAME}-server
+    YAML
+
+    if ! kubectl wait --for=condition=complete --timeout=600s "job/${check_job}"; then
+      kubectl logs "job/${check_job}" --tail=200 || true
+      exit 1
+    fi
+  vn-scriptsvn-authvn-statevn-checkvn-sh: |
+    set -eu
+    until pg_isready -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}" >/dev/null 2>&1; do
+      sleep 2
+    done
+
+    state_ready=0
+    for _ in $(seq 1 180); do
+      state_ready="$(
+        psql -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}" -d db-airbyte -v ON_ERROR_STOP=1 -At -v admin_email="${ADMIN_EMAIL}" 2>/tmp/airbyte-auth-state-check.err <<'SQL' || true
+    SELECT (
+      EXISTS (
+        SELECT 1 FROM organization
+        WHERE id = '00000000-0000-0000-0000-000000000000'
+          AND email = :'admin_email'
+      )
+      AND EXISTS (
+        SELECT 1 FROM "user"
+        WHERE id = '00000000-0000-0000-0000-000000000000'
+          AND email = :'admin_email'
+      )
+      AND EXISTS (
+        SELECT 1 FROM workspace
+        WHERE tombstone = false
+          AND email = :'admin_email'
+          AND initial_setup_complete = true
+          AND display_setup_wizard = false
+      )
+    )::int;
+    SQL
+      )"
+      if [ "${state_ready}" = "1" ]; then
+        exit 0
+      fi
+      sleep 2
+    done
+    cat /tmp/airbyte-auth-state-check.err >&2 2>/dev/null || true
+    echo "Airbyte auth state was not ready in time" >&2
+    exit 1
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+spec:
+  backoffLimit: 5
+  template:
+    metadata:
+      annotations:
+        sealos.io/service-account-token-reason: "Airbyte waits for the generated PostgreSQL connection secret."
+    spec:
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      automountServiceAccountToken: true
+      initContainers:
+        - name: wait-pg-conn-secret
+          image: bitnamilegacy/kubectl:1.33.4
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsGroup: 1001
+            runAsNonRoot: true
+            runAsUser: 1001
+            seccompProfile:
+              type: RuntimeDefault
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until kubectl get secret "${APP_NAME}-pg-conn-credential" >/dev/null 2>&1; do
+                sleep 2
+              done
+          env:
+            - name: APP_NAME
+              value: ${{ defaults.app_name }}
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+      containers:
+        - name: pg-init
+          image: postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsGroup: 999
+            runAsNonRoot: true
+            runAsUser: 999
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PGPASSWORD
+              value: $(PG_PASSWORD)
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; do
+                sleep 2
+              done
+              for _ in $(seq 1 180); do
+                if psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='db-airbyte'" | grep -q 1; then
+                  exit 0
+                fi
+                if createdb -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" db-airbyte 2>/tmp/createdb.err; then
+                  exit 0
+                fi
+                sleep 2
+              done
+              cat /tmp/createdb.err >&2 2>/dev/null || true
+              echo "Airbyte database was not created in time" >&2
+              exit 1
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+      restartPolicy: Never
+  ttlSecondsAfterFinished: 300
+
+---
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -319,46 +804,65 @@ spec:
   backoffLimit: 3
   ttlSecondsAfterFinished: 300
   template:
+    metadata:
+      annotations:
+        sealos.io/service-account-token-reason: "Airbyte bootloader initializes auth Kubernetes secrets."
     spec:
       serviceAccountName: ${{ defaults.app_name }}-admin
-      automountServiceAccountToken: false
+      automountServiceAccountToken: true
       restartPolicy: Never
       initContainers:
-        - name: init-db-airbyte
-          image: docker.io/apecloud/spilo:16.4.0
+        - name: wait-pg-conn-secret
+          image: bitnamilegacy/kubectl:1.33.4
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsGroup: 1001
+            runAsNonRoot: true
+            runAsUser: 1001
+            seccompProfile:
+              type: RuntimeDefault
           command:
             - /bin/sh
-            - -c
+            - -ec
             - |
-              set -eu
-              until pg_isready -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}"; do
+              until kubectl get secret "${APP_NAME}-pg-conn-credential" >/dev/null 2>&1; do
                 sleep 2
               done
-              if ! psql -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='db-airbyte'" | grep -q 1; then
-                psql -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}" -d postgres -c 'CREATE DATABASE "db-airbyte";'
-              fi
           env:
-            - name: DATABASE_HOST
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: host
-            - name: DATABASE_PORT
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: port
-            - name: DATABASE_USER
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: username
-            - name: PGPASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: password
+            - name: APP_NAME
+              value: ${{ defaults.app_name }}
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+        - name: wait-pg-init
+          image: bitnamilegacy/kubectl:1.33.4
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsGroup: 1001
+            runAsNonRoot: true
+            runAsUser: 1001
+            seccompProfile:
+              type: RuntimeDefault
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              kubectl wait --for=condition=complete --timeout=600s "job/${APP_NAME}-pg-init"
+          env:
+            - name: APP_NAME
+              value: ${{ defaults.app_name }}
           resources:
             limits:
               cpu: 200m
@@ -368,8 +872,18 @@ spec:
               memory: 25Mi
       containers:
         - name: bootloader
-          image: airbyte/bootloader:0.63.11
+          image: airbyte/bootloader:2.1.0
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsGroup: 1000
+            runAsNonRoot: true
+            runAsUser: 1000
+            seccompProfile:
+              type: RuntimeDefault
           env:
             - name: AIRBYTE_VERSION
               valueFrom:
@@ -405,105 +919,156 @@ spec:
               value: db-airbyte
             - name: DATABASE_URL
               value: jdbc:postgresql://$(DATABASE_HOST):$(DATABASE_PORT)/db-airbyte
+            - name: AB_AUTH_SECRET_CREATION_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: AB_AUTH_SECRET_CREATION_ENABLED
+            - name: AB_KUBERNETES_SECRET_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: AB_KUBERNETES_SECRET_NAME
+            - name: AB_INSTANCE_ADMIN_PASSWORD
+              value: ${{ inputs.auth_admin_password }}
+            - name: INITIAL_USER_EMAIL
+              value: ${{ inputs.auth_admin_email }}
+            - name: INITIAL_USER_PASSWORD
+              value: ${{ inputs.auth_admin_password }}
+            - name: AB_INSTANCE_ADMIN_PASSWORD_SECRET_KEY
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: AB_INSTANCE_ADMIN_PASSWORD_SECRET_KEY
+            - name: AB_INSTANCE_ADMIN_CLIENT_ID
+              value: "admin"
+            - name: AB_INSTANCE_ADMIN_CLIENT_ID_SECRET_KEY
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: AB_INSTANCE_ADMIN_CLIENT_ID_SECRET_KEY
+            - name: AB_INSTANCE_ADMIN_CLIENT_SECRET
+              value: ${{ defaults.workload_api_bearer_token }}
+            - name: AB_INSTANCE_ADMIN_CLIENT_SECRET_SECRET_KEY
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: AB_INSTANCE_ADMIN_CLIENT_SECRET_SECRET_KEY
+            - name: AB_JWT_SIGNATURE_SECRET
+              value: ${{ defaults.jwt_signature_secret }}
+            - name: AB_JWT_SIGNATURE_SECRET_KEY
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: AB_JWT_SIGNATURE_SECRET_KEY
+            - name: DATAPLANE_CLIENT_ID_SECRET_KEY
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: DATAPLANE_CLIENT_ID_SECRET_KEY
+            - name: DATAPLANE_CLIENT_SECRET_SECRET_KEY
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: DATAPLANE_CLIENT_SECRET_SECRET_KEY
           resources:
             limits:
               cpu: "1"
-              memory: 1536Mi
+              memory: 2048Mi
             requests:
-              cpu: 200m
-              memory: 512Mi
+              cpu: 100m
+              memory: 204Mi
 
 ---
-apiVersion: apps/v1
-kind: Deployment
+apiVersion: batch/v1
+kind: Job
 metadata:
-  name: ${{ defaults.app_name }}-connector-builder-server
-  annotations:
-    originImageName: airbyte/connector-builder-server:0.63.11
-    deploy.cloud.sealos.io/minReplicas: "1"
-    deploy.cloud.sealos.io/maxReplicas: "1"
-  labels:
-    app: ${{ defaults.app_name }}-connector-builder-server
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-connector-builder-server
+  name: ${{ defaults.app_name }}-auth-init
 spec:
-  revisionHistoryLimit: 1
-  replicas: 1
-  selector:
-    matchLabels:
-      app: ${{ defaults.app_name }}-connector-builder-server
+  completions: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
   template:
-    metadata:
-      labels:
-        app: ${{ defaults.app_name }}-connector-builder-server
     spec:
       serviceAccountName: ${{ defaults.app_name }}-admin
-      automountServiceAccountToken: false
-      containers:
-        - name: ${{ defaults.app_name }}-connector-builder-server
-          image: airbyte/connector-builder-server:0.63.11
+      automountServiceAccountToken: true
+      restartPolicy: Never
+      initContainers:
+        - name: wait-pg-conn-secret
+          image: bitnamilegacy/kubectl:1.33.4
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsGroup: 1001
+            runAsNonRoot: true
+            runAsUser: 1001
+            seccompProfile:
+              type: RuntimeDefault
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until kubectl get secret "${APP_NAME}-pg-conn-credential" >/dev/null 2>&1; do
+                sleep 2
+              done
           env:
-            - name: AIRBYTE_VERSION
+            - name: APP_NAME
+              value: ${{ defaults.app_name }}
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+      containers:
+        - name: auth-init
+          image: postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsGroup: 999
+            runAsNonRoot: true
+            runAsUser: 999
+            seccompProfile:
+              type: RuntimeDefault
+          command:
+            - /bin/sh
+            - /scripts/auth-init.sh
+          env:
+            - name: DATABASE_HOST
               valueFrom:
-                configMapKeyRef:
-                  name: ${{ defaults.app_name }}
-                  key: AIRBYTE_VERSION
-            - name: MICROMETER_METRICS_ENABLED
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: DATABASE_PORT
               valueFrom:
-                configMapKeyRef:
-                  name: ${{ defaults.app_name }}
-                  key: MICROMETER_METRICS_ENABLED
-            - name: MICROMETER_METRICS_STATSD_FLAVOR
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: DATABASE_USER
               valueFrom:
-                configMapKeyRef:
-                  name: ${{ defaults.app_name }}
-                  key: MICROMETER_METRICS_STATSD_FLAVOR
-            - name: SEGMENT_WRITE_KEY
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PGPASSWORD
               valueFrom:
-                configMapKeyRef:
-                  name: ${{ defaults.app_name }}
-                  key: SEGMENT_WRITE_KEY
-            - name: STATSD_HOST
-              valueFrom:
-                configMapKeyRef:
-                  name: ${{ defaults.app_name }}
-                  key: STATSD_HOST
-            - name: STATSD_PORT
-              valueFrom:
-                configMapKeyRef:
-                  name: ${{ defaults.app_name }}
-                  key: STATSD_PORT
-            - name: TRACKING_STRATEGY
-              valueFrom:
-                configMapKeyRef:
-                  name: ${{ defaults.app_name }}
-                  key: TRACKING_STRATEGY
-          ports:
-            - name: http
-              containerPort: 8080
-              protocol: TCP
-          livenessProbe:
-            httpGet:
-              path: /v1/health
-              port: http
-            initialDelaySeconds: 30
-            periodSeconds: 10
-            timeoutSeconds: 10
-          readinessProbe:
-            httpGet:
-              path: /v1/health
-              port: http
-            initialDelaySeconds: 10
-            periodSeconds: 10
-            timeoutSeconds: 10
-          startupProbe:
-            httpGet:
-              path: /v1/health
-              port: http
-            initialDelaySeconds: 10
-            periodSeconds: 10
-            timeoutSeconds: 10
-            failureThreshold: 30
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: ADMIN_EMAIL
+              value: ${{ inputs.auth_admin_email }}
+          volumeMounts:
+            - name: ${{ defaults.app_name }}-auth-init-cm
+              mountPath: /scripts/auth-init.sh
+              subPath: vn-scriptsvn-authvn-initvn-sh
+              readOnly: true
           resources:
             limits:
               cpu: 200m
@@ -511,6 +1076,10 @@ spec:
             requests:
               cpu: 20m
               memory: 25Mi
+      volumes:
+        - name: ${{ defaults.app_name }}-auth-init-cm
+          configMap:
+            name: ${{ defaults.app_name }}-auth-init
 
 ---
 apiVersion: apps/v1
@@ -518,7 +1087,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-server
   annotations:
-    originImageName: airbyte/server:0.63.11
+    originImageName: airbyte/server:2.1.0
     deploy.cloud.sealos.io/minReplicas: "1"
     deploy.cloud.sealos.io/maxReplicas: "1"
   labels:
@@ -539,10 +1108,61 @@ spec:
     spec:
       serviceAccountName: ${{ defaults.app_name }}-admin
       automountServiceAccountToken: false
+      initContainers:
+        - name: wait-auth-state
+          image: bitnamilegacy/kubectl:1.33.4
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsGroup: 1001
+            runAsNonRoot: true
+            runAsUser: 1001
+            seccompProfile:
+              type: RuntimeDefault
+          command:
+            - /bin/sh
+            - /scripts/wait-auth-state.sh
+          env:
+            - name: APP_NAME
+              value: ${{ defaults.app_name }}
+            - name: ADMIN_EMAIL
+              value: ${{ inputs.auth_admin_email }}
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+          volumeMounts:
+            - name: ${{ defaults.app_name }}-server-kube-api
+              mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              readOnly: true
+            - name: ${{ defaults.app_name }}-server-cm
+              mountPath: /scripts/wait-auth-state.sh
+              subPath: vn-scriptsvn-waitvn-authvn-statevn-sh
+              readOnly: true
+            - name: ${{ defaults.app_name }}-server-cm
+              mountPath: /scripts/auth-state-check.sh
+              subPath: vn-scriptsvn-authvn-statevn-checkvn-sh
+              readOnly: true
       containers:
         - name: ${{ defaults.app_name }}-server
-          image: airbyte/server:0.63.11
+          image: airbyte/server:2.1.0
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsGroup: 1000
+            runAsNonRoot: true
+            runAsUser: 1000
+            seccompProfile:
+              type: RuntimeDefault
           env:
             - name: AIRBYTE_API_HOST
               valueFrom:
@@ -559,6 +1179,62 @@ spec:
                 configMapKeyRef:
                   name: ${{ defaults.app_name }}
                   key: AIRBYTE_EDITION
+            - name: AIRBYTE_CLUSTER_TYPE
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: AIRBYTE_CLUSTER_TYPE
+            - name: CLUSTER_TYPE
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: CLUSTER_TYPE
+            - name: API_AUTHORIZATION_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: API_AUTHORIZATION_ENABLED
+            - name: CONNECTOR_REGISTRY_SEED_PROVIDER
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: CONNECTOR_REGISTRY_SEED_PROVIDER
+            - name: ENTERPRISE_SOURCE_STUBS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: ENTERPRISE_SOURCE_STUBS_URL
+            - name: MANIFEST_SERVER_API_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: MANIFEST_SERVER_API_HOST
+            - name: INTERNAL_API_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: INTERNAL_API_HOST
+            - name: AB_INSTANCE_ADMIN_PASSWORD
+              value: ${{ inputs.auth_admin_password }}
+            - name: INITIAL_USER_EMAIL
+              value: ${{ inputs.auth_admin_email }}
+            - name: INITIAL_USER_PASSWORD
+              value: ${{ inputs.auth_admin_password }}
+            - name: AB_INSTANCE_ADMIN_CLIENT_ID
+              value: "admin"
+            - name: AB_INSTANCE_ADMIN_CLIENT_SECRET
+              value: ${{ defaults.workload_api_bearer_token }}
+            - name: AB_JWT_SIGNATURE_SECRET
+              value: ${{ defaults.jwt_signature_secret }}
+            - name: IDENTITY_PROVIDER_TYPE
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: IDENTITY_PROVIDER_TYPE
+            - name: AB_COOKIE_SECURE
+              value: "true"
+            - name: AB_COOKIE_SAME_SITE
+              value: "Strict"
             - name: AIRBYTE_URL
               valueFrom:
                 configMapKeyRef:
@@ -594,6 +1270,8 @@ spec:
                 configMapKeyRef:
                   name: ${{ defaults.app_name }}
                   key: SERVER_MICRONAUT_ENVIRONMENTS
+            - name: AIRBYTE_SERVER_OPTS
+              value: "-Dlog4j2.statusLoggerLevel=OFF -Dorg.apache.logging.log4j.simplelog.StatusLogger.level=OFF -XX:+EnableDynamicAgentLoading"
             - name: SEGMENT_WRITE_KEY
               valueFrom:
                 configMapKeyRef:
@@ -638,14 +1316,6 @@ spec:
               value: "INFO"
             - name: MICRONAUT_SECURITY_ENABLED
               value: "true"
-            - name: AIRBYTE_AUTH_INSTANCE_ADMIN_USERNAME
-              value: ${{ inputs.auth_admin_username }}
-            - name: AIRBYTE_AUTH_INSTANCE_ADMIN_PASSWORD
-              value: ${{ inputs.auth_admin_password }}
-            - name: MICRONAUT_SECURITY_TOKEN_JWT_SIGNATURES_SECRET_GENERATOR_SECRET
-              value: ${{ defaults.jwt_signature_secret }}
-            - name: MICRONAUT_SECURITY_TOKEN_JWT_GENERATOR_REFRESH_TOKEN_SECRET
-              value: ${{ defaults.jwt_refresh_secret }}
             - name: JOB_MAIN_CONTAINER_CPU_REQUEST
               valueFrom:
                 configMapKeyRef:
@@ -676,16 +1346,6 @@ spec:
                 configMapKeyRef:
                   name: ${{ defaults.app_name }}
                   key: JOBS_DATABASE_MINIMUM_FLYWAY_MIGRATION_VERSION
-            - name: KEYCLOAK_INTERNAL_HOST
-              valueFrom:
-                configMapKeyRef:
-                  name: ${{ defaults.app_name }}
-                  key: KEYCLOAK_INTERNAL_HOST
-            - name: CONNECTOR_BUILDER_SERVER_API_HOST
-              valueFrom:
-                configMapKeyRef:
-                  name: ${{ defaults.app_name }}
-                  key: CONNECTOR_BUILDER_SERVER_API_HOST
             - name: AIRBYTE_API_AUTH_HEADER_NAME
               value: "X-Airbyte-Auth"
             - name: AIRBYTE_API_AUTH_HEADER_VALUE
@@ -746,6 +1406,8 @@ spec:
               value: $(S3_BUCKET)
             - name: STORAGE_BUCKET_WORKLOAD_OUTPUT
               value: $(S3_BUCKET)
+            - name: STORAGE_BUCKET_AUDIT_LOGGING
+              value: $(S3_BUCKET)
             - name: DATABASE_HOST
               valueFrom:
                 secretKeyRef:
@@ -770,9 +1432,24 @@ spec:
               value: db-airbyte
             - name: DATABASE_URL
               value: jdbc:postgresql://$(DATABASE_HOST):$(DATABASE_PORT)/db-airbyte
+            - name: CONFIG_DATABASE_REPLICA_URL
+              value: jdbc:postgresql://$(DATABASE_HOST):$(DATABASE_PORT)/db-airbyte
+            - name: CONFIG_DATABASE_REPLICA_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: CONFIG_DATABASE_REPLICA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
           ports:
             - name: http
               containerPort: 8001
+              protocol: TCP
+            - name: management
+              containerPort: 8085
               protocol: TCP
           livenessProbe:
             httpGet:
@@ -799,18 +1476,37 @@ spec:
           resources:
             limits:
               cpu: 200m
-              memory: 512Mi
+              memory: 1024Mi
             requests:
               cpu: 20m
-              memory: 51Mi
-
+              memory: 102Mi
+      volumes:
+        - name: ${{ defaults.app_name }}-server-kube-api
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  expirationSeconds: 3607
+              - configMap:
+                  name: kube-root-ca.crt
+                  items:
+                    - key: ca.crt
+                      path: ca.crt
+              - downwardAPI:
+                  items:
+                    - path: namespace
+                      fieldRef:
+                        fieldPath: metadata.namespace
+        - name: ${{ defaults.app_name }}-server-cm
+          configMap:
+            name: ${{ defaults.app_name }}-server
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-worker
   annotations:
-    originImageName: airbyte/worker:0.63.11
+    originImageName: airbyte/worker:2.1.0
     deploy.cloud.sealos.io/minReplicas: "1"
     deploy.cloud.sealos.io/maxReplicas: "1"
   labels:
@@ -826,19 +1522,84 @@ spec:
     metadata:
       labels:
         app: ${{ defaults.app_name }}-worker
+      annotations:
+        sealos.io/service-account-token-reason: "Airbyte worker launches Kubernetes workloads."
     spec:
       serviceAccountName: ${{ defaults.app_name }}-admin
-      automountServiceAccountToken: false
+      automountServiceAccountToken: true
+      initContainers:
+        - name: wait-pg-conn-secret
+          image: bitnamilegacy/kubectl:1.33.4
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsGroup: 1001
+            runAsNonRoot: true
+            runAsUser: 1001
+            seccompProfile:
+              type: RuntimeDefault
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until kubectl get secret "${APP_NAME}-pg-conn-credential" >/dev/null 2>&1; do
+                sleep 2
+              done
+          env:
+            - name: APP_NAME
+              value: ${{ defaults.app_name }}
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
       containers:
         - name: ${{ defaults.app_name }}-worker
-          image: airbyte/worker:0.63.11
+          image: airbyte/worker:2.1.0
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsGroup: 1000
+            runAsNonRoot: true
+            runAsUser: 1000
+            seccompProfile:
+              type: RuntimeDefault
           env:
             - name: AIRBYTE_VERSION
               valueFrom:
                 configMapKeyRef:
                   name: ${{ defaults.app_name }}
                   key: AIRBYTE_VERSION
+            - name: AIRBYTE_CLUSTER_TYPE
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: AIRBYTE_CLUSTER_TYPE
+            - name: CLUSTER_TYPE
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: CLUSTER_TYPE
+            - name: AB_JWT_SIGNATURE_SECRET
+              value: ${{ defaults.jwt_signature_secret }}
+            - name: MAX_CHECK_WORKERS
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: MAX_CHECK_WORKERS
+            - name: MAX_SYNC_WORKERS
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: MAX_SYNC_WORKERS
             - name: CONFIG_ROOT
               valueFrom:
                 configMapKeyRef:
@@ -908,6 +1669,10 @@ spec:
                   key: TEMPORAL_WORKER_PORTS
             - name: LOG_LEVEL
               value: "INFO"
+            - name: AIRBYTE_INTERNAL_API_AUTH_TYPE
+              value: "INTERNAL_CLIENT_TOKEN"
+            - name: AIRBYTE_INTERNAL_API_AUTH_SIGNATURE_SECRET
+              value: ${{ defaults.jwt_signature_secret }}
             - name: JOB_KUBE_NAMESPACE
               valueFrom:
                 fieldRef:
@@ -1057,6 +1822,8 @@ spec:
               value: $(S3_BUCKET)
             - name: STORAGE_BUCKET_WORKLOAD_OUTPUT
               value: $(S3_BUCKET)
+            - name: STORAGE_BUCKET_AUDIT_LOGGING
+              value: $(S3_BUCKET)
             - name: DATABASE_HOST
               valueFrom:
                 secretKeyRef:
@@ -1123,7 +1890,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-cron
   annotations:
-    originImageName: airbyte/cron:0.63.11
+    originImageName: airbyte/cron:2.1.0
     deploy.cloud.sealos.io/minReplicas: "1"
     deploy.cloud.sealos.io/maxReplicas: "1"
   labels:
@@ -1142,16 +1909,78 @@ spec:
     spec:
       serviceAccountName: ${{ defaults.app_name }}-admin
       automountServiceAccountToken: false
+      initContainers:
+        - name: wait-pg-conn-secret
+          image: bitnamilegacy/kubectl:1.33.4
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsGroup: 1001
+            runAsNonRoot: true
+            runAsUser: 1001
+            seccompProfile:
+              type: RuntimeDefault
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until kubectl get secret "${APP_NAME}-pg-conn-credential" >/dev/null 2>&1; do
+                sleep 2
+              done
+          env:
+            - name: APP_NAME
+              value: ${{ defaults.app_name }}
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+          volumeMounts:
+            - name: ${{ defaults.app_name }}-cron-kube-api
+              mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              readOnly: true
       containers:
         - name: ${{ defaults.app_name }}-cron
-          image: airbyte/cron:0.63.11
+          image: airbyte/cron:2.1.0
           imagePullPolicy: IfNotPresent
+          command:
+            - /bin/bash
+            - -ec
+          args:
+            - exec /bin/bash /opt/airbyte/cron-entrypoint.sh
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsGroup: 1000
+            runAsNonRoot: true
+            runAsUser: 1000
+            seccompProfile:
+              type: RuntimeDefault
           env:
             - name: AIRBYTE_VERSION
               valueFrom:
                 configMapKeyRef:
                   name: ${{ defaults.app_name }}
                   key: AIRBYTE_VERSION
+            - name: AIRBYTE_CLUSTER_TYPE
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: AIRBYTE_CLUSTER_TYPE
+            - name: CLUSTER_TYPE
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: CLUSTER_TYPE
+            - name: AB_JWT_SIGNATURE_SECRET
+              value: ${{ defaults.jwt_signature_secret }}
             - name: CONFIGS_DATABASE_MINIMUM_FLYWAY_MIGRATION_VERSION
               valueFrom:
                 configMapKeyRef:
@@ -1197,6 +2026,15 @@ spec:
                 configMapKeyRef:
                   name: ${{ defaults.app_name }}
                   key: TRACKING_STRATEGY
+            - name: INTERNAL_API_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: ${{ defaults.app_name }}
+                  key: INTERNAL_API_HOST
+            - name: AIRBYTE_INTERNAL_API_AUTH_TYPE
+              value: "INTERNAL_CLIENT_TOKEN"
+            - name: AIRBYTE_INTERNAL_API_AUTH_SIGNATURE_SECRET
+              value: ${{ defaults.jwt_signature_secret }}
             - name: WORKFLOW_FAILURE_RESTART_DELAY_SECONDS
               valueFrom:
                 configMapKeyRef:
@@ -1246,10 +2084,37 @@ spec:
           resources:
             limits:
               cpu: 200m
-              memory: 512Mi
+              memory: 1024Mi
             requests:
               cpu: 20m
-              memory: 51Mi
+              memory: 102Mi
+          volumeMounts:
+            - name: ${{ defaults.app_name }}-cron-cm
+              mountPath: /opt/airbyte/cron-entrypoint.sh
+              subPath: vn-optvn-airbytevn-cronvn-entrypointvn-sh
+      volumes:
+        - name: ${{ defaults.app_name }}-cron-kube-api
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  expirationSeconds: 3607
+              - configMap:
+                  name: kube-root-ca.crt
+                  items:
+                    - key: ca.crt
+                      path: ca.crt
+              - downwardAPI:
+                  items:
+                    - path: namespace
+                      fieldRef:
+                        fieldPath: metadata.namespace
+        - name: ${{ defaults.app_name }}-cron-cm
+          configMap:
+            name: ${{ defaults.app_name }}-cron
+            items:
+              - key: vn-optvn-airbytevn-cronvn-entrypointvn-sh
+                path: vn-optvn-airbytevn-cronvn-entrypointvn-sh
 
 ---
 apiVersion: apps/v1
@@ -1257,7 +2122,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-temporal
   annotations:
-    originImageName: temporalio/auto-setup:1.23.0
+    originImageName: temporalio/auto-setup:1.29.7
     deploy.cloud.sealos.io/minReplicas: "1"
     deploy.cloud.sealos.io/maxReplicas: "1"
   labels:
@@ -1276,17 +2141,52 @@ spec:
     spec:
       serviceAccountName: ${{ defaults.app_name }}-admin
       automountServiceAccountToken: false
+      initContainers:
+        - name: wait-pg-conn-secret
+          image: bitnamilegacy/kubectl:1.33.4
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsGroup: 1001
+            runAsNonRoot: true
+            runAsUser: 1001
+            seccompProfile:
+              type: RuntimeDefault
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until kubectl get secret "${APP_NAME}-pg-conn-credential" >/dev/null 2>&1; do
+                sleep 2
+              done
+          env:
+            - name: APP_NAME
+              value: ${{ defaults.app_name }}
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+          volumeMounts:
+            - name: ${{ defaults.app_name }}-temporal-kube-api
+              mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              readOnly: true
       containers:
         - name: ${{ defaults.app_name }}-temporal
-          image: temporalio/auto-setup:1.23.0
+          image: temporalio/auto-setup:1.29.7
           imagePullPolicy: IfNotPresent
           env:
             - name: AUTO_SETUP
               value: "true"
             - name: DB
-              value: "postgresql"
+              value: "postgres12"
             - name: DYNAMIC_CONFIG_FILE_PATH
-              value: "config/dynamicconfig/development.yaml"
+              value: "/etc/temporal/config/dynamicconfig/development.yaml"
             - name: DATABASE_HOST
               valueFrom:
                 secretKeyRef:
@@ -1333,8 +2233,9 @@ spec:
             timeoutSeconds: 5
             failureThreshold: 30
           volumeMounts:
-            - name: dynamic-config
-              mountPath: /etc/temporal/config/dynamicconfig
+            - name: ${{ defaults.app_name }}-temporal-cm
+              mountPath: /etc/temporal/config/dynamicconfig/development.yaml
+              subPath: vn-etcvn-temporalvn-configvn-dynamicconfigvn-developmentvn-yaml
           resources:
             limits:
               cpu: 200m
@@ -1343,127 +2244,28 @@ spec:
               cpu: 20m
               memory: 25Mi
       volumes:
-        - name: dynamic-config
+        - name: ${{ defaults.app_name }}-temporal-kube-api
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  expirationSeconds: 3607
+              - configMap:
+                  name: kube-root-ca.crt
+                  items:
+                    - key: ca.crt
+                      path: ca.crt
+              - downwardAPI:
+                  items:
+                    - path: namespace
+                      fieldRef:
+                        fieldPath: metadata.namespace
+        - name: ${{ defaults.app_name }}-temporal-cm
           configMap:
             name: ${{ defaults.app_name }}-temporal
             items:
-              - key: development.yaml
-                path: development.yaml
-
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: ${{ defaults.app_name }}-webapp
-  annotations:
-    originImageName: airbyte/webapp:0.63.11
-    deploy.cloud.sealos.io/minReplicas: "1"
-    deploy.cloud.sealos.io/maxReplicas: "1"
-  labels:
-    app: ${{ defaults.app_name }}-webapp
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-webapp
-spec:
-  revisionHistoryLimit: 1
-  replicas: 1
-  selector:
-    matchLabels:
-      app: ${{ defaults.app_name }}-webapp
-  template:
-    metadata:
-      labels:
-        app: ${{ defaults.app_name }}-webapp
-    spec:
-      serviceAccountName: ${{ defaults.app_name }}-admin
-      automountServiceAccountToken: false
-      containers:
-        - name: ${{ defaults.app_name }}-webapp
-          image: airbyte/webapp:0.63.11
-          imagePullPolicy: IfNotPresent
-          env:
-            - name: TRACKING_STRATEGY
-              valueFrom:
-                configMapKeyRef:
-                  name: ${{ defaults.app_name }}
-                  key: TRACKING_STRATEGY
-            - name: AIRBYTE_SERVER_HOST
-              valueFrom:
-                configMapKeyRef:
-                  name: ${{ defaults.app_name }}
-                  key: AIRBYTE_SERVER_HOST
-            - name: KEYCLOAK_INTERNAL_HOST
-              valueFrom:
-                configMapKeyRef:
-                  name: ${{ defaults.app_name }}
-                  key: KEYCLOAK_INTERNAL_HOST
-            - name: CONNECTOR_BUILDER_API_HOST
-              valueFrom:
-                configMapKeyRef:
-                  name: ${{ defaults.app_name }}
-                  key: CONNECTOR_BUILDER_API_HOST
-            - name: AIRBYTE_VERSION
-              valueFrom:
-                configMapKeyRef:
-                  name: ${{ defaults.app_name }}
-                  key: AIRBYTE_VERSION
-            - name: API_URL
-              valueFrom:
-                configMapKeyRef:
-                  name: ${{ defaults.app_name }}
-                  key: API_URL
-            - name: CONNECTOR_BUILDER_API_URL
-              valueFrom:
-                configMapKeyRef:
-                  name: ${{ defaults.app_name }}
-                  key: CONNECTOR_BUILDER_API_URL
-          ports:
-            - name: http
-              containerPort: 8080
-              protocol: TCP
-          livenessProbe:
-            tcpSocket:
-              port: http
-            initialDelaySeconds: 30
-            periodSeconds: 10
-            timeoutSeconds: 1
-          readinessProbe:
-            httpGet:
-              path: /index.html
-              port: http
-            initialDelaySeconds: 10
-            periodSeconds: 10
-            timeoutSeconds: 1
-          startupProbe:
-            httpGet:
-              path: /index.html
-              port: http
-            initialDelaySeconds: 15
-            periodSeconds: 10
-            timeoutSeconds: 1
-            failureThreshold: 30
-          resources:
-            limits:
-              cpu: 100m
-              memory: 128Mi
-            requests:
-              cpu: 10m
-              memory: 12Mi
-
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: ${{ defaults.app_name }}-connector-builder-server
-  labels:
-    app: ${{ defaults.app_name }}-connector-builder-server
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-connector-builder-server
-spec:
-  ports:
-    - name: http
-      port: 80
-      targetPort: http
-      protocol: TCP
-  selector:
-    app: ${{ defaults.app_name }}-connector-builder-server
+              - key: vn-etcvn-temporalvn-configvn-dynamicconfigvn-developmentvn-yaml
+                path: vn-etcvn-temporalvn-configvn-dynamicconfigvn-developmentvn-yaml
 
 ---
 apiVersion: v1
@@ -1500,29 +2302,12 @@ spec:
     app: ${{ defaults.app_name }}-temporal
 
 ---
-apiVersion: v1
-kind: Service
-metadata:
-  name: ${{ defaults.app_name }}-webapp
-  labels:
-    app: ${{ defaults.app_name }}-webapp
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-webapp
-spec:
-  ports:
-    - name: http
-      port: 80
-      targetPort: http
-      protocol: TCP
-  selector:
-    app: ${{ defaults.app_name }}-webapp
-
----
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: ${{ defaults.app_name }}-webapp
+  name: ${{ defaults.app_name }}-server
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-webapp
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-server
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
     kubernetes.io/ingress.class: nginx
@@ -1550,9 +2335,9 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: ${{ defaults.app_name }}-webapp
+                name: ${{ defaults.app_name }}-server
                 port:
-                  number: 80
+                  number: 8001
   tls:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
@@ -1566,3 +2351,7 @@ metadata:
 spec:
   data:
     url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/airbyte/logo.svg"
+  name: ${{ defaults.app_name }}
+  type: link
