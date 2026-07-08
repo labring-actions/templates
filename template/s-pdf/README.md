@@ -1,40 +1,85 @@
-# Stirling-PDF
+# Deploy and Host Stirling-PDF on Sealos
 
-## Overview
+Stirling-PDF is a self-hosted PDF toolbox for merging, splitting, conversion, OCR, compression, redaction, and other document workflows. This template deploys Stirling-PDF with persistent storage, optional PostgreSQL, and HTTPS access on Sealos Cloud.
 
-1 Locally hosted web application that allows you to perform various operations on PDF files.
+![Stirling-PDF Screenshot](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/s-pdf/website-screenshot.webp)
 
-This Sealos template deploys **Stirling-PDF** as the `s-pdf` application. It uses the repository-maintained Sealos manifest and keeps deployment, networking, and storage configuration inside the template.
+## About Hosting Stirling-PDF
 
-## Deploy on Sealos
+Stirling-PDF runs as a web application on port `8080`. The Sealos template creates a StatefulSet, persistent volumes for OCR data and working directories, a Service, an Ingress, and a Sealos App entry.
 
-Open this template in the Sealos App Store, review the configuration values, and click **Deploy**. Sealos renders the template variables, creates the required Kubernetes resources, and manages the public endpoint for the application.
+The default deployment opens the PDF toolbox directly. To require login, set `DOCKER_ENABLE_SECURITY=true` and `SECURITY_ENABLELOGIN=true`. On a fresh data volume, sign in with `SECURITY_INITIALLOGIN_USERNAME` and `SECURITY_INITIALLOGIN_PASSWORD`.
 
-## Access
+## Common Use Cases
 
-After deployment, open `https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}`. The concrete hostname is generated from `defaults.app_host` and your Sealos Cloud domain.
+- **PDF Operations Portal**: Merge, split, rotate, compress, watermark, and redact PDF files from a browser.
+- **Document Conversion**: Convert PDF, Office, image, and book formats when the advanced tooling option is enabled.
+- **OCR Workflows**: Use bundled language packs for scanned documents and multilingual text extraction.
+- **Internal Team Utility**: Run a private document toolbox with password login and persistent configuration.
+
+## Deployment Guide
+
+1. Open the [Stirling-PDF template](https://sealos.io/products/app-store/s-pdf) and click **Deploy Now**.
+2. Keep `use_postgresql=false` for lightweight personal usage, or set `use_postgresql=true` for a separate PostgreSQL database and stronger persistence.
+3. To enable login, set:
+   - `DISABLE_ADDITIONAL_FEATURES=false`
+   - `DOCKER_ENABLE_SECURITY=true`
+   - `SECURITY_ENABLELOGIN=true`
+   - `SECURITY_INITIALLOGIN_USERNAME`: initial admin username
+   - `SECURITY_INITIALLOGIN_PASSWORD`: initial admin password
+4. Choose `SYSTEM_DEFAULTLOCALE`, `LANGS`, and advanced conversion options for your document workload.
+5. Wait for the StatefulSet and optional PostgreSQL cluster to become ready, then open the generated HTTPS URL from Sealos Canvas.
 
 ## Configuration
 
-The following user-facing inputs are available during deployment:
-
 | Name | Description | Required | Default |
 |------|-------------|----------|---------|
-| `DOCKER_ENABLE_SECURITY` | download security jar (required as true for auth login) | `false` | `false` |
-| `INSTALL_BOOK_AND_ADVANCED_HTML_OPS` | download calibre onto stirling-pdf enabling pdf to/from book and advanced html conversion | `false` | `true` |
-| `LANGS` | define custom font libraries to install for use for document conversions | `false` | `en-GB,en-US,zh-CN,zh-TW` |
-| `METRICS_ENABLED` | enable Info APIs (`/api/*`) endpoints | `false` | `true` |
-| `SECURITY_ENABLELOGIN` | set to 'true' to enable login | `false` | `false` |
-| `SYSTEM_DEFAULTLOCALE` | Set the default language | `false` | `en-US` |
-| `SYSTEM_GOOGLEVISIBILITY` | allow Google visibility (via robots.txt) | `false` | `true` |
-| `UI_APPNAME` | Application's visible name | `false` | `Stirling-PDF` |
-| `UI_APPNAMENAVBAR` | Name displayed on the navigation bar | `false` | `Stirling-PDF` |
-| `UI_HOMEDESCRIPTION` | Short description or tagline shown on homepage | `false` | `Demo site for Stirling-PDF` |
-| `use_postgresql` | Use PostgreSQL database for production workloads (recommended for better performance and data persistence) | `false` | `false` |
+| `use_postgresql` | Create and use a PostgreSQL database for production workloads. | `false` | `false` |
+| `DOCKER_ENABLE_SECURITY` | Enable Stirling-PDF security components required for login. | `false` | `false` |
+| `DISABLE_ADDITIONAL_FEATURES` | Keep authentication and additional features available. | `false` | `false` |
+| `SECURITY_ENABLELOGIN` | Enable the login screen. | `false` | `false` |
+| `SECURITY_INITIALLOGIN_USERNAME` | Initial admin username for a fresh data volume when login is enabled. | `false` | `admin` |
+| `SECURITY_INITIALLOGIN_PASSWORD` | Initial admin password for a fresh data volume when login is enabled. | `false` | `<redacted>` |
+| `LANGS` | Font and OCR language packs to install for document conversion. | `false` | `en-GB,en-US,zh-CN,zh-TW` |
+| `INSTALL_BOOK_AND_ADVANCED_HTML_OPS` | Install Calibre for book conversion and advanced HTML conversion. | `false` | `true` |
+| `SYSTEM_DEFAULTLOCALE` | Default UI language. | `false` | `en-US` |
+| `UI_APPNAME` | Visible application name. | `false` | `Stirling-PDF` |
+| `UI_HOMEDESCRIPTION` | Homepage tagline. | `false` | `Demo site for Stirling-PDF` |
+| `UI_APPNAMENAVBAR` | Name shown in the navigation bar. | `false` | `Stirling-PDF` |
+| `METRICS_ENABLED` | Enable `/api/*` information endpoints. | `false` | `true` |
+| `SYSTEM_GOOGLEVISIBILITY` | Publish robots.txt rules that allow search engine visibility. | `false` | `true` |
 
-Keep sensitive values in Sealos-managed inputs or generated defaults. Do not commit private credentials to the template repository.
+Store private passwords in Sealos-managed inputs.
 
-## Official Links
+## PostgreSQL Option
 
-- Official website: https://github.com/Stirling-Tools/Stirling-PDF
-- Source repository: https://github.com/Stirling-Tools/Stirling-PDF
+When `use_postgresql=true`, the template creates a Kubeblocks-managed PostgreSQL `postgresql-16.4.0` cluster and an idempotent init Job for the `stirling_pdf` database. Stirling-PDF then receives the database host, port, username, and password from Sealos-managed secrets.
+
+## Scaling
+
+The template reserves enough memory for the common PDF and OCR paths. Increase memory and CPU from Sealos Canvas before large OCR batches, book conversions, or concurrent team usage.
+
+## Troubleshooting
+
+### Login screen appears
+
+Use the configured `SECURITY_INITIALLOGIN_USERNAME` and `SECURITY_INITIALLOGIN_PASSWORD`. The upstream defaults are `admin` and `stirling` on a fresh data volume.
+
+### OCR or conversion is slow
+
+Increase CPU and memory on the StatefulSet, then retry the operation. Large PDFs and language-heavy OCR tasks need more memory than basic merge or split tasks.
+
+### PostgreSQL startup takes time
+
+Wait for the PostgreSQL cluster and init Job to complete before opening the application. The app readiness probe turns healthy after Stirling-PDF can answer the status API.
+
+## Additional Resources
+
+- [Stirling-PDF Website](https://www.stirlingpdf.com/)
+- [Stirling-PDF Source Code](https://github.com/Stirling-Tools/Stirling-PDF)
+- [Stirling-PDF Security Documentation](https://docs.stirlingpdf.com/Configuration/System%20and%20Security/)
+- [Sealos Documentation](https://sealos.io/docs)
+
+## License
+
+This Sealos template is provided under the template repository license. Stirling-PDF is licensed by its upstream project.

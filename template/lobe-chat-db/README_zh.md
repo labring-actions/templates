@@ -1,93 +1,131 @@
-Lobe Chat 是一款现代化设计的开源 ChatGPT/LLMs 聊天应用与开发框架，支持语音合成、多模态、可扩展的（function call）插件系统。
+# 在 Sealos 上部署和托管 Lobe Chat 数据库版
 
-LobeChat 默认使用客户端数据库（IndexedDB），同时也支持使用服务端数据库（下简称 DB 版）。LobeChat 采用了 Postgres 作为后端存储数据库。
+Lobe Chat 数据库版是一款带服务端持久化能力的开源 LLM 聊天界面。本模板会在 Sealos Cloud 上部署 Lobe Chat、PostgreSQL 和 Sealos 托管的 S3 兼容对象存储。
 
-> PostgreSQL 是一种强大的开源关系型数据库管理系统，具备高度扩展性和标准 SQL 支持。它提供了丰富的数据类型、并发处理、数据完整性、安全性及可编程性，适用于复杂应用和大规模数据管理。
+![Lobe Chat 截图](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/lobe-chat-db/website-screenshot.webp)
 
-本指南将介绍在 Sealos Cloud 上部署 LobeChat 数据库版的具体过程和原理。Sealos Cloud 是一个无需云计算专业知识，就能在几秒钟内部署、管理和扩展应用的云操作系统。
+## 关于托管 Lobe Chat 数据库版
 
-## 技术栈
+Lobe Chat 提供精致的 Web 界面，用于使用 OpenAI 兼容模型、多模态对话、助手工作流和共享团队状态。数据库版将应用数据存储在 PostgreSQL 中，适合需要账号登录、多设备同步和服务端持久化的场景。
 
-Sealos Cloud 会自动为应用配置对象存储（MinIO），因此您无需进行任何配置。此外，Sealos Cloud 会使用【数据库】组件自动为应用配置数据库（pgvector 扩展）。
+此 Sealos 模板会创建 Lobe Chat 数据库版镜像、由 Kubeblocks 管理的 PostgreSQL `postgresql-16.4.0` 集群、用于创建 `lobechat` 数据库的幂等初始化 Job、私有 ObjectStorageBucket、Service、Ingress 和 Sealos App 入口。Logto 作为独立身份服务使用，因为 Lobe Chat 部署时需要 OAuth Client ID、Client Secret 和 Issuer URL。
 
-## 预部署配置
+## 常见使用场景
 
-在开始部署之前，您需要完成以下配置：
+- **个人 AI 工作台**：运行带持久化历史记录的私有聊天界面，并接入 OpenAI 兼容模型。
+- **团队 AI 入口**：为团队成员提供带登录能力的统一入口，并由 PostgreSQL 保存状态。
+- **多模态助手界面**：通过 S3 兼容对象存储保存图片和生成资产。
+- **LLM 产品原型**：在接入更大系统前测试提示词、智能体和工作流。
 
-**步骤 1**：点击下方按钮部署一个 Logto 服务：
+## Lobe Chat 数据库版托管依赖
 
-[![](https://git.icloudnative.io/labring-actions/templates/main/Deploy-on-Sealos.svg)](https://template.hzh.sealos.run/deploy?templateName=logto)
+Sealos 模板包含运行容器、PostgreSQL、对象存储、Kubernetes Service、Ingress 和 App 入口。部署 Lobe Chat 前需要先准备 Logto 应用，因为模板需要 Logto OAuth 凭证。
 
-> Logto 是一个开源的身份与访问管理（IAM）平台，是 Auth0 的开源替代方案，旨在帮助开发者快速构建安全、可扩展的登录注册系统和用户身份体系。
+### 部署依赖
 
-**步骤 2**：部署完成后，等待应用的所有组件状态都变成“运行中”，点击应用的【详情】按钮，进入应用详情页面。
+- [Lobe Chat 文档](https://lobehub.com/docs) - 官方产品和自托管文档
+- [Lobe Chat GitHub 仓库](https://github.com/lobehub/lobe-chat) - 源码和发布记录
+- [Logto 文档](https://docs.logto.io/) - 身份提供方和应用配置
+- [Sealos 应用商店](https://sealos.io/products/app-store/lobe-chat-db) - 一键部署入口
 
-![Logto 应用详情页面部署完成状态](./images/logto-app-deployment-status-sealos.png)
+### 实现细节
 
-点击 3002 端口对应的公网地址，即可使用公网域名访问 Logto 服务。
+**架构组件：**
 
-![Logto 服务公网地址](./images/logto-public-address.png)
+此模板会部署以下服务：
 
-**步骤 3**：注册一个管理员账号，然后点击左侧的 `Applications` 菜单，进入应用列表页面。再点击右上角的 `Create application` 按钮创建应用。
+- **Lobe Chat**：Web 应用容器，通过 `3210` 端口提供聊天 UI 和 API。
+- **PostgreSQL**：Kubeblocks 管理的 PostgreSQL `postgresql-16.4.0`，用于保存账号、会话、设置和应用元数据。
+- **PostgreSQL 初始化 Job**：等待 PostgreSQL 就绪后创建 `lobechat` 数据库，数据库已存在时会正常退出。
+- **对象存储**：Sealos 托管的私有 ObjectStorageBucket，通过 S3 兼容环境变量注入应用。
+- **Ingress 和 App 入口**：为 Lobe Chat UI 提供公开 HTTPS 路由和 Sealos 控制台入口。
+- **Logto**：独立部署的身份提供方，用于注册和登录。
 
-![Logto 应用列表页面](./images/logto-application-list.png)
+**配置：**
 
-选择 `Next.js (App Router)` 作为框架，然后点击 `Start building` 按钮。
+模板会通过 Kubeblocks Secret 字段组合 `DATABASE_URL`，并从 Sealos 对象存储 Secret 注入 S3 凭证。Sealos 托管 ObjectStorageBucket 是此模板的默认存储路径。高级运维场景可以在部署后参考 Lobe Chat 官方 S3 文档评估外部 S3 迁移方案。
 
-![Logto 创建应用页面](./images/logto-create-application.png)
+**许可证信息：**
 
-**步骤 4**：在弹窗中填写应用的名称为 `Lobe Chat`，然后点击 `Create application` 按钮。接下来啥也不用填，直接点击底部的 `Finish and done` 按钮就创建完成了。
+Lobe Chat 使用 Apache-2.0 许可证发布。此 Sealos 模板作为 Sealos 模板仓库中的部署配置提供。
 
-![Logto 创建应用完成页面](./images/logto-create-application-done.png)
+## 为什么在 Sealos 上部署 Lobe Chat 数据库版？
 
-**步骤 5**：在 `Lobe Chat` 应用中找到以下三个参数，后面部署 Lobe Chat 数据库版时需要用到。
+Sealos 是基于 Kubernetes 的 AI 辅助云操作系统，统一应用部署、存储、网络和生命周期管理。在 Sealos 上部署 Lobe Chat 数据库版，你可以获得：
 
-![Logto 应用详情页面](./images/logto-app-detail.png)
+- **一键部署**：从应用商店部署 Lobe Chat，无需手写 Kubernetes YAML。
+- **托管数据库和存储**：模板会同时创建 PostgreSQL 和 S3 兼容对象存储。
+- **即时公网访问**：Ingress 会自动提供 HTTPS 访问地址。
+- **Canvas 运维**：部署后可通过 Canvas、AI 对话框和资源卡片调整资源或环境变量。
+- **资源效率**：按量使用资源，适合小团队和原型项目运行数据库版。
 
-## 部署 Lobe Chat 数据库版
+## 部署前准备
 
-**步骤 1**：填入三个必填参数：
+先准备 Logto：
 
-- `AUTH_LOGTO_ID`：Logto 应用的 App ID
-- `AUTH_LOGTO_SECRET`：Logto 应用的 App Secret
-- `AUTH_LOGTO_ISSUER`：Logto 应用的 Issuer endpoint
+1. 打开 [Logto 模板](https://sealos.io/products/app-store/logto)，点击 **Deploy Now**。
+2. 等待 Logto 部署完成，然后打开 Logto 控制台 URL。
+3. 注册第一个 Logto 管理员账号。
+4. 在 Logto 中创建新应用，应用类型选择 **Next.js (App Router)**。
+5. 复制 Logto Client ID 和 Client Secret，并将 Logto OpenID Connect issuer 填入 `AUTH_LOGTO_ISSUER`。issuer 通常带 `/oidc` 后缀，例如 `https://<your-logto-domain>/oidc`。
 
-**步骤 2**：点击【部署】按钮，部署完成后，等待应用的所有组件状态都变成“运行中”，点击应用的【详情】按钮，进入应用详情页面。
+## 部署指南
 
-![Lobe Chat 数据库版部署完成页面](./images/lobe-chat-db-deployment-done.png)
+1. 打开 [Lobe Chat 数据库版模板](https://sealos.io/products/app-store/lobe-chat-db)，点击 **Deploy Now**。
+2. 配置必填的 Logto 参数：
+   - `AUTH_LOGTO_ID`：Logto 应用 Client ID
+   - `AUTH_LOGTO_SECRET`：Logto 应用 Client Secret
+   - `AUTH_LOGTO_ISSUER`：Logto OpenID Connect issuer，通常是 `https://<your-logto-domain>/oidc`
+3. 按需配置 OpenAI 兼容模型访问：
+   - `OPENAI_API_KEY`
+   - `OPENAI_PROXY_URL`
+   - `OPENAI_MODEL_LIST`
+   - `ACCESS_CODE`
+4. 等待部署完成，通常需要 2-3 分钟。部署完成后会进入 Canvas。后续修改可以在 AI 对话框中描述需求，或点击相关资源卡片调整设置。
+5. 从 Canvas 复制 Lobe Chat 公网 URL。
 
-**步骤 3**：找到公网地址，复制下来，后面需要用到。
+## Logto 回调配置
 
-![Lobe Chat 数据库版公网地址](./images/lobe-chat-db-public-address.png)
+Lobe Chat 获得公网 URL 后，回到 Logto 应用设置并添加以下 URL：
 
-## 部署后配置
+- Redirect URI：`https://<your-lobe-chat-domain>/api/auth/callback/logto`
+- Post sign-out redirect URI：`https://<your-lobe-chat-domain>`
 
-**步骤 1**：进入 Logto 的 `Applications` 页面，找到 `Lobe Chat` 应用，点击进入应用详情页面。
+保存 Logto 设置后，打开 Lobe Chat 公网 URL，点击账号头像，选择 **Log in / Sign up**，然后通过 Logto 注册或登录。
 
-**步骤 2**：在 `Settings` 页面中找到 “Redirect URI” 和 “Post sign-out redirect URI” 这两个参数，填入以下值：
+## 扩展
 
-- Redirect URI：`https://<lobe-chat-db-public-address>/api/auth/callback/logto`
-- Post sign-out redirect URI：`https://<lobe-chat-db-public-address>`
+扩展部署：
 
-其中 `https://<lobe-chat-db-public-address>` 为 Lobe Chat 数据库版的公网地址。
+1. 打开 Lobe Chat 部署所在的 Canvas。
+2. 点击 Lobe Chat Deployment 或 PostgreSQL 资源卡片。
+3. 调整 CPU、内存、存储或副本数。
+4. 在对话框中应用变更，并等待资源就绪。
 
-**步骤 3**：填完之后点击 `Save changes` 按钮保存配置。
+## 故障排查
 
-**步骤 4**：现在通过 `https://<lobe-chat-db-public-address>` 访问 Lobe Chat 数据库版，点击左上角的头像，然后点击【登录 / 注册】按钮：
+### Logto 登录失败
 
-![Lobe Chat 数据库版登录页面](./images/lobe-chat-db-login.png)
+- 原因：Redirect URI 或 Post sign-out redirect URI 缺失，或域名与 Lobe Chat 公网地址不一致。
+- 解决方案：重新打开 Logto 应用设置，保存上方列出的精确回调 URL。
 
-**步骤 5**：接下来会跳转到 Logto 的登录页面，点击【注册】注册一个账号。
+### 模型请求失败
 
-![Lobe Chat 数据库版注册页面](./images/lobe-chat-db-register.png)
+- 原因：`OPENAI_API_KEY`、`OPENAI_PROXY_URL` 或 `OPENAI_MODEL_LIST` 与模型服务商配置不匹配。
+- 解决方案：通过 Canvas 更新这些值，然后重启 Lobe Chat Deployment。
 
-**步骤 6**：注册完成后，即可使用 Logto 登录 Lobe Chat 数据库版。
+### 上传失败
 
-![Lobe Chat 数据库版登录成功页面](./images/lobe-chat-db-login-success.png)
+- 原因：部署后对象存储配置被拆散或改动。
+- 解决方案：保持 Sealos 托管 ObjectStorageBucket 和注入的 S3 环境变量一起使用。
 
+## 更多资源
 
+- [Lobe Chat 自托管指南](https://lobehub.com/docs/self-hosting/start)
+- [Lobe Chat 环境变量](https://lobehub.com/docs/self-hosting/environment-variables)
+- [Logto Applications](https://docs.logto.io/docs/recipes/integrate-logto/)
+- [Sealos 文档](https://sealos.io/docs)
 
+## 许可证
 
-
-
-
+此 Sealos 模板遵循模板仓库许可证提供。Lobe Chat 使用 Apache-2.0 许可证。

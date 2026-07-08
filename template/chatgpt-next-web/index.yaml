@@ -7,77 +7,77 @@ spec:
     url: "https://nextchat.club/"
     gitRepo: "https://github.com/ChatGPTNextWeb/NextChat"
     author: "Sealos"
-    description: "A cross-platform ChatGPT/Gemini UI."
+    description: "NextChat is a light, fast AI assistant UI with GPT, Claude, DeepSeek, and Gemini support."
     readme: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/chatgpt-next-web/README.md"
     icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/chatgpt-next-web/logo.svg"
     screenshots:
         - "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/chatgpt-next-web/website-screenshot.webp"
     templateType: inline
-    locale: zh
+    locale: en
     categories:
         - ai
     defaults:
         app_host:
-            # number or string..
             type: string
-            value: ${{ random(8) }}
+            value: chatgpt-next-web-${{ random(8) }}
         app_name:
             type: string
             value: chatgpt-next-web-${{ random(8) }}
     inputs:
         OPENAI_API_KEY:
-            description: "这是你在 OpenAI 账户页面申请的 API 密钥，使用英文逗号隔开多个 key，这样可以随机轮询这些 key"
+            description: "OpenAI API keys, separated by commas when multiple keys should be rotated."
             type: string
             default: ""
             required: true
         CODE:
-            description: "设置页面中的访问密码，可以使用逗号隔开多个密码"
+            description: "Access passwords for the web UI, separated by commas when multiple passwords are allowed."
             type: string
             default: ""
             required: false
         BASE_URL:
-            description: "如果你手动配置了 OpenAI 接口代理，可以使用此配置项来覆盖默认的 OpenAI API 请求基础 URL"
+            description: "OpenAI-compatible API base URL for proxies or self-hosted endpoints."
             type: string
             default: "https://api.openai.com"
             required: false
         OPENAI_ORG_ID:
-            description: "指定 OpenAI 中的组织 ID"
+            description: "OpenAI organization ID."
             type: string
             default: ""
             required: false
         HIDE_USER_API_KEY:
-            description: "如果你不想让用户自行填入 API Key，将此环境变量设置为 1 即可"
+            description: "Set to 1 to hide the user-provided API key field in the UI."
             type: string
             default: ""
             required: false
         DISABLE_GPT4:
-            description: "如果你不想让用户使用 GPT-4，将此环境变量设置为 1 即可"
+            description: "Set to 1 to disable GPT-4 model options."
             type: string
             default: ""
             required: false
         HIDE_BALANCE_QUERY:
-            description: "如果你想启用余额查询功能，将此环境变量设置为 1 即可"
+            description: "Set to 1 to hide balance query features."
             type: string
             default: ""
             required: false
         AZURE_URL:
-            description: "Azure 部署地址"
+            description: "Azure OpenAI deployment URL."
             type: string
             default: "https://{azure-resource-url}/openai/deployments/{deploy-name}"
             required: false
         AZURE_API_KEY:
-            description: "Azure 密钥"
+            description: "Azure OpenAI API key."
             type: string
             default: ""
             required: false
         AZURE_API_VERSION:
-            description: "Azure API 版本"
+            description: "Azure OpenAI API version."
             type: string
             default: ""
             required: false
 
     i18n:
         zh:
+            description: "NextChat 是轻量快速的 AI 助手界面，支持 GPT、Claude、DeepSeek 和 Gemini。"
             readme: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/chatgpt-next-web/README_zh.md"
 
 ---
@@ -86,7 +86,7 @@ kind: Deployment
 metadata:
     name: ${{ defaults.app_name }}
     annotations:
-        originImageName: yidadaa/chatgpt-next-web:v2.12.4
+        originImageName: yidadaa/chatgpt-next-web:v2.16.1
         deploy.cloud.sealos.io/minReplicas: "1"
         deploy.cloud.sealos.io/maxReplicas: "1"
     labels:
@@ -111,7 +111,7 @@ spec:
             automountServiceAccountToken: false
             containers:
                 - name: ${{ defaults.app_name }}
-                  image: yidadaa/chatgpt-next-web:v2.12.4
+                  image: yidadaa/chatgpt-next-web:v2.16.1
                   env:
                       - name: OPENAI_API_KEY
                         value: ${{ inputs.OPENAI_API_KEY }}
@@ -135,15 +135,38 @@ spec:
                         value: ${{ inputs.AZURE_API_VERSION }}
                   resources:
                       requests:
-                          cpu: 100m
-                          memory: 102Mi
+                          cpu: 10m
+                          memory: 12Mi
                       limits:
-                          cpu: 1000m
-                          memory: 1024Mi
+                          cpu: 100m
+                          memory: 128Mi
                   command: []
                   args: []
                   ports:
                       - containerPort: 3000
+                  startupProbe:
+                      httpGet:
+                          path: /
+                          port: 3000
+                      periodSeconds: 10
+                      timeoutSeconds: 5
+                      failureThreshold: 30
+                  livenessProbe:
+                      httpGet:
+                          path: /
+                          port: 3000
+                      initialDelaySeconds: 30
+                      periodSeconds: 30
+                      timeoutSeconds: 5
+                      failureThreshold: 3
+                  readinessProbe:
+                      httpGet:
+                          path: /
+                          port: 3000
+                      initialDelaySeconds: 5
+                      periodSeconds: 10
+                      timeoutSeconds: 5
+                      failureThreshold: 6
                   imagePullPolicy: IfNotPresent
                   volumeMounts: []
             volumes: []
@@ -154,9 +177,12 @@ metadata:
     name: ${{ defaults.app_name }}
     labels:
         cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+        app: ${{ defaults.app_name }}
 spec:
     ports:
-        - port: 3000
+        - name: http
+          port: 3000
+          targetPort: 3000
     selector:
         app: ${{ defaults.app_name }}
 ---
@@ -165,6 +191,7 @@ kind: Ingress
 metadata:
     name: ${{ defaults.app_name }}
     labels:
+        app: ${{ defaults.app_name }}
         cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
         cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
     annotations:
@@ -173,9 +200,8 @@ metadata:
         nginx.ingress.kubernetes.io/server-snippet: |
             client_header_buffer_size 64k;
             large_client_header_buffers 4 128k;
-        nginx.ingress.kubernetes.io/ssl-redirect: "false"
+        nginx.ingress.kubernetes.io/ssl-redirect: "true"
         nginx.ingress.kubernetes.io/backend-protocol: HTTP
-        nginx.ingress.kubernetes.io/rewrite-target: /$2
         nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
         nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
         nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
@@ -191,7 +217,7 @@ spec:
           http:
               paths:
                   - pathType: Prefix
-                    path: /()(.*)
+                    path: /
                     backend:
                         service:
                             name: ${{ defaults.app_name }}
@@ -201,3 +227,17 @@ spec:
         - hosts:
               - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
           secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+    name: ${{ defaults.app_name }}
+    labels:
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+    data:
+        url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+    displayType: normal
+    icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/chatgpt-next-web/logo.svg"
+    name: NextChat
+    type: link

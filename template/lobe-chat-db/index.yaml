@@ -8,17 +8,16 @@ spec:
   gitRepo: "https://github.com/lobehub/lobe-chat"
   author: "Sealos"
   description: "An open-source, modern-design ChatGPT/LLMs UI/Framework. Supports speech-synthesis, multi-modal, and extensible (function call) plugin system."
-  readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/lobe-chat-db/README.md'
-  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/lobe-chat-db/logo.png'
+  readme: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/lobe-chat-db/README.md"
+  icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/lobe-chat-db/logo.png"
   screenshots:
-    - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/lobe-chat-db/website-screenshot.webp'
+    - "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/lobe-chat-db/website-screenshot.webp"
   templateType: inline
   locale: en
   i18n:
     zh:
-      title: "Lobe Chat 数据库版"
       description: "Lobe Chat 是一款现代化设计的开源 ChatGPT/LLMs 聊天应用与开发框架，支持语音合成、多模态、可扩展的（function call）插件系统。"
-      readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/lobe-chat-db/README_zh.md'
+      readme: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/lobe-chat-db/README_zh.md"
   categories:
     - ai
   defaults:
@@ -27,7 +26,13 @@ spec:
       value: lobe-chat-db-${{ random(8) }}
     app_host:
       type: string
-      value: ${{ random(8) }}
+      value: lobe-chat-db-${{ random(8) }}
+    auth_secret:
+      type: string
+      value: ${{ random(32) }}
+    key_vaults_secret:
+      type: string
+      value: ${{ random(32) }}
   inputs:
     AUTH_LOGTO_ID:
       description: "The Client ID of the Logto application."
@@ -40,25 +45,31 @@ spec:
       default: ""
       required: true
     AUTH_LOGTO_ISSUER:
-      description: "The OpenID Connect issuer of the Logto application."
+      description: "The OpenID Connect issuer of the Logto application, usually https://<logto-domain>/oidc."
       type: string
       default: ""
       required: true
     OPENAI_API_KEY:
-      description: "This is the API key you apply on the OpenAI account page"
+      description: "OpenAI API key used by Lobe Chat."
       type: string
       default: ""
       required: false
     OPENAI_PROXY_URL:
-      description: "If you manually configure the OpenAI interface proxy, you can use this configuration item to override the default OpenAI API request base URL"
+      description: "OpenAI-compatible API base URL."
       type: string
       default: "https://api.openai.com/v1"
       required: false
     OPENAI_MODEL_LIST:
-      description: "Used to control the model list. Use + to add a model, - to hide a model, and model_name=display_name to customize the display name of a model, separated by commas."
+      description: "Model list controls. Use + to add, - to hide, and model_name=display_name to rename models."
       type: string
       default: ""
       required: false
+    ACCESS_CODE:
+      description: "Optional access code for Lobe Chat."
+      type: string
+      default: ""
+      required: false
+
 ---
 apiVersion: objectstorage.sealos.io/v1
 kind: ObjectStorageBucket
@@ -76,53 +87,6 @@ metadata:
     app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
     app.kubernetes.io/managed-by: kbcli
   name: ${{ defaults.app_name }}-pg
-
----
-apiVersion: apps.kubeblocks.io/v1alpha1
-kind: Cluster
-metadata:
-  finalizers:
-    - cluster.kubeblocks.io/finalizer
-  labels:
-    clusterdefinition.kubeblocks.io/name: postgresql
-    clusterversion.kubeblocks.io/name: postgresql-14.8.0
-    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
-  annotations: {}
-  name: ${{ defaults.app_name }}-pg
-spec:
-  affinity:
-    nodeLabels: {}
-    podAntiAffinity: Preferred
-    tenancy: SharedNode
-    topologyKeys: []
-  clusterDefinitionRef: postgresql
-  clusterVersionRef: postgresql-14.8.0
-  componentSpecs:
-    - componentDefRef: postgresql
-      monitor: true
-      name: postgresql
-      replicas: 1
-      resources:
-        limits:
-          cpu: 500m
-          memory: 512Mi
-        requests:
-          cpu: 50m
-          memory: 51Mi
-      serviceAccountName: ${{ defaults.app_name }}-pg
-      switchPolicy:
-        type: Noop
-      volumeClaimTemplates:
-        - name: data
-          spec:
-            accessModes:
-              - ReadWriteOnce
-            resources:
-              requests:
-                storage: 1Gi
-
-  terminationPolicy: Delete
-  tolerations: []
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -159,17 +123,61 @@ subjects:
     name: ${{ defaults.app_name }}-pg
 
 ---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  labels:
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+  name: ${{ defaults.app_name }}-pg
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  componentSpecs:
+    - componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
+      name: postgresql
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+
+---
 apiVersion: batch/v1
 kind: Job
 metadata:
   name: ${{ defaults.app_name }}-pg-init
 spec:
-  completions: 1
+  backoffLimit: 3
   template:
     spec:
       containers:
         - name: pgsql-init
-          image: postgres:14-alpine
+          image: postgres:16-alpine
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_PASSWORD
@@ -177,30 +185,34 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
-            - name: PG_HOST
+            - name: PG_ENDPOINT
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: host
-            - name: PG_PORT
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: port
-            - name: PG_USERNAME
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: username
-            - name: DATABASE_URL
-              value: postgresql://$(PG_USERNAME):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/postgres
+                  key: endpoint
           command:
             - /bin/sh
             - -c
             - |
-              until psql ${DATABASE_URL} -c 'CREATE DATABASE lobechat;' &>/dev/null; do sleep 1; done
-      restartPolicy: Never
-  backoffLimit: 0
+              set -eu
+              for i in $(seq 1 60); do
+                if pg_isready -h "${PG_ENDPOINT%:*}" -p "${PG_ENDPOINT##*:}" -U postgres -d postgres >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 2
+              done
+              pg_isready -h "${PG_ENDPOINT%:*}" -p "${PG_ENDPOINT##*:}" -U postgres -d postgres >/dev/null 2>&1
+              if ! psql "postgresql://postgres:${PG_PASSWORD}@${PG_ENDPOINT}/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='lobechat'" | grep -q 1; then
+                psql "postgresql://postgres:${PG_PASSWORD}@${PG_ENDPOINT}/postgres" -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"lobechat\";"
+              fi
+          resources:
+            requests:
+              cpu: 10m
+              memory: 12Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+      restartPolicy: OnFailure
   ttlSecondsAfterFinished: 300
 
 ---
@@ -213,8 +225,8 @@ metadata:
     deploy.cloud.sealos.io/minReplicas: "1"
     deploy.cloud.sealos.io/maxReplicas: "1"
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   replicas: 1
   revisionHistoryLimit: 1
@@ -235,21 +247,26 @@ spec:
       containers:
         - name: ${{ defaults.app_name }}
           image: lobehub/lobe-chat-database:1.143.2
+          imagePullPolicy: IfNotPresent
           env:
             - name: OPENAI_API_KEY
               value: ${{ inputs.OPENAI_API_KEY }}
             - name: OPENAI_PROXY_URL
               value: ${{ inputs.OPENAI_PROXY_URL }}
-            - name: ACCESS_CODE
-              value: ${{ inputs.ACCESS_CODE }}
             - name: OPENAI_MODEL_LIST
               value: ${{ inputs.OPENAI_MODEL_LIST }}
+            - name: ACCESS_CODE
+              value: ${{ inputs.ACCESS_CODE }}
             - name: APP_URL
               value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: INTERNAL_APP_URL
+              value: http://127.0.0.1:3210
             - name: KEY_VAULTS_SECRET
-              value: KZXS2Wucm5ok3wckaTK2EJa9U+7b9I1rIqx98PV4X18=
+              value: ${{ defaults.key_vaults_secret }}
+            - name: AUTH_SECRET
+              value: ${{ defaults.auth_secret }}
             - name: NEXT_AUTH_SECRET
-              value: KZXS2Wucm5ok3wckaTK2EJa9U+7b9I1rIqx98PV4X18=
+              value: ${{ defaults.auth_secret }}
             - name: NEXT_AUTH_SSO_PROVIDERS
               value: logto
             - name: AUTH_LOGTO_ID
@@ -260,6 +277,11 @@ spec:
               value: ${{ inputs.AUTH_LOGTO_ISSUER }}
             - name: NEXTAUTH_URL
               value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/api/auth
+            - name: DATABASE_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
             - name: DATABASE_PORT
               valueFrom:
                 secretKeyRef:
@@ -276,7 +298,7 @@ spec:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
             - name: DATABASE_URL
-              value: "postgres://$(DATABASE_USER):$(DATABASE_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:$(DATABASE_PORT)/lobechat"
+              value: postgres://$(DATABASE_USER):$(DATABASE_PASSWORD)@$(DATABASE_HOST):$(DATABASE_PORT)/lobechat
             - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
@@ -292,31 +314,30 @@ spec:
                 secretKeyRef:
                   name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-private
                   key: bucket
-            - name: S3_ENDPOINT
-              value: "https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)"
             - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: external
+            - name: S3_ENDPOINT
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
             - name: S3_PUBLIC_DOMAIN
-              value: "https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)"
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
             - name: S3_ENABLE_PATH_STYLE
+              value: "1"
+            - name: S3_SET_ACL
+              value: "0"
+            - name: LLM_VISION_IMAGE_USE_BASE64
               value: "1"
           resources:
             requests:
               cpu: 50m
-              memory: 102Mi
+              memory: 100Mi
             limits:
               cpu: 500m
-              memory: 1024Mi
-          command: []
-          args: []
+              memory: 1G
           ports:
             - containerPort: 3210
-          imagePullPolicy: IfNotPresent
-          volumeMounts: []
-      volumes: []
 
 ---
 apiVersion: v1
@@ -324,10 +345,13 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 3210
+    - name: tcp-3210
+      port: 3210
+      targetPort: 3210
   selector:
     app: ${{ defaults.app_name }}
 
@@ -337,6 +361,7 @@ kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
@@ -345,7 +370,7 @@ metadata:
     nginx.ingress.kubernetes.io/server-snippet: |
       client_header_buffer_size 64k;
       large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
@@ -372,3 +397,18 @@ spec:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/lobe-chat-db/logo.png
+  name: Lobe Chat Database Version
+  type: link
