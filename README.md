@@ -2,24 +2,25 @@
 
 [简体中文](README_zh.md) | [Quick Deploy](https://os.sealos.io)
 
-With the templates in this repository, you can easily run various applications on Sealos without worrying about dependencies between applications. Deploy with one click!
+This repository is the source for Sealos App Store templates. Use the published templates to deploy applications quickly, or add a new `template/<app-name>/` directory to contribute an application template.
 
 ![](docs/images/homepage.png)
 
 ## 🚀 Quick Start
 
-### 3 Steps to Deploy Your First App
+### Deploy Your First App
 
-1. **Browse available templates** and find one you like
-2. **Click the "Deploy on Sealos" button** in the template documentation
-3. **Configure and deploy** - just fill in the required parameters
+1. **Browse available templates** in the [Sealos App Store](https://sealos.io/products/app-store) or the [`template/`](template/) directory.
+2. **Open the template documentation** and click the "Deploy on Sealos" button.
+3. **Configure and deploy** by filling in the required parameters.
 
 Template authoring quick links:
-- Start from [template.yaml](template.yaml) (or the Create Template (TODO) button).
+- Start from [template.yaml](template.yaml) and place the finished file at `template/<app-name>/index.yaml`.
+- Add `README.md`, `README_zh.md`, an icon, and `website-screenshot.webp` next to the template file.
 - Built-in variables/functions use `GitHub Actions`-style syntax; see [example.md](example.md).
 - A complete FastGPT example and database Cluster YAML examples (MongoDB/PostgreSQL/MySQL/Redis/Kafka/Milvus/ClickHouse) are in [example.md](example.md).
 
-That's it! Your app will be running in minutes.
+Your app will be running in minutes.
 
 ### Popular Templates
 
@@ -42,17 +43,35 @@ That's it! Your app will be running in minutes.
 
 ## 🛠️ How to Create a Template
 
-You can create your application template through existing template files or the UI (TODO button).
+Create a template by adding a directory under `template/<app-name>/`. Each template directory should contain the deployable YAML, user-facing documentation, and visual assets used by the App Store.
 
 ### 1. Start from a template reference
 
-Copy [template.yaml](template.yaml) as your starting point:
+Copy [template.yaml](template.yaml) into a new app directory:
 
 ```bash
-cp template.yaml my-app-template.yaml
+mkdir -p template/my-app
+cp template.yaml template/my-app/index.yaml
 ```
 
-### 2. Understand the structure
+Update the metadata, image references, inputs, resource names, readme links, icon, and screenshot URLs for your application.
+
+### 2. Add the required files
+
+A complete template directory usually includes:
+
+```text
+template/my-app/
+├── index.yaml
+├── README.md
+├── README_zh.md
+├── logo.png
+└── website-screenshot.webp
+```
+
+Use `logo.svg` or another image format when it fits the upstream project asset better. Keep the English and Chinese READMEs focused on how the deployed app is used on Sealos.
+
+### 3. Understand the structure
 
 Template files are divided into two main parts:
 
@@ -61,7 +80,7 @@ Template files are divided into two main parts:
 
 For detailed explanation, see [example.md](example.md).
 
-### 3. Use variables and functions
+### 4. Use variables and functions
 
 The system provides built-in environment variables and functions. Use `GitHub Actions`-like syntax:
 
@@ -78,7 +97,7 @@ ${{ inputs.your_parameter }}
 
 See [Built-in system variables and functions](example.md#built-in-system-variables-and-functions) for complete reference.
 
-### 4. Example: FastGPT Template
+### 5. Review a complete example
 
 The [FastGPT](example.md) example demonstrates how to create a complete template with:
 - Default application name and hostname
@@ -111,15 +130,16 @@ We welcome contributions! Follow these steps:
 
 1. **Fork** this repository
 2. **Create a branch** for your template or improvement
-3. **Follow the template structure** - use [template.yaml](template.yaml) as reference
+3. **Add or update one `template/<app-name>/` directory**
 4. **Test your template** on Sealos before submitting
-5. **Submit a pull request** with clear description
+5. **Submit a pull request** with a clear description and verification notes
 
 ### Template Guidelines
 
 - **Naming**: Use lowercase, hyphen-separated names (e.g., `my-awesome-app`)
 - **Description**: Write clear, concise descriptions
-- **Documentation**: Include app-specific usage instructions if needed
+- **Documentation**: Include English and Chinese usage instructions
+- **Assets**: Include an icon and a current application screenshot
 - **Defaults**: Provide sensible default values for all inputs
 - **Resources**: Set reasonable resource limits (CPU/memory)
 
@@ -132,4 +152,4 @@ We welcome contributions! Follow these steps:
 
 ## 📄 License
 
-This repository follows the same license as Sealos. See [LICENSE](LICENSE) for details.
+This repository follows the Sealos project license.
