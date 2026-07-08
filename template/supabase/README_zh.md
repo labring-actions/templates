@@ -6,7 +6,7 @@ Supabase 是一个开源后端平台，把 PostgreSQL、身份认证、实时订
 
 在这个模板里，Supabase 采用以 Kong 为入口的多服务架构，每个核心能力都以独立工作负载运行。Studio 提供 Web 控制台，Auth、REST、Realtime、Storage 与 Edge Functions 通过同一个公网域名按路径统一暴露。
 
-部署时会通过 Kubeblocks 自动创建 PostgreSQL 集群，并用初始化 Job 预置 Supabase 所需的 schema 与角色，再通过 Kubernetes Secret 完成凭据注入。存储与运行时组件都挂载了持久化卷，确保配置、文件和函数缓存在重启后仍可保留。
+部署时会通过 Kubeblocks 自动创建 PostgreSQL 集群，并用初始化 Job 预置 Supabase 所需的 schema 与角色，再通过 Kubernetes Secret 完成凭据注入。Supabase Storage 默认使用 Sealos S3 兼容 ObjectStorage bucket，Studio snippets 与 Edge Function 缓存等运行时目录使用持久化卷。
 
 Sealos 还会自动处理 Ingress、TLS、公网域名和 Canvas 中的生命周期运维，让你把精力集中在业务开发，而不是集群底层细节。
 
@@ -42,7 +42,7 @@ Sealos 还会自动处理 Ingress、TLS、公网域名和 Canvas 中的生命周
 - **Auth（GoTrue）**：身份认证与用户管理接口（`/auth/v1/*`）。
 - **REST（PostgREST）**：基于 PostgreSQL 的 REST 与 GraphQL 接口（`/rest/v1/*`、`/graphql/v1`）。
 - **Realtime**：WebSocket 与实时订阅接口（`/realtime/v1/*`）。
-- **Storage API**：对象与文件操作接口（`/storage/v1/*`），底层使用本地持久化存储。
+- **Storage API**：对象与文件操作接口（`/storage/v1/*`），通过 Supabase S3 兼容存储后端使用 Sealos ObjectStorage。
 - **Imgproxy**：为 Storage API 提供图片转换能力。
 - **Postgres Meta**：Studio 使用的元数据与管理接口（通过网关暴露 `/pg/*`）。
 - **Edge Functions Runtime**：基于 Deno 的函数运行时，暴露路径为 `/functions/v1/*`。
@@ -59,7 +59,8 @@ Sealos 还会自动处理 Ingress、TLS、公网域名和 Canvas 中的生命周
 - 默认公网访问地址为 `https://<app-name>.<your-sealos-domain>`。
 - Studio 控制台流量通过 Kong 的 HTTP Basic Auth 保护（`dashboard_username` 与自动生成的 `dashboard_password`）。
 - SMTP、注册策略、JWT 过期时间、存储后端参数与连接池限制都可在 Canvas 里通过环境变量调整。
-- PostgreSQL 数据、Storage 文件、Studio snippets/functions、Edge Runtime 缓存都配置了持久化卷。
+- Studio 控制台登录使用 `dashboard_username` 和 `dashboard_password`。默认用户名为 `supabase`，密码会在部署时生成，可在部署详情或 Kong 资源环境变量中查看。
+- PostgreSQL 数据、Studio snippets/functions、Edge Runtime 缓存都配置了持久化卷。
 
 **许可证信息：**
 
@@ -85,7 +86,8 @@ Sealos 是构建在 Kubernetes 之上的 AI 辅助云操作系统，把开发、
 2. 在弹窗中配置参数：
    - 设置强 `jwt_secret`（建议至少 32 个字符）。
    - 提供与该 `jwt_secret` 匹配签发的 `anon_key` 和 `service_role_key`。
-   - 其他参数无特殊需求时可保持默认值。
+   - 部署完成后记录生成的 `dashboard_username` 与 `dashboard_password`。默认用户名为 `supabase`，密码会在部署时生成。
+   - 保持 `enable_s3_storage` 开启，让模板为 Supabase Storage 创建 Sealos ObjectStorage bucket。
 3. 等待部署完成（通常 2-3 分钟）。完成后会自动跳转到 Canvas。后续若需变更，可在 AI 对话中描述需求，或直接编辑资源卡片。
 4. 通过系统生成的公网地址访问应用：
    - **Studio 控制台**：`https://<app-name>.<your-sealos-domain>/`
@@ -94,6 +96,12 @@ Sealos 是构建在 Kubernetes 之上的 AI 辅助云操作系统，把开发、
    - **Realtime API**：`https://<app-name>.<your-sealos-domain>/realtime/v1/`
    - **Storage API**：`https://<app-name>.<your-sealos-domain>/storage/v1/`
    - **Edge Functions API**：`https://<app-name>.<your-sealos-domain>/functions/v1/`
+
+### Studio 登录与 API Key
+
+打开 Studio 控制台地址，使用生成的 `dashboard_username` 与 `dashboard_password` 登录。默认配置下，用户名为 `supabase`，密码来自部署详情或 Kong 资源环境变量里的 `dashboard_password` 生成值。
+
+`jwt_secret`、`anon_key` 与 `service_role_key` 需要作为一组匹配生成。浏览器和移动客户端使用 `anon_key`，受信任的服务端代码使用 `service_role_key`，更换 `jwt_secret` 时同步轮换三者。
 
 ## 配置说明
 
@@ -109,6 +117,7 @@ Sealos 是构建在 Kubernetes 之上的 AI 辅助云操作系统，把开发、
 - 根据认证策略确认 `GOTRUE_DISABLE_SIGNUP`、手机/邮箱注册开关和重定向白名单。
 - 确认客户端使用 `anon_key`，服务端受信任流程使用 `service_role_key`。
 - 根据边缘函数安全策略，校验 `functions_verify_jwt` 配置是否符合预期。
+- 保持 `enable_s3_storage` 开启，通过 Sealos ObjectStorage 获得持久对象存储。模板会从 Sealos 托管对象存储 Secret 注入 bucket、endpoint、access key 和 secret key。
 
 ## 扩缩容
 

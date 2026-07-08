@@ -72,7 +72,7 @@ Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies
 1. Open the [Immich template](https://sealos.io/products/app-store/immich) and click **Deploy Now**.
 2. Configure the parameters in the popup dialog:
    - `enable_machine_learning`: keep `true` for face recognition and smart search, or set `false` for a lighter deployment.
-3. Wait for deployment to complete. The full stack usually needs several minutes because PostgreSQL, Redis, and the app server must initialize in order.
+3. Wait for deployment to complete. This typically takes 2-3 minutes, and first-time startup can take longer while PostgreSQL, Redis, and the app server initialize in order.
 4. Access your application via the provided URL:
    - **Immich Web UI**: open the generated Sealos URL, for example `https://<your-app-host>.<your-sealos-domain>`.
 5. For later changes, open the deployment Canvas and describe your requirements in the AI dialog, or click the relevant resource cards to modify resources, storage, or environment variables.

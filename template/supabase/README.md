@@ -6,7 +6,7 @@ Supabase is an open source backend platform that combines PostgreSQL, authentica
 
 Supabase in this template runs as a multi-service architecture behind Kong, with each core capability deployed as an isolated workload. Studio provides the web console, while Auth, REST, Realtime, Storage, and Edge Functions are exposed through a single public domain with path-based routing.
 
-The deployment automatically provisions a PostgreSQL cluster through Kubeblocks, initializes required Supabase schemas and roles with a bootstrap job, and wires credentials through Kubernetes secrets. Storage and runtime components use persistent volumes so configuration, files, and function cache data survive restarts.
+The deployment automatically provisions a PostgreSQL cluster through Kubeblocks, initializes required Supabase schemas and roles with a bootstrap job, and wires credentials through Kubernetes secrets. Supabase Storage uses a Sealos S3-compatible ObjectStorage bucket by default, while runtime folders such as Studio snippets and Edge Function cache use persistent volumes.
 
 Sealos also handles ingress, TLS, public domain access, and lifecycle operations in Canvas, so you can focus on product development instead of cluster plumbing.
 
@@ -42,7 +42,7 @@ This template deploys the following services:
 - **Auth (GoTrue)**: Authentication and user management APIs (`/auth/v1/*`).
 - **REST (PostgREST)**: PostgreSQL-backed REST and GraphQL endpoints (`/rest/v1/*`, `/graphql/v1`).
 - **Realtime**: WebSocket and realtime API endpoints (`/realtime/v1/*`).
-- **Storage API**: Object and file operations (`/storage/v1/*`) with local persistent storage.
+- **Storage API**: Object and file operations (`/storage/v1/*`) backed by Sealos ObjectStorage through Supabase's S3-compatible storage backend.
 - **Imgproxy**: Image transformation backend used by Storage API.
 - **Postgres Meta**: Metadata and admin API used by Studio (`/pg/*` via gateway).
 - **Edge Functions Runtime**: Deno-based function runtime exposed at `/functions/v1/*`.
@@ -59,7 +59,8 @@ This template deploys the following services:
 - Public access defaults to `https://<app-name>.<your-sealos-domain>`.
 - Studio dashboard traffic is protected by HTTP basic auth through Kong (`dashboard_username` and generated `dashboard_password`).
 - SMTP, signup behavior, JWT expiry, storage backend settings, and pooler limits are configurable via environment variables in Canvas.
-- Persistent volumes are created for PostgreSQL data, storage files, Studio snippets/functions, and Edge Runtime cache.
+- Studio dashboard login uses `dashboard_username` and `dashboard_password`. The default username is `supabase`; the password is generated during deployment and can be read from the deployment details or Kong resource environment.
+- Persistent volumes are created for PostgreSQL data, Studio snippets/functions, and Edge Runtime cache.
 
 **License Information:**
 
@@ -85,7 +86,8 @@ Deploy Supabase on Sealos and focus on shipping features instead of managing inf
 2. Configure the parameters in the popup dialog:
    - Set a strong `jwt_secret` (at least 32 characters).
    - Provide matching `anon_key` and `service_role_key` signed with the same `jwt_secret`.
-   - Keep defaults for other values unless you have specific networking or auth requirements.
+   - Record the generated `dashboard_username` and `dashboard_password` values after deployment. The default username is `supabase`, and the password is generated during deployment.
+   - Keep `enable_s3_storage` enabled to provision a Sealos ObjectStorage bucket for Supabase Storage.
 3. Wait for deployment to complete (typically 2-3 minutes). After deployment, you will be redirected to the Canvas. For later changes, describe your requirements in the AI dialog or edit resource cards directly.
 4. Access your application via the generated public URL:
    - **Studio Dashboard**: `https://<app-name>.<your-sealos-domain>/`
@@ -94,6 +96,12 @@ Deploy Supabase on Sealos and focus on shipping features instead of managing inf
    - **Realtime API**: `https://<app-name>.<your-sealos-domain>/realtime/v1/`
    - **Storage API**: `https://<app-name>.<your-sealos-domain>/storage/v1/`
    - **Edge Functions API**: `https://<app-name>.<your-sealos-domain>/functions/v1/`
+
+### Studio Login and API Keys
+
+Open the Studio Dashboard URL and sign in with the generated `dashboard_username` and `dashboard_password`. With the default settings, the username is `supabase` and the password comes from the generated `dashboard_password` value in the deployment details or Kong resource environment.
+
+The `jwt_secret`, `anon_key`, and `service_role_key` must be generated as a matching set. Use `anon_key` in browser and mobile clients, keep `service_role_key` on trusted server-side code, and rotate all three together when changing `jwt_secret`.
 
 ## Configuration
 
@@ -109,6 +117,7 @@ Recommended post-deployment checks:
 - Confirm `GOTRUE_DISABLE_SIGNUP`, phone/email signup options, and redirect allow list fit your auth policy.
 - Verify your client apps use `anon_key` and server-side jobs use `service_role_key`.
 - Keep `functions_verify_jwt` aligned with your edge function security model.
+- Keep `enable_s3_storage` enabled for durable object storage through Sealos ObjectStorage. The template injects bucket, endpoint, access key, and secret key values from Sealos-managed object storage secrets.
 
 ## Scaling
 
