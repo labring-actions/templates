@@ -731,6 +731,35 @@ data:
     cat /tmp/airbyte-auth-state-check.err >&2 2>/dev/null || true
     echo "Airbyte auth state was not ready in time" >&2
     exit 1
+  vn-scriptsvn-patchvn-webappvn-sh: |
+    set -eu
+
+    jar_path="/app/airbyte-app/lib/io.airbyte-airbyte-server-2.1.0.jar"
+    work_dir="$(mktemp -d)"
+    cleanup() {
+      rm -rf "${work_dir}"
+    }
+    trap cleanup EXIT
+
+    cd "${work_dir}"
+    jar xf "${jar_path}" webapp/index.html
+    python <<'PY'
+    path = "webapp/index.html"
+    marker = "__AIRBYTE_FIREFOX_RESIZE_PATCH__"
+    with open(path, "r") as f:
+        html = f.read()
+
+    if marker not in html:
+        patch = """<script>(function(){if(window.__AIRBYTE_FIREFOX_RESIZE_PATCH__)return;if(!/Firefox\\/\\d+/.test(navigator.userAgent)||!window.ResizeObserver)return;window.__AIRBYTE_FIREFOX_RESIZE_PATCH__=true;var NativeResizeObserver=window.ResizeObserver;window.ResizeObserver=function(callback){var frame=0,lastEntries;return new NativeResizeObserver(function(entries,observer){lastEntries=entries;if(frame)return;frame=requestAnimationFrame(function(){frame=0;callback(lastEntries,observer);});});};window.ResizeObserver.prototype=NativeResizeObserver.prototype;})();</script>"""
+        if "</head>" not in html:
+            raise SystemExit("webapp/index.html is missing </head>")
+        html = html.replace("</head>", patch + "</head>", 1)
+        with open(path, "w") as f:
+            f.write(html)
+    PY
+    jar uf "${jar_path}" webapp/index.html
+
+    exec /entrypoint.sh /app/airbyte-app/bin/airbyte-server
 
 ---
 apiVersion: batch/v1
@@ -1202,6 +1231,9 @@ spec:
         - name: ${{ defaults.app_name }}-server
           image: airbyte/server:2.1.0
           imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - /scripts/patch-webapp.sh
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -1212,6 +1244,11 @@ spec:
             runAsUser: 1000
             seccompProfile:
               type: RuntimeDefault
+          volumeMounts:
+            - name: ${{ defaults.app_name }}-server-cm
+              mountPath: /scripts/patch-webapp.sh
+              subPath: vn-scriptsvn-patchvn-webappvn-sh
+              readOnly: true
           env:
             - name: AIRBYTE_API_HOST
               valueFrom:
