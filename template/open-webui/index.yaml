@@ -7,38 +7,226 @@ spec:
   url: 'https://openwebui.com'
   gitRepo: 'https://github.com/open-webui/open-webui'
   author: 'Sealos'
-  description: 'User-friendly WebUI for LLMs (Formerly Ollama WebUI)'
+  description: 'User-friendly AI interface for Ollama, OpenAI-compatible APIs, RAG, and multimodal workflows.'
   readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/open-webui/README.md'
   icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/open-webui/logo.png'
   screenshots:
     - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/open-webui/website-screenshot.webp'
   templateType: inline
+  locale: en
   categories:
     - ai
+    - tool
   defaults:
     app_host:
       type: string
-      value: ${{ random(8) }}
+      value: open-webui-${{ random(8) }}
     app_name:
       type: string
       value: open-webui-${{ random(8) }}
+    webui_secret_key:
+      type: string
+      value: ${{ random(64) }}
   inputs:
-
+    ollama_base_url:
+      description: Optional Ollama API base URL, for example http://ollama-service:11434.
+      type: string
+      default: ''
+      required: false
+    openai_api_base_url:
+      description: Optional OpenAI-compatible API base URL.
+      type: string
+      default: 'https://api.openai.com/v1'
+      required: false
+    openai_api_key:
+      description: Optional OpenAI-compatible API key. Providers can also be configured after login.
+      type: string
+      default: ''
+      required: false
+    use_sealos_objectstorage:
+      description: Store uploads in a Sealos-managed S3-compatible bucket.
+      type: boolean
+      default: 'false'
+      required: false
   i18n:
     zh:
+      description: '面向 Ollama、OpenAI 兼容 API、RAG 和多模态工作流的友好 AI 界面。'
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/open-webui/README_zh.md'
+---
+${{ if(inputs.use_sealos_objectstorage === 'true') }}
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  policy: private
+---
+${{ endif() }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  terminationPolicy: Delete
+  componentSpecs:
+    - name: postgresql
+      componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+spec:
+  backoffLimit: 5
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: OnFailure
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: pg-init
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_DATABASE
+              value: openwebui
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export PGPASSWORD="$PG_PASSWORD"
+              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; do
+                sleep 2
+              done
+              if ! psql "postgresql://$PG_USER:$PG_PASSWORD@$PG_HOST:$PG_PORT/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='$PG_DATABASE'" | grep -q 1; then
+                createdb -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" "$PG_DATABASE"
+              fi
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: ghcr.io/open-webui/open-webui:v0.5.4
+    originImageName: ghcr.io/open-webui/open-webui:v0.10.2
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
+    docker-to-sealos.resource-override-source: 'Open WebUI official scaling guidance identifies PostgreSQL as the supported Kubernetes database path and documents memory pressure from default content extraction, embeddings, and SQLite cache behavior; v0.10.2 uses the next practical Sealos ladder tier for stable cold start and small-team use.'
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   replicas: 1
   revisionHistoryLimit: 1
@@ -52,92 +240,192 @@ spec:
       labels:
         app: ${{ defaults.app_name }}
     spec:
-      terminationGracePeriodSeconds: 10
       automountServiceAccountToken: false
-      initContainers:
-        - name: init-data
-          image: ghcr.io/open-webui/open-webui:v0.5.4
-          command: ["/bin/bash", "-c", "if [ ! -f /data/config.json ]; then echo 'Cloning data folder'; cp -Rv /app/backend/data/* /data/; echo 'Done'; else echo 'Data folder already exists'; fi"]
-          volumeMounts:
-            - name: vn-data
-              mountPath: "/data"
-        - name: copy-data
-          image: ghcr.io/open-webui/open-webui:v0.5.4
-          command: ["/bin/bash", "-c", "if [ ! -f /app/backend/data/config.json ]; then echo 'Coping data folder'; cp -Rv /data/* /app/backend/data/; echo 'Done'; else echo 'Backend data folder already exists'; fi"]
-          volumeMounts:
-            - name: vn-data
-              mountPath: "/data"
-            - name: vn-appvn-backendvn-data
-              mountPath: /app/backend/data
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: ${{ defaults.app_name }}
-          image: ghcr.io/open-webui/open-webui:v0.5.4
-          env:
-            - name: OLLAMA_BASE_URL
-              value: ''
-          resources:
-            requests:
-              cpu: 200m
-              memory: 256Mi
-            limits:
-              cpu: 2000m
-              memory: 2Gi
-          command: []
-          args: []
-          ports:
-            - containerPort: 8080
+          image: ghcr.io/open-webui/open-webui:v0.10.2
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: WEBUI_AUTH
+              value: 'True'
+            - name: ENABLE_SIGNUP
+              value: 'True'
+            - name: WEBUI_SECRET_KEY
+              value: ${{ defaults.webui_secret_key }}
+            - name: WEBUI_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: CORS_ALLOW_ORIGIN
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: ENABLE_PROFILE_IMAGE_URL_FORWARDING
+              value: 'False'
+            - name: DATA_DIR
+              value: /app/backend/data
+            - name: DATABASE_TYPE
+              value: postgresql
+            - name: DATABASE_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: DATABASE_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: DATABASE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_NAME
+              value: openwebui
+            - name: DATABASE_POOL_SIZE
+              value: '5'
+            - name: DATABASE_POOL_MAX_OVERFLOW
+              value: '10'
+            - name: OLLAMA_BASE_URL
+              value: ${{ inputs.ollama_base_url }}
+            - name: ENABLE_OPENAI_API
+              value: 'True'
+            - name: OPENAI_API_BASE_URL
+              value: ${{ inputs.openai_api_base_url }}
+            - name: OPENAI_API_KEY
+              value: ${{ inputs.openai_api_key }}
+            ${{ if(inputs.use_sealos_objectstorage === 'true') }}
+            - name: STORAGE_PROVIDER
+              value: s3
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            - name: S3_ENDPOINT_URL
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: S3_BUCKET_NAME
+              value: $(S3_BUCKET)
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: S3_REGION_NAME
+              value: auto
+            ${{ endif() }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /health/db
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            limits:
+              cpu: 500m
+              memory: 2G
+            requests:
+              cpu: 50m
+              memory: 200Mi
           volumeMounts:
             - name: vn-appvn-backendvn-data
               mountPath: /app/backend/data
-      volumes: []
   volumeClaimTemplates:
     - metadata:
+        name: vn-appvn-backendvn-data
         annotations:
           path: /app/backend/data
           value: '1'
-        name: vn-appvn-backendvn-data
       spec:
         accessModes:
           - ReadWriteOnce
         resources:
           requests:
             storage: 1Gi
-    - metadata:
-        annotations:
-          path: /data
-          value: '1'
-        name: vn-data
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 1Gi
-
+        storageClassName: openebs-backup
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
-  ports:
-    - port: 8080
   selector:
     app: ${{ defaults.app_name }}
-
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
     kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
 spec:
   rules:
     - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
@@ -154,7 +442,6 @@ spec:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
-
 ---
 apiVersion: app.sealos.io/v1
 kind: App
@@ -166,6 +453,6 @@ spec:
   data:
     url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
   displayType: normal
-  icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/open-webui/logo.png"
-  name: "Open WebUI"
+  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/open-webui/logo.png'
+  name: 'Open WebUI'
   type: link

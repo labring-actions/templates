@@ -1,191 +1,145 @@
-# 在 Sealos 上部署托管 Openclaw
+# 在 Sealos 上部署托管 OpenClaw
 
-Openclaw 是一款 AI 智能体网关，支持 WhatsApp、Telegram、Discord 等多渠道集成。借助本模板，您可以在 Sealos 云平台上快速部署一个生产就绪的 Openclaw 实例，并自动配置持久化存储。
+OpenClaw 是面向浏览器智能体控制台和聊天渠道自动化的 AI 智能体网关。本模板会在 Sealos 云平台上以单个 StatefulSet 部署 OpenClaw，并配置持久化状态存储。
 
-## 关于托管 Openclaw
+![OpenClaw 截图](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/openclaw/website-screenshot.webp)
 
-Openclaw 以单节点 AI 智能体网关服务的形式运行，为跨多个消息平台部署和管理 AI 智能体提供统一接口。Sealos 模板会自动为您的智能体配置、工作空间数据以及 WhatsApp 会话文件配置持久化存储，确保数据安全可靠，即使服务重启也能完好保存。
+## 关于托管 OpenClaw
 
-这套网关架构让您能够将兼容 OpenAI 的 AI 模型（如 Claude、GPT-4 等）连接到 Telegram、Discord、WhatsApp 和 Slack 等热门消息平台。部署完成后，系统会自动配置 SSL 证书、域名管理，并通过 Sealos 控制面板提供一体化监控能力。
+OpenClaw 在 `18789` 端口运行 Gateway 和 Control UI。Gateway 负责智能体配置、模型提供商访问、设备配对，以及浏览器智能体工作流所需的工作空间文件。
+
+本 Sealos 模板遵循官方 Docker 与 Kubernetes 运行模型：一个 OpenClaw 容器、Gateway token 认证、`/healthz` 与 `/readyz` 探针，以及 PVC 支撑的本地状态。部署会持久化 OpenClaw 配置、工作空间数据、浏览器配对资料和包缓存。
 
 ## 常见应用场景
 
-- **跨平台 AI 助手**：在 Telegram、Discord、WhatsApp 和 Slack 上同时部署同一个 AI 助手
-- **客服自动化**：构建能够跨多个渠道处理客户咨询的智能聊天机器人
-- **团队协作**：为团队沟通平台打造 AI 驱动的生产力机器人
-- **社区管理**：利用 AI 智能体自动管理社区内容和用户互动
-- **个人 AI 助手**：运行专属的个人 AI 助手，可从任何消息平台访问
+- **个人 AI 操作员**：运行一个可连接您所配置模型提供商的浏览器助手。
+- **团队智能体控制台**：托管用于智能体设置、测试和运维检查的共享 Control UI。
+- **聊天渠道自动化**：创建平台 token 后，将智能体接入消息渠道。
+- **工作流原型验证**：在任务迭代过程中保留智能体工作空间文件和指令。
 
-## 托管 Openclaw 的依赖项
+## 托管 OpenClaw 的依赖项
 
-Sealos 模板已包含所有必需的依赖：运行时环境、用于配置和工作空间数据的持久化存储卷。
+模板包含 OpenClaw Gateway 镜像和持久卷。部署时需要提供兼容的模型端点、API key 和默认模型 id。
 
 ### 部署依赖
 
-- [官方网站](https://openclaw.ai/) - Openclaw 官方网站
-- [GitHub 仓库](https://github.com/openclaw/openclaw) - 源代码和文档
-- [快速入门指南](https://openclaw.ai/) - 快速上手和配置说明
+- [官方网站](https://openclaw.ai/) - 产品网站
+- [Docker 安装文档](https://docs.openclaw.ai/install/docker) - 官方容器运行指南
+- [Kubernetes 安装文档](https://docs.openclaw.ai/install/kubernetes) - 官方 Kubernetes 拓扑
+- [Control UI 指南](https://docs.openclaw.ai/web/control-ui) - 浏览器访问、token 与设备配对
+- [安全指南](https://docs.openclaw.ai/gateway/security) - token 与远程 origin 配置
 
 ### 实现细节
 
 **架构组件：**
 
-本模板部署以下服务：
+本模板部署一个 OpenClaw Gateway 服务：
 
-- **Openclaw 网关**：运行在 18789 端口的主 AI 智能体网关服务
-- **持久化存储**：自动配置两个持久卷：
-  - 配置存储（1Gi）：存储智能体配置、模型设置和渠道凭据
-  - 工作空间存储（1Gi）：存储智能体工作空间数据和生成的文件
+- **OpenClaw Gateway**：在 `18789` 端口提供 Control UI、WebSocket Gateway 和健康端点。
+- **状态 PVC**：挂载 `/home/node/.openclaw`，保存 `openclaw.json`、工作空间文件和智能体状态。
+- **Profile PVC**：挂载 `/home/node/.config/openclaw`，保存浏览器设备配对资料。
+- **NPM 缓存 PVC**：挂载 `/home/node/.npm`，保存 OpenClaw 扩展使用的包缓存。
 
 **配置方式：**
 
-Openclaw 网关通过环境变量和初始化时生成的配置文件进行配置：
+首次启动时，模板会写入 `openclaw.json`，内容包括：
 
-- **Base URL**：兼容 OpenAI 的 API 端点（默认为 Sealos AI Proxy）
-- **API Key**：AI 模型提供商的认证密钥
-- **Model**：使用的默认 AI 模型（例如 claude-opus-4-6）
-- **Gateway Token**：访问网关控制 UI 的认证令牌
-- **Channel Tokens**：Discord、Telegram、WhatsApp 和 Slack 的可选令牌
+- 启用 Gateway token 认证
+- Gateway bind 模式适配 Sealos Ingress 访问
+- Control UI origin 限定为生成的 Sealos HTTPS URL
+- 基于 `provider_kind`、`base_url`、`api_key` 和 `model` 生成默认模型提供商
+- 默认智能体工作空间 `~/.openclaw/workspace`
 
-控制 UI 默认启用，可通过网关 URL 加上网关令牌参数访问。该 UI 让您能够管理智能体、配置渠道、监控活动，无需手动修改配置文件。
-
-**渠道支持：**
-
-- **Telegram**：完全支持，默认启用
-- **Discord**：添加 Discord 机器人令牌即可启用
-- **WhatsApp**：会话数据存储在持久化存储中
-- **Slack**：使用机器人令牌和应用令牌进行配置
+持久化方式采用 PVC 支撑的本地状态，和官方 Docker、Kubernetes 部署指南一致。
 
 **许可证信息：**
 
-Openclaw 是开源软件。具体许可条款请查阅 [GitHub 仓库](https://github.com/openclaw/openclaw)。
+OpenClaw 使用 MIT License。本 Sealos 模板遵循 templates 仓库的许可条款。
 
-## 为什么选择在 Sealos 上部署 Openclaw？
+## 为什么选择在 Sealos 上部署 OpenClaw？
 
-Sealos 是一个基于 Kubernetes 构建的 AI 赋能云操作系统，将整个应用生命周期——从云端 IDE 开发到生产部署和管理——融为一体。它非常适合构建和扩展现代 AI 应用、SaaS 平台和复杂的微服务架构。在 Sealos 上部署 Openclaw，您将获得：
+Sealos 是基于 Kubernetes 构建的 AI 云操作系统。在 Sealos 上部署 OpenClaw 可以获得：
 
-- **一键部署**：只需点击一下即可部署 Openclaw。无需编写 YAML 配置，无需处理容器编排的复杂性——只需点击、部署即可完成。
-- **内置自动扩展**：您的 AI 智能体会根据需求自动扩展和收缩。从容应对来自多个消息平台的流量峰值，无需人工干预。
-- **轻松定制**：通过直观的表单配置 AI 模型、API 密钥和渠道连接。无需修改一行代码即可完成个性化配置。
-- **零门槛 Kubernetes**：无需成为 Kubernetes 专家即可享受 Kubernetes 的所有优势——高可用性、服务发现、容器编排。
-- **内置持久化存储**：内置的持久化存储方案确保您的智能体配置、工作空间数据和 WhatsApp 会话在部署和扩展过程中始终安全可访问。
-- **即时公网访问**：每次部署都会自动获得带 SSL 证书的公网 URL。无需复杂的网络配置即可立即分享您的 AI 智能体网关。
-- **集成 AI 代理**：无缝连接 Sealos AI Proxy，轻松访问 Claude、GPT-4 等兼容 OpenAI 的模型。
-
-在 Sealos 上部署 Openclaw，专注于打造智能 AI 智能体，让基础设施管理交给我们。
+- **一键部署**：打开模板页面，填写模型提供商参数，然后部署。
+- **托管 HTTPS 访问**：Sealos 会为 Gateway 创建公网 URL 和 TLS 证书。
+- **持久化智能体状态**：PVC 会保存工作空间、配置、profile 和缓存数据。
+- **资源控制**：模板按 OpenClaw 推荐的 2 GB 内存档位映射到 Sealos resource ladder。
+- **Canvas 运维**：部署后可在 Sealos Canvas 中调整环境变量、资源和副本设置。
 
 ## 部署指南
 
-1. 打开 [OpenClaw 模板页面](https://sealos.io/products/app-store/clawdbot)，点击 **Deploy Now**。
-2. 在弹窗中配置以下参数：
-   - **provider_kind**：选择 `openai_compat` 或 `anthropic_compat`
-   - **base_url**：兼容提供商的基础 URL（默认：`https://aiproxy.usw-1.sealos.io/v1`）
-   - **api_key**：提供商 API Key
-   - **model**：默认模型 ID（例如 `claude-opus-4-6` 或 `gpt-5.2`）
-3. 等待部署完成（通常 2-3 分钟）。部署成功后会自动跳转到 Canvas。后续修改可在 AI 对话框描述需求，或点击对应资源卡调整配置。
-4. 通过以下地址访问应用：
-   - **控制台 UI**：使用 App 资源生成的访问链接（已包含 token 与 `gatewayUrl` 参数）
-   - **网关端点**：`https://<your-domain>/` 可作为 OpenClaw 网关基础地址
+1. 打开 [OpenClaw 模板页面](https://sealos.io/products/app-store/openclaw)，点击 **Deploy Now**。
+2. 在弹窗中配置参数：
+   - **provider_kind**：选择 `openai_compat` 或 `anthropic_compat`。
+   - **base_url**：填写提供商基础 URL，例如兼容 OpenAI 的 `/v1` 端点。
+   - **api_key**：填写提供商 API key。
+   - **model**：填写模型 id，例如 `claude-opus-4-6` 或 `gpt-5.2`。
+3. 等待部署完成，通常需要 2-3 分钟。部署完成后，Sealos 会跳转到 Canvas。后续修改可在 AI 对话框描述需求，或打开对应资源卡调整配置。
+4. 打开 **OpenClaw** App 卡片 URL。该 URL 已在 fragment 中包含生成的 Gateway token。
+5. 当 Control UI 要求首次设备配对时，执行审批：
+
+```bash
+openclaw devices list
+openclaw devices approve <requestId>
+```
+
+在 Canvas 中打开 OpenClaw 容器终端运行上述命令。审批后刷新 Control UI 继续设置。
+
+## 初始设置和登录
+
+App URL 包含 `#token=<gateway-token>`，Control UI 会使用它向 Gateway 认证。浏览器设备配对用于保护远程访问：首次浏览器审批完成后，profile PVC 会在重启后保留配对数据。
+
+打开 Control UI 后：
+
+1. 确认默认 provider 和 model 已出现在模型设置中。
+2. 打开默认 assistant 工作空间并发送一条简短提示词。
+3. 在 Control UI 中添加消息渠道凭据，或在 StatefulSet 资源卡上编辑环境变量。
 
 ## 配置说明
 
-部署完成后，您可以通过多种方式配置 Openclaw：
+部署后可通过以下方式更新 OpenClaw：
 
-### 控制界面
+- **Control UI**：管理智能体、模型提供商、工作空间文件和渠道设置。
+- **Canvas AI 对话框**：描述配置变更，让 Sealos 应用修改。
+- **StatefulSet 资源卡**：编辑 provider 参数、API key 和资源限制。
 
-通过以下地址访问控制界面：
-```
-https://[您的应用地址]/?token=[gateway-token]
-```
+调整 provider 时，让 provider 协议与 base URL 保持一致：
 
-网关令牌会在部署后自动生成，并包含在 Canvas 中 App 资源卡展示的访问链接里。该界面提供基于 Web 的管理功能：
-- 管理 AI 智能体
-- 配置消息渠道（Telegram、Discord、WhatsApp、Slack）
-- 监控智能体活动
-- 调整模型设置
-
-### 环境变量
-
-部署完成后可通过 Canvas 修改应用设置：可在 AI 对话框描述变更需求，或打开 StatefulSet 资源卡直接编辑环境变量：
-
-- **DISCORD_BOT_TOKEN**：您的 Discord 机器人令牌
-- **TELEGRAM_BOT_TOKEN**：您的 Telegram 机器人令牌
-- **SLACK_BOT_TOKEN**：您的 Slack 机器人令牌
-- **SLACK_APP_TOKEN**：您的 Slack 应用令牌（用于 socket 模式）
-
-### 渠道设置
-
-每个消息平台都需要特定的设置：
-
-**Telegram：**
-1. 通过 Telegram 的 [@BotFather](https://t.me/botfather) 创建机器人
-2. 复制机器人令牌
-3. 在 Canvas 资源卡中将令牌写入 TELEGRAM_BOT_TOKEN 环境变量，或通过控制界面添加
-4. 与您的机器人开始对话
-
-**Discord：**
-1. 在 [Discord 开发者门户](https://discord.com/developers/applications) 创建 Discord 应用
-2. 创建机器人用户并复制令牌
-3. 在 Canvas 资源卡中将令牌写入 DISCORD_BOT_TOKEN 环境变量，或通过控制界面添加
-4. 邀请机器人加入您的服务器
-
-**WhatsApp：**
-1. WhatsApp 会话数据存储在持久化存储的 `/home/node/.openclaw/whatsapp` 路径
-2. 通过控制界面按照 WhatsApp Web 二维码认证流程操作
-3. 会话数据在容器重启后依然保存
-
-**Slack：**
-1. 在 [Slack API](https://api.slack.com/apps) 创建 Slack 应用
-2. 启用机器人作用域并将应用安装到您的工作区
-3. 通过环境变量或控制界面添加机器人令牌和应用令牌（用于 socket 模式）
+- `openai_compat` 用于兼容 OpenAI Chat Completions 的端点
+- `anthropic_compat` 用于兼容 Anthropic Messages 的端点
 
 ## 扩展指南
 
-扩展您的 Openclaw 部署：
+OpenClaw 使用 PVC 保存本地状态，因此模板运行一个副本。调整资源的步骤：
 
-1. 打开 Openclaw 部署对应的 Canvas
-2. 打开 StatefulSet 资源卡
-3. 调整 CPU/内存资源：
-   - 最小：100m CPU，256Mi 内存
-   - 最大：1000m CPU，2Gi 内存
-4. 如有需要，增加副本数量（当前设置为 1）
-5. 在对话框中应用更改
+1. 打开 OpenClaw 部署对应的 Canvas。
+2. 打开 StatefulSet 资源卡。
+3. 使用 Sealos 资源控件调整 CPU 或内存。
+4. 应用更新并等待 Pod 进入 Ready 状态。
 
-**注意：**Openclaw 使用 StatefulSet 进行部署。对于高流量的生产环境，建议在负载均衡器后部署多个实例。
+模板默认使用 `1` CPU 和 `2G` 内存，因为官方部署指南推荐 2 GB 内存档位以获得稳定运行表现。
 
 ## 故障排除
 
-### 常见问题
+### Control UI 显示设备配对页面
 
-**问题：消息平台上的智能体无响应**
-- 原因：平台的机器人令牌缺失或错误
-- 解决方案：验证环境变量或控制界面中配置了正确的机器人令牌
+从 Canvas 打开 OpenClaw 容器终端，运行 `openclaw devices list`，然后使用 `openclaw devices approve <requestId>` 审批页面展示的 request id。
 
-**问题：AI 模型错误**
-- 原因：API 密钥无效、基础 URL 错误或模型名称错误
-- 解决方案：检查您的 API 密钥是否有效、基础 URL 是否正确，以及模型 ID 是否被您的提供商支持
+### 模型调用失败
 
-**问题：重启后 WhatsApp 会话丢失**
-- 原因：会话数据未正确持久化
-- 解决方案：模板已为 WhatsApp 会话配置持久化存储。确保存储卷正确挂载
+确认 `provider_kind`、`base_url`、`api_key` 和 `model` 与您的模型提供商匹配。对于 OpenAI 兼容提供商，base URL 通常以 `/v1` 结尾。
 
-**问题：无法访问控制界面**
-- 原因：网关令牌或 URL 错误
-- 解决方案：优先使用 Canvas 中 App 资源卡提供的访问链接（已包含 token 参数），或在网关 URL 后手动追加 `?token=[网关令牌]`
+### Gateway 健康检查失败
 
-### 获取帮助
-
-- [官方文档](https://openclaw.ai/)
-- [GitHub 问题追踪](https://github.com/openclaw/openclaw/issues)
-- [Sealos Discord 社区](https://discord.gg/wdUn538zVP)
+打开 StatefulSet 日志，确认 Gateway 正在监听 `18789` 端口。探针调用 `/healthz` 和 `/readyz`，与官方容器健康检查保持一致。
 
 ## 额外资源
 
-- [Openclaw 官网](https://openclaw.ai/) - 官方网站和文档
-- [GitHub 仓库](https://github.com/openclaw/openclaw) - 源代码、问题和贡献
-- [Sealos 文档](https://sealos.run/docs) - 了解在 Sealos 上部署应用的更多信息
-- [AI 代理配置](https://aiproxy.usw-1.sealos.io) - Sealos AI 代理，用于访问兼容 OpenAI 的模型
+- [OpenClaw 文档](https://docs.openclaw.ai/)
+- [OpenClaw GitHub 仓库](https://github.com/openclaw/openclaw)
+- [Sealos 文档](https://sealos.run/docs)
+- [Sealos Discord](https://discord.gg/wdUn538zVP)
 
 ## 许可证
 
-本 Sealos 模板采用与 Openclaw 相同的许可证提供。具体许可条款请参阅 [Openclaw GitHub 仓库](https://github.com/openclaw/openclaw)。
+本 Sealos 模板遵循 templates 仓库的许可条款。OpenClaw 使用 MIT License。

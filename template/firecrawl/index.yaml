@@ -137,89 +137,117 @@ spec:
             storageClassName: openebs-backup
 
 ---
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: ${{ defaults.app_name }}-redis-redis
-  annotations:
-    originImageName: redis:7.2.7-alpine
-    deploy.cloud.sealos.io/minReplicas: '1'
-    deploy.cloud.sealos.io/maxReplicas: '1'
-  labels:
-    app: ${{ defaults.app_name }}-redis-redis
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-redis-redis
-spec:
-  replicas: 1
-  revisionHistoryLimit: 1
-  serviceName: ${{ defaults.app_name }}-redis-redis
-  selector:
-    matchLabels:
-      app: ${{ defaults.app_name }}-redis-redis
-  template:
-    metadata:
-      labels:
-        app: ${{ defaults.app_name }}-redis-redis
-    spec:
-      automountServiceAccountToken: false
-      securityContext:
-        seccompProfile:
-          type: RuntimeDefault
-      containers:
-        - name: ${{ defaults.app_name }}-redis-redis
-          image: redis:7.2.7-alpine
-          imagePullPolicy: IfNotPresent
-          securityContext:
-            allowPrivilegeEscalation: false
-            runAsNonRoot: true
-            runAsGroup: 999
-            runAsUser: 999
-            capabilities:
-              drop:
-                - ALL
-          command:
-            - /usr/local/bin/redis-server
-          args:
-            - --appendonly
-            - 'no'
-          ports:
-            - name: redis
-              containerPort: 6379
-              protocol: TCP
-          resources:
-            limits:
-              cpu: 200m
-              memory: 256Mi
-            requests:
-              cpu: 20m
-              memory: 25Mi
-          readinessProbe:
-            tcpSocket:
-              port: redis
-            initialDelaySeconds: 10
-            periodSeconds: 10
-            timeoutSeconds: 5
-          livenessProbe:
-            tcpSocket:
-              port: redis
-            initialDelaySeconds: 30
-            periodSeconds: 20
-            timeoutSeconds: 5
----
 apiVersion: v1
-kind: Service
+kind: ServiceAccount
 metadata:
-  name: ${{ defaults.app_name }}-redis-redis
+  name: ${{ defaults.app_name }}-redis
   labels:
-    app: ${{ defaults.app_name }}-redis-redis
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-redis-redis
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-redis
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-redis
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    kb.io/database: redis-7.2.7
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/version: 7.2.7
+    clusterversion.kubeblocks.io/name: redis-7.2.7
+    clusterdefinition.kubeblocks.io/name: redis
 spec:
-  ports:
-    - name: redis
-      port: 6379
-      targetPort: 6379
-      protocol: TCP
-  selector:
-    app: ${{ defaults.app_name }}-redis-redis
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys:
+      - kubernetes.io/hostname
+  clusterDefinitionRef: redis
+  componentSpecs:
+    - componentDef: redis-7
+      name: redis
+      replicas: 1
+      enabledLogs:
+        - running
+      env:
+        - name: CUSTOM_SENTINEL_MASTER_NAME
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      serviceVersion: 7.2.7
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+    - componentDef: redis-sentinel-7
+      name: redis-sentinel
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      serviceVersion: 7.2.7
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+  terminationPolicy: Delete
+  topology: replication
 
 ---
 apiVersion: apps/v1
@@ -230,7 +258,7 @@ metadata:
     originImageName: rabbitmq:3.13.7-management
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
-    docker-to-sealos.resource-override-source: "Live test showed RabbitMQ OOMKilled at the baseline 200m/256Mi during Firecrawl startup; 300m/384Mi stayed within the template resource budget."
+    docker-to-sealos.resource-override-source: "Live test showed RabbitMQ OOMKilled at the baseline 200m/256Mi during Firecrawl startup; the closest valid Sealos ladder step is 500m/512Mi."
   labels:
     app: ${{ defaults.app_name }}-rabbitmq
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-rabbitmq
@@ -301,11 +329,11 @@ spec:
               protocol: TCP
           resources:
             limits:
-              cpu: 300m
-              memory: 384Mi
+              cpu: 500m
+              memory: 512Mi
             requests:
-              cpu: 30m
-              memory: 39Mi
+              cpu: 50m
+              memory: 51Mi
           readinessProbe:
             tcpSocket:
               port: amqp
@@ -380,6 +408,8 @@ spec:
       labels:
         app: ${{ defaults.app_name }}-playwright
     spec:
+      imagePullSecrets:
+        - name: ${{ defaults.app_name }}
       automountServiceAccountToken: false
       securityContext:
         seccompProfile:
@@ -412,16 +442,18 @@ spec:
               cpu: 20m
               memory: 25Mi
           readinessProbe:
-            tcpSocket:
+            httpGet:
+              path: /health
               port: http
-            initialDelaySeconds: 20
-            periodSeconds: 10
+            initialDelaySeconds: 30
+            periodSeconds: 30
             timeoutSeconds: 5
           livenessProbe:
-            tcpSocket:
+            httpGet:
+              path: /health
               port: http
-            initialDelaySeconds: 60
-            periodSeconds: 20
+            initialDelaySeconds: 30
+            periodSeconds: 30
             timeoutSeconds: 5
 
 ---
@@ -450,7 +482,7 @@ metadata:
     originImageName: ghcr.io/firecrawl/firecrawl@sha256:3eee4a4059d78da747fc04db4649b35c0f2cdd50cb618a8e444b2e7f256b583c
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
-    docker-to-sealos.resource-override-source: "Live Sealos validation on 2026-06-11: Firecrawl API was OOMKilled at 1Gi after NUQ schema initialization; 1536Mi with NUQ_WORKER_COUNT=1 completed a POST /v1/scrape request."
+    docker-to-sealos.resource-override-source: "Live Sealos validation on 2026-06-11: Firecrawl API was OOMKilled at 1G after NUQ schema initialization; the closest valid Sealos ladder step is 1 CPU and 2G memory with NUQ_WORKER_COUNT=1."
   labels:
     app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
@@ -465,6 +497,8 @@ spec:
       labels:
         app: ${{ defaults.app_name }}
     spec:
+      imagePullSecrets:
+        - name: ${{ defaults.app_name }}
       automountServiceAccountToken: false
       securityContext:
         seccompProfile:
@@ -681,14 +715,19 @@ spec:
                 - ALL
           env:
             - name: FC_REDIS_HOST
-              value: ${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
             - name: FC_REDIS_PORT
               value: '6379'
+            - name: FC_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
           command:
             - /bin/sh
             - -ec
             - |
-              until redis-cli -h "$FC_REDIS_HOST" -p "$FC_REDIS_PORT" ping >/dev/null 2>&1; do
+              until redis-cli -h "$FC_REDIS_HOST" -p "$FC_REDIS_PORT" -a "$FC_REDIS_PASSWORD" ping >/dev/null 2>&1; do
                 sleep 2
               done
           resources:
@@ -759,14 +798,37 @@ spec:
                   key: password
             - name: POSTGRES_DB
               value: postgres
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
             - name: REDIS_URL
-              value: redis://${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local:6379
+              value: redis://:$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)
             - name: REDIS_RATE_LIMIT_URL
-              value: redis://${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local:6379
+              value: redis://:$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)
             - name: PLAYWRIGHT_MICROSERVICE_URL
               value: http://${{ defaults.app_name }}-playwright:3000/scrape
+            - name: NUQ_DATABASE_URL
+              value: postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):$(POSTGRES_PORT)/postgres
+            - name: NUQ_DATABASE_URL_LISTEN
+              value: postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):$(POSTGRES_PORT)/postgres
             - name: NUQ_RABBITMQ_URL
               value: amqp://${{ defaults.app_name }}-rabbitmq:5672
+            - name: FLY_PROCESS_GROUP
+              value: app
+            - name: IS_KUBERNETES
+              value: 'true'
+            - name: FIRECRAWL_APP_SCHEME
+              value: https
+            - name: FIRECRAWL_APP_HOST
+              value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: FIRECRAWL_APP_PORT
+              value: ''
             - name: HOST
               value: 0.0.0.0
             - name: PORT
@@ -776,7 +838,7 @@ spec:
             - name: WORKER_PORT
               value: '3005'
             - name: ENV
-              value: local
+              value: production
             - name: USE_DB_AUTHENTICATION
               value: 'false'
             - name: NUM_WORKERS_PER_QUEUE
@@ -807,30 +869,30 @@ spec:
               protocol: TCP
           resources:
             limits:
-              cpu: 1000m
-              memory: 1536Mi
+              cpu: '1'
+              memory: 2G
             requests:
               cpu: 100m
-              memory: 384Mi
+              memory: 200Mi
           startupProbe:
             httpGet:
-              path: /
+              path: /v0/health/readiness
               port: http
             failureThreshold: 30
             periodSeconds: 10
           readinessProbe:
             httpGet:
-              path: /
+              path: /v0/health/readiness
               port: http
-            initialDelaySeconds: 20
-            periodSeconds: 10
+            initialDelaySeconds: 30
+            periodSeconds: 30
             timeoutSeconds: 5
           livenessProbe:
             httpGet:
-              path: /
+              path: /v0/health/liveness
               port: http
-            initialDelaySeconds: 60
-            periodSeconds: 20
+            initialDelaySeconds: 30
+            periodSeconds: 30
             timeoutSeconds: 5
 
 ---
