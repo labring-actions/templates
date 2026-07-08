@@ -191,7 +191,7 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: SEARXNG_BASE_URL
-              value: http://${{ defaults.app_name }}-searxng:8080/
+              value: http://${{ defaults.app_name }}-searxng.${{ SEALOS_NAMESPACE }}.svc.cluster.local:8080/
           ports:
             - name: http
               containerPort: 8080
@@ -225,15 +225,19 @@ spec:
               cpu: 20m
               memory: 25Mi
           volumeMounts:
-            - name: searxng-config
+            - name: vn-etcvn-searxngvn-settingsvn-yml
               mountPath: /etc/searxng/settings.yml
-              subPath: vn-etcvn-searxngvn-settingsvn-yml
+              subPath: ./etc/searxng/settings.yml
             - name: searxng-data
               mountPath: /var/cache/searxng
       volumes:
-        - name: searxng-config
+        - name: vn-etcvn-searxngvn-settingsvn-yml
           configMap:
             name: ${{ defaults.app_name }}-searxng
+            items:
+              - key: vn-etcvn-searxngvn-settingsvn-yml
+                path: ./etc/searxng/settings.yml
+            defaultMode: 420
   volumeClaimTemplates:
     - metadata:
         name: searxng-data
@@ -289,6 +293,8 @@ spec:
         app: ${{ defaults.app_name }}
     spec:
       automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ${{ defaults.app_name }}
       containers:
         - name: ${{ defaults.app_name }}
           image: ghcr.io/pewdiepie-archdaemon/odysseus:1.0.0
@@ -298,14 +304,14 @@ spec:
             - -c
           args:
             - |
-              export CHROMADB_HOST='${{ defaults.app_name }}-chroma'
+              export CHROMADB_HOST='${{ defaults.app_name }}-chroma.${{ SEALOS_NAMESPACE }}.svc.cluster.local'
               export CHROMADB_PORT='8000'
               exec /usr/local/bin/entrypoint.sh uvicorn app:app --host 0.0.0.0 --port 7000
           env:
             - name: OPENAI_API_KEY
               value: ${{ inputs.openai_api_key }}
             - name: SEARXNG_INSTANCE
-              value: http://${{ defaults.app_name }}-searxng:8080
+              value: http://${{ defaults.app_name }}-searxng.${{ SEALOS_NAMESPACE }}.svc.cluster.local:8080
             - name: ODYSSEUS_DATA_DIR
               value: /app/data
             - name: AUTH_ENABLED
@@ -360,74 +366,31 @@ spec:
           resources:
             limits:
               cpu: 500m
-              memory: 1Gi
+              memory: 1G
             requests:
               cpu: 50m
-              memory: 102Mi
+              memory: 100Mi
           volumeMounts:
-            - name: data
+            - name: vn-appvn-data
               mountPath: /app/data
-            - name: logs
+              subPath: data
+            - name: vn-appvn-data
               mountPath: /app/logs
-            - name: ssh
+              subPath: logs
+            - name: vn-appvn-data
               mountPath: /app/.ssh
-            - name: huggingface
+              subPath: ssh
+            - name: vn-appvn-data
               mountPath: /app/.cache/huggingface
-            - name: local
+              subPath: huggingface
+            - name: vn-appvn-data
               mountPath: /app/.local
+              subPath: local
   volumeClaimTemplates:
     - metadata:
-        name: data
+        name: vn-appvn-data
         annotations:
           path: /app/data
-          value: '1'
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 1Gi
-        storageClassName: openebs-backup
-    - metadata:
-        name: logs
-        annotations:
-          path: /app/logs
-          value: '1'
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 1Gi
-        storageClassName: openebs-backup
-    - metadata:
-        name: ssh
-        annotations:
-          path: /app/.ssh
-          value: '1'
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 1Gi
-        storageClassName: openebs-backup
-    - metadata:
-        name: huggingface
-        annotations:
-          path: /app/.cache/huggingface
-          value: '1'
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 1Gi
-        storageClassName: openebs-backup
-    - metadata:
-        name: local
-        annotations:
-          path: /app/.local
           value: '1'
       spec:
         accessModes:
