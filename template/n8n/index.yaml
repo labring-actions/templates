@@ -68,23 +68,6 @@ spec:
       type: boolean
       default: 'false'
       required: false
-    use_sealos_objectstorage:
-      description: 'Provision Sealos ObjectStorage for Enterprise S3 binary data storage. Requires a valid n8n Enterprise license.'
-      type: boolean
-      default: 'false'
-      required: false
----
-${{ if(inputs.use_sealos_objectstorage === 'true') }}
----
-apiVersion: objectstorage.sealos.io/v1
-kind: ObjectStorageBucket
-metadata:
-  name: ${{ defaults.app_name }}
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-spec:
-  policy: private
-${{ endif() }}
 ---
 ${{ if(inputs.use_queue_mode === 'true') }}
 ---
@@ -367,7 +350,7 @@ metadata:
   name: ${{ defaults.app_name }}
   annotations:
     originImageName: n8nio/n8n:2.22.4
-    docker-to-sealos.resource-override-source: 'n8n official Kubernetes example sets 500Mi for the app container; existing Sealos queue-mode smoke evidence kept 1G for initial PostgreSQL migrations and workflow indexing.'
+    docker-to-sealos.resource-override-source: 'n8n official Kubernetes example sets 500Mi for the app container; existing Sealos queue-mode smoke evidence kept the 1024Mi resource ladder for initial PostgreSQL migrations and workflow indexing.'
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -525,49 +508,13 @@ spec:
             - name: DB_POSTGRESDB_DATABASE
               value: 'n8n'
             ${{ endif() }}
-            ${{ if(inputs.use_sealos_objectstorage === 'true') }}
-            - name: S3_ACCESS_KEY_ID
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key
-                  key: accessKey
-            - name: S3_SECRET_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key
-                  key: secretKey
-            - name: S3_BUCKET
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
-                  key: bucket
-            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key
-                  key: external
-            - name: N8N_AVAILABLE_BINARY_DATA_MODES
-              value: filesystem,s3
-            - name: N8N_DEFAULT_BINARY_DATA_MODE
-              value: s3
-            - name: N8N_EXTERNAL_STORAGE_S3_HOST
-              value: $(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
-            - name: N8N_EXTERNAL_STORAGE_S3_BUCKET_NAME
-              value: $(S3_BUCKET)
-            - name: N8N_EXTERNAL_STORAGE_S3_BUCKET_REGION
-              value: auto
-            - name: N8N_EXTERNAL_STORAGE_S3_ACCESS_KEY
-              value: $(S3_ACCESS_KEY_ID)
-            - name: N8N_EXTERNAL_STORAGE_S3_ACCESS_SECRET
-              value: $(S3_SECRET_ACCESS_KEY)
-            ${{ endif() }}
           resources:
             requests:
               cpu: 50m
-              memory: 100Mi
+              memory: 102Mi
             limits:
               cpu: 500m
-              memory: 1G
+              memory: 1024Mi
           ports:
             - name: http
               protocol: TCP
@@ -795,42 +742,6 @@ spec:
                   key: host
             - name: DB_POSTGRESDB_DATABASE
               value: n8n
-            ${{ if(inputs.use_sealos_objectstorage === 'true') }}
-            - name: S3_ACCESS_KEY_ID
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key
-                  key: accessKey
-            - name: S3_SECRET_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key
-                  key: secretKey
-            - name: S3_BUCKET
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
-                  key: bucket
-            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key
-                  key: external
-            - name: N8N_AVAILABLE_BINARY_DATA_MODES
-              value: filesystem,s3
-            - name: N8N_DEFAULT_BINARY_DATA_MODE
-              value: s3
-            - name: N8N_EXTERNAL_STORAGE_S3_HOST
-              value: $(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
-            - name: N8N_EXTERNAL_STORAGE_S3_BUCKET_NAME
-              value: $(S3_BUCKET)
-            - name: N8N_EXTERNAL_STORAGE_S3_BUCKET_REGION
-              value: auto
-            - name: N8N_EXTERNAL_STORAGE_S3_ACCESS_KEY
-              value: $(S3_ACCESS_KEY_ID)
-            - name: N8N_EXTERNAL_STORAGE_S3_ACCESS_SECRET
-              value: $(S3_SECRET_ACCESS_KEY)
-            ${{ endif() }}
           resources:
             requests:
               cpu: 20m

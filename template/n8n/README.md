@@ -1,6 +1,6 @@
 # Deploy and Host n8n on Sealos
 
-n8n is a workflow automation platform for connecting APIs, apps, and data workflows with a visual editor. This template deploys n8n 2.22.4 on Sealos Cloud with persistent storage, optional PostgreSQL 16.4, optional Redis-backed queue mode, and optional Sealos ObjectStorage for Enterprise S3 binary data storage.
+n8n is a workflow automation platform for connecting APIs, apps, and data workflows with a visual editor. This template deploys n8n 2.22.4 on Sealos Cloud with persistent storage, optional PostgreSQL 16.4, and optional Redis-backed queue mode.
 
 ![Application Screenshot](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/n8n/website-screenshot.webp)
 
@@ -10,7 +10,7 @@ n8n runs as a Node.js web application that serves the workflow editor, API, webh
 
 For production workloads, enable PostgreSQL during deployment. Sealos provisions PostgreSQL automatically, initializes the `n8n` database, injects connection credentials through Kubernetes secrets, and keeps workflow data persistent across restarts. For parallel workflow execution, enable queue mode; it provisions Redis, PostgreSQL, n8n workers, and external task runners.
 
-For workflows that create binary files, you can enable Sealos ObjectStorage. The template maps the managed S3-compatible bucket into n8n's official S3 binary data variables, which is useful for queue-mode deployments that need shared binary data storage. n8n requires an Enterprise license for S3 binary data mode.
+Binary files created by workflows use n8n's default filesystem storage under `/home/node/.n8n`, which is backed by the persistent volume created by this template.
 
 ## Common Use Cases
 
@@ -22,13 +22,12 @@ For workflows that create binary files, you can enable Sealos ObjectStorage. The
 
 ## Dependencies for n8n Hosting
 
-The Sealos template includes the n8n application service, 1Gi persistent storage, optional PostgreSQL for production data storage, optional Redis queue resources for worker-based execution, and optional Sealos ObjectStorage for S3 binary data storage.
+The Sealos template includes the n8n application service, 1Gi persistent storage, optional PostgreSQL for production data storage, and optional Redis queue resources for worker-based execution.
 
 ### Deployment Dependencies
 
 - [n8n Documentation](https://docs.n8n.io/) - Official n8n documentation
 - [n8n Hosting Guide](https://docs.n8n.io/hosting/) - Self-hosting and configuration guidance
-- [n8n External Storage](https://docs.n8n.io/deploy/host-n8n/configure-n8n/scaling/use-external-storage/) - S3 binary and execution data storage guidance
 - [n8n Integrations](https://docs.n8n.io/integrations/) - Available nodes and integrations
 - [PostgreSQL Documentation](https://www.postgresql.org/docs/) - Database backend documentation
 - [Redis Documentation](https://redis.io/docs/latest/) - Queue backend documentation
@@ -45,19 +44,17 @@ This template deploys these resources:
 - **PostgreSQL Init Job (optional)**: Creates the `n8n` database idempotently after PostgreSQL is ready.
 - **Redis Cluster (queue mode)**: Provides the Bull queue backend required by n8n queue execution.
 - **n8n Worker and Runners (queue mode)**: Runs workflow executions and isolated task runners separately from the editor process.
-- **Sealos ObjectStorage (optional)**: Provides an S3-compatible bucket for n8n Enterprise binary data storage.
 
 ### Resource Allocation
 
 | Component | CPU Request | CPU Limit | Memory Request | Memory Limit | Storage |
 |-----------|-------------|-----------|----------------|--------------|---------|
-| n8n | 50m | 500m | 100Mi | 1G | 1Gi |
+| n8n | 50m | 500m | 102Mi | 1024Mi | 1Gi |
 | PostgreSQL (optional) | 50m | 500m | 51Mi | 512Mi | 1Gi |
 | Redis (queue mode) | 50m | 500m | 51Mi | 512Mi | 1Gi |
 | Redis Sentinel (queue mode) | 50m | 500m | 51Mi | 512Mi | 1Gi |
 | n8n Worker (queue mode) | 20m | 200m | 51Mi | 512Mi | - |
 | n8n Runners (queue mode) | 20m | 200m | 25Mi | 256Mi | - |
-| ObjectStorage (optional) | Managed by Sealos | Managed by Sealos | Managed by Sealos | Managed by Sealos | S3 bucket |
 
 ### Configuration
 
@@ -67,7 +64,7 @@ This template deploys these resources:
 - **Port**: 5678
 - **Timezone**: Configurable during deployment
 - **Encryption key**: Generated automatically per deployment
-- **S3 binary data storage**: Optional Sealos ObjectStorage branch uses `N8N_AVAILABLE_BINARY_DATA_MODES=filesystem,s3`, `N8N_DEFAULT_BINARY_DATA_MODE=s3`, and the official `N8N_EXTERNAL_STORAGE_S3_*` variables
+- **Binary data storage**: Uses n8n's default filesystem mode on the persistent `/home/node/.n8n` volume.
 - **Startup behavior**: n8n relies on Kubernetes restarts and health probes for PostgreSQL and Redis readiness; queue workers wait for the main n8n `/healthz` endpoint so database migrations finish in the editor process first
 - **Probe profile**: Extended startup and liveness timeouts avoid restarts during database migrations
 - **Public URL**: `https://<app-host>.<region-domain>/`
@@ -85,7 +82,6 @@ Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies
 - **Persistent Storage Included**: Workflow data and local configuration survive restarts and upgrades.
 - **Optional Managed PostgreSQL**: Enable PostgreSQL for production workloads without manually wiring credentials.
 - **Queue Mode Available**: Enable Redis, workers, and task runners for parallel workflow execution.
-- **Optional Object Storage**: Enable a managed S3-compatible bucket for Enterprise binary data storage.
 - **Automatic HTTPS Access**: Sealos provides a public URL with SSL for the editor and webhook endpoints.
 - **Simple Operations**: Use the Canvas, AI dialog, and resource cards to adjust resources or inspect runtime status.
 - **Pay-as-You-Go Resources**: Start with the minimum tested resources and scale only when workflows need more capacity.
@@ -97,7 +93,6 @@ Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies
    - **Use PostgreSQL**: Enable for production workloads or multi-user usage.
    - **Timezone**: Select the timezone used by schedule and cron nodes.
    - **Use Queue Mode**: Enable Redis-backed worker execution. Queue mode also enables PostgreSQL automatically in the template.
-   - **Use Sealos ObjectStorage**: Enable for n8n Enterprise deployments that store binary data in S3.
 3. Wait for deployment to complete, typically 2-3 minutes. After deployment, you will be redirected to the Canvas. For later changes, describe your requirements in the AI dialog or click the relevant resource cards to modify settings.
 4. Access n8n from the URL shown in the Canvas.
 5. Create the first owner account when n8n opens.
@@ -117,11 +112,10 @@ After deployment, configure n8n through:
 - **Resource Cards**: Open the StatefulSet, Ingress, storage, or PostgreSQL cards in Canvas for direct changes.
 - **PostgreSQL Mode**: Enable PostgreSQL during deployment when you need a production database backend.
 - **Queue Mode**: Enable queue mode during deployment when you need worker-based parallel workflow execution with Redis.
-- **ObjectStorage Mode**: Enable Sealos ObjectStorage during deployment when your licensed n8n instance needs S3 binary data storage.
 
 ## Scaling
 
-Start with the default resource profile. The n8n editor uses the `1G` memory ladder because initial PostgreSQL migrations and workflow indexing exceed the smaller 512Mi profile in queue-mode smoke tests. Increase CPU or memory from the n8n StatefulSet resource card if workflow executions are slow, if large data items are processed, or if the UI becomes unresponsive.
+Start with the default resource profile. The n8n editor uses the `1024Mi` memory ladder because initial PostgreSQL migrations and workflow indexing exceed the smaller 512Mi profile in queue-mode smoke tests. Increase CPU or memory from the n8n StatefulSet resource card if workflow executions are slow, if large data items are processed, or if the UI becomes unresponsive.
 
 For heavier production workloads, enable PostgreSQL and monitor database storage, CPU, and memory from the Canvas. Increase PostgreSQL resources when execution history or concurrent workflows grow. Enable queue mode when workflow execution should be separated from the editor process, then monitor the worker, runner, and Redis cards.
 
@@ -142,10 +136,6 @@ Check the PostgreSQL Cluster and `pg-init` Job in Canvas. The init Job waits for
 ### Queue mode workers do not start
 
 Check the Redis Cluster, n8n Worker, and runner deployments in Canvas. Queue mode needs Redis, PostgreSQL, and the main n8n service to become ready before workers can process workflows. The worker init container waits for the main `/healthz` endpoint; temporary startup waiting is expected while services are created and migrations complete.
-
-### ObjectStorage mode exits during startup
-
-Confirm your n8n license includes Enterprise external storage. n8n's official S3 binary data mode requires a valid Enterprise license, so disable **Use Sealos ObjectStorage** or add a valid license before restarting.
 
 ### Webhooks use the wrong URL
 
