@@ -8,7 +8,7 @@ OpenClaw 是面向浏览器智能体控制台和聊天渠道自动化的 AI 智�
 
 OpenClaw 在 `18789` 端口运行 Gateway 和 Control UI。Gateway 负责智能体配置、模型提供商访问、设备配对，以及浏览器智能体工作流所需的工作空间文件。
 
-本 Sealos 模板遵循官方 Docker 与 Kubernetes 运行模型：一个 OpenClaw 容器、Gateway token 认证、`/healthz` 与 `/readyz` 探针，以及 PVC 支撑的本地状态。部署会持久化 OpenClaw 配置、工作空间数据、浏览器配对资料和包缓存。
+本 Sealos 模板遵循官方 Docker 与 Kubernetes 运行模型：一个 OpenClaw 容器、Gateway token 认证、`/healthz` 与 `/readyz` 探针，以及 PVC 支撑的本地状态。部署会持久化 OpenClaw 配置、工作空间数据和浏览器配对资料。
 
 ## 常见应用场景
 
@@ -38,7 +38,6 @@ OpenClaw 在 `18789` 端口运行 Gateway 和 Control UI。Gateway 负责智能�
 - **OpenClaw Gateway**：在 `18789` 端口提供 Control UI、WebSocket Gateway 和健康端点。
 - **状态 PVC**：挂载 `/home/node/.openclaw`，保存 `openclaw.json`、工作空间文件和智能体状态。
 - **Profile PVC**：挂载 `/home/node/.config/openclaw`，保存浏览器设备配对资料。
-- **NPM 缓存 PVC**：挂载 `/home/node/.npm`，保存 OpenClaw 扩展使用的包缓存。
 
 **配置方式：**
 
@@ -62,8 +61,8 @@ Sealos 是基于 Kubernetes 构建的 AI 云操作系统。在 Sealos 上部署 
 
 - **一键部署**：打开模板页面，填写模型提供商参数，然后部署。
 - **托管 HTTPS 访问**：Sealos 会为 Gateway 创建公网 URL 和 TLS 证书。
-- **持久化智能体状态**：PVC 会保存工作空间、配置、profile 和缓存数据。
-- **资源控制**：模板按 OpenClaw 推荐的 2 GB 内存档位映射到 Sealos resource ladder。
+- **持久化智能体状态**：PVC 会保存工作空间、配置和 profile 数据。
+- **资源控制**：模板将官方 Kubernetes 基线的 `1` CPU 和 `2Gi` 内存映射到 Sealos resource ladder。
 - **Canvas 运维**：部署后可在 Sealos Canvas 中调整环境变量、资源和副本设置。
 
 ## 部署指南
@@ -117,7 +116,7 @@ OpenClaw 使用 PVC 保存本地状态，因此模板运行一个副本。调整
 3. 使用 Sealos 资源控件调整 CPU 或内存。
 4. 应用更新并等待 Pod 进入 Ready 状态。
 
-模板默认使用 `1` CPU 和 `2G` 内存，因为官方部署指南推荐 2 GB 内存档位以获得稳定运行表现。
+模板默认使用 `1` CPU 和 `2048Mi` 内存，与官方 Kubernetes 清单及 Sealos resource ladder 保持一致。
 
 ## 故障排除
 

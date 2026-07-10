@@ -54,15 +54,126 @@ spec:
       default: claude-opus-4-6
       required: true
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-optvn-sealosvn-initvn-openclawvn-configvn-js: |
+    const fs = require('node:fs');
+    const path = require('node:path');
+
+    const stateDir = '/home/node/.openclaw';
+    const workspaceDir = path.join(stateDir, 'workspace');
+    const configPath = path.join(stateDir, 'openclaw.json');
+    const agentsPath = path.join(workspaceDir, 'AGENTS.md');
+    const publicUrl = (process.env.OPENCLAW_PUBLIC_URL || '').replace(/\/$/, '');
+    const providerKind = process.env.OPENCLAW_PROVIDER_KIND;
+    const baseUrl = process.env.OPENCLAW_PROVIDER_BASE_URL;
+    const modelId = (process.env.OPENCLAW_DEFAULT_MODEL || '')
+      .replace(/^(openai|anthropic|google)\//, '');
+
+    const providers = {
+      openai_compat: {
+        id: 'sealos-openai',
+        api: 'openai-completions',
+        apiKey: '${OPENAI_API_KEY}',
+      },
+      anthropic_compat: {
+        id: 'sealos-anthropic',
+        api: 'anthropic-messages',
+        apiKey: '${ANTHROPIC_API_KEY}',
+      },
+    };
+
+    const provider = providers[providerKind];
+    if (!provider) {
+      throw new Error(`Unsupported OPENCLAW_PROVIDER_KIND: ${providerKind}`);
+    }
+
+    fs.mkdirSync(workspaceDir, { recursive: true });
+
+    if (!fs.existsSync(configPath)) {
+      const primaryModel = `${provider.id}/${modelId}`;
+      const config = {
+        gateway: {
+          mode: 'local',
+          bind: 'lan',
+          port: 18789,
+          auth: {
+            mode: 'token',
+          },
+          controlUi: {
+            enabled: true,
+            allowedOrigins: [publicUrl],
+          },
+        },
+        models: {
+          mode: 'merge',
+          providers: {
+            [provider.id]: {
+              baseUrl,
+              apiKey: provider.apiKey,
+              api: provider.api,
+              models: [
+                {
+                  id: modelId,
+                  name: modelId,
+                  input: ['text'],
+                },
+              ],
+            },
+          },
+        },
+        agents: {
+          defaults: {
+            model: {
+              primary: primaryModel,
+            },
+            models: {
+              [primaryModel]: {
+                alias: 'Default',
+              },
+            },
+            workspace: '~/.openclaw/workspace',
+          },
+          list: [
+            {
+              id: 'default',
+              name: 'OpenClaw Assistant',
+              workspace: '~/.openclaw/workspace',
+            },
+          ],
+        },
+        cron: {
+          enabled: false,
+        },
+      };
+
+      fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+    }
+
+    if (!fs.existsSync(agentsPath)) {
+      fs.writeFileSync(agentsPath, `# OpenClaw Assistant
+
+    You are a helpful AI assistant running on Sealos.
+
+    Before proposing or building a custom system, feature, workflow, tool, integration, or automation, check for open-source projects, maintained libraries, existing OpenClaw plugins, or free platforms that solve the request well enough. Prefer existing options when they meet the need. Build custom solutions when existing options are unsuitable, too expensive, unmaintained, unsafe, non-compliant, or explicitly requested.
+    `);
+    }
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: ghcr.io/openclaw/openclaw:2026.6.11-slim
+    originImageName: openclaw/openclaw:2026.6.11-slim
     deploy.cloud.sealos.io/minReplicas: "1"
     deploy.cloud.sealos.io/maxReplicas: "1"
-    docker-to-sealos.resource-override-source: "Official OpenClaw Fly deployment documentation recommends 2GB RAM for production; official Kubernetes manifest uses 1 CPU and 2Gi limits."
+    docker-to-sealos.resource-override-source: "Official OpenClaw Kubernetes manifest sets 1 CPU and 2Gi container limits."
   labels:
     app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
@@ -79,39 +190,17 @@ spec:
         app: ${{ defaults.app_name }}
     spec:
       automountServiceAccountToken: false
-      imagePullSecrets:
-        - name: ${{ defaults.app_name }}
       securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
         fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       initContainers:
-        - name: init-openclaw-data
-          image: busybox:1.37
-          imagePullPolicy: IfNotPresent
-          command:
-            - /bin/sh
-            - -lc
-            - |
-              set -eu
-              mkdir -p /home/node/.openclaw/workspace /home/node/.config/openclaw /home/node/.npm
-              chown -R 1000:1000 /home/node/.openclaw /home/node/.config/openclaw /home/node/.npm
-          volumeMounts:
-            - name: vn-homevn-nodevn-openclaw
-              mountPath: /home/node/.openclaw
-            - name: vn-homevn-nodevn-configvn-openclaw
-              mountPath: /home/node/.config/openclaw
-            - name: vn-homevn-nodevn-npm
-              mountPath: /home/node/.npm
-          resources:
-            requests:
-              cpu: 10m
-              memory: 12Mi
-            limits:
-              cpu: 100m
-              memory: 128Mi
         - name: init-openclaw-config
-          image: ghcr.io/openclaw/openclaw:2026.6.11-slim
+          image: openclaw/openclaw:2026.6.11-slim
           imagePullPolicy: IfNotPresent
           env:
             - name: OPENCLAW_PUBLIC_URL
@@ -123,134 +212,51 @@ spec:
             - name: OPENCLAW_DEFAULT_MODEL
               value: ${{ inputs.model }}
           command:
-            - /bin/sh
-            - -lc
-            - |
-              set -eu
-
-              node <<'NODE'
-              const fs = require('node:fs');
-              const path = require('node:path');
-
-              const stateDir = '/home/node/.openclaw';
-              const workspaceDir = path.join(stateDir, 'workspace');
-              const publicUrl = (process.env.OPENCLAW_PUBLIC_URL || '').replace(/\/$/, '');
-              const providerKind = process.env.OPENCLAW_PROVIDER_KIND;
-              const baseUrl = process.env.OPENCLAW_PROVIDER_BASE_URL;
-              const modelId = (process.env.OPENCLAW_DEFAULT_MODEL || '')
-                .replace(/^(openai|anthropic|google)\//, '');
-
-              const providers = {
-                openai_compat: {
-                  id: 'sealos-openai',
-                  api: 'openai-completions',
-                  apiKey: '${OPENAI_API_KEY}',
-                },
-                anthropic_compat: {
-                  id: 'sealos-anthropic',
-                  api: 'anthropic-messages',
-                  apiKey: '${ANTHROPIC_API_KEY}',
-                },
-              };
-
-              const provider = providers[providerKind];
-              if (!provider) {
-                throw new Error(`Unsupported OPENCLAW_PROVIDER_KIND: ${providerKind}`);
-              }
-
-              const primaryModel = `${provider.id}/${modelId}`;
-              const config = {
-                gateway: {
-                  mode: 'local',
-                  bind: 'lan',
-                  port: 18789,
-                  auth: {
-                    mode: 'token',
-                  },
-                  controlUi: {
-                    enabled: true,
-                    allowedOrigins: [publicUrl],
-                  },
-                },
-                models: {
-                  mode: 'merge',
-                  providers: {
-                    [provider.id]: {
-                      baseUrl,
-                      apiKey: provider.apiKey,
-                      api: provider.api,
-                      models: [
-                        {
-                          id: modelId,
-                          name: modelId,
-                          input: ['text'],
-                        },
-                      ],
-                    },
-                  },
-                },
-                agents: {
-                  defaults: {
-                    model: {
-                      primary: primaryModel,
-                    },
-                    models: {
-                      [primaryModel]: {
-                        alias: 'Default',
-                      },
-                    },
-                    workspace: '~/.openclaw/workspace',
-                  },
-                  list: [
-                    {
-                      id: 'default',
-                      name: 'OpenClaw Assistant',
-                      workspace: '~/.openclaw/workspace',
-                    },
-                  ],
-                },
-                cron: {
-                  enabled: false,
-                },
-              };
-
-              fs.mkdirSync(workspaceDir, { recursive: true });
-              fs.writeFileSync(path.join(stateDir, 'openclaw.json'), `${JSON.stringify(config, null, 2)}\n`);
-              fs.writeFileSync(path.join(workspaceDir, 'AGENTS.md'), `# OpenClaw Assistant
-
-              You are a helpful AI assistant running on Sealos.
-
-              Before proposing or building a custom system, feature, workflow, tool, integration, or automation, check for open-source projects, maintained libraries, existing OpenClaw plugins, or free platforms that solve the request well enough. Prefer existing options when they meet the need. Build custom solutions when existing options are unsuitable, too expensive, unmaintained, unsafe, non-compliant, or explicitly requested.
-              `);
-              NODE
-
+            - node
+            - /opt/sealos/init-openclaw-config.js
           volumeMounts:
             - name: vn-homevn-nodevn-openclaw
               mountPath: /home/node/.openclaw
             - name: vn-homevn-nodevn-configvn-openclaw
               mountPath: /home/node/.config/openclaw
-            - name: vn-homevn-nodevn-npm
-              mountPath: /home/node/.npm
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /opt/sealos/init-openclaw-config.js
+              subPath: vn-optvn-sealosvn-initvn-openclawvn-configvn-js
+              readOnly: true
           securityContext:
+            runAsNonRoot: true
             runAsUser: 1000
             runAsGroup: 1000
             allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           resources:
             requests:
-              cpu: 20m
-              memory: 25Mi
+              cpu: 10m
+              memory: 12Mi
             limits:
-              cpu: 200m
-              memory: 256Mi
+              cpu: 100m
+              memory: 128Mi
       containers:
         - name: ${{ defaults.app_name }}
-          image: ghcr.io/openclaw/openclaw:2026.6.11-slim
+          image: openclaw/openclaw:2026.6.11-slim
           imagePullPolicy: IfNotPresent
           env:
             - name: HOME
               value: /home/node
+            - name: OPENCLAW_HOME
+              value: /home/node
+            - name: OPENCLAW_STATE_DIR
+              value: /home/node/.openclaw
+            - name: OPENCLAW_CONFIG_PATH
+              value: /home/node/.openclaw/openclaw.json
             - name: OPENCLAW_CONFIG_DIR
               value: /home/node/.openclaw
+            - name: OPENCLAW_WORKSPACE_DIR
+              value: /home/node/.openclaw/workspace
+            - name: OPENCLAW_DISABLE_BONJOUR
+              value: "1"
             - name: NODE_ENV
               value: production
             - name: OPENCLAW_GATEWAY_TOKEN
@@ -267,10 +273,6 @@ spec:
               value: ${{ inputs.api_key }}
             - name: ANTHROPIC_BASE_URL
               value: ${{ inputs.base_url }}
-          command:
-            - node
-            - openclaw.mjs
-            - gateway
           ports:
             - name: gateway
               containerPort: 18789
@@ -304,23 +306,31 @@ spec:
               mountPath: /home/node/.openclaw
             - name: vn-homevn-nodevn-configvn-openclaw
               mountPath: /home/node/.config/openclaw
-            - name: vn-homevn-nodevn-npm
-              mountPath: /home/node/.npm
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
             runAsGroup: 1000
             allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           resources:
             requests:
               cpu: 100m
-              memory: 200Mi
+              memory: 204Mi
             limits:
               cpu: 1
-              memory: 2G
+              memory: 2048Mi
+      volumes:
+        - name: ${{ defaults.app_name }}-cm
+          configMap:
+            name: ${{ defaults.app_name }}
   volumeClaimTemplates:
     - metadata:
         name: vn-homevn-nodevn-openclaw
+        labels:
+          app: ${{ defaults.app_name }}
+          cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
         annotations:
           path: /home/node/.openclaw
           value: '1'
@@ -331,6 +341,9 @@ spec:
             storage: 1Gi
     - metadata:
         name: vn-homevn-nodevn-configvn-openclaw
+        labels:
+          app: ${{ defaults.app_name }}
+          cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
         annotations:
           path: /home/node/.config/openclaw
           value: '0.1'
@@ -339,17 +352,6 @@ spec:
         resources:
           requests:
             storage: 103Mi
-    - metadata:
-        name: vn-homevn-nodevn-npm
-        annotations:
-          path: /home/node/.npm
-          value: '0.1'
-      spec:
-        accessModes: [ReadWriteOnce]
-        resources:
-          requests:
-            storage: 103Mi
-
 ---
 apiVersion: v1
 kind: Service

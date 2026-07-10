@@ -8,7 +8,7 @@ OpenClaw is an AI agent gateway for browser-based agent control and chat-channel
 
 OpenClaw runs a Gateway and Control UI on port `18789`. The Gateway manages agent configuration, model provider access, device pairing, and workspace files for browser-driven agent workflows.
 
-This Sealos template follows the official Docker and Kubernetes runtime model: one OpenClaw container, Gateway token authentication, `/healthz` and `/readyz` probes, and PVC-backed local state. The deployment stores OpenClaw config, workspace data, browser pairing profiles, and package cache across restarts.
+This Sealos template follows the official Docker and Kubernetes runtime model: one OpenClaw container, Gateway token authentication, `/healthz` and `/readyz` probes, and PVC-backed local state. The deployment stores OpenClaw config, workspace data, and browser pairing profiles across restarts.
 
 ## Common Use Cases
 
@@ -38,7 +38,6 @@ This template deploys one OpenClaw Gateway service:
 - **OpenClaw Gateway**: Serves the Control UI, WebSocket Gateway, and health endpoints on port `18789`.
 - **State PVC**: Mounts `/home/node/.openclaw` for `openclaw.json`, workspace files, and agent state.
 - **Profile PVC**: Mounts `/home/node/.config/openclaw` for browser device pairing profile data.
-- **NPM Cache PVC**: Mounts `/home/node/.npm` for package cache used by OpenClaw extensions.
 
 **Configuration:**
 
@@ -62,8 +61,8 @@ Sealos is an AI-assisted Cloud Operating System built on Kubernetes. By deployin
 
 - **One-Click Deployment**: Open the template page, enter the model provider values, and deploy.
 - **Managed HTTPS Access**: Sealos creates the public URL and TLS certificate for the Gateway.
-- **Persistent Agent State**: PVCs keep workspace, configuration, profile, and cache data across restarts.
-- **Resource Controls**: The template uses the OpenClaw-recommended 2 GB memory class on the Sealos resource ladder.
+- **Persistent Agent State**: PVCs keep workspace, configuration, and profile data across restarts.
+- **Resource Controls**: The template maps the official Kubernetes baseline of `1` CPU and `2Gi` memory to the Sealos resource ladder.
 - **Canvas Operations**: Adjust environment variables, resources, and replica settings from the Sealos Canvas after deployment.
 
 ## Deployment Guide
@@ -117,7 +116,7 @@ OpenClaw keeps local state in PVCs, so the template runs one replica. To adjust 
 3. Adjust CPU or memory using the Sealos resource controls.
 4. Apply the update and wait for the Pod to become Ready.
 
-The template starts with `1` CPU and `2G` memory because the official deployment guidance recommends the 2 GB memory class for reliable operation.
+The template starts with `1` CPU and `2048Mi` memory, matching the official Kubernetes manifest and the Sealos resource ladder.
 
 ## Troubleshooting
 
