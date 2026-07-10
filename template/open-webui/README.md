@@ -36,9 +36,10 @@ The Sealos template includes the Open WebUI container, a KubeBlocks PostgreSQL c
 
 This template deploys the following services:
 
-- **Open WebUI**: Web UI and backend API served from `ghcr.io/open-webui/open-webui:v0.10.2`.
+- **Open WebUI**: Web UI and backend API served from the official `openwebui/open-webui:0.10.2` image.
 - **PostgreSQL**: Managed KubeBlocks PostgreSQL `16.4` cluster used for Open WebUI's main database.
 - **PostgreSQL Init Job**: Creates the `openwebui` database idempotently before application startup.
+- **Database Readiness Gate**: Starts Open WebUI after the `openwebui` database accepts queries.
 - **Persistent Data Volume**: Stores uploaded files, caches, and local runtime files at `/app/backend/data`.
 - **Optional Object Storage**: Creates a private Sealos ObjectStorageBucket and injects S3-compatible credentials when enabled.
 
@@ -46,7 +47,7 @@ This template deploys the following services:
 
 - `WEBUI_URL` and `CORS_ALLOW_ORIGIN` are set to the Sealos public HTTPS URL.
 - `DATABASE_TYPE`, `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_USER`, `DATABASE_PASSWORD`, and `DATABASE_NAME` connect Open WebUI to PostgreSQL.
-- `OLLAMA_BASE_URL`, `OPENAI_API_BASE_URL`, and `OPENAI_API_KEY` can be supplied during deployment or configured later in the admin panel.
+- `ENABLE_OLLAMA_API` keeps Ollama polling disabled until an Ollama endpoint is configured; `OPENAI_API_BASE_URL` and `OPENAI_API_KEY` can be supplied during deployment or configured later in the admin panel.
 - Enabling `use_sealos_objectstorage` sets `STORAGE_PROVIDER=s3` and wires Sealos Object Storage credentials.
 
 **License Information:**
@@ -69,6 +70,7 @@ Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies
 
 1. Open the [Open WebUI template](https://sealos.io/products/app-store/open-webui) and click **Deploy Now**.
 2. Configure the parameters in the popup dialog:
+   - `enable_ollama_api`: Enable this together with a reachable Ollama API URL.
    - `ollama_base_url`: Optional reachable Ollama API URL.
    - `openai_api_base_url`: Optional OpenAI-compatible API base URL.
    - `openai_api_key`: Optional OpenAI-compatible API key.
@@ -78,7 +80,7 @@ Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies
 5. Register the first account from the sign-up screen. Open WebUI grants administrator privileges to the first created account.
 6. Log in with that first administrator account. Later sign-ups start in a pending state and can be approved from the administrator settings.
 7. Connect a model provider:
-   - For Ollama, open **Settings > Connections** and add the reachable Ollama base URL if it was left blank during deployment.
+   - For Ollama, enable the provider and provide its reachable base URL during deployment, or add the connection from **Settings > Connections** after login.
    - For OpenAI-compatible APIs, open **Settings > Connections** and add the API base URL and key if they were left blank during deployment.
 
 ## Configuration
@@ -100,7 +102,7 @@ To adjust resources:
 3. Adjust CPU, memory, or replica count.
 4. Apply the change in the dialog.
 
-The Open WebUI container starts with `500m` CPU and `2G` memory. Live startup validation showed the default embedding model cache download uses more than the `1G` tier, while the stable running pod settled around `833Mi`.
+The Open WebUI container starts with `500m` CPU and `4096Mi` memory. Live cold-start validation reached the `2048Mi` cgroup ceiling while loading the default embedding model; the `4096Mi` tier completed with a peak near `1.90GiB` and zero restarts.
 
 ## Troubleshooting
 

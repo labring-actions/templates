@@ -28,6 +28,11 @@ spec:
       type: string
       value: ${{ random(64) }}
   inputs:
+    enable_ollama_api:
+      description: Enable the Ollama provider at startup.
+      type: boolean
+      default: 'false'
+      required: false
     ollama_base_url:
       description: Optional Ollama API base URL, for example http://ollama-service:11434.
       type: string
@@ -220,10 +225,10 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: ghcr.io/open-webui/open-webui:v0.10.2
+    originImageName: openwebui/open-webui:0.10.2
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
-    docker-to-sealos.resource-override-source: 'Open WebUI official scaling guidance identifies PostgreSQL as the supported Kubernetes database path and documents memory pressure from default content extraction, embeddings, and SQLite cache behavior; v0.10.2 uses the next practical Sealos ladder tier for stable cold start and small-team use.'
+    docker-to-sealos.resource-override-source: 'Open WebUI v0.10.2 fresh initialization reached the 2048Mi cgroup limit while loading the default embedding model; 4096Mi is the next Sealos ladder tier and leaves stable cold-start headroom.'
   labels:
     app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
@@ -245,9 +250,52 @@ spec:
       securityContext:
         seccompProfile:
           type: RuntimeDefault
+      initContainers:
+        - name: wait-for-postgresql
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: PGHOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PGPORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PGDATABASE
+              value: openwebui
+          command:
+            - /bin/sh
+            - -ec
+            - until psql -tAc 'SELECT 1' >/dev/null 2>&1; do sleep 2; done
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
       containers:
         - name: ${{ defaults.app_name }}
-          image: ghcr.io/open-webui/open-webui:v0.10.2
+          image: openwebui/open-webui:0.10.2
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
@@ -297,6 +345,8 @@ spec:
               value: '5'
             - name: DATABASE_POOL_MAX_OVERFLOW
               value: '10'
+            - name: ENABLE_OLLAMA_API
+              value: ${{ inputs.enable_ollama_api }}
             - name: OLLAMA_BASE_URL
               value: ${{ inputs.ollama_base_url }}
             - name: ENABLE_OPENAI_API
@@ -364,10 +414,10 @@ spec:
           resources:
             limits:
               cpu: 500m
-              memory: 2G
+              memory: 4096Mi
             requests:
               cpu: 50m
-              memory: 200Mi
+              memory: 409Mi
           volumeMounts:
             - name: vn-appvn-backendvn-data
               mountPath: /app/backend/data

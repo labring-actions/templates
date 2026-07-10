@@ -45,7 +45,7 @@ Firecrawl 提供页面抓取、站点爬取和内容提取 API，适合 AI 工�
 - 模板自动生成 `BULL_AUTH_KEY`，用于队列管理路径。
 - PostgreSQL、Redis、RabbitMQ 和 Playwright URL 由模板内部连接，并使用托管凭据。
 - PostgreSQL 初始化步骤会创建 Firecrawl 自托管队列 worker 所需的 NUQ schema。
-- Firecrawl API 使用 `NUQ_WORKER_COUNT=1`、`1` CPU 上限和 `2G` 内存上限，这是根据线上 Sealos 验证和 Sealos 资源阶梯确定的配置。
+- Firecrawl API 使用 `NUQ_WORKER_COUNT=1`、`1` CPU 上限和 `2048Mi` 内存上限，这是根据线上 Sealos 验证和 Sealos 资源阶梯确定的配置。
 - 对象存储未内置，因为 Firecrawl 官方自托管 Docker 与 Kubernetes 部署文档没有定义必需的 S3 兼容运行配置。
 
 **许可证信息：**

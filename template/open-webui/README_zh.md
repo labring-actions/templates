@@ -36,9 +36,10 @@ Open WebUI 作为单个应用服务运行，通过 `8080` 端口提供 Web 界�
 
 此模板会部署以下服务：
 
-- **Open WebUI**：使用 `ghcr.io/open-webui/open-webui:v0.10.2` 提供 Web UI 和后端 API。
+- **Open WebUI**：使用官方 `openwebui/open-webui:0.10.2` 镜像提供 Web UI 和后端 API。
 - **PostgreSQL**：托管 KubeBlocks PostgreSQL `16.4` 集群，用作 Open WebUI 主数据库。
 - **PostgreSQL 初始化任务**：在应用启动前幂等创建 `openwebui` 数据库。
+- **数据库就绪门**：等待 `openwebui` 数据库可执行查询后再启动 Open WebUI。
 - **持久化数据卷**：在 `/app/backend/data` 保存上传文件、缓存和本地运行时文件。
 - **可选对象存储**：启用后创建私有 Sealos ObjectStorageBucket，并注入 S3 兼容凭据。
 
@@ -46,7 +47,7 @@ Open WebUI 作为单个应用服务运行，通过 `8080` 端口提供 Web 界�
 
 - `WEBUI_URL` 和 `CORS_ALLOW_ORIGIN` 会设置为 Sealos 公网 HTTPS 地址。
 - `DATABASE_TYPE`、`DATABASE_HOST`、`DATABASE_PORT`、`DATABASE_USER`、`DATABASE_PASSWORD` 和 `DATABASE_NAME` 会连接到 PostgreSQL。
-- `OLLAMA_BASE_URL`、`OPENAI_API_BASE_URL` 和 `OPENAI_API_KEY` 可在部署时填写，也可登录后在管理员面板中配置。
+- `ENABLE_OLLAMA_API` 会在 Ollama 端点配置完成前关闭轮询；`OPENAI_API_BASE_URL` 和 `OPENAI_API_KEY` 可在部署时填写，也可登录后在管理员面板中配置。
 - 启用 `use_sealos_objectstorage` 后，模板会设置 `STORAGE_PROVIDER=s3` 并接入 Sealos 对象存储凭据。
 
 **许可证信息：**
@@ -69,6 +70,7 @@ Sealos 是基于 Kubernetes 的 AI 辅助云操作系统，统一管理部署、
 
 1. 打开 [Open WebUI 模板](https://sealos.io/products/app-store/open-webui)，点击 **Deploy Now**。
 2. 在弹窗中配置参数：
+   - `enable_ollama_api`：配置可访问的 Ollama API 地址时一并启用。
    - `ollama_base_url`：可选的 Ollama API 地址。
    - `openai_api_base_url`：可选的 OpenAI 兼容 API 地址。
    - `openai_api_key`：可选的 OpenAI 兼容 API Key。
@@ -78,7 +80,7 @@ Sealos 是基于 Kubernetes 的 AI 辅助云操作系统，统一管理部署、
 5. 在注册页面创建第一个账号。Open WebUI 会授予首个账号管理员权限。
 6. 使用该管理员账号登录。后续注册账号会进入待审批状态，可在管理员设置中批准。
 7. 连接模型提供方：
-   - 使用 Ollama 时，打开 **Settings > Connections**，添加可访问的 Ollama Base URL。
+   - 使用 Ollama 时，在部署阶段启用提供方并填写可访问的 Base URL，或登录后通过 **Settings > Connections** 添加连接。
    - 使用 OpenAI 兼容 API 时，打开 **Settings > Connections**，添加 API Base URL 和 Key。
 
 ## 配置
@@ -100,7 +102,7 @@ Sealos 是基于 Kubernetes 的 AI 辅助云操作系统，统一管理部署、
 3. 调整 CPU、内存或副本数。
 4. 在对话框中应用变更。
 
-Open WebUI 容器默认使用 `500m` CPU 和 `2G` 内存。现场启动验证中，默认 embedding 模型缓存下载会超过 `1G` 档位，稳定运行后 Pod 约为 `833Mi`。
+Open WebUI 容器默认使用 `500m` CPU 和 `4096Mi` 内存。现场冷启动验证中，加载默认 embedding 模型时触及 `2048Mi` cgroup 上限；`4096Mi` 档位的峰值约为 `1.90GiB`，且容器零重启。
 
 ## 故障排查
 

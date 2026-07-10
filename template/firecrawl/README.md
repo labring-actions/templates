@@ -45,7 +45,7 @@ The Sealos template includes the Firecrawl API and worker harness container, Pla
 - `BULL_AUTH_KEY` is generated automatically for the queue admin path.
 - PostgreSQL, Redis, RabbitMQ, and Playwright URLs are wired internally by the template with managed credentials.
 - The PostgreSQL init step creates the NUQ schema required by Firecrawl's self-hosted queue workers.
-- The Firecrawl API runs with `NUQ_WORKER_COUNT=1`, a `1` CPU limit, and a `2G` memory limit based on live Sealos validation and the Sealos resource ladder.
+- The Firecrawl API runs with `NUQ_WORKER_COUNT=1`, a `1` CPU limit, and a `2048Mi` memory limit based on live Sealos validation and the Sealos resource ladder.
 - Object storage is not provisioned because the official Firecrawl self-hosted Docker and Kubernetes deployment docs do not define required S3-compatible runtime settings.
 
 **License Information:**
