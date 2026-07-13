@@ -10,6 +10,8 @@ n8n runs as a Node.js web application that serves the workflow editor, API, webh
 
 For production workloads, enable PostgreSQL during deployment. Sealos provisions PostgreSQL automatically, initializes the `n8n` database, injects connection credentials through Kubernetes secrets, and keeps workflow data persistent across restarts. For parallel workflow execution, enable queue mode; it provisions Redis, PostgreSQL, n8n workers, and external task runners.
 
+Binary files created by workflows use n8n's default filesystem storage under `/home/node/.n8n`, which is backed by the persistent volume created by this template.
+
 ## Common Use Cases
 
 - **API Integration**: Connect SaaS tools, internal APIs, and databases without writing glue code.
@@ -62,6 +64,7 @@ This template deploys these resources:
 - **Port**: 5678
 - **Timezone**: Configurable during deployment
 - **Encryption key**: Generated automatically per deployment
+- **Binary data storage**: Uses n8n's default filesystem mode on the persistent `/home/node/.n8n` volume.
 - **Startup behavior**: n8n relies on Kubernetes restarts and health probes for PostgreSQL and Redis readiness; queue workers wait for the main n8n `/healthz` endpoint so database migrations finish in the editor process first
 - **Probe profile**: Extended startup and liveness timeouts avoid restarts during database migrations
 - **Public URL**: `https://<app-host>.<region-domain>/`
@@ -96,7 +99,7 @@ Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies
 
 ## Login and Registration
 
-n8n does not include a default username or password. On first access, the setup screen asks you to create the owner account with an email, name, and password.
+On first access, the setup screen asks you to create the owner account with an email, name, and password.
 
 After the owner account is created, use the same email and password on the n8n sign-in page. To add teammates later, invite users from n8n user management settings after logging in as the owner.
 
@@ -112,7 +115,7 @@ After deployment, configure n8n through:
 
 ## Scaling
 
-Start with the default resource profile. The n8n editor uses 1024Mi memory because initial PostgreSQL migrations and workflow indexing exceed the smaller 512Mi profile in queue-mode smoke tests. Increase CPU or memory from the n8n StatefulSet resource card if workflow executions are slow, if large data items are processed, or if the UI becomes unresponsive.
+Start with the default resource profile. The n8n editor uses the `1024Mi` memory ladder because initial PostgreSQL migrations and workflow indexing exceed the smaller 512Mi profile in queue-mode smoke tests. Increase CPU or memory from the n8n StatefulSet resource card if workflow executions are slow, if large data items are processed, or if the UI becomes unresponsive.
 
 For heavier production workloads, enable PostgreSQL and monitor database storage, CPU, and memory from the Canvas. Increase PostgreSQL resources when execution history or concurrent workflows grow. Enable queue mode when workflow execution should be separated from the editor process, then monitor the worker, runner, and Redis cards.
 
@@ -120,7 +123,7 @@ For heavier production workloads, enable PostgreSQL and monitor database storage
 
 ### First page asks for account setup
 
-This is expected. Create the owner account on first access; there is no default admin credential.
+This is expected. Create the owner account on first access.
 
 ### Scheduled workflows run in the wrong timezone
 

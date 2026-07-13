@@ -1,14 +1,14 @@
 # Deploy and Host Firecrawl on Sealos
 
-Firecrawl is a self-hosted web crawling and scraping API that turns websites into clean, LLM-ready data. This template deploys Firecrawl with PostgreSQL, Redis, RabbitMQ, a Playwright rendering service, and public HTTPS access on Sealos Cloud.
+Firecrawl is a self-hosted web crawling and scraping API that turns websites into clean, LLM-ready data. This template deploys Firecrawl with managed PostgreSQL, managed Redis, RabbitMQ, a Playwright rendering service, and public HTTPS access on Sealos Cloud.
 
 ![Firecrawl Screenshot](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/firecrawl/website-screenshot.webp)
 
 ## About Hosting Firecrawl
 
-Firecrawl provides API endpoints for scraping pages, crawling sites, and extracting content for AI workflows. The API service coordinates jobs, Redis stores queue and rate-limit state, RabbitMQ brokers background work, PostgreSQL stores Firecrawl data, and Playwright handles browser-rendered pages.
+Firecrawl provides API endpoints for scraping pages, crawling sites, and extracting content for AI workflows. The API service runs Firecrawl's self-hosted API and worker harness, Redis stores queue and rate-limit state, RabbitMQ brokers background work, PostgreSQL stores Firecrawl and NUQ data, and Playwright handles browser-rendered pages.
 
-This Sealos template follows the official self-hosted topology while using Kubernetes-native services and managed database resources. Authentication is disabled by default for self-hosted API usage, matching Firecrawl's local self-hosting guidance.
+This Sealos template follows the official self-hosted topology while using Kubernetes-native services and managed database resources. API authentication is disabled by default for self-hosted usage, matching Firecrawl's guidance that API keys are optional for SDKs that point at a self-hosted instance.
 
 ## Common Use Cases
 
@@ -19,7 +19,7 @@ This Sealos template follows the official self-hosted topology while using Kuber
 
 ## Dependencies for Firecrawl Hosting
 
-The Sealos template includes the Firecrawl API container, Playwright service, PostgreSQL 16, Redis 7, RabbitMQ, internal Services, HTTPS Ingress, and App resources.
+The Sealos template includes the Firecrawl API and worker harness container, Playwright service, PostgreSQL 16, Redis 7, RabbitMQ, internal Services, HTTPS Ingress, and App resources.
 
 ### Deployment Dependencies
 
@@ -32,10 +32,10 @@ The Sealos template includes the Firecrawl API container, Playwright service, Po
 
 **Architecture Components:**
 
-- **Firecrawl API**: Public API service on port `3002`.
+- **Firecrawl API and Worker Harness**: Public API service on port `3002`, running the official self-hosted harness with reduced internal worker concurrency for Sealos.
 - **Playwright Service**: Internal rendering service used for browser-based scraping.
 - **PostgreSQL Cluster**: Stores Firecrawl application data and the NUQ queue schema.
-- **Redis StatefulSet**: Stores queue and rate-limit state.
+- **Redis Cluster**: KubeBlocks-managed Redis stores queue and rate-limit state.
 - **RabbitMQ StatefulSet**: Provides the AMQP broker required by Firecrawl's job harness.
 - **Ingress and App Entry**: Exposes the Firecrawl API through the generated Sealos HTTPS URL.
 
@@ -43,9 +43,10 @@ The Sealos template includes the Firecrawl API container, Playwright service, Po
 
 - Optional `openai_api_key`, `openai_base_url`, and `model_name` inputs enable AI extraction features.
 - `BULL_AUTH_KEY` is generated automatically for the queue admin path.
-- PostgreSQL, Redis, RabbitMQ, and Playwright URLs are wired internally by the template.
+- PostgreSQL, Redis, RabbitMQ, and Playwright URLs are wired internally by the template with managed credentials.
 - The PostgreSQL init step creates the NUQ schema required by Firecrawl's self-hosted queue workers.
-- The Firecrawl API runs with `NUQ_WORKER_COUNT=1` and a `1536Mi` memory limit based on live Sealos validation.
+- The Firecrawl API runs with `NUQ_WORKER_COUNT=1`, a `1` CPU limit, and a `2048Mi` memory limit based on live Sealos validation and the Sealos resource ladder.
+- Object storage is not provisioned because the official Firecrawl self-hosted Docker and Kubernetes deployment docs do not define required S3-compatible runtime settings.
 
 **License Information:**
 
@@ -61,7 +62,7 @@ Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies
 2. Configure optional OpenAI-compatible model settings if you need AI extraction.
 3. Wait for deployment to complete, typically 3-5 minutes while PostgreSQL, Redis, RabbitMQ, and Playwright become ready. After deployment, you will be redirected to the Canvas. For later changes, describe your requirements in the AI dialog, or click the relevant resource cards to modify settings.
 4. Use the generated public URL as your Firecrawl API base URL.
-5. Test API availability with a `/v1/scrape` or `/v1/crawl` request from your client. The default template disables API authentication for self-hosted use.
+5. Test API availability with a `/v1/scrape` or `/v1/crawl` request from your client. The default template disables API authentication for self-hosted use, so SDK API keys are optional unless you later enable Firecrawl database-backed authentication.
 
 ## Configuration
 
@@ -71,6 +72,7 @@ After deployment, configure Firecrawl through:
 - **AI Dialog**: Update environment variables such as model settings or concurrency values.
 - **Resource Cards**: Adjust API, Playwright, RabbitMQ, Redis, or PostgreSQL resources from the Canvas.
 - **Queue Admin Path**: Use the generated `BULL_AUTH_KEY` if you expose and inspect the Bull queue admin route.
+- **Login and API Keys**: Firecrawl is an API-first service in this template. There is no browser login screen, and self-hosted SDK usage can omit API keys while `USE_DB_AUTHENTICATION=false`.
 
 ## Scaling
 
