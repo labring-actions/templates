@@ -1,225 +1,122 @@
 # Deploy and Host Strapi on Sealos
 
-Strapi is the leading open-source headless CMS, built with 100% JavaScript/TypeScript and fully customizable. This template provides one-click deployment of a production-ready Strapi instance with PostgreSQL database backend, enabling you to build powerful content management systems and APIs with minimal setup on Sealos Cloud.
+Strapi is an open-source headless CMS for creating content models, managing content, and serving REST APIs. This template builds Strapi 5.50.1 with Node.js 22 and runs it in production mode on Sealos Cloud.
+
+![Strapi Screenshot](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/strapi/website-screenshot.webp)
 
 ## About Hosting Strapi
 
-Strapi runs as a Node.js application that provides both a powerful admin panel for content management and RESTful/GraphQL APIs for content delivery. The headless architecture separates content management from presentation, allowing you to use Strapi as a backend for websites, mobile apps, IoT devices, or any other platform that consumes content via APIs.
+Strapi provides an administration interface for editors and an API layer for websites, mobile apps, and other clients. Its project files, SQLite data, and local media uploads share persistent application storage, so they survive pod restarts.
 
-The Sealos template automatically provisions a PostgreSQL database for persistent content storage, configures all necessary environment variables including security tokens, and sets up persistent storage for uploaded media files and application data. The deployment includes an init container that handles the initial build process, ensuring your Strapi admin panel is ready to use immediately after deployment.
+The template offers two independent storage choices. PostgreSQL 16 is the default production database, while SQLite provides a compact single-instance option. Media can use persistent local storage or a private Sealos Object Storage bucket through Strapi's AWS S3 upload provider.
 
 ## Common Use Cases
 
-- **Headless CMS for Websites**: Power modern JAMstack websites with a flexible content backend
-- **Mobile App Backend**: Provide content APIs for iOS, Android, and cross-platform mobile applications
-- **Multi-Channel Content Delivery**: Manage content once and deliver it across web, mobile, IoT, and other platforms
-- **Custom API Development**: Build RESTful or GraphQL APIs with a visual content type builder
-- **E-commerce Product Management**: Manage product catalogs, descriptions, and media assets
-- **Blog and Publication Platforms**: Create content-rich publishing systems with custom workflows
-- **Internal Tools and Dashboards**: Build admin panels and internal applications with rapid development
+- **Website CMS**: Manage structured content for frontend frameworks and static sites
+- **Mobile Backend**: Publish content through REST APIs
+- **Product Catalog**: Model products, categories, media, and relationships
+- **Editorial Platform**: Give content teams a dedicated administration workflow
+- **Internal API**: Build custom content APIs with role-based access control
 
 ## Dependencies for Strapi Hosting
 
-The Sealos template includes all required components: Strapi application server and PostgreSQL database with automatic initialization.
+The template includes a digest-pinned Node.js 22 runtime, a verified Strapi 5.50.1 package lock, persistent application storage, and optional managed PostgreSQL and Object Storage resources.
 
 ### Deployment Dependencies
 
-- [Strapi Documentation](https://docs.strapi.io/) - Official Strapi documentation
-- [Strapi Quickstart Guide](https://docs.strapi.io/dev-docs/quick-start) - Getting started with Strapi development
-- [Strapi API Reference](https://docs.strapi.io/dev-docs/api/rest) - REST and GraphQL API documentation
-- [PostgreSQL Documentation](https://www.postgresql.org/docs/) - Database backend documentation
+- [Strapi Documentation](https://docs.strapi.io/) - Product and developer documentation
+- [Strapi Deployment Guide](https://docs.strapi.io/cms/deployment) - Production deployment guidance
+- [Strapi AWS S3 Provider](https://docs.strapi.io/cms/configurations/media-library-providers#amazon-s3) - S3 upload provider configuration
+- [PostgreSQL Documentation](https://www.postgresql.org/docs/16/) - PostgreSQL 16 documentation
 
 ## Implementation Details
 
 ### Architecture Components
 
-This template deploys two interconnected services:
+- **Strapi Application**: Strapi 5.50.1 installed with `npm ci`, built, and started with a digest-pinned Node.js 22 image
+- **Application Storage**: A 1Gi persistent volume for project files, SQLite data, and local uploads
+- **Dependency Storage**: A separate 1Gi persistent volume populated from the verified dependency archive on each cold start
+- **PostgreSQL 16**: An independent KubeBlocks database when `use_postgresql` is enabled
+- **Sealos Object Storage**: A private bucket and managed credentials when `enable_s3_storage` is enabled
+- **Ingress**: HTTPS access to the admin interface and content APIs
 
-- **PostgreSQL Database**: Persistent data storage for content and configuration
-  - Version: PostgreSQL 14.8.0
-  - Persistent storage: 1Gi
-  - Automatic database initialization with 'strapi' database
-  - Connection credentials managed via Kubernetes secrets
+### Configuration Choices
 
-- **Strapi Application**: Headless CMS server with admin panel
-  - Version: Strapi 5.33.0
-  - Web UI: Port 1337 (exposed via Ingress with SSL)
-  - Admin panel: `/admin` path
-  - API endpoints: `/api` path
-  - Persistent storage: 2Gi for application data, 1Gi for npm cache
-  - Init container for automatic build process
+| Input | Default | Result |
+| --- | --- | --- |
+| `admin_email` | User supplied | Creates the initial administrator before public startup |
+| `admin_password` | User supplied | Sets the required initial administrator password |
+| `admin_firstname` | `Admin` | Sets the initial administrator first name |
+| `admin_lastname` | `User` | Sets the initial administrator last name |
+| `use_postgresql` | `true` | Uses the managed PostgreSQL 16 database |
+| `use_postgresql` | `false` | Uses SQLite at `.tmp/data.db` on persistent storage |
+| `enable_s3_storage` | `false` | Stores uploads in `public/uploads` on persistent storage |
+| `enable_s3_storage` | `true` | Uses a private Sealos Object Storage bucket through the AWS S3 provider |
 
-**Resource Allocation:**
-
-| Component | CPU Request | CPU Limit | Memory Request | Memory Limit |
-|-----------|-------------|-----------|----------------|--------------|
-| Strapi (Runtime) | 100m | 1000m | 25Mi | 256Mi |
-| Strapi (Init Build) | 200m | 2000m | 307Mi | 3072Mi |
-| PostgreSQL | 50m | 500m | 51Mi | 512Mi |
-
-### Environment Configuration
-
-The template automatically configures Strapi with the following settings:
-
-**Database Configuration:**
-- Client: PostgreSQL
-- Connection: Automatic via Kubernetes secrets
-- Database name: `strapi`
-- SSL: Disabled (internal cluster communication)
-
-**Security Tokens:**
-All security tokens are automatically generated with cryptographically secure random values:
-- JWT Secret: 32-character random string
-- Admin JWT Secret: 32-character random string
-- App Keys: 4 x 32-character random strings
-- API Token Salt: 32-character random string
-- Transfer Token Salt: 32-character random string
-
-**Public URLs:**
-- Admin URL: `https://<app-host>.<domain>/admin`
-- Public URL: `https://<app-host>.<domain>`
-- CORS: Configured for your deployment domain
-
-### Deployment Process
-
-The deployment includes a two-stage initialization:
-
-1. **Database Initialization Job**: Creates the `strapi` database in PostgreSQL
-2. **Application Init Container**: Builds the Strapi admin panel before the main container starts
-3. **Main Container**: Runs Strapi in production or development mode
-
-This ensures your Strapi instance is fully ready to use immediately after deployment completes.
+The template generates Strapi's application keys, JWT secrets, token salts, and `ENCRYPTION_KEY` during deployment. It creates the initial administrator inside the build init container before the public application becomes Ready. Strapi consumes the KubeBlocks-managed PostgreSQL connection secret directly. A least-privilege Job and CronJob track that secret's revision and restart only the Strapi Pod after credential rotation. Object Storage credentials come from Sealos-managed secrets.
 
 ## Why Deploy Strapi on Sealos?
 
-Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies the entire application lifecycle, from development in cloud IDEs to production deployment and management. By deploying Strapi on Sealos, you get:
+Sealos is a Kubernetes-based cloud operating system that manages application resources through a visual Canvas and AI-assisted operations. This Strapi deployment provides:
 
-- **One-Click Deployment**: Deploy a complete Strapi CMS with PostgreSQL database in seconds. No complex configuration or Kubernetes expertise required.
-- **Pre-Configured Database**: PostgreSQL is automatically provisioned, initialized, and connected to Strapi with secure credentials.
-- **Automatic Build Process**: The init container handles the Strapi admin panel build, so you can start creating content immediately.
-- **Persistent Storage**: Built-in persistent storage ensures your content, media uploads, and configuration survive restarts and updates.
-- **Secure Public Access**: Strapi gets automatic public URL with SSL certificate, allowing secure access to both admin panel and APIs.
-- **Environment Flexibility**: Choose between production and development modes to match your workflow.
-- **Easy Scaling**: Adjust resources through intuitive forms as your content and traffic grow.
-- **Automatic Security**: All security tokens are generated automatically with cryptographically secure random values.
-
-Deploy Strapi on Sealos and focus on building great content experiences instead of managing infrastructure.
+- **One-Click Deployment**: Provision the application and selected managed services from one form
+- **Persistent Data**: Keep project files, SQLite data, and local uploads across restarts
+- **Managed Services**: Add PostgreSQL 16 and private Object Storage through explicit options
+- **Secure Public Access**: Receive an HTTPS endpoint and managed certificate
+- **Resource Control**: Adjust CPU, memory, and storage from the Canvas
+- **Pay-as-You-Go Resources**: Allocate the services required by the selected architecture
 
 ## Deployment Guide
 
-1. Visit [Strapi Template Page](https://sealos.io/products/app-store/strapi)
-2. Click the "Deploy Now" button
-3. Select your Node environment mode:
-   - **Production** (recommended): Optimized for performance and stability
-   - **Development**: Enables hot-reload and development features
-4. Wait for deployment to complete (typically 2-3 minutes, including build process)
-5. Access Strapi via the provided URL (shown in the canvas)
-6. Create your admin account on first access to the admin panel
+1. Open the [Strapi template](https://sealos.io/products/app-store/strapi) and click **Deploy Now**.
+2. Enter the initial administrator email, password, first name, and last name. The password must contain uppercase, lowercase, number, and special characters.
+3. Keep PostgreSQL enabled for a production database, or clear it for persistent SQLite.
+4. Enable Sealos Object Storage for S3-backed media, or keep local persistent uploads.
+5. Submit the form and wait for deployment to complete. The first verified dependency install and administration build can take several minutes.
+6. Open the application URL at `/admin/auth/login` and sign in with the administrator credentials from the deployment form.
+
+## Login
+
+The template creates the first Strapi administrator before the application Service becomes Ready, which closes the public first-user registration window. Sign in at `/admin/auth/login` with the `admin_email` and `admin_password` values supplied during deployment. Store these credentials in a password manager; later administrators can be managed from the Strapi administration interface.
 
 ## Configuration
 
-After deployment, you can customize your Strapi instance:
+After deployment, use the Strapi administration interface to manage content entries, configure roles, and generate API tokens. Strapi's Content-Type Builder runs in development mode, so production content-model changes should be prepared in project code and deployed through a controlled build. The main endpoints are:
 
-### Initial Setup
+| Endpoint | Purpose |
+| --- | --- |
+| `/admin/auth/login` | Sign in to the administration interface |
+| `/admin` | Open the administration interface |
+| `/api` | Access generated REST endpoints |
+| `/_health` | Check application health |
 
-1. **Create Admin Account**: On first access to `/admin`, you'll be prompted to create an administrator account
-2. **Configure Content Types**: Use the Content-Type Builder to define your data models
-3. **Set Permissions**: Configure role-based access control for API endpoints
-4. **Upload Media**: Use the Media Library to manage images, videos, and other assets
-
-### Resource Scaling
-
-Adjust resources in the canvas based on your needs:
-- **CPU/Memory**: Increase for better performance with high traffic or complex content types
-- **Storage**: Expand application storage for more media uploads and content
-
-### API Configuration
-
-Strapi provides both REST and GraphQL APIs:
-- REST API: `https://<app-host>.<domain>/api`
-- GraphQL API: `https://<app-host>.<domain>/graphql` (requires GraphQL plugin)
-
-### Service Endpoints
-
-| Service | Endpoint | Purpose |
-|---------|----------|---------|
-| Admin Panel | `https://<app-host>.<domain>/admin` | Content management interface |
-| REST API | `https://<app-host>.<domain>/api` | RESTful API endpoints |
-| GraphQL | `https://<app-host>.<domain>/graphql` | GraphQL API (if enabled) |
-| PostgreSQL | `<app-name>-pg-postgresql.<namespace>.svc:5432` | Database (internal) |
+Use the Sealos Canvas AI dialog or resource cards for later resource changes. Keep one Strapi replica when using SQLite or local uploads because those modes use a single persistent volume.
 
 ## Troubleshooting
 
-### Common Issues
+### The Admin Page Is Still Starting
 
-**Issue 1: Admin Panel Not Loading**
-- Cause: Build process may still be running or failed
-- Solution: Check the init container logs in the Terminal. The build process can take 1-2 minutes on first deployment. If the build failed, check resource limits and try redeploying.
+The first deployment verifies the embedded package lock, runs `npm ci`, creates the initial administrator, packs runtime dependencies, and builds the administration interface. Check the `strapi-build` and `strapi-runtime-deps` init-container logs in the Canvas and allow both stages to finish.
 
-**Issue 2: Database Connection Errors**
-- Cause: PostgreSQL not ready or connection credentials incorrect
-- Solution: Verify the PostgreSQL cluster is running in the canvas. Check that the `strapi` database was created by examining the init job logs. The connection is automatic via Kubernetes secrets.
+### PostgreSQL Startup Fails
 
-**Issue 3: Media Upload Failures**
-- Cause: Storage full or permission issues
-- Solution: Increase the application storage allocation in the canvas. Default is 2Gi for application data.
+Confirm the PostgreSQL resource reaches the running state. The idempotent `pg-init` Job creates the `strapi` database through the generated connection secret, and the `wait-postgresql` init container gates application startup until that database is ready.
 
-**Issue 4: API Endpoints Return 403 Forbidden**
-- Cause: Permissions not configured for public access
-- Solution: In the Strapi admin panel, go to Settings → Roles → Public, and enable permissions for the endpoints you want to expose publicly.
+### Media Uploads Fail
 
-**Issue 5: Slow Performance**
-- Cause: Insufficient resources for your content volume
-- Solution: Increase CPU and memory allocation in the canvas. Consider upgrading from the default 1000m CPU / 256Mi memory limits.
+For local uploads, confirm the application volume has free capacity. For Object Storage, confirm the bucket resource and its generated bucket secret are ready.
+
+### API Requests Return 403
+
+Configure the required permissions under **Settings > Users & Permissions plugin > Roles** in the Strapi administration interface.
 
 ### Getting Help
 
 - [Strapi Documentation](https://docs.strapi.io/)
+- [Strapi GitHub Issues](https://github.com/strapi/strapi/issues)
 - [Strapi Community Forum](https://forum.strapi.io/)
-- [Strapi Discord](https://discord.strapi.io/)
-- [Sealos Discord Community](https://discord.gg/wdUn538zVP)
-
-## Additional Resources
-
-- [Strapi Content-Type Builder](https://docs.strapi.io/user-docs/content-type-builder) - Creating custom content types
-- [Strapi API Documentation](https://docs.strapi.io/dev-docs/api/rest) - REST and GraphQL API reference
-- [Strapi Plugins](https://market.strapi.io/) - Extend Strapi with community plugins
-- [Strapi Deployment Guide](https://docs.strapi.io/dev-docs/deployment) - Advanced deployment configurations
-- [PostgreSQL Best Practices](https://wiki.postgresql.org/wiki/Don%27t_Do_This) - Database optimization tips
-
-## Development Workflow
-
-### Connecting Your Frontend
-
-To connect your frontend application to Strapi APIs:
-
-```javascript
-// Example: Fetching content from Strapi REST API
-const response = await fetch('https://<app-host>.<domain>/api/articles?populate=*', {
-  headers: {
-    'Authorization': 'Bearer YOUR_API_TOKEN'
-  }
-});
-const data = await response.json();
-```
-
-### Creating API Tokens
-
-1. Go to Settings → API Tokens in the admin panel
-2. Click "Create new API Token"
-3. Set token name, type (Read-only, Full access, Custom), and duration
-4. Copy the generated token (shown only once)
-5. Use the token in your application's API requests
-
-### Custom Development
-
-For custom plugin development or extending Strapi:
-
-1. Switch to development mode by updating the `node_env` input to `development`
-2. Access the application storage via the canvas to modify code
-3. Changes will hot-reload automatically in development mode
-4. Switch back to production mode for optimal performance
+- [Sealos Discord](https://discord.gg/wdUn538zVP)
 
 ## License
 
-This Sealos template is provided under MIT License. Strapi is provided under its own license - see [Strapi License](https://github.com/strapi/strapi/blob/develop/LICENSE) for details.
+This Sealos template is provided under the MIT License. Strapi uses its own licensing terms; see the [Strapi license](https://github.com/strapi/strapi/blob/develop/LICENSE) for details.

@@ -1,225 +1,122 @@
-# Deploy and Host Strapi on Sealos
+# 在 Sealos 上部署和托管 Strapi
 
-Strapi is the leading open-source headless CMS, built with 100% JavaScript/TypeScript and fully customizable. This template provides one-click deployment of a production-ready Strapi instance with PostgreSQL database backend, enabling you to build powerful content management systems and APIs with minimal setup on Sealos Cloud.
+Strapi 是一款开源无头内容管理系统，可用于创建内容模型、管理内容，并提供 REST API。本模板使用 Node.js 22 构建 Strapi 5.50.1，并在 Sealos 云上以生产模式运行。
 
-## About Hosting Strapi
+![Strapi 截图](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/strapi/website-screenshot.webp)
 
-Strapi runs as a Node.js application that provides both a powerful admin panel for content management and RESTful/GraphQL APIs for content delivery. The headless architecture separates content management from presentation, allowing you to use Strapi as a backend for websites, mobile apps, IoT devices, or any other platform that consumes content via APIs.
+## 关于 Strapi 托管
 
-The Sealos template automatically provisions a PostgreSQL database for persistent content storage, configures all necessary environment variables including security tokens, and sets up persistent storage for uploaded media files and application data. The deployment includes an init container that handles the initial build process, ensuring your Strapi admin panel is ready to use immediately after deployment.
+Strapi 为内容编辑者提供管理界面，同时为网站、移动应用和其他客户端提供 API。项目文件、SQLite 数据和本地媒体文件共享持久化应用存储，Pod 重启后数据仍会保留。
 
-## Common Use Cases
+模板提供两组独立的存储选项。PostgreSQL 16 是默认生产数据库，SQLite 适合精简的单实例部署；媒体文件可存放在本地持久卷中，也可通过 Strapi 的 AWS S3 上传提供商写入 Sealos 私有对象存储桶。
 
-- **Headless CMS for Websites**: Power modern JAMstack websites with a flexible content backend
-- **Mobile App Backend**: Provide content APIs for iOS, Android, and cross-platform mobile applications
-- **Multi-Channel Content Delivery**: Manage content once and deliver it across web, mobile, IoT, and other platforms
-- **Custom API Development**: Build RESTful or GraphQL APIs with a visual content type builder
-- **E-commerce Product Management**: Manage product catalogs, descriptions, and media assets
-- **Blog and Publication Platforms**: Create content-rich publishing systems with custom workflows
-- **Internal Tools and Dashboards**: Build admin panels and internal applications with rapid development
+## 常见使用场景
 
-## Dependencies for Strapi Hosting
+- **网站 CMS**：为前端框架和静态网站管理结构化内容
+- **移动应用后端**：通过 REST API 发布内容
+- **产品目录**：管理产品、分类、媒体及其关联关系
+- **编辑发布平台**：为内容团队提供独立的管理流程
+- **内部 API**：构建带有角色权限控制的自定义内容 API
 
-The Sealos template includes all required components: Strapi application server and PostgreSQL database with automatic initialization.
+## Strapi 托管依赖
 
-### Deployment Dependencies
+模板包含固定镜像摘要的 Node.js 22 运行时、经过校验的 Strapi 5.50.1 依赖锁文件、持久化应用存储，以及可选的托管 PostgreSQL 和对象存储资源。
 
-- [Strapi Documentation](https://docs.strapi.io/) - Official Strapi documentation
-- [Strapi Quickstart Guide](https://docs.strapi.io/dev-docs/quick-start) - Getting started with Strapi development
-- [Strapi API Reference](https://docs.strapi.io/dev-docs/api/rest) - REST and GraphQL API documentation
-- [PostgreSQL Documentation](https://www.postgresql.org/docs/) - Database backend documentation
+### 部署依赖
 
-## Implementation Details
+- [Strapi 文档](https://docs.strapi.io/) - 产品与开发者文档
+- [Strapi 部署指南](https://docs.strapi.io/cms/deployment) - 生产部署指南
+- [Strapi AWS S3 提供商](https://docs.strapi.io/cms/configurations/media-library-providers#amazon-s3) - S3 上传提供商配置
+- [PostgreSQL 文档](https://www.postgresql.org/docs/16/) - PostgreSQL 16 文档
 
-### Architecture Components
+## 实现细节
 
-This template deploys two interconnected services:
+### 架构组件
 
-- **PostgreSQL Database**: Persistent data storage for content and configuration
-  - Version: PostgreSQL 14.8.0
-  - Persistent storage: 1Gi
-  - Automatic database initialization with 'strapi' database
-  - Connection credentials managed via Kubernetes secrets
+- **Strapi 应用**：使用固定镜像摘要的 Node.js 22 和 `npm ci` 安装、构建并启动 Strapi 5.50.1
+- **应用存储**：1Gi 持久卷，用于保存项目文件、SQLite 数据和本地上传文件
+- **依赖存储**：独立的 1Gi 持久卷，每次冷启动从已校验的依赖归档恢复
+- **PostgreSQL 16**：启用 `use_postgresql` 时创建独立的 KubeBlocks 数据库
+- **Sealos 对象存储**：启用 `enable_s3_storage` 时创建私有存储桶并注入托管凭据
+- **Ingress**：通过 HTTPS 访问管理界面和内容 API
 
-- **Strapi Application**: Headless CMS server with admin panel
-  - Version: Strapi 5.33.0
-  - Web UI: Port 1337 (exposed via Ingress with SSL)
-  - Admin panel: `/admin` path
-  - API endpoints: `/api` path
-  - Persistent storage: 2Gi for application data, 1Gi for npm cache
-  - Init container for automatic build process
+### 配置选项
 
-**Resource Allocation:**
+| 输入项 | 默认值 | 结果 |
+| --- | --- | --- |
+| `admin_email` | 部署时填写 | 在公网应用启动前创建首位管理员 |
+| `admin_password` | 部署时填写 | 设置必填的首位管理员密码 |
+| `admin_firstname` | `Admin` | 设置首位管理员名字 |
+| `admin_lastname` | `User` | 设置首位管理员姓氏 |
+| `use_postgresql` | `true` | 使用托管 PostgreSQL 16 数据库 |
+| `use_postgresql` | `false` | 使用持久卷中的 `.tmp/data.db` SQLite 数据库 |
+| `enable_s3_storage` | `false` | 将上传文件存入持久卷中的 `public/uploads` |
+| `enable_s3_storage` | `true` | 通过 AWS S3 提供商使用 Sealos 私有对象存储桶 |
 
-| Component | CPU Request | CPU Limit | Memory Request | Memory Limit |
-|-----------|-------------|-----------|----------------|--------------|
-| Strapi (Runtime) | 100m | 1000m | 25Mi | 256Mi |
-| Strapi (Init Build) | 200m | 2000m | 307Mi | 3072Mi |
-| PostgreSQL | 50m | 500m | 51Mi | 512Mi |
+部署时，模板会生成 Strapi 应用密钥、JWT 密钥、令牌盐值和 `ENCRYPTION_KEY`。构建初始化容器会在公网应用进入就绪状态前创建首位管理员。Strapi 会直接使用 KubeBlocks 管理的 PostgreSQL 连接密钥。最小权限 Job 与 CronJob 会跟踪该密钥版本，并在凭据轮换后只重启 Strapi Pod。对象存储凭据来自 Sealos 托管密钥。
 
-### Environment Configuration
+## 为什么在 Sealos 上部署 Strapi？
 
-The template automatically configures Strapi with the following settings:
+Sealos 是基于 Kubernetes 的云操作系统，可通过可视化 Canvas 和 AI 辅助运维管理应用资源。本 Strapi 模板提供以下能力：
 
-**Database Configuration:**
-- Client: PostgreSQL
-- Connection: Automatic via Kubernetes secrets
-- Database name: `strapi`
-- SSL: Disabled (internal cluster communication)
+- **一键部署**：通过同一表单创建应用及所选托管服务
+- **数据持久化**：在重启后保留项目文件、SQLite 数据和本地上传文件
+- **托管服务**：通过明确选项添加 PostgreSQL 16 和私有对象存储
+- **安全公网访问**：自动获得 HTTPS 地址和托管证书
+- **资源控制**：通过 Canvas 调整 CPU、内存和存储
+- **按量使用资源**：根据所选架构分配对应服务
 
-**Security Tokens:**
-All security tokens are automatically generated with cryptographically secure random values:
-- JWT Secret: 32-character random string
-- Admin JWT Secret: 32-character random string
-- App Keys: 4 x 32-character random strings
-- API Token Salt: 32-character random string
-- Transfer Token Salt: 32-character random string
+## 部署指南
 
-**Public URLs:**
-- Admin URL: `https://<app-host>.<domain>/admin`
-- Public URL: `https://<app-host>.<domain>`
-- CORS: Configured for your deployment domain
+1. 打开 [Strapi 模板](https://sealos.io/products/app-store/strapi)，点击 **Deploy Now**。
+2. 填写首位管理员邮箱、密码、名字和姓氏。密码需包含大写字母、小写字母、数字和特殊字符。
+3. 生产数据库可保留 PostgreSQL；精简单实例可取消该选项并使用持久化 SQLite。
+4. 媒体文件需要 S3 存储时启用 Sealos 对象存储；本地模式会使用持久卷。
+5. 提交表单并等待部署完成。首次依赖校验安装和管理界面构建可能需要几分钟。
+6. 打开 `/admin/auth/login`，使用部署表单中的管理员邮箱和密码登录。
 
-### Deployment Process
+## 登录
 
-The deployment includes a two-stage initialization:
+模板会在应用 Service 进入就绪状态前创建首位 Strapi 管理员，从而关闭公网首用户注册窗口。请在 `/admin/auth/login` 使用部署时填写的 `admin_email` 和 `admin_password` 登录，并将凭据保存在密码管理器中。后续管理员可在 Strapi 管理界面中维护。
 
-1. **Database Initialization Job**: Creates the `strapi` database in PostgreSQL
-2. **Application Init Container**: Builds the Strapi admin panel before the main container starts
-3. **Main Container**: Runs Strapi in production or development mode
+## 配置
 
-This ensures your Strapi instance is fully ready to use immediately after deployment completes.
+部署完成后，可在 Strapi 管理界面维护内容条目、配置角色并生成 API 令牌。Strapi 的内容类型构建器仅在开发模式下运行，生产环境的内容模型调整应在项目代码中完成，并通过受控构建发布。主要端点如下：
 
-## Why Deploy Strapi on Sealos?
+| 端点 | 用途 |
+| --- | --- |
+| `/admin/auth/login` | 登录管理界面 |
+| `/admin` | 打开管理界面 |
+| `/api` | 访问生成的 REST 端点 |
+| `/_health` | 检查应用健康状态 |
 
-Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies the entire application lifecycle, from development in cloud IDEs to production deployment and management. By deploying Strapi on Sealos, you get:
+后续资源调整可通过 Sealos Canvas 的 AI 对话框或资源卡片完成。SQLite 和本地上传模式共用单个持久卷，建议保持一个 Strapi 副本。
 
-- **One-Click Deployment**: Deploy a complete Strapi CMS with PostgreSQL database in seconds. No complex configuration or Kubernetes expertise required.
-- **Pre-Configured Database**: PostgreSQL is automatically provisioned, initialized, and connected to Strapi with secure credentials.
-- **Automatic Build Process**: The init container handles the Strapi admin panel build, so you can start creating content immediately.
-- **Persistent Storage**: Built-in persistent storage ensures your content, media uploads, and configuration survive restarts and updates.
-- **Secure Public Access**: Strapi gets automatic public URL with SSL certificate, allowing secure access to both admin panel and APIs.
-- **Environment Flexibility**: Choose between production and development modes to match your workflow.
-- **Easy Scaling**: Adjust resources through intuitive forms as your content and traffic grow.
-- **Automatic Security**: All security tokens are generated automatically with cryptographically secure random values.
+## 故障排查
 
-Deploy Strapi on Sealos and focus on building great content experiences instead of managing infrastructure.
+### 管理页面仍在启动
 
-## Deployment Guide
+首次部署会校验内嵌锁文件、运行 `npm ci`、创建首位管理员、打包运行依赖并构建管理界面。请在 Canvas 中查看 `strapi-build` 和 `strapi-runtime-deps` 初始化容器日志，等待两个阶段完成。
 
-1. Visit [Strapi Template Page](https://sealos.io/products/app-store/strapi)
-2. Click the "Deploy Now" button
-3. Select your Node environment mode:
-   - **Production** (recommended): Optimized for performance and stability
-   - **Development**: Enables hot-reload and development features
-4. Wait for deployment to complete (typically 2-3 minutes, including build process)
-5. Access Strapi via the provided URL (shown in the canvas)
-6. Create your admin account on first access to the admin panel
+### PostgreSQL 启动失败
 
-## Configuration
+确认 PostgreSQL 资源已进入运行状态。幂等的 `pg-init` Job 会通过系统生成的连接密钥创建 `strapi` 数据库，`wait-postgresql` 初始化容器会持续等待该数据库就绪后再启动应用。
 
-After deployment, you can customize your Strapi instance:
+### 媒体上传失败
 
-### Initial Setup
+本地上传模式下，请确认应用持久卷仍有可用容量。对象存储模式下，请确认存储桶资源及其生成的存储桶密钥已经就绪。
 
-1. **Create Admin Account**: On first access to `/admin`, you'll be prompted to create an administrator account
-2. **Configure Content Types**: Use the Content-Type Builder to define your data models
-3. **Set Permissions**: Configure role-based access control for API endpoints
-4. **Upload Media**: Use the Media Library to manage images, videos, and other assets
+### API 请求返回 403
 
-### Resource Scaling
+在 Strapi 管理界面的 **Settings > Users & Permissions plugin > Roles** 中配置所需权限。
 
-Adjust resources in the canvas based on your needs:
-- **CPU/Memory**: Increase for better performance with high traffic or complex content types
-- **Storage**: Expand application storage for more media uploads and content
+### 获取帮助
 
-### API Configuration
+- [Strapi 文档](https://docs.strapi.io/)
+- [Strapi GitHub Issues](https://github.com/strapi/strapi/issues)
+- [Strapi 社区论坛](https://forum.strapi.io/)
+- [Sealos Discord](https://discord.gg/wdUn538zVP)
 
-Strapi provides both REST and GraphQL APIs:
-- REST API: `https://<app-host>.<domain>/api`
-- GraphQL API: `https://<app-host>.<domain>/graphql` (requires GraphQL plugin)
+## 许可证
 
-### Service Endpoints
-
-| Service | Endpoint | Purpose |
-|---------|----------|---------|
-| Admin Panel | `https://<app-host>.<domain>/admin` | Content management interface |
-| REST API | `https://<app-host>.<domain>/api` | RESTful API endpoints |
-| GraphQL | `https://<app-host>.<domain>/graphql` | GraphQL API (if enabled) |
-| PostgreSQL | `<app-name>-pg-postgresql.<namespace>.svc:5432` | Database (internal) |
-
-## Troubleshooting
-
-### Common Issues
-
-**Issue 1: Admin Panel Not Loading**
-- Cause: Build process may still be running or failed
-- Solution: Check the init container logs in the Terminal. The build process can take 1-2 minutes on first deployment. If the build failed, check resource limits and try redeploying.
-
-**Issue 2: Database Connection Errors**
-- Cause: PostgreSQL not ready or connection credentials incorrect
-- Solution: Verify the PostgreSQL cluster is running in the canvas. Check that the `strapi` database was created by examining the init job logs. The connection is automatic via Kubernetes secrets.
-
-**Issue 3: Media Upload Failures**
-- Cause: Storage full or permission issues
-- Solution: Increase the application storage allocation in the canvas. Default is 2Gi for application data.
-
-**Issue 4: API Endpoints Return 403 Forbidden**
-- Cause: Permissions not configured for public access
-- Solution: In the Strapi admin panel, go to Settings → Roles → Public, and enable permissions for the endpoints you want to expose publicly.
-
-**Issue 5: Slow Performance**
-- Cause: Insufficient resources for your content volume
-- Solution: Increase CPU and memory allocation in the canvas. Consider upgrading from the default 1000m CPU / 256Mi memory limits.
-
-### Getting Help
-
-- [Strapi Documentation](https://docs.strapi.io/)
-- [Strapi Community Forum](https://forum.strapi.io/)
-- [Strapi Discord](https://discord.strapi.io/)
-- [Sealos Discord Community](https://discord.gg/wdUn538zVP)
-
-## Additional Resources
-
-- [Strapi Content-Type Builder](https://docs.strapi.io/user-docs/content-type-builder) - Creating custom content types
-- [Strapi API Documentation](https://docs.strapi.io/dev-docs/api/rest) - REST and GraphQL API reference
-- [Strapi Plugins](https://market.strapi.io/) - Extend Strapi with community plugins
-- [Strapi Deployment Guide](https://docs.strapi.io/dev-docs/deployment) - Advanced deployment configurations
-- [PostgreSQL Best Practices](https://wiki.postgresql.org/wiki/Don%27t_Do_This) - Database optimization tips
-
-## Development Workflow
-
-### Connecting Your Frontend
-
-To connect your frontend application to Strapi APIs:
-
-```javascript
-// Example: Fetching content from Strapi REST API
-const response = await fetch('https://<app-host>.<domain>/api/articles?populate=*', {
-  headers: {
-    'Authorization': 'Bearer YOUR_API_TOKEN'
-  }
-});
-const data = await response.json();
-```
-
-### Creating API Tokens
-
-1. Go to Settings → API Tokens in the admin panel
-2. Click "Create new API Token"
-3. Set token name, type (Read-only, Full access, Custom), and duration
-4. Copy the generated token (shown only once)
-5. Use the token in your application's API requests
-
-### Custom Development
-
-For custom plugin development or extending Strapi:
-
-1. Switch to development mode by updating the `node_env` input to `development`
-2. Access the application storage via the canvas to modify code
-3. Changes will hot-reload automatically in development mode
-4. Switch back to production mode for optimal performance
-
-## License
-
-This Sealos template is provided under MIT License. Strapi is provided under its own license - see [Strapi License](https://github.com/strapi/strapi/blob/develop/LICENSE) for details.
+本 Sealos 模板采用 MIT 许可证。Strapi 使用自身的许可条款，详情请参阅 [Strapi 许可证](https://github.com/strapi/strapi/blob/develop/LICENSE)。

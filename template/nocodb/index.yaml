@@ -30,17 +30,38 @@ spec:
       type: string
       value: nocodb-${{ random(8) }}
   inputs:
+    use_postgresql:
+      description: Use a Sealos-managed PostgreSQL database for NocoDB metadata.
+      type: boolean
+      default: 'false'
+      required: false
+    enable_s3_storage:
+      description: Store NocoDB attachments in Sealos Object Storage.
+      type: boolean
+      default: 'false'
+      required: false
     NC_ADMIN_EMAIL:
       description: Initial admin email. Use this email to sign in after deployment.
       type: string
-      default: admin@example.com
       required: true
     NC_ADMIN_PASSWORD:
-      description: Initial admin password. Use at least 8 characters with letters and numbers.
+      description: Initial admin password. Use at least 8 characters with an uppercase letter, a number, and a special character.
       type: string
-      default: ${{ random(16) }}
       required: true
 ---
+${{ if(inputs.enable_s3_storage === 'true') }}
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  policy: private
+---
+${{ endif() }}
+---
+${{ if(inputs.use_postgresql === 'true') }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -88,6 +109,8 @@ metadata:
   name: ${{ defaults.app_name }}-pg
   labels:
     kb.io/database: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
     clusterdefinition.kubeblocks.io/name: postgresql
     clusterversion.kubeblocks.io/name: postgresql-16.4.0
 spec:
@@ -123,14 +146,15 @@ spec:
               requests:
                 storage: 1Gi
             storageClassName: openebs-backup
+${{ endif() }}
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: nocodb/nocodb:2026.05.2
-    docker-to-sealos.resource-override-source: 'Live Sealos cold-start validation for nocodb/nocodb:2026.05.2: 512Mi memory limit failed with JavaScript heap out of memory; 1024Mi memory limit with 102Mi request reached Ready and authenticated API checks passed.'
+    originImageName: nocodb/nocodb:2026.06.2
+    docker-to-sealos.resource-override-source: 'NocoDB self-hosting requires at least 1 GB of memory. Sealos validation of nocodb/nocodb:2026.06.2 observed an 882561024-byte cold-start and authenticated-write peak at 1Gi; a 100m CPU limit completed cold start in about 90 seconds with zero restarts or OOM events.'
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -153,8 +177,9 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: nocodb/nocodb:2026.05.2
+          image: nocodb/nocodb:2026.06.2
           env:
+            ${{ if(inputs.use_postgresql === 'true') }}
             - name: NC_DB_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -177,18 +202,53 @@ spec:
                   key: username
             - name: NC_DB
               value: pg://$(NC_DB_HOST):$(NC_DB_PORT)?u=$(NC_DB_USER)&p=$(NC_DB_PASSWORD)&d=postgres
-            - name: NC_PUBLIC_URL
+            ${{ endif() }}
+            - name: NC_SITE_URL
               value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: NC_ADMIN_EMAIL
               value: ${{ inputs.NC_ADMIN_EMAIL }}
             - name: NC_ADMIN_PASSWORD
               value: ${{ inputs.NC_ADMIN_PASSWORD }}
+            ${{ if(inputs.enable_s3_storage === 'true') }}
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            - name: NC_S3_ACCESS_KEY
+              value: $(S3_ACCESS_KEY_ID)
+            - name: NC_S3_ACCESS_SECRET
+              value: $(S3_SECRET_ACCESS_KEY)
+            - name: NC_S3_BUCKET_NAME
+              value: $(S3_BUCKET)
+            - name: NC_S3_REGION
+              value: us-east-1
+            - name: NC_S3_ENDPOINT
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+            - name: NC_S3_FORCE_PATH_STYLE
+              value: 'true'
+            ${{ endif() }}
           resources:
             requests:
-              cpu: 20m
+              cpu: 10m
               memory: 102Mi
             limits:
-              cpu: 200m
+              cpu: 100m
               memory: 1024Mi
           ports:
             - name: http
@@ -200,22 +260,22 @@ spec:
               mountPath: /usr/app/data
           startupProbe:
             httpGet:
-              path: /
-              port: 8080
+              path: /api/v1/health
+              port: http
             failureThreshold: 60
             periodSeconds: 5
             timeoutSeconds: 3
           readinessProbe:
             httpGet:
-              path: /
-              port: 8080
+              path: /api/v1/health
+              port: http
             initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 3
           livenessProbe:
             httpGet:
-              path: /
-              port: 8080
+              path: /api/v1/health
+              port: http
             initialDelaySeconds: 30
             periodSeconds: 20
             timeoutSeconds: 3
@@ -298,7 +358,7 @@ metadata:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   data:
-    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/signin
   displayType: normal
   icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/nocodb/logo.svg"
   name: ${{ defaults.app_name }}
