@@ -1,0 +1,150 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata: 
+  name: rabbitmq
+spec:
+  title: 'RabbitMQ'                         
+  url: 'https://www.rabbitmq.com'                         
+  gitRepo: 'https://github.com/rabbitmq/rabbitmq-server'        
+  author: 'weisiqian'                                     
+  description: 'RabbitMQ is the most widely deployed open source message broker.'    
+  readme: 'https://raw.githubusercontent.com/rabbitmq/rabbitmq-server/main/README.md'
+  icon: 'https://avatars.githubusercontent.com/u/96669?s=200&v=4'
+  templateType: inline
+  defaults:
+    app_name:
+      type: string
+      value: rabbitmq-${{ random(8) }}
+    app_host:
+      type: string
+      value: ${{ random(8) }}
+  inputs:
+    user_name:
+      description: 'Set username'
+      type: string
+      default: 'admin'
+      required: true
+    user_password:
+      description: 'Set password'
+      type: string
+      default: 'password@rabbitmq'
+      required: true
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: rabbitmq:3.12-management
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+    deploy.cloud.sealos.io/resize: 2Gi
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 50%
+  minReadySeconds: 10
+  serviceName: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: rabbitmq:3.12-management
+          env:
+            - name: RABBITMQ_DEFAULT_USER
+              value: ${{ inputs.user_name }}
+            - name: RABBITMQ_DEFAULT_PASS
+              value: ${{ inputs.user_password }}
+          resources:
+            requests:
+              cpu: 50m
+              memory: 51Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          ports:
+            - containerPort: 15672
+            - containerPort: 5672
+          imagePullPolicy: Always
+          volumeMounts:
+            - name: vn-varvn-libvn-${{ defaults.app_name }}
+              mountPath: /var/lib/rabbitmq
+      volumes: []
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /var/lib/rabbitmq
+          value: '2'
+        name: vn-varvn-libvn-${{ defaults.app_name }}
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - name: ${{ defaults.app_name }}-management-port
+      port: 15672
+      targetPort: 15672
+    - name: ${{ defaults.app_name }}-amqp-port
+      port: 5672
+      targetPort: 5672
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 15672
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
