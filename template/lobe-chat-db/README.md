@@ -1,93 +1,131 @@
-Lobe Chat is an open-source, modern-design ChatGPT/LLMs UI/Framework, it supports speech-synthesis, multi-modal, and extensible (function call) plugin system.
+# Deploy and Host Lobe Chat Database Version on Sealos
 
-LobeChat defaults to using a client-side database (IndexedDB) but also supports deploying a server-side database. LobeChat uses Postgres as the backend storage database.
+Lobe Chat Database Version is an open-source LLM chat interface with server-side persistence. This template deploys Lobe Chat with PostgreSQL and Sealos-managed S3-compatible object storage on Sealos Cloud.
 
-> PostgreSQL is a powerful open-source relational database management system with high scalability and standard SQL support. It provides rich data types, concurrency control, data integrity, security, and programmability, making it suitable for complex applications and large-scale data management.
+![Lobe Chat Screenshot](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/lobe-chat-db/website-screenshot.webp)
 
-This guide will introduce the process and principles of deploying the server-side database version of LobeChat on Sealos Cloud, a modern cloud platform designed for deploying, managing and scaling your applications in seconds, not minutes, not hours.
+## About Hosting Lobe Chat Database Version
 
-## Tech Stack
+Lobe Chat provides a polished web interface for working with OpenAI-compatible models, multimodal conversations, assistant workflows, and shared team state. The database version stores application data in PostgreSQL instead of relying only on browser-local IndexedDB, which makes it suitable for authenticated multi-device usage.
 
-The app on Sealos will automatically setup your object storage with MinIO, so that you do not have to do any configuration. Besides, this app will auto setup your database with pgvector extension using Database app.
+This Sealos template provisions the Lobe Chat database image, a Kubeblocks-managed PostgreSQL `postgresql-16.4.0` cluster, an idempotent PostgreSQL initialization job for the `lobechat` database, a private ObjectStorageBucket, a Service, an Ingress, and a Sealos App entry. Logto remains an external identity dependency because Lobe Chat needs its OAuth client ID, client secret, and issuer URL during deployment.
 
-## Pre-Deployment Setup
+## Common Use Cases
 
-**Step 1**：Click the button below to deploy a Logto service:
+- **Personal AI Workspace**: Run a private chat interface with persistent history and OpenAI-compatible model access.
+- **Team AI Portal**: Give team members a shared authenticated entry point backed by PostgreSQL.
+- **Multimodal Assistant UI**: Store images and generated assets through S3-compatible object storage.
+- **Prototype LLM Products**: Test prompts, agents, and workflows before integrating them into larger applications.
 
-[![](https://raw.githubusercontent.com/labring-actions/templates/main/Deploy-on-Sealos.svg)](https://template.usw.sealos.io/deploy?templateName=logto)
+## Dependencies for Lobe Chat Database Version Hosting
 
-> Logto is an open-source identity and access management (IAM) platform, an open-source alternative to Auth0, designed to help developers quickly build secure and scalable login and registration systems and user identity systems.
+The Sealos template includes the runtime container, PostgreSQL, object storage, Kubernetes Service, Ingress, and App entry. You need a Logto application before deploying Lobe Chat because the template requires Logto OAuth credentials.
 
-**Step 2**：After the deployment is complete, wait for all the components of the application to be in the "Running" state, click the application's "Details" button to enter the application details page.
+### Deployment Dependencies
 
-![Logto application deployment status on Sealos](./images/logto-app-deployment-status-sealos-en.png)
+- [Lobe Chat Documentation](https://lobehub.com/docs) - Official product and self-hosting documentation
+- [Lobe Chat GitHub Repository](https://github.com/lobehub/lobe-chat) - Source code and release notes
+- [Logto Documentation](https://docs.logto.io/) - Identity provider setup and application configuration
+- [Sealos App Store](https://sealos.io/products/app-store/lobe-chat-db) - One-click deployment entry
 
-Click the public address corresponding to port 3002, you can use the public address to access the Logto service.
+### Implementation Details
 
-![Logto service public address](./images/logto-public-address-en.png)
+**Architecture Components:**
 
-**Step 3**：Register a management account, then click the `Applications` menu on the left, enter the application list page. Click the `Create application` button in the upper right corner to create an application.
+This template deploys the following services:
 
-![Logto application list page](./images/logto-application-list.png)
+- **Lobe Chat**: The web application container serving the chat UI and API on port `3210`.
+- **PostgreSQL**: Kubeblocks-managed PostgreSQL `postgresql-16.4.0` for accounts, conversations, settings, and application metadata.
+- **PostgreSQL Init Job**: Creates the `lobechat` database after PostgreSQL is ready and exits cleanly when the database already exists.
+- **Object Storage**: Sealos-managed private ObjectStorageBucket injected through S3-compatible environment variables.
+- **Ingress and App Entry**: Public HTTPS route and Sealos dashboard entry for the Lobe Chat UI.
+- **Logto**: A separately deployed identity provider used for registration and login.
 
-Select `Next.js (App Router)` as the framework, then click the `Start building` button.
+**Configuration:**
 
-![Logto create application page](./images/logto-create-application.png)
+The template composes `DATABASE_URL` from Kubeblocks secret fields and injects S3 credentials from Sealos object-storage secrets. The managed Sealos ObjectStorageBucket is the supported storage path for this template. External S3-compatible services can be evaluated after deployment for advanced operations, using the official Lobe Chat S3 documentation as a migration reference.
 
-**Step 4**：In the pop-up window, fill in the application name as `Lobe Chat`, then click the `Create application` button. Next, do not fill in anything, just click the bottom `Finish and done` button to create it.
+**License Information:**
 
-![Logto create application done page](./images/logto-create-application-done.png)
+Lobe Chat is released under the Apache-2.0 license. This Sealos template is provided as deployment configuration for the Sealos template repository.
 
-**Step 5**：In the `Lobe Chat` application, find the following three parameters, which will be used later when deploying the Lobe Chat database version.
+## Why Deploy Lobe Chat Database Version on Sealos?
 
-![Logto application detail page](./images/logto-app-detail.png)
+Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies application deployment, storage, networking, and lifecycle management. By deploying Lobe Chat Database Version on Sealos, you get:
 
-## Deploy Lobe Chat Database Version
+- **One-Click Deployment**: Deploy Lobe Chat from the App Store without writing Kubernetes manifests.
+- **Managed Database and Storage**: PostgreSQL and S3-compatible object storage are provisioned with the template.
+- **Instant Public Access**: The Ingress gives your deployment an HTTPS URL automatically.
+- **Canvas Operations**: After deployment, use Canvas, the AI dialog, and resource cards to adjust resources or environment variables.
+- **Resource Efficiency**: Pay-as-you-go resources keep the database version practical for small teams and prototypes.
 
-**Step 1**：Fill in the following three required parameters:
+## Before Deploying
 
-- `AUTH_LOGTO_ID`：The App ID of the Logto application
-- `AUTH_LOGTO_SECRET`：The App Secret of the Logto application
-- `AUTH_LOGTO_ISSUER`：The Issuer endpoint of the Logto application
+Prepare Logto first:
 
-**Step 2**：Click the `Deploy App` button, after the deployment is complete, wait for all the components of the application to be in the "Running" state, click the application's "Details" button to enter the application details page.
+1. Open the [Logto template](https://sealos.io/products/app-store/logto) and click **Deploy Now**.
+2. Wait for Logto to finish deploying, then open the Logto console URL.
+3. Register the first Logto administrator account.
+4. In Logto, create a new application using the **Next.js (App Router)** application type.
+5. Copy the Logto client ID and client secret, then use the Logto OpenID Connect issuer as `AUTH_LOGTO_ISSUER`. The issuer usually uses the `/oidc` suffix, for example `https://<your-logto-domain>/oidc`.
 
-![Lobe Chat database version deployment done page](./images/lobe-chat-db-deployment-done-en.png)
+## Deployment Guide
 
-**Step 3**：Find the public address, copy it, and use it later.
+1. Open the [Lobe Chat Database Version template](https://sealos.io/products/app-store/lobe-chat-db) and click **Deploy Now**.
+2. Configure the required Logto parameters:
+   - `AUTH_LOGTO_ID`: Logto application client ID
+   - `AUTH_LOGTO_SECRET`: Logto application client secret
+   - `AUTH_LOGTO_ISSUER`: Logto OpenID Connect issuer, usually `https://<your-logto-domain>/oidc`
+3. Optionally configure OpenAI-compatible model access:
+   - `OPENAI_API_KEY`
+   - `OPENAI_PROXY_URL`
+   - `OPENAI_MODEL_LIST`
+   - `ACCESS_CODE`
+4. Wait for deployment to complete, typically 2-3 minutes. After deployment, you will be redirected to Canvas. For later changes, describe your requirements in the AI dialog, or click the relevant resource cards to modify settings.
+5. Copy the Lobe Chat public URL from Canvas.
 
-## Post-Deployment Configuration
+## Logto Callback Configuration
 
-**Step 1**：Enter the `Applications` page of Logto, find the `Lobe Chat` application, click to enter the application details page.
+After Lobe Chat has a public URL, return to the Logto application settings and add these URLs:
 
-**Step 2**：In the `Settings` page, find the `Redirect URI` and `Post sign-out redirect URI` parameters, fill in the following values:
+- Redirect URI: `https://<your-lobe-chat-domain>/api/auth/callback/logto`
+- Post sign-out redirect URI: `https://<your-lobe-chat-domain>`
 
-- Redirect URI: `https://<lobe-chat-db-public-address>/api/auth/callback/logto`
-- Post sign-out redirect URI: `https://<lobe-chat-db-public-address>`
+Save the Logto changes, open the Lobe Chat public URL, click the account avatar, choose **Log in / Sign up**, and register or sign in through Logto.
 
-**Step 3**：Click the `Save changes` button to save the configuration.
+## Scaling
 
-**Step 4**：Now, access the Lobe Chat database version through `https://<lobe-chat-db-public-address>`, click the avatar in the upper left corner, and then click the [Log in / Sign up] button.
+To scale the deployment:
 
-**Step 5**：Next, you will be redirected to the Logto login page, click the [Create account] button to register an account.
+1. Open the Canvas for your Lobe Chat deployment.
+2. Click the Lobe Chat Deployment or PostgreSQL resource card.
+3. Adjust CPU, memory, storage, or replica settings.
+4. Apply the change in the dialog and wait for the resource to become ready.
 
-**Step 6**：After registration, you can use Logto to login to the Lobe Chat database version.
+## Troubleshooting
 
+### Logto Login Fails
 
+- Cause: Redirect URI or post sign-out redirect URI is missing or uses a different domain.
+- Solution: Reopen the Logto application settings and save the exact callback URLs shown above.
 
+### Model Requests Fail
 
+- Cause: `OPENAI_API_KEY`, `OPENAI_PROXY_URL`, or `OPENAI_MODEL_LIST` does not match your model provider.
+- Solution: Update the values through Canvas, then restart the Lobe Chat Deployment.
 
+### Uploads Fail
 
+- Cause: Object storage configuration was changed after deployment.
+- Solution: Keep the Sealos-managed ObjectStorageBucket and its injected S3 environment variables together.
 
+## Additional Resources
 
+- [Lobe Chat Self-Hosting Guide](https://lobehub.com/docs/self-hosting/start)
+- [Lobe Chat Environment Variables](https://lobehub.com/docs/self-hosting/environment-variables)
+- [Logto Applications](https://docs.logto.io/docs/recipes/integrate-logto/)
+- [Sealos Documentation](https://sealos.io/docs)
 
+## License
 
-
-
-
-
-
-
-
-
-
+This Sealos template is provided under the template repository license. Lobe Chat is licensed under Apache-2.0.

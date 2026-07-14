@@ -8,6 +8,7 @@ spec:
     gitRepo: "https://github.com/coder/code-server"
     author: "Sealos"
     description: "VS Code in the browser"
+    locale: en
     readme: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/code-server/README.md"
     icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/code-server/logo.png"
     screenshots:
@@ -17,9 +18,8 @@ spec:
         - tool
     defaults:
         app_host:
-            # number or string..
             type: string
-            value: ${{ random(8) }}
+            value: code-server-${{ random(8) }}
         app_name:
             type: string
             value: code-server-${{ random(8) }}
@@ -34,6 +34,7 @@ spec:
             required: true
     i18n:
         zh:
+            description: "在浏览器中运行 VS Code，用于在线编码、开发环境访问和远程项目管理。"
             readme: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/code-server/README_zh.md"
 
 ---
@@ -56,11 +57,8 @@ spec:
     selector:
         matchLabels:
             app: ${{ defaults.app_name }}
-    strategy:
+    updateStrategy:
         type: RollingUpdate
-        rollingUpdate:
-            maxUnavailable: 1
-            maxSurge: 0
     template:
         metadata:
             labels:
@@ -77,11 +75,11 @@ spec:
                         value: ${{ inputs.PASSWORD }}
                   resources:
                       requests:
-                          cpu: 200m
-                          memory: 200Mi
+                          cpu: 20m
+                          memory: 51Mi
                       limits:
-                          cpu: 2000m
-                          memory: 2Gi
+                          cpu: 200m
+                          memory: 512Mi
                   command:
                       - /bin/sh
                       - "-c"
@@ -89,7 +87,31 @@ spec:
                       - |
                           mkdir -p /home/coder/workspace && /usr/bin/entrypoint.sh --bind-addr 0.0.0.0:8080 /home/coder/workspace
                   ports:
-                      - containerPort: 8080
+                      - name: http
+                        containerPort: 8080
+                  startupProbe:
+                      httpGet:
+                          path: /healthz
+                          port: http
+                      periodSeconds: 10
+                      timeoutSeconds: 5
+                      failureThreshold: 30
+                  livenessProbe:
+                      httpGet:
+                          path: /healthz
+                          port: http
+                      initialDelaySeconds: 30
+                      periodSeconds: 30
+                      timeoutSeconds: 5
+                      failureThreshold: 3
+                  readinessProbe:
+                      httpGet:
+                          path: /healthz
+                          port: http
+                      initialDelaySeconds: 10
+                      periodSeconds: 10
+                      timeoutSeconds: 5
+                      failureThreshold: 3
                   imagePullPolicy: IfNotPresent
                   volumeMounts:
                       - name: vn-homevn-coder
@@ -116,9 +138,12 @@ metadata:
     name: ${{ defaults.app_name }}
     labels:
         cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+        app: ${{ defaults.app_name }}
 spec:
     ports:
-        - port: 8080
+        - name: http
+          port: 8080
+          targetPort: http
     selector:
         app: ${{ defaults.app_name }}
 ---
@@ -128,6 +153,7 @@ metadata:
     name: ${{ defaults.app_name }}
     labels:
         cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+        app: ${{ defaults.app_name }}
         cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
     annotations:
         kubernetes.io/ingress.class: nginx
@@ -135,9 +161,8 @@ metadata:
         nginx.ingress.kubernetes.io/server-snippet: |
             client_header_buffer_size 64k;
             large_client_header_buffers 4 128k;
-        nginx.ingress.kubernetes.io/ssl-redirect: "false"
+        nginx.ingress.kubernetes.io/ssl-redirect: "true"
         nginx.ingress.kubernetes.io/backend-protocol: HTTP
-        nginx.ingress.kubernetes.io/rewrite-target: /$2
         nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
         nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
         nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
@@ -153,7 +178,7 @@ spec:
           http:
               paths:
                   - pathType: Prefix
-                    path: /()(.*)
+                    path: /
                     backend:
                         service:
                             name: ${{ defaults.app_name }}
@@ -169,10 +194,12 @@ apiVersion: app.sealos.io/v1
 kind: App
 metadata:
     name: ${{ defaults.app_name }}
+    labels:
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
     data:
         url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
     displayType: normal
     icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/code-server/logo.png"
     name: Code Server
-    type: iframe
+    type: link

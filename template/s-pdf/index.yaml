@@ -7,17 +7,17 @@ spec:
   url: 'https://stirling.com'
   gitRepo: 'https://github.com/Stirling-Tools/Stirling-PDF'
   author: 'Sealos'
-  description: '1 Locally hosted web application that allows you to perform various operations on PDF files.'
+  description: 'A locally hosted web application for PDF merging, splitting, conversion, OCR, compression, and other document operations.'
   readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/s-pdf/README.md'
   icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/s-pdf/logo.png'
   screenshots:
     - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/s-pdf/website-screenshot.webp'
   templateType: inline
+  locale: en
   categories:
     - tool
   defaults:
     app_host:
-      # number or string..
       type: string
       value: s-pdf-${{ random(8) }}
     app_name:
@@ -34,10 +34,25 @@ spec:
       type: string
       default: "false"
       required: false
+    DISABLE_ADDITIONAL_FEATURES:
+      description: "Set to false so authentication and additional features stay available"
+      type: string
+      default: "false"
+      required: false
     SECURITY_ENABLELOGIN:
       description: "set to 'true' to enable login"
       type: string
       default: "false"
+      required: false
+    SECURITY_INITIALLOGIN_USERNAME:
+      description: "Initial admin username used when login is enabled on a fresh data volume"
+      type: string
+      default: "admin"
+      required: false
+    SECURITY_INITIALLOGIN_PASSWORD:
+      description: "Initial admin password used when login is enabled on a fresh data volume"
+      type: string
+      default: "stirling"
       required: false
     LANGS:
       description: "define custom font libraries to install for use for document conversions"
@@ -81,6 +96,7 @@ spec:
       required: false
   i18n:
     zh:
+      description: '一个本地托管的 PDF 工具箱，支持合并、拆分、转换、OCR、压缩和其他文档处理操作。'
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/s-pdf/README_zh.md'
 ---
 ${{ if(inputs.SYSTEM_DEFAULTLOCALE === 'zh-CN') }}
@@ -89,6 +105,9 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 data:
   vn-etcvn-apkvn-repositories: |-
     https://mirrors.ustc.edu.cn/alpine/v3.20/main
@@ -147,25 +166,23 @@ subjects:
 apiVersion: apps.kubeblocks.io/v1alpha1
 kind: Cluster
 metadata:
-  finalizers:
-    - cluster.kubeblocks.io/finalizer
   labels:
+    kb.io/database: postgresql-16.4.0
     clusterdefinition.kubeblocks.io/name: postgresql
-    clusterversion.kubeblocks.io/name: postgresql-14.8.0
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
-  annotations: {}
   name: ${{ defaults.app_name }}-pg
 spec:
   affinity:
-    nodeLabels: {}
     podAntiAffinity: Preferred
     tenancy: SharedNode
-    topologyKeys: []
   clusterDefinitionRef: postgresql
-  clusterVersionRef: postgresql-14.8.0
+  clusterVersionRef: postgresql-16.4.0
   componentSpecs:
     - componentDefRef: postgresql
-      monitor: true
+      disableExporter: true
+      enabledLogs:
+        - running
       name: postgresql
       replicas: 1
       resources:
@@ -186,8 +203,8 @@ spec:
             resources:
               requests:
                 storage: 1Gi
+            storageClassName: openebs-backup
   terminationPolicy: Delete
-  tolerations: []
 
 ---
 apiVersion: batch/v1
@@ -195,27 +212,53 @@ kind: Job
 metadata:
   name: ${{ defaults.app_name }}-pg-init
 spec:
-  completions: 1
+  backoffLimit: 3
   template:
     spec:
       containers:
         - name: pgsql-init
-          image: postgres:14-alpine
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
           env:
             - name: PG_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
-            - name: DATABASE_URL
-              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
+            - name: PG_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: endpoint
+            - name: PG_DATABASE
+              value: stirling_pdf
           command:
             - /bin/sh
             - -c
             - |
-              until psql ${DATABASE_URL} -c 'CREATE DATABASE stirling_pdf;' &>/dev/null; do sleep 1; done
-      restartPolicy: Never
-  backoffLimit: 0
+              set -eu
+              PGHOST="${PG_ENDPOINT%:*}"
+              PGPORT="${PG_ENDPOINT##*:}"
+              export PGPASSWORD="${PG_PASSWORD}"
+              for i in $(seq 1 60); do
+                if pg_isready -h "${PGHOST}" -p "${PGPORT}" -U postgres -d postgres >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 2
+              done
+              pg_isready -h "${PGHOST}" -p "${PGPORT}" -U postgres -d postgres >/dev/null 2>&1
+              if psql -h "${PGHOST}" -p "${PGPORT}" -U postgres -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='${PG_DATABASE}'" | grep -q 1; then
+                exit 0
+              fi
+              psql -h "${PGHOST}" -p "${PGPORT}" -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"${PG_DATABASE}\";"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 12Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+      restartPolicy: OnFailure
   ttlSecondsAfterFinished: 300
 ${{ endif() }}
 
@@ -248,9 +291,16 @@ spec:
       automountServiceAccountToken: false
       initContainers:
         - name: take-data-dir-ownership
-          image: alpine
+          image: alpine:3.20
           command: ["/bin/sh", "-c", "chown -R 1000:1000 /tmp"]
           imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 10m
+              memory: 12Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
           volumeMounts:
             - name: vn-tmp
               mountPath: /tmp
@@ -260,8 +310,14 @@ spec:
           env:
             - name: DOCKER_ENABLE_SECURITY
               value: ${{ inputs.DOCKER_ENABLE_SECURITY }}
+            - name: DISABLE_ADDITIONAL_FEATURES
+              value: ${{ inputs.DISABLE_ADDITIONAL_FEATURES }}
             - name: SECURITY_ENABLELOGIN
               value: ${{ inputs.SECURITY_ENABLELOGIN }}
+            - name: SECURITY_INITIALLOGIN_USERNAME
+              value: ${{ inputs.SECURITY_INITIALLOGIN_USERNAME }}
+            - name: SECURITY_INITIALLOGIN_PASSWORD
+              value: ${{ inputs.SECURITY_INITIALLOGIN_PASSWORD }}
             - name: LANGS
               value: ${{ inputs.LANGS }}
             - name: INSTALL_BOOK_AND_ADVANCED_HTML_OPS
@@ -281,17 +337,12 @@ spec:
             ${{ if(inputs.use_postgresql === 'true') }}
             - name: SYSTEM_DATASOURCE_ENABLECUSTOMDATABASE
               value: 'true'
-            - name: DB_POSTGRESDB_PORT
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: port
-            - name: DB_POSTGRESDB_USER
+            - name: SYSTEM_DATASOURCE_USERNAME
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: username
-            - name: DB_POSTGRESDB_PASSWORD
+            - name: SYSTEM_DATASOURCE_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
@@ -301,18 +352,23 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: host
+            - name: DB_POSTGRESDB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
             - name: SYSTEM_DATASOURCE_CUSTOMDATABASEURL
-              value: 'jdbc:postgresql://$(DB_POSTGRESDB_USER):$(DB_POSTGRESDB_PASSWORD)@$(DB_POSTGRESDB_HOST):$(DB_POSTGRESDB_PORT)/stirling_pdf'
+              value: 'jdbc:postgresql://$(DB_POSTGRESDB_HOST):$(DB_POSTGRESDB_PORT)/stirling_pdf'
+            - name: DISABLE_ADDITIONAL_FEATURES
+              value: 'false'
             ${{ endif() }}
           resources:
             requests:
               cpu: 100m
-              memory: 204Mi
-              ephemeral-storage: "200Mi"
+              memory: 100Mi
             limits:
-              cpu: 1000m
-              memory: 2048Mi
-              ephemeral-storage: "200Mi"
+              cpu: 1
+              memory: 1G
           ports:
             - name: http
               protocol: TCP
@@ -337,9 +393,9 @@ spec:
           livenessProbe:
             exec:
               command:
-              - /bin/sh
-              - -c
-              - curl -f http://localhost:8080/api/v1/info/status | grep -q 'UP'
+                - /bin/sh
+                - -c
+                - curl -f http://localhost:8080/api/v1/info/status | grep -q 'UP'
             initialDelaySeconds: 20
             periodSeconds: 10
             timeoutSeconds: 5
@@ -347,13 +403,22 @@ spec:
           readinessProbe:
             exec:
               command:
-              - /bin/sh
-              - -c
-              - curl -f http://localhost:8080/api/v1/info/status | grep -q 'UP'
+                - /bin/sh
+                - -c
+                - curl -f http://localhost:8080/api/v1/info/status | grep -q 'UP'
             initialDelaySeconds: 20
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 5
+          startupProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - curl -f http://localhost:8080/api/v1/info/status | grep -q 'UP'
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
       ${{ if(inputs.SYSTEM_DEFAULTLOCALE === 'zh-CN') }}
       volumes:
         - name: vn-etcvn-apkvn-repositories
@@ -426,10 +491,13 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 8080
+    - name: http
+      port: 8080
+      targetPort: http
   selector:
     app: ${{ defaults.app_name }}
 ---
@@ -438,6 +506,7 @@ kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
@@ -448,7 +517,6 @@ metadata:
       large_client_header_buffers 4 128k;
     nginx.ingress.kubernetes.io/ssl-redirect: 'true'
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
-    nginx.ingress.kubernetes.io/rewrite-target: /$2
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
@@ -464,7 +532,7 @@ spec:
       http:
         paths:
           - pathType: Prefix
-            path: /()(.*)
+            path: /
             backend:
               service:
                 name: ${{ defaults.app_name }}
