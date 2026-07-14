@@ -1,131 +1,122 @@
-# 在 Sealos 上部署和托管 Lobe Chat 数据库版
+# 在 Sealos 上部署和托管 LobeHub
 
-Lobe Chat 数据库版是一款带服务端持久化能力的开源 LLM 聊天界面。本模板会在 Sealos Cloud 上部署 Lobe Chat、PostgreSQL 和 Sealos 托管的 S3 兼容对象存储。
+LobeHub 是开源 AI 工作空间，支持聊天、智能体、知识库、多模态文件和模型服务商管理。本模板会在 Sealos Cloud 上部署 LobeHub 2.2.10，并配置 PostgreSQL、Redis、私有 S3 兼容对象存储和 Better Auth。
 
-![Lobe Chat 截图](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/lobe-chat-db/website-screenshot.webp)
+![LobeHub 截图](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/lobe-chat-db/website-screenshot.webp)
 
-## 关于托管 Lobe Chat 数据库版
+## 关于托管 LobeHub
 
-Lobe Chat 提供精致的 Web 界面，用于使用 OpenAI 兼容模型、多模态对话、助手工作流和共享团队状态。数据库版将应用数据存储在 PostgreSQL 中，适合需要账号登录、多设备同步和服务端持久化的场景。
+服务端数据库版会把账户、会话、对话、智能体、设置和知识数据保存到 PostgreSQL。Redis 提供共享身份会话与应用缓存，Sealos 对象存储负责保存上传文件和知识库资产。
 
-此 Sealos 模板会创建 Lobe Chat 数据库版镜像、由 Kubeblocks 管理的 PostgreSQL `postgresql-16.4.0` 集群、用于创建 `lobechat` 数据库的幂等初始化 Job、私有 ObjectStorageBucket、Service、Ingress 和 Sealos App 入口。Logto 作为独立身份服务使用，因为 Lobe Chat 部署时需要 OAuth Client ID、Client Secret 和 Issuer URL。
+LobeHub 2.x 使用 Better Auth，并内置邮箱密码注册。邮箱验证和魔法链接依赖 SMTP 服务，本模板关闭这两项功能。
 
 ## 常见使用场景
 
-- **个人 AI 工作台**：运行带持久化历史记录的私有聊天界面，并接入 OpenAI 兼容模型。
-- **团队 AI 入口**：为团队成员提供带登录能力的统一入口，并由 PostgreSQL 保存状态。
-- **多模态助手界面**：通过 S3 兼容对象存储保存图片和生成资产。
-- **LLM 产品原型**：在接入更大系统前测试提示词、智能体和工作流。
+- **私有 AI 工作空间**：为个人或团队运行带持久化能力的聊天和智能体环境。
+- **知识工作**：上传文件、创建知识库，并在对话中调用相关内容。
+- **模型服务商管理**：在一个界面中配置 OpenAI 兼容服务和其他模型服务商。
+- **共享会话**：通过 Redis 二级存储保持身份会话和缓存状态。
 
-## Lobe Chat 数据库版托管依赖
+## LobeHub 托管依赖
 
-Sealos 模板包含运行容器、PostgreSQL、对象存储、Kubernetes Service、Ingress 和 App 入口。部署 Lobe Chat 前需要先准备 Logto 应用，因为模板需要 Logto OAuth 凭证。
+模板会创建当前 Sealos 拓扑所需的运行组件：
+
+- LobeHub `lobehub/lobehub:2.2.10`
+- KubeBlocks PostgreSQL 16.4.0，并安装官方 ParadeDB `pg_search` 0.24.2 扩展包
+- 带 Sentinel 的 KubeBlocks Redis 7.2.7
+- Sealos 托管的私有 S3 兼容对象存储
+- Sealos Service、HTTPS Ingress 和 App 入口
 
 ### 部署依赖
 
-- [Lobe Chat 文档](https://lobehub.com/docs) - 官方产品和自托管文档
-- [Lobe Chat GitHub 仓库](https://github.com/lobehub/lobe-chat) - 源码和发布记录
-- [Logto 文档](https://docs.logto.io/) - 身份提供方和应用配置
+- [LobeHub 文档](https://lobehub.com/docs) - 官方产品与自托管文档
+- [LobeHub GitHub 仓库](https://github.com/lobehub/lobehub) - 源码与版本发布
+- [Better Auth 配置](https://lobehub.com/docs/self-hosting/auth) - 注册与身份认证设置
 - [Sealos 应用商店](https://sealos.io/products/app-store/lobe-chat-db) - 一键部署入口
 
 ### 实现细节
 
-**架构组件：**
+应用监听 `3210` 端口，启动时执行官方数据库迁移，并使用 `DATABASE_DRIVER=node`。PostgreSQL 提供当前迁移和全文检索所需的 `vector` 与 `pg_search` 扩展。
 
-此模板会部署以下服务：
+PostgreSQL Pod 首次启动时会下载官方 `pg_search` 0.24.2 Ubuntu 软件包，校验固定 SHA-256 摘要和软件包结构，并把解压后的动态库与 SQL 文件缓存到数据库数据卷。Patroni 回调会更新 KubeBlocks 托管的 PostgreSQL 配置，KubeBlocks 随后执行必要的重启，LobeHub 迁移容器再创建并验证扩展。后续 Pod 替换会复用已经验证的软件包。
 
-- **Lobe Chat**：Web 应用容器，通过 `3210` 端口提供聊天 UI 和 API。
-- **PostgreSQL**：Kubeblocks 管理的 PostgreSQL `postgresql-16.4.0`，用于保存账号、会话、设置和应用元数据。
-- **PostgreSQL 初始化 Job**：等待 PostgreSQL 就绪后创建 `lobechat` 数据库，数据库已存在时会正常退出。
-- **对象存储**：Sealos 托管的私有 ObjectStorageBucket，通过 S3 兼容环境变量注入应用。
-- **Ingress 和 App 入口**：为 Lobe Chat UI 提供公开 HTTPS 路由和 Sealos 控制台入口。
-- **Logto**：独立部署的身份提供方，用于注册和登录。
+模板通过 KubeBlocks 托管凭证组合 `DATABASE_URL` 和 `REDIS_URL`。Sealos 从托管 ObjectStorageBucket 注入 S3 endpoint、bucket、access key 和 secret key。
 
-**配置：**
+每个部署都需要独立的私有 RS256 密钥对，因此 `JWKS_KEY` 是必填部署参数。使用对应版本的 LobeHub 源码生成密钥：
 
-模板会通过 Kubeblocks Secret 字段组合 `DATABASE_URL`，并从 Sealos 对象存储 Secret 注入 S3 凭证。Sealos 托管 ObjectStorageBucket 是此模板的默认存储路径。高级运维场景可以在部署后参考 Lobe Chat 官方 S3 文档评估外部 S3 迁移方案。
+```bash
+git clone --depth 1 --branch v2.2.10 https://github.com/lobehub/lobehub.git
+cd lobehub
+mkdir .jwks-generator
+npm install --prefix .jwks-generator --no-save --ignore-scripts jose@6.2.3
+cp scripts/generate-oidc-jwk.mjs .jwks-generator/
+node .jwks-generator/generate-oidc-jwk.mjs
+```
 
-**许可证信息：**
+妥善保存脚本输出的单行 JSON，并在部署时填入 `JWKS_KEY`。
 
-Lobe Chat 使用 Apache-2.0 许可证发布。此 Sealos 模板作为 Sealos 模板仓库中的部署配置提供。
+## 为什么在 Sealos 上部署 LobeHub？
 
-## 为什么在 Sealos 上部署 Lobe Chat 数据库版？
-
-Sealos 是基于 Kubernetes 的 AI 辅助云操作系统，统一应用部署、存储、网络和生命周期管理。在 Sealos 上部署 Lobe Chat 数据库版，你可以获得：
-
-- **一键部署**：从应用商店部署 Lobe Chat，无需手写 Kubernetes YAML。
-- **托管数据库和存储**：模板会同时创建 PostgreSQL 和 S3 兼容对象存储。
-- **即时公网访问**：Ingress 会自动提供 HTTPS 访问地址。
-- **Canvas 运维**：部署后可通过 Canvas、AI 对话框和资源卡片调整资源或环境变量。
-- **资源效率**：按量使用资源，适合小团队和原型项目运行数据库版。
-
-## 部署前准备
-
-先准备 Logto：
-
-1. 打开 [Logto 模板](https://sealos.io/products/app-store/logto)，点击 **Deploy Now**。
-2. 等待 Logto 部署完成，然后打开 Logto 控制台 URL。
-3. 注册第一个 Logto 管理员账号。
-4. 在 Logto 中创建新应用，应用类型选择 **Next.js (App Router)**。
-5. 复制 Logto Client ID 和 Client Secret，并将 Logto OpenID Connect issuer 填入 `AUTH_LOGTO_ISSUER`。issuer 通常带 `/oidc` 后缀，例如 `https://<your-logto-domain>/oidc`。
+Sealos 在一个部署界面中整合 Kubernetes 应用编排、托管数据库、对象存储、HTTPS 网络和生命周期管理。模板默认运行一个 LobeHub 副本，共享 PostgreSQL、Redis 和 S3 服务可以承接后续应用扩容。
 
 ## 部署指南
 
-1. 打开 [Lobe Chat 数据库版模板](https://sealos.io/products/app-store/lobe-chat-db)，点击 **Deploy Now**。
-2. 配置必填的 Logto 参数：
-   - `AUTH_LOGTO_ID`：Logto 应用 Client ID
-   - `AUTH_LOGTO_SECRET`：Logto 应用 Client Secret
-   - `AUTH_LOGTO_ISSUER`：Logto OpenID Connect issuer，通常是 `https://<your-logto-domain>/oidc`
-3. 按需配置 OpenAI 兼容模型访问：
-   - `OPENAI_API_KEY`
-   - `OPENAI_PROXY_URL`
-   - `OPENAI_MODEL_LIST`
-   - `ACCESS_CODE`
-4. 等待部署完成，通常需要 2-3 分钟。部署完成后会进入 Canvas。后续修改可以在 AI 对话框中描述需求，或点击相关资源卡片调整设置。
-5. 从 Canvas 复制 Lobe Chat 公网 URL。
+1. 打开 [LobeHub 模板](https://sealos.io/products/app-store/lobe-chat-db)，点击 **Deploy Now**。
+2. 将私有 RS256 JWKS JSON 填入 `JWKS_KEY`。
+3. 按需使用 `AUTH_ALLOWED_EMAILS` 限制注册范围，并配置 OpenAI 兼容模型参数。
+4. 等待 PostgreSQL、Redis、对象存储和 LobeHub 数据库迁移就绪，通常需要 2-3 分钟。
+5. 从 Canvas 打开生成的 LobeHub HTTPS 地址。
 
-## Logto 回调配置
+## 注册和登录
 
-Lobe Chat 获得公网 URL 后，回到 Logto 应用设置并添加以下 URL：
+1. 打开生成的 LobeHub 地址，选择 **Sign up**。
+2. 使用邮箱地址和密码注册账户。
+3. 使用同一账户登录。
+4. 在首次使用流程中选择界面语言、确认显示名称并选择兴趣领域。
+5. 打开 **Home** 使用智能体工作台，或打开 **Resources** 创建知识库并上传文件。
 
-- Redirect URI：`https://<your-lobe-chat-domain>/api/auth/callback/logto`
-- Post sign-out redirect URI：`https://<your-lobe-chat-domain>`
+`AUTH_ALLOWED_EMAILS` 留空时开放邮箱注册；填写逗号分隔的邮箱地址或域名后，注册流程会过滤用户提交的邮箱字符串。模板关闭了依赖 SMTP 的邮箱验证，因此该过滤器无法验证邮箱所有权。需要可信身份时，请配置 SMTP 并启用 `AUTH_EMAIL_VERIFICATION=1`，或接入外部 SSO 服务商。
 
-保存 Logto 设置后，打开 Lobe Chat 公网 URL，点击账号头像，选择 **Log in / Sign up**，然后通过 Logto 注册或登录。
+## 配置
 
-## 扩展
+- **AI 对话框**：在 Canvas 中描述资源或环境变量调整需求。
+- **资源卡片**：调整 LobeHub 副本数或资源限制。
+- **模型服务商设置**：登录后添加聊天模型与嵌入模型凭证。文件可以直接保存，配置嵌入模型后会开始知识索引。
+- **SearXNG**：需要联网检索时填写外部 `SEARXNG_URL`。
+- **Marketplace**：智能体与任务推荐依赖外部 LobeHub Market 服务，需要访问 `market.lobehub.com`。
 
-扩展部署：
+## 资源配置
 
-1. 打开 Lobe Chat 部署所在的 Canvas。
-2. 点击 Lobe Chat Deployment 或 PostgreSQL 资源卡片。
-3. 调整 CPU、内存、存储或副本数。
-4. 在对话框中应用变更，并等待资源就绪。
+经过验证的基线为 LobeHub 分配 `500m` CPU 和 `1024Mi` 内存。完成注册、Home 和 Resources 操作及文件上传后，应用使用约 `468Mi` 内存。`512Mi` 候选配置触发了 V8 堆上限与进程重启，因此 `1024Mi` 是当前版本在 Sealos 上的最小稳定资源档位。每个 KubeBlocks 数据库组件使用 `500m` CPU 和 `512Mi` 内存。
 
 ## 故障排查
 
-### Logto 登录失败
+### 数据库迁移失败
 
-- 原因：Redirect URI 或 Post sign-out redirect URI 缺失，或域名与 Lobe Chat 公网地址不一致。
-- 解决方案：重新打开 Logto 应用设置，保存上方列出的精确回调 URL。
+数据库首次启动会下载约 67 MiB 的 `pg_search` 软件包，并触发一次由 KubeBlocks 管理的 PostgreSQL 替换。健康状态下，PostgreSQL 会显示 `pg_search` 0.24.2，应用日志会包含 `database migration pass`。
 
-### 模型请求失败
+### 注册失败
 
-- 原因：`OPENAI_API_KEY`、`OPENAI_PROXY_URL` 或 `OPENAI_MODEL_LIST` 与模型服务商配置不匹配。
-- 解决方案：通过 Canvas 更新这些值，然后重启 Lobe Chat Deployment。
+当 `AUTH_ALLOWED_EMAILS` 包含限制条件时，确认注册邮箱符合对应地址或域名。
 
-### 上传失败
+### 文件上传失败
 
-- 原因：部署后对象存储配置被拆散或改动。
-- 解决方案：保持 Sealos 托管 ObjectStorageBucket 和注入的 S3 环境变量一起使用。
+确认 ObjectStorageBucket 及其生成的凭证 Secret 已经就绪，然后重启 LobeHub。
+
+### 知识文件显示嵌入错误
+
+在 LobeHub 设置中配置支持嵌入的模型服务商，然后重试该文件。源文件会保存在 Sealos 对象存储中，知识索引会等待有效的模型凭证。
+
+### Marketplace 推荐返回 403
+
+可选的 Agent Market 与每日任务推荐会访问 `market.lobehub.com`。验证期间，Cloudflare 对 Sealos 区域的出站 IP 返回 HTTP 403，同一端点通过另一网络访问时返回 HTTP 200。请使用该公共服务接受的出站路径，或把 `MARKET_BASE_URL` 设置为已授权的自托管 Market 地址。Chat、Tasks、Pages、Resources 和 Memory 继续使用本地 LobeHub 服务。
 
 ## 更多资源
 
-- [Lobe Chat 自托管指南](https://lobehub.com/docs/self-hosting/start)
-- [Lobe Chat 环境变量](https://lobehub.com/docs/self-hosting/environment-variables)
-- [Logto Applications](https://docs.logto.io/docs/recipes/integrate-logto/)
+- [LobeHub 自托管指南](https://lobehub.com/docs/self-hosting/start)
+- [LobeHub 环境变量](https://lobehub.com/docs/self-hosting/environment-variables)
 - [Sealos 文档](https://sealos.io/docs)
 
 ## 许可证
 
-此 Sealos 模板遵循模板仓库许可证提供。Lobe Chat 使用 Apache-2.0 许可证。
+LobeHub 使用其仓库声明的许可证。本 Sealos 模板遵循模板仓库许可证。

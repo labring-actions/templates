@@ -1,85 +1,96 @@
 # Deploy and Host Stirling-PDF on Sealos
 
-Stirling-PDF is a self-hosted PDF toolbox for merging, splitting, conversion, OCR, compression, redaction, and other document workflows. This template deploys Stirling-PDF with persistent storage, optional PostgreSQL, and HTTPS access on Sealos Cloud.
+Stirling-PDF is a self-hosted PDF toolbox for merging, splitting, conversion, OCR, compression, redaction, and other document workflows. This template deploys Stirling-PDF `2.14.2-fat` with authenticated access, persistent storage, and optional licensed PostgreSQL and Sealos S3 paths on Sealos Cloud.
 
 ![Stirling-PDF Screenshot](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/s-pdf/website-screenshot.webp)
 
 ## About Hosting Stirling-PDF
 
-Stirling-PDF runs as a web application on port `8080`. The Sealos template creates a StatefulSet, persistent volumes for OCR data and working directories, a Service, an Ingress, and a Sealos App entry.
+Stirling-PDF serves its web interface and API on port `8080`. The template creates one StatefulSet replica, four persistent volumes, a Service, an HTTPS Ingress, and a Sealos App entry. The volumes preserve OCR language data at `/usr/share/tessdata`, application configuration and the default H2 database at `/configs`, logs at `/logs`, and secured user files at `/storage`.
 
-The default deployment opens the PDF toolbox directly. To require login, set `DOCKER_ENABLE_SECURITY=true` and `SECURITY_ENABLELOGIN=true`. On a fresh data volume, sign in with `SECURITY_INITIALLOGIN_USERNAME` and `SECURITY_INITIALLOGIN_PASSWORD`.
+Authentication is enabled for every deployment. The initial administrator credentials come from the required `SECURITY_INITIALLOGIN_USERNAME` and `SECURITY_INITIALLOGIN_PASSWORD` inputs and apply to a fresh `/configs` volume.
 
 ## Common Use Cases
 
-- **PDF Operations Portal**: Merge, split, rotate, compress, watermark, and redact PDF files from a browser.
-- **Document Conversion**: Convert PDF, Office, image, and book formats when the advanced tooling option is enabled.
-- **OCR Workflows**: Use bundled language packs for scanned documents and multilingual text extraction.
-- **Internal Team Utility**: Run a private document toolbox with password login and persistent configuration.
+- **PDF Operations Portal**: Merge, split, rotate, compress, watermark, redact, and organize PDFs from a browser.
+- **Document Conversion**: Convert PDF, Office, image, HTML, and book formats with the fat image toolset.
+- **OCR Workflows**: Process scanned documents with persistent OCR language data.
+- **Private Team Utility**: Protect document tools and stored files with administrator login.
+
+## Dependencies for Stirling-PDF Hosting
+
+The community topology uses Stirling-PDF's embedded H2 database and local persistent file storage. Optional paths add a KubeBlocks PostgreSQL 16 cluster or a private Sealos S3-compatible bucket.
+
+### Implementation Details
+
+**Architecture Components:**
+
+- **Stirling-PDF**: `stirlingtools/stirling-pdf:2.14.2-fat`, pinned to the official release whose multi-architecture digest is `sha256:aa91c68b85992986302fbdb6735f2c0824e329304e43c814a9b77c9dd0dbe410`.
+- **Persistent storage**: Four `1Gi` claims for OCR data, configuration/H2, logs, and secured user files.
+- **PostgreSQL**: An independent KubeBlocks `postgresql-16.4.0` cluster plus an idempotent `stirling_pdf` database initialization Job when `use_postgresql=true`.
+- **Object storage**: A private `ObjectStorageBucket` with bucket-scoped Sealos credentials when `enable_s3_storage=true`.
+
+**License Boundary:**
+
+The default H2 and local-storage topology runs with the community license. Stirling-PDF gates custom PostgreSQL and S3-backed storage behind a valid Pro or Enterprise license. Set `PREMIUM_KEY` when either licensed branch is enabled. The template provisions infrastructure and passes the official runtime settings; Stirling-PDF validates license entitlement during startup.
+
+## Why Deploy Stirling-PDF on Sealos?
+
+- **One-click topology**: Deploy the application, HTTPS route, persistent claims, and selected managed services together.
+- **Managed credentials**: PostgreSQL and S3 connection values come from Sealos-managed secrets.
+- **Resource control**: Tune CPU and memory from Canvas while preserving a single application replica.
 
 ## Deployment Guide
 
 1. Open the [Stirling-PDF template](https://sealos.io/products/app-store/s-pdf) and click **Deploy Now**.
-2. Keep `use_postgresql=false` for lightweight personal usage, or set `use_postgresql=true` for a separate PostgreSQL database and stronger persistence.
-3. To enable login, set:
-   - `DISABLE_ADDITIONAL_FEATURES=false`
-   - `DOCKER_ENABLE_SECURITY=true`
-   - `SECURITY_ENABLELOGIN=true`
-   - `SECURITY_INITIALLOGIN_USERNAME`: initial admin username
-   - `SECURITY_INITIALLOGIN_PASSWORD`: initial admin password
-4. Choose `SYSTEM_DEFAULTLOCALE`, `LANGS`, and advanced conversion options for your document workload.
-5. Wait for the StatefulSet and optional PostgreSQL cluster to become ready, then open the generated HTTPS URL from Sealos Canvas.
+2. Enter the initial administrator username and password.
+3. Keep `use_postgresql=false` and `enable_s3_storage=false` for the community H2/local-storage topology.
+4. Enable PostgreSQL, Sealos S3, or both for a licensed topology, then enter a valid `PREMIUM_KEY`.
+5. Select the locale and advanced book/HTML conversion setting.
+6. Wait 2-3 minutes for the StatefulSet and selected managed services to become ready, then open the generated HTTPS URL from Canvas.
 
 ## Configuration
 
 | Name | Description | Required | Default |
 |------|-------------|----------|---------|
-| `use_postgresql` | Create and use a PostgreSQL database for production workloads. | `false` | `false` |
-| `DOCKER_ENABLE_SECURITY` | Enable Stirling-PDF security components required for login. | `false` | `false` |
-| `DISABLE_ADDITIONAL_FEATURES` | Keep authentication and additional features available. | `false` | `false` |
-| `SECURITY_ENABLELOGIN` | Enable the login screen. | `false` | `false` |
-| `SECURITY_INITIALLOGIN_USERNAME` | Initial admin username for a fresh data volume when login is enabled. | `false` | `admin` |
-| `SECURITY_INITIALLOGIN_PASSWORD` | Initial admin password for a fresh data volume when login is enabled. | `false` | `<redacted>` |
-| `LANGS` | Font and OCR language packs to install for document conversion. | `false` | `en-GB,en-US,zh-CN,zh-TW` |
-| `INSTALL_BOOK_AND_ADVANCED_HTML_OPS` | Install Calibre for book conversion and advanced HTML conversion. | `false` | `true` |
-| `SYSTEM_DEFAULTLOCALE` | Default UI language. | `false` | `en-US` |
-| `UI_APPNAME` | Visible application name. | `false` | `Stirling-PDF` |
-| `UI_HOMEDESCRIPTION` | Homepage tagline. | `false` | `Demo site for Stirling-PDF` |
-| `UI_APPNAMENAVBAR` | Name shown in the navigation bar. | `false` | `Stirling-PDF` |
-| `METRICS_ENABLED` | Enable `/api/*` information endpoints. | `false` | `true` |
-| `SYSTEM_GOOGLEVISIBILITY` | Publish robots.txt rules that allow search engine visibility. | `false` | `true` |
+| `SECURITY_INITIALLOGIN_USERNAME` | Initial administrator username for a fresh configuration volume. | `true` | User input |
+| `SECURITY_INITIALLOGIN_PASSWORD` | Initial administrator password for a fresh configuration volume. | `true` | User input |
+| `use_postgresql` | Provision and use independent PostgreSQL. Requires Pro or Enterprise. | `false` | `false` |
+| `enable_s3_storage` | Store secured user files in Sealos S3. Requires Pro or Enterprise. | `false` | `false` |
+| `PREMIUM_KEY` | Stirling-PDF license key for either licensed branch. | Conditional | Empty |
+| `SYSTEM_DEFAULTLOCALE` | Default interface locale. | `false` | `en-US` |
+| `INSTALL_BOOK_AND_ADVANCED_HTML_OPS` | Enable Calibre-backed book and advanced HTML conversion. | `false` | `false` |
 
-Store private passwords in Sealos-managed inputs.
+## Topology Options
 
-## PostgreSQL Option
-
-When `use_postgresql=true`, the template creates a Kubeblocks-managed PostgreSQL `postgresql-16.4.0` cluster and an idempotent init Job for the `stirling_pdf` database. Stirling-PDF then receives the database host, port, username, and password from Sealos-managed secrets.
-
-## Scaling
-
-The template reserves enough memory for the common PDF and OCR paths. Increase memory and CPU from Sealos Canvas before large OCR batches, book conversions, or concurrent team usage.
+| PostgreSQL | Sealos S3 | Runtime topology | License |
+|------------|-----------|------------------|---------|
+| `false` | `false` | Embedded H2 + persistent `/storage` | Community |
+| `true` | `false` | KubeBlocks PostgreSQL + persistent `/storage` | Pro or Enterprise |
+| `false` | `true` | Embedded H2 + Sealos S3 | Pro or Enterprise |
+| `true` | `true` | KubeBlocks PostgreSQL + Sealos S3 | Pro or Enterprise |
 
 ## Troubleshooting
 
-### Login screen appears
+### Initial credentials are rejected
 
-Use the configured `SECURITY_INITIALLOGIN_USERNAME` and `SECURITY_INITIALLOGIN_PASSWORD`. The upstream defaults are `admin` and `stirling` on a fresh data volume.
+The initial credential inputs apply once to a fresh `/configs` volume. Use the administrator account already stored in that volume after subsequent restarts.
 
-### OCR or conversion is slow
+### A licensed branch stops during startup
 
-Increase CPU and memory on the StatefulSet, then retry the operation. Large PDFs and language-heavy OCR tasks need more memory than basic merge or split tasks.
+Confirm that `PREMIUM_KEY` carries an active Stirling-PDF Pro or Enterprise entitlement. PostgreSQL and S3 configuration becomes active after license validation succeeds.
 
-### PostgreSQL startup takes time
+### Large conversions need more capacity
 
-Wait for the PostgreSQL cluster and init Job to complete before opening the application. The app readiness probe turns healthy after Stirling-PDF can answer the status API.
+Increase the StatefulSet CPU and memory through Sealos Canvas before large OCR batches, book conversions, or concurrent team usage.
 
 ## Additional Resources
 
-- [Stirling-PDF Website](https://www.stirlingpdf.com/)
+- [Stirling-PDF Documentation](https://docs.stirlingpdf.com/)
 - [Stirling-PDF Source Code](https://github.com/Stirling-Tools/Stirling-PDF)
-- [Stirling-PDF Security Documentation](https://docs.stirlingpdf.com/Configuration/System%20and%20Security/)
+- [Stirling-PDF Releases](https://github.com/Stirling-Tools/Stirling-PDF/releases)
 - [Sealos Documentation](https://sealos.io/docs)
 
 ## License
 
-This Sealos template is provided under the template repository license. Stirling-PDF is licensed by its upstream project.
+Stirling-PDF's community code is available under the MIT License, with proprietary directories governed by their upstream licenses. Custom PostgreSQL and S3 storage require a paid Stirling-PDF Pro or Enterprise entitlement. This Sealos template follows the template repository license.

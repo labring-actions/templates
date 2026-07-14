@@ -1,14 +1,16 @@
 # Deploy and Host Odysseus on Sealos
 
-Odysseus is a self-hosted AI workspace for chat, autonomous agents, tools, model serving, email, research, notes, and memory. This template deploys Odysseus with Chroma vector memory, SearXNG search, persistent storage, and public HTTPS access on Sealos Cloud.
+Odysseus is a self-hosted AI workspace for chat, autonomous agents, tools, model serving, email, research, notes, and memory. This template deploys the official Odysseus 1.0.2 runtime bundle with Chroma vector memory, SearXNG search, ntfy notifications, persistent storage, and public HTTPS access on Sealos Cloud.
 
 ![Odysseus Screenshot](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/odysseus/website-screenshot.webp)
 
 ## About Hosting Odysseus
 
-Odysseus runs as an authenticated web application backed by local SQLite data, file storage, Chroma, and SearXNG. The main Odysseus service exposes the web UI and API on port 7000, while Chroma and SearXNG stay on the internal Sealos cluster network.
+Odysseus runs as an authenticated web application backed by local SQLite data, file storage, Chroma, SearXNG, and ntfy. The main Odysseus service exposes the web UI and API on port 7000, while Chroma, SearXNG, and ntfy stay on the internal Sealos cluster network.
 
-The template provisions three StatefulSets: the Odysseus application, Chroma for vector memory, and SearXNG for metasearch. Persistent volumes store Odysseus data, logs, SSH state, Hugging Face cache, local model-serving files, Chroma data, and SearXNG cache.
+The template provisions four StatefulSets: the Odysseus application, Chroma for vector memory, SearXNG for metasearch, and ntfy for notifications. Persistent volumes store Odysseus data, logs, SSH state, Hugging Face cache, local model-serving files, Chroma data, SearXNG cache, and ntfy cache.
+
+Odysseus uses SQLite plus in-process pollers and scheduled tasks. Keep the Odysseus StatefulSet at one replica so those writers share one database and one task scheduler.
 
 The first administrator account is created from the deployment form values. On a fresh deployment, `admin_user` maps to `ODYSSEUS_ADMIN_USER` and `admin_password` maps to `ODYSSEUS_ADMIN_PASSWORD`.
 
@@ -21,7 +23,7 @@ The first administrator account is created from the deployment form values. On a
 
 ## Dependencies for Odysseus Hosting
 
-The Sealos template includes the Odysseus application container, Chroma vector database, SearXNG search service, persistent storage, and an HTTPS ingress.
+The Sealos template includes the Odysseus application container, Chroma vector database, SearXNG search service, ntfy notification service, persistent storage, and an HTTPS ingress.
 
 ### Deployment Dependencies
 
@@ -29,6 +31,7 @@ The Sealos template includes the Odysseus application container, Chroma vector d
 - [Odysseus GitHub Repository](https://github.com/pewdiepie-archdaemon/odysseus) - Source code and setup documentation
 - [Chroma](https://www.trychroma.com/) - Vector memory service
 - [SearXNG](https://docs.searxng.org/) - Self-hosted metasearch service
+- [ntfy](https://docs.ntfy.sh/) - Notification service
 
 ### Implementation Details
 
@@ -37,7 +40,8 @@ The Sealos template includes the Odysseus application container, Chroma vector d
 - **Odysseus**: Main authenticated web UI and API server.
 - **Chroma**: Internal vector memory service used by Odysseus.
 - **SearXNG**: Internal search service used by Odysseus research features.
-- **Persistent Storage**: Stateful storage for application data, logs, SSH state, model/cache directories, Chroma data, and SearXNG cache.
+- **ntfy**: Internal notification service for reminder integrations.
+- **Persistent Storage**: Stateful storage for application data, logs, SSH state, model/cache directories, Chroma data, SearXNG cache, and ntfy cache.
 - **Ingress and App Entry**: Sealos-managed HTTPS entry point and dashboard link.
 
 **Configuration:**
@@ -56,7 +60,7 @@ Odysseus is licensed under AGPL-3.0-or-later. This Sealos template follows the s
 
 Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies application deployment, persistent storage, networking, and operations. Deploying Odysseus on Sealos gives you:
 
-- **One-Click Deployment**: Deploy Odysseus, Chroma, SearXNG, storage, ingress, and dashboard entry from one App Store template.
+- **One-Click Deployment**: Deploy Odysseus, Chroma, SearXNG, ntfy, storage, ingress, and dashboard entry from one App Store template.
 - **Persistent Storage Included**: Keep workspace data, auth files, caches, Chroma memory, and search cache across restarts.
 - **Instant Public Access**: Receive a managed HTTPS URL for the authenticated Odysseus web UI.
 - **Resource Control**: Adjust CPU, memory, and storage from Sealos Canvas resource cards.
@@ -83,8 +87,8 @@ The initial admin credentials are used when Odysseus creates `/app/data/auth.jso
 To scale or tune Odysseus:
 
 1. Open the Canvas for your deployment.
-2. Click the Odysseus, Chroma, or SearXNG StatefulSet resource card.
-3. Adjust CPU, memory, replica count, or storage according to your workload.
+2. Click the Odysseus, Chroma, SearXNG, or ntfy StatefulSet resource card.
+3. Adjust CPU, memory, or storage according to your workload. Keep every StatefulSet at one replica to preserve the bundled single-instance data model.
 4. Apply the change from the dialog.
 
 ## Troubleshooting
@@ -116,6 +120,7 @@ To scale or tune Odysseus:
 - [Odysseus Source Code](https://github.com/pewdiepie-archdaemon/odysseus)
 - [Chroma Documentation](https://docs.trychroma.com/)
 - [SearXNG Documentation](https://docs.searxng.org/)
+- [ntfy Documentation](https://docs.ntfy.sh/)
 
 ## License
 
