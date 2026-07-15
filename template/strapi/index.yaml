@@ -52,7 +52,7 @@ spec:
       type: string
       required: true
     admin_password:
-      description: Initial administrator password with uppercase, lowercase, number, and special characters.
+      description: Initial administrator password. Use at least 8 characters with one uppercase letter, lowercase letter, and number.
       type: string
       required: true
     admin_firstname:
@@ -197,9 +197,13 @@ spec:
             - -ec
             - |
               export PGPASSWORD="$PG_PASSWORD"
-              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; do
+              for i in $(seq 1 120); do
+                if pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; then
+                  break
+                fi
                 sleep 2
               done
+              pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1
               if ! psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$PG_DATABASE'" | grep -qx 1; then
                 createdb -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" "$PG_DATABASE"
               fi
@@ -252,6 +256,45 @@ metadata:
     app: ${{ defaults.app_name }}-pg-revision
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-pg-revision
 data:
+  vn-optvn-strapivn-refreshvn-credentialsvn-sh: |
+    #!/bin/sh
+    set -eu
+
+    conn_secret="${APP_NAME}-pg-conn-credential"
+    revision_configmap="${APP_NAME}-pg-revision-state"
+
+    for i in $(seq 1 120); do
+      if kubectl get secret "$conn_secret" >/dev/null 2>&1; then
+        break
+      fi
+      sleep 2
+    done
+    kubectl get secret "$conn_secret" >/dev/null
+
+    source_revision="$(kubectl get secret "$conn_secret" -o jsonpath='{.metadata.resourceVersion}')"
+    target_revision="$(kubectl get configmap "$revision_configmap" -o go-template='{{ index .data "source-resource-version" }}')"
+    revision_patch="$(printf '{"data":{"source-resource-version":"%s"}}' "$source_revision")"
+
+    if [ -z "$target_revision" ]; then
+      kubectl patch configmap "$revision_configmap" --type merge --patch "$revision_patch"
+      exit 0
+    fi
+
+    if [ "$source_revision" = "$target_revision" ]; then
+      exit 0
+    fi
+
+    kubectl delete pod "${APP_NAME}-0" --ignore-not-found --wait=false
+    kubectl patch configmap "$revision_configmap" --type merge --patch "$revision_patch"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-pg-revision-state
+  labels:
+    app: ${{ defaults.app_name }}-pg-revision-state
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-pg-revision-state
+data:
   source-resource-version: ''
 ---
 apiVersion: v1
@@ -283,7 +326,7 @@ rules:
     resources:
       - configmaps
     resourceNames:
-      - ${{ defaults.app_name }}-pg-revision
+      - ${{ defaults.app_name }}-pg-revision-state
     verbs:
       - get
       - patch
@@ -354,14 +397,14 @@ spec:
               cpu: 10m
               memory: 12Mi
           volumeMounts:
-            - name: ${{ defaults.app_name }}-cm
+            - name: ${{ defaults.app_name }}-pg-revision-cm
               mountPath: /opt/strapi/refresh-credentials.sh
               subPath: vn-optvn-strapivn-refreshvn-credentialsvn-sh
               readOnly: true
       volumes:
-        - name: ${{ defaults.app_name }}-cm
+        - name: ${{ defaults.app_name }}-pg-revision-cm
           configMap:
-            name: ${{ defaults.app_name }}
+            name: ${{ defaults.app_name }}-pg-revision
 ---
 apiVersion: batch/v1
 kind: CronJob
@@ -375,7 +418,7 @@ metadata:
 spec:
   schedule: '* * * * *'
   concurrencyPolicy: Forbid
-  successfulJobsHistoryLimit: 1
+  successfulJobsHistoryLimit: 0
   failedJobsHistoryLimit: 1
   jobTemplate:
     spec:
@@ -414,14 +457,14 @@ spec:
                 seccompProfile:
                   type: RuntimeDefault
               volumeMounts:
-                - name: ${{ defaults.app_name }}-cm
+                - name: ${{ defaults.app_name }}-pg-revision-cm
                   mountPath: /opt/strapi/refresh-credentials.sh
                   subPath: vn-optvn-strapivn-refreshvn-credentialsvn-sh
                   readOnly: true
           volumes:
-            - name: ${{ defaults.app_name }}-cm
+            - name: ${{ defaults.app_name }}-pg-revision-cm
               configMap:
-                name: ${{ defaults.app_name }}
+                name: ${{ defaults.app_name }}-pg-revision
 ${{ endif() }}
 ---
 apiVersion: v1
@@ -432,34 +475,6 @@ metadata:
     app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 data:
-  vn-optvn-strapivn-refreshvn-credentialsvn-sh: |
-    #!/bin/sh
-    set -eu
-
-    conn_secret="${APP_NAME}-pg-conn-credential"
-    revision_configmap="${APP_NAME}-pg-revision"
-
-    until kubectl get secret "$conn_secret" >/dev/null 2>&1; do
-      sleep 2
-    done
-
-    source_revision="$(kubectl get secret "$conn_secret" -o jsonpath='{.metadata.resourceVersion}')"
-    target_revision="$(kubectl get configmap "$revision_configmap" -o go-template='{{ index .data "source-resource-version" }}')"
-    if [ "$source_revision" = "$target_revision" ]; then
-      exit 0
-    fi
-
-    revision_patch="$(printf '{"data":{"source-resource-version":"%s"}}' "$source_revision")"
-    kubectl patch configmap "$revision_configmap" --type merge --patch "$revision_patch"
-
-    if [ -z "$target_revision" ]; then
-      exit 0
-    fi
-
-    if kubectl get pod "${APP_NAME}-0" >/dev/null 2>&1; then
-      kubectl delete pod "${APP_NAME}-0" --wait=false
-    fi
-
   vn-optvn-strapivn-packagevn-json: |
     {
       "name": "strapi-lock-gen",
@@ -500,12 +515,29 @@ data:
 
     TARGET_VERSION=5.50.1
     LOCK_SHA256=80c0ffe64097b904b1f1c25d2a48cf8774932699e2a566e17271bc161717cd7c
-    BUILD_MARKER=".sealos-build-${LOCK_SHA256}"
+    BUILD_REVISION=2
+    BUILD_MARKER=".sealos-build-${LOCK_SHA256}-v${BUILD_REVISION}"
     ADMIN_MARKER=.sealos-admin-bootstrap-v1
     WORK_DIR=/tmp/strapi-build
     export npm_config_cache=/tmp/npm-cache
 
-    if [ ! -f "/srv/app/$BUILD_MARKER" ]; then
+    if [ ! -f "/srv/app/$ADMIN_MARKER" ] && ! node -e '
+      const password = process.env.ADMIN_BOOTSTRAP_PASSWORD || "";
+      const valid = password.length >= 8
+        && /[a-z]/.test(password)
+        && /[A-Z]/.test(password)
+        && /[0-9]/.test(password);
+      process.exit(valid ? 0 : 1);
+    '; then
+      echo 'Invalid admin_password: expected at least 8 characters with one ASCII uppercase letter, lowercase letter, and digit; redeploy with a valid value.' >&2
+      exit 1
+    fi
+
+    if [ ! -f "/srv/app/$BUILD_MARKER" ] \
+      || [ ! -s /srv/app/node-modules.tgz ] \
+      || [ ! -f /srv/app/package.json ] \
+      || [ ! -f /srv/app/config/server.js ] \
+      || [ ! -f /srv/app/favicon.png ]; then
       rm -rf "$WORK_DIR"
       mkdir -p "$WORK_DIR/config" "$WORK_DIR/public/uploads" "$WORK_DIR/src"
       cp /opt/strapi/package.json "$WORK_DIR/package.json"
@@ -613,10 +645,25 @@ data:
     EOF
       cat >"$WORK_DIR/config/plugins.js" <<'EOF'
     module.exports = ({ env }) => {
-      if (!env.bool('ENABLE_S3_STORAGE', false)) return {};
+      const security = {
+        deniedTypes: [
+          'text/html',
+          'application/xhtml+xml',
+          'application/javascript',
+          'text/javascript',
+          'application/x-sh',
+          'application/x-httpd-php',
+          'application/x-msdownload',
+          'application/x-executable',
+        ],
+      };
+      if (!env.bool('ENABLE_S3_STORAGE', false)) {
+        return { upload: { config: { security } } };
+      }
       return {
         upload: {
           config: {
+            security,
             provider: 'aws-s3',
             providerOptions: {
               s3Options: {
@@ -871,10 +918,6 @@ spec:
             - name: ${{ defaults.app_name }}-cm
               mountPath: /opt/strapi/package-lock.gz.b64
               subPath: vn-optvn-strapivn-packagevn-lockvn-gzvn-b64
-              readOnly: true
-            - name: ${{ defaults.app_name }}-cm
-              mountPath: /opt/strapi/refresh-credentials.sh
-              subPath: vn-optvn-strapivn-refreshvn-credentialsvn-sh
               readOnly: true
             - name: vn-srvvn-app
               mountPath: /srv/app
