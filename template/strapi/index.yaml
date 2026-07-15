@@ -753,7 +753,7 @@ metadata:
 spec:
   replicas: 1
   revisionHistoryLimit: 1
-  serviceName: ${{ defaults.app_name }}
+  serviceName: ${{ defaults.app_name }}-headless
   selector:
     matchLabels:
       app: ${{ defaults.app_name }}
@@ -761,6 +761,7 @@ spec:
     metadata:
       labels:
         app: ${{ defaults.app_name }}
+        app.kubernetes.io/cluster-discovery: ${{ defaults.app_name }}-headless
     spec:
       automountServiceAccountToken: false
       securityContext:
@@ -946,12 +947,13 @@ spec:
             - -ec
           args:
             - |
-              rm -rf /srv/deps/node_modules
-              tar -xzf /srv/app/node-modules.tgz -C /srv/deps
-              actual_version="$(node -p "require('/srv/deps/node_modules/@strapi/strapi/package.json').version")"
+              find /srv/deps -mindepth 1 -maxdepth 1 ! -name lost+found -exec rm -rf {} +
+              tar -xzf /srv/app/node-modules.tgz -C /srv/deps --strip-components=1
+              actual_version="$(node -p "require('/srv/deps/@strapi/strapi/package.json').version")"
               [ "$actual_version" = '5.50.1' ]
-              dependency_kib="$(du -sk /srv/deps/node_modules | awk '{print $1}')"
-              dependency_inodes="$(find /srv/deps/node_modules -xdev | wc -l | tr -d ' ')"
+              test -x /srv/deps/.bin/strapi
+              dependency_kib="$(du -sk /srv/deps | awk '{print $1}')"
+              dependency_inodes="$(find /srv/deps -xdev | wc -l | tr -d ' ')"
               if [ "$dependency_kib" -gt 850000 ] || [ "$dependency_inodes" -gt 52000 ]; then
                 echo "Strapi runtime dependencies require ${dependency_kib}KiB and ${dependency_inodes} inodes; expected at most 850000KiB and 52000 inodes." >&2
                 exit 1
@@ -1097,7 +1099,6 @@ spec:
               mountPath: /srv/app
             - name: vn-srvvn-deps
               mountPath: /srv/app/node_modules
-              subPath: node_modules
           resources:
             limits:
               cpu: 500m
@@ -1152,6 +1153,24 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
+  name: ${{ defaults.app_name }}-headless
+  labels:
+    app: ${{ defaults.app_name }}-headless
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-headless
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/cluster-discovery: ${{ defaults.app_name }}-headless
+  ports:
+    - name: http
+      port: 1337
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
   name: ${{ defaults.app_name }}
   labels:
     app: ${{ defaults.app_name }}
@@ -1170,6 +1189,7 @@ kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
