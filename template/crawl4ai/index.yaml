@@ -28,14 +28,23 @@ spec:
     app_host:
       type: string
       value: crawl4ai-${{ random(8) }}
+    secret_key:
+      type: string
+      value: ${{ random(64) }}
+  inputs:
+    api_token:
+      description: API token required to access Crawl4AI Playground, Dashboard, and protected API endpoints.
+      type: string
+      default: "Crawl4AI@${{ random(24) }}!1"
+      required: true
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: unclecode/crawl4ai:0.8.9
-    docker-to-sealos.resource-override-source: "Live Sealos validation: baseline 200m/256Mi was OOMKilled while Crawl4AI created the default Playwright browser."
+    originImageName: unclecode/crawl4ai:0.9.1
+    docker-to-sealos.resource-override-source: "Live Sealos acceptance with a permanent browser, authenticated Playground, and repeated example.com crawls peaked at 720605184 bytes with zero OOM events; 1024Mi/500m is the minimum stable Sealos ladder, while /dev/shm remains 1Gi."
     deploy.cloud.sealos.io/minReplicas: "1"
     deploy.cloud.sealos.io/maxReplicas: "1"
   labels:
@@ -53,16 +62,79 @@ spec:
       labels:
         app: ${{ defaults.app_name }}
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
       automountServiceAccountToken: false
+      initContainers:
+        - name: install-playwright-browsers
+          image: unclecode/crawl4ai:0.9.1
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              python -m playwright install chromium
+              rm -f /home/appuser/.cache/ms-playwright/playground-index.html
+              cp /app/static/playground/index.html /home/appuser/.cache/ms-playwright/playground-index.html
+              sed -i 's/stream=True/stream=False/g' /home/appuser/.cache/ms-playwright/playground-index.html
+              sed -i "s/JSON.stringify({ code })/JSON.stringify({ code, type: document.getElementById('cfg-type').value })/" /home/appuser/.cache/ms-playwright/playground-index.html
+              grep -Fq 'stream=False' /home/appuser/.cache/ms-playwright/playground-index.html
+              grep -Fq "JSON.stringify({ code, type: document.getElementById('cfg-type').value })" /home/appuser/.cache/ms-playwright/playground-index.html
+              rm -f /home/appuser/.cache/ms-playwright/server.py
+              cp /app/server.py /home/appuser/.cache/ms-playwright/server.py
+              sed -i 's/app.include_router(monitor_router, dependencies=\[Depends(token_dep)\])/app.include_router(monitor_router)/' /home/appuser/.cache/ms-playwright/server.py
+              grep -Fq 'app.include_router(monitor_router)' /home/appuser/.cache/ms-playwright/server.py
+              if grep -Fq 'app.include_router(monitor_router, dependencies=[Depends(token_dep)])' /home/appuser/.cache/ms-playwright/server.py; then
+                exit 1
+              fi
+              rm -f /home/appuser/.cache/ms-playwright/supervisord.conf
+              cp /app/supervisord.conf /home/appuser/.cache/ms-playwright/supervisord.conf
+              sed -i 's/--log-level info/--log-level warning/' /home/appuser/.cache/ms-playwright/supervisord.conf
+              grep -Fq -- '--log-level warning' /home/appuser/.cache/ms-playwright/supervisord.conf
+          env:
+            - name: PLAYWRIGHT_BROWSERS_PATH
+              value: /home/appuser/.cache/ms-playwright
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 50m
+              memory: 51Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: vn-homevn-appuservn-cachevn-ms-playwright
+              mountPath: /home/appuser/.cache/ms-playwright
       containers:
         - name: ${{ defaults.app_name }}
-          image: unclecode/crawl4ai:0.8.9
+          image: unclecode/crawl4ai:0.9.1
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           env:
             - name: CRAWL4AI_HOST
               value: 0.0.0.0
             - name: CRAWL4AI_PORT
               value: "11235"
+            - name: CRAWL4AI_API_TOKEN
+              value: ${{ inputs.api_token }}
+            - name: SECRET_KEY
+              value: ${{ defaults.secret_key }}
+            - name: PLAYWRIGHT_BROWSERS_PATH
+              value: /home/appuser/.cache/ms-playwright
           ports:
             - name: http
               containerPort: 11235
@@ -90,17 +162,42 @@ spec:
             failureThreshold: 6
           resources:
             requests:
-              cpu: 100m
-              memory: 256Mi
+              cpu: 50m
+              memory: 102Mi
             limits:
-              cpu: 800m
-              memory: 1Gi
+              cpu: 500m
+              memory: 1024Mi
           volumeMounts:
+            - name: vn-homevn-appuservn-cachevn-ms-playwright
+              mountPath: /home/appuser/.cache/ms-playwright
+            - name: vn-homevn-appuservn-cachevn-ms-playwright
+              mountPath: /app/static/playground/index.html
+              subPath: playground-index.html
+              readOnly: true
+            - name: vn-homevn-appuservn-cachevn-ms-playwright
+              mountPath: /app/server.py
+              subPath: server.py
+              readOnly: true
+            - name: vn-homevn-appuservn-cachevn-ms-playwright
+              mountPath: /app/supervisord.conf
+              subPath: supervisord.conf
+              readOnly: true
             - name: vn-devvn-shm
               mountPath: /dev/shm
-            - name: vn-appvn-cache
-              mountPath: /app/.cache
+            - name: vn-varvn-libvn-crawl4aivn-outputs
+              mountPath: /var/lib/crawl4ai/outputs
   volumeClaimTemplates:
+    - metadata:
+        name: vn-homevn-appuservn-cachevn-ms-playwright
+        annotations:
+          path: /home/appuser/.cache/ms-playwright
+          value: "1"
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
     - metadata:
         name: vn-devvn-shm
         annotations:
@@ -113,9 +210,9 @@ spec:
           requests:
             storage: 1Gi
     - metadata:
-        name: vn-appvn-cache
+        name: vn-varvn-libvn-crawl4aivn-outputs
         annotations:
-          path: /app/.cache
+          path: /var/lib/crawl4ai/outputs
           value: "1"
       spec:
         accessModes:
@@ -150,6 +247,7 @@ metadata:
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
     kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/enable-access-log: 'false'
     nginx.ingress.kubernetes.io/proxy-body-size: 32m
     nginx.ingress.kubernetes.io/server-snippet: |
       client_header_buffer_size 64k;
@@ -190,7 +288,7 @@ metadata:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   data:
-    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/playground
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/playground/
   displayType: normal
   icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/crawl4ai/logo.png
   name: Crawl4AI

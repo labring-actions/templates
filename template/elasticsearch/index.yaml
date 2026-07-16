@@ -28,21 +28,133 @@ spec:
     app_host:
       type: string
       value: elasticsearch-${{ random(8) }}
+  inputs:
+    auth_username:
+      description: Username for HTTP Basic Auth on the public Elasticsearch REST endpoint.
+      type: string
+      default: elastic
+      required: true
+    auth_password:
+      description: Password for HTTP Basic Auth on the public Elasticsearch REST endpoint.
+      type: string
+      default: ${{ random(24) }}
+      required: true
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-optvn-sealosvn-startvn-sh: |
+    set -eu
+    if [ "${HOSTNAME}" = "${HOSTNAME%-0}-0" ] && [ ! -d /usr/share/elasticsearch/data/nodes ]; then
+      existing_cluster=false
+      while true; do
+        fresh_peers=0
+        for ordinal in 1 2; do
+          peer_info=$(curl -fsS --max-time 2 "http://${{ defaults.app_name }}-${ordinal}.${{ defaults.app_name }}.${{ SEALOS_NAMESPACE }}.svc.cluster.local:9200/" 2>/dev/null || true)
+          if printf '%s' "${peer_info}" | grep -Eq '"cluster_uuid"[[:space:]]*:[[:space:]]*"[^"]+"' && ! printf '%s' "${peer_info}" | grep -Eq '"cluster_uuid"[[:space:]]*:[[:space:]]*"_na_"'; then
+            existing_cluster=true
+            break 2
+          fi
+          if printf '%s' "${peer_info}" | grep -Eq '"cluster_uuid"[[:space:]]*:[[:space:]]*"_na_"'; then
+            fresh_peers=$((fresh_peers + 1))
+          fi
+        done
+        if [ "${fresh_peers}" -eq 2 ]; then
+          break
+        fi
+        sleep 2
+      done
+      if [ "${existing_cluster}" = false ]; then
+        export ES_SETTING_CLUSTER_INITIAL__MASTER__NODES="${HOSTNAME}"
+      fi
+    fi
+    exec /bin/tini -- /usr/local/bin/docker-entrypoint.sh eswrapper
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-gateway
+  labels:
+    app: ${{ defaults.app_name }}-gateway
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-gateway
+data:
+  vn-etcvn-nginxvn-confvn-dvn-defaultvn-conf: |
+    server {
+      listen 8081;
+
+      location = /health {
+        access_log off;
+        return 204;
+      }
+    }
+
+    server {
+      listen 8080;
+      client_max_body_size 32m;
+
+      location / {
+        auth_basic "Elasticsearch";
+        auth_basic_user_file /tmp/elasticsearch.htpasswd;
+
+        proxy_pass http://${{ defaults.app_name }}-rest:9200;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Authorization "";
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+      }
+    }
+  vn-optvn-sealosvn-startvn-gatewayvn-sh: |
+    set -eu
+    umask 077
+    trap 'rm -f /tmp/elasticsearch-auth-username /tmp/elasticsearch-auth-password' EXIT HUP INT TERM
+    printf '%s' "${ELASTICSEARCH_AUTH_USERNAME_B64}" | base64 -d > /tmp/elasticsearch-auth-username
+    printf '%s' "${ELASTICSEARCH_AUTH_PASSWORD_B64}" | base64 -d > /tmp/elasticsearch-auth-password
+    for credential_file in /tmp/elasticsearch-auth-username /tmp/elasticsearch-auth-password; do
+      original_size=$(wc -c < "${credential_file}" | tr -d ' ')
+      sanitized_size=$(LC_ALL=C tr -d '\000-\037\177' < "${credential_file}" | wc -c | tr -d ' ')
+      if [ "${original_size}" != "${sanitized_size}" ]; then
+        echo 'Elasticsearch gateway credentials must not contain control characters.' >&2
+        exit 1
+      fi
+    done
+    ELASTICSEARCH_AUTH_USERNAME=$(cat /tmp/elasticsearch-auth-username)
+    ELASTICSEARCH_AUTH_PASSWORD=$(cat /tmp/elasticsearch-auth-password)
+    if [ -z "${ELASTICSEARCH_AUTH_USERNAME}" ] || [ -z "${ELASTICSEARCH_AUTH_PASSWORD}" ]; then
+      echo 'Elasticsearch gateway credentials must be non-empty.' >&2
+      exit 1
+    fi
+    case "${ELASTICSEARCH_AUTH_USERNAME}" in
+      *:*) echo 'Elasticsearch gateway username must not contain a colon.' >&2; exit 1 ;;
+    esac
+    printf '%s:{PLAIN}%s\n' "${ELASTICSEARCH_AUTH_USERNAME}" "${ELASTICSEARCH_AUTH_PASSWORD}" > /tmp/elasticsearch.htpasswd
+    rm -f /tmp/elasticsearch-auth-username /tmp/elasticsearch-auth-password
+    trap - EXIT HUP INT TERM
+    exec /docker-entrypoint.sh nginx -g 'daemon off;'
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: docker.elastic.co/elasticsearch/elasticsearch:9.4.1
+    originImageName: docker.elastic.co/elasticsearch/elasticsearch:9.4.3
     deploy.cloud.sealos.io/minReplicas: '3'
     deploy.cloud.sealos.io/maxReplicas: '3'
-    docker-to-sealos.resource-override-source: 'Empirical Sealos deployment test for Elasticsearch 9.4.1 HA: 512Mi memory limit failed to become ready; 1024Mi memory limit with 512Mi heap reached 3/3 Running and green cluster health.'
+    docker-to-sealos.resource-override-source: 'Live Sealos validation for Elasticsearch 9.4.3: a 1024Mi limit reached 1071742976 bytes (99.8%) during a three-node authenticated indexing smoke test. The next Sealos ladder value, 2048Mi with a 512Mi heap, preserves stable headroom.'
   labels:
     app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   replicas: 3
+  podManagementPolicy: Parallel
   revisionHistoryLimit: 1
   serviceName: ${{ defaults.app_name }}
   selector:
@@ -52,12 +164,13 @@ spec:
     metadata:
       labels:
         app: ${{ defaults.app_name }}
+        elasticsearch-rest: ${{ defaults.app_name }}-rest
     spec:
       automountServiceAccountToken: false
-      imagePullSecrets:
-      - name: ${{ defaults.app_name }}
       securityContext:
         fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       initContainers:
       - name: init-data-permissions
         image: busybox:1.37.0
@@ -81,8 +194,13 @@ spec:
           mountPath: /usr/share/elasticsearch/data
       containers:
       - name: ${{ defaults.app_name }}
-        image: docker.elastic.co/elasticsearch/elasticsearch:9.4.1
+        image: docker.elastic.co/elasticsearch/elasticsearch:9.4.3
         imagePullPolicy: IfNotPresent
+        command:
+        - /bin/sh
+        - -c
+        args:
+        - exec /bin/sh /opt/sealos/start.sh
         env:
         - name: ES_SETTING_CLUSTER_NAME
           value: sealos-elasticsearch
@@ -90,10 +208,10 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
+        - name: ES_SETTING_NODE_ROLES
+          value: master,data,ingest
         - name: ES_SETTING_DISCOVERY_SEED__HOSTS
           value: ${{ defaults.app_name }}-0.${{ defaults.app_name }}.${{ SEALOS_NAMESPACE }}.svc.cluster.local,${{ defaults.app_name }}-1.${{ defaults.app_name }}.${{ SEALOS_NAMESPACE }}.svc.cluster.local,${{ defaults.app_name }}-2.${{ defaults.app_name }}.${{ SEALOS_NAMESPACE }}.svc.cluster.local
-        - name: ES_SETTING_CLUSTER_INITIAL__MASTER__NODES
-          value: ${{ defaults.app_name }}-0,${{ defaults.app_name }}-1,${{ defaults.app_name }}-2
         - name: ES_SETTING_NETWORK_HOST
           value: 0.0.0.0
         - name: ES_SETTING_XPACK_SECURITY_ENABLED
@@ -115,23 +233,31 @@ spec:
         - containerPort: 9300
           name: inter-node
           protocol: TCP
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 0
         resources:
           requests:
             cpu: 50m
-            memory: 102Mi
+            memory: 204Mi
           limits:
             cpu: 500m
-            memory: 1024Mi
+            memory: 2048Mi
         startupProbe:
           exec:
             command:
             - sh
             - -c
             - |
-              curl -fsS http://127.0.0.1:9200/_cluster/health?local=true >/dev/null
+              curl -fsS 'http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=5s' >/dev/null
           initialDelaySeconds: 20
           periodSeconds: 10
-          timeoutSeconds: 5
+          timeoutSeconds: 7
           failureThreshold: 60
         livenessProbe:
           tcpSocket:
@@ -146,14 +272,21 @@ spec:
             - sh
             - -c
             - |
-              curl -fsS http://127.0.0.1:9200/_cluster/health?local=true >/dev/null
+              curl -fsS 'http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=5s' >/dev/null
           initialDelaySeconds: 20
           periodSeconds: 10
-          timeoutSeconds: 5
+          timeoutSeconds: 7
           failureThreshold: 12
         volumeMounts:
+        - name: ${{ defaults.app_name }}-cm
+          mountPath: /opt/sealos/start.sh
+          subPath: vn-optvn-sealosvn-startvn-sh
         - name: vn-usrvn-sharevn-elasticsearchvn-data
           mountPath: /usr/share/elasticsearch/data
+      volumes:
+      - name: ${{ defaults.app_name }}-cm
+        configMap:
+          name: ${{ defaults.app_name }}
   volumeClaimTemplates:
   - metadata:
       annotations:
@@ -190,13 +323,173 @@ spec:
   selector:
     app: ${{ defaults.app_name }}
 ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-rest
+  labels:
+    app: ${{ defaults.app_name }}-rest
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-rest
+spec:
+  type: ClusterIP
+  ports:
+  - name: rest
+    port: 9200
+    targetPort: 9200
+    protocol: TCP
+  selector:
+    elasticsearch-rest: ${{ defaults.app_name }}-rest
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-gateway
+  annotations:
+    originImageName: nginxinc/nginx-unprivileged:1.30.3-alpine-slim
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}-gateway
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-gateway
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-gateway
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-gateway
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: ${{ defaults.app_name }}-gateway
+        image: nginxinc/nginx-unprivileged:1.30.3-alpine-slim
+        imagePullPolicy: IfNotPresent
+        command:
+        - /bin/sh
+        - -c
+        args:
+        - exec /bin/sh /opt/sealos/start-gateway.sh
+        env:
+        - name: ELASTICSEARCH_AUTH_USERNAME_B64
+          value: "${{ base64(inputs.auth_username) }}"
+        - name: ELASTICSEARCH_AUTH_PASSWORD_B64
+          value: "${{ base64(inputs.auth_password) }}"
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        - containerPort: 8081
+          name: health
+          protocol: TCP
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          runAsNonRoot: true
+          runAsUser: 101
+          runAsGroup: 101
+        resources:
+          requests:
+            cpu: 10m
+            memory: 12Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+        startupProbe:
+          httpGet:
+            path: /health
+            port: health
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 30
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: health
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: health
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 6
+        volumeMounts:
+        - name: ${{ defaults.app_name }}-gateway-cm
+          mountPath: /etc/nginx/conf.d/default.conf
+          subPath: vn-etcvn-nginxvn-confvn-dvn-defaultvn-conf
+        - name: ${{ defaults.app_name }}-gateway-cm
+          mountPath: /opt/sealos/start-gateway.sh
+          subPath: vn-optvn-sealosvn-startvn-gatewayvn-sh
+      volumes:
+      - name: ${{ defaults.app_name }}-gateway-cm
+        configMap:
+          name: ${{ defaults.app_name }}-gateway
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-gateway
+  labels:
+    app: ${{ defaults.app_name }}-gateway
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-gateway
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-gateway
+---
 apiVersion: networking.k8s.io/v1
-kind: Ingress
+kind: NetworkPolicy
 metadata:
   name: ${{ defaults.app_name }}
   labels:
     app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  podSelector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: ${{ defaults.app_name }}-gateway
+    ports:
+    - protocol: TCP
+      port: 9200
+  - from:
+    - podSelector:
+        matchLabels:
+          app: ${{ defaults.app_name }}
+    ports:
+    - protocol: TCP
+      port: 9200
+    - protocol: TCP
+      port: 9300
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-gateway
+  labels:
+    app: ${{ defaults.app_name }}-gateway
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-gateway
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
     kubernetes.io/ingress.class: nginx
@@ -224,9 +517,9 @@ spec:
         path: /
         backend:
           service:
-            name: ${{ defaults.app_name }}
+            name: ${{ defaults.app_name }}-gateway
             port:
-              number: 9200
+              number: 8080
   tls:
   - hosts:
     - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
