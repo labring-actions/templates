@@ -29,16 +29,12 @@ spec:
       type: boolean
       default: 'false'
       required: false
-    enable_s3_storage:
-      description: 'Store secured user files in a Sealos S3-compatible bucket. A valid Stirling-PDF Pro or Enterprise license is required.'
-      type: boolean
-      default: 'false'
-      required: false
     PREMIUM_KEY:
-      description: 'Valid Stirling-PDF Pro or Enterprise license key. Required when PostgreSQL or S3 storage is enabled.'
+      description: 'Valid Stirling-PDF Pro or Enterprise license key. Required when PostgreSQL is enabled.'
       type: string
       default: ''
-      required: false
+      required: true
+      if: inputs.use_postgresql === 'true'
     SECURITY_INITIALLOGIN_USERNAME:
       description: 'Initial administrator username for the fresh Stirling-PDF data volume.'
       type: string
@@ -63,19 +59,7 @@ spec:
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/s-pdf/README_zh.md'
 
 ---
-${{ if(inputs.enable_s3_storage === 'true') }}
-apiVersion: objectstorage.sealos.io/v1
-kind: ObjectStorageBucket
-metadata:
-  name: ${{ defaults.app_name }}
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-spec:
-  policy: private
-${{ endif() }}
-
-${{ if(inputs.use_postgresql === 'true') }}
----
+${{ if(inputs.use_postgresql === 'true' && inputs.PREMIUM_KEY !== '') }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -253,7 +237,7 @@ spec:
     spec:
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 30
-      ${{ if(inputs.use_postgresql === 'true') }}
+      ${{ if(inputs.use_postgresql === 'true' && inputs.PREMIUM_KEY !== '') }}
       initContainers:
         - name: wait-postgresql-database
           image: postgres:16-alpine
@@ -328,13 +312,13 @@ spec:
               value: 'false'
             - name: STORAGE_ENABLED
               value: 'true'
-            ${{ if(inputs.use_postgresql === 'true' || inputs.enable_s3_storage === 'true') }}
+            ${{ if(inputs.use_postgresql === 'true' && inputs.PREMIUM_KEY !== '') }}
             - name: PREMIUM_ENABLED
               value: 'true'
             - name: PREMIUM_KEY
               value: ${{ inputs.PREMIUM_KEY }}
             ${{ endif() }}
-            ${{ if(inputs.use_postgresql === 'true') }}
+            ${{ if(inputs.use_postgresql === 'true' && inputs.PREMIUM_KEY !== '') }}
             - name: SYSTEM_DATASOURCE_ENABLECUSTOMDATABASE
               value: 'true'
             - name: SYSTEM_DATASOURCE_USERNAME
@@ -360,50 +344,10 @@ spec:
             - name: SYSTEM_DATASOURCE_CUSTOMDATABASEURL
               value: 'jdbc:postgresql://$(DB_POSTGRESDB_HOST):$(DB_POSTGRESDB_PORT)/stirling_pdf'
             ${{ endif() }}
-            ${{ if(inputs.enable_s3_storage === 'true') }}
-            - name: STORAGE_PROVIDER
-              value: 's3'
-            - name: S3_ACCESS_KEY_ID
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key
-                  key: accessKey
-            - name: S3_SECRET_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key
-                  key: secretKey
-            - name: S3_BUCKET
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
-                  key: bucket
-            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key
-                  key: external
-            - name: STORAGE_S3_ENDPOINT
-              value: 'https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)'
-            - name: STORAGE_S3_BUCKET
-              value: '$(S3_BUCKET)'
-            - name: STORAGE_S3_REGION
-              value: 'us-east-1'
-            - name: STORAGE_S3_ACCESSKEY
-              value: '$(S3_ACCESS_KEY_ID)'
-            - name: STORAGE_S3_SECRETKEY
-              value: '$(S3_SECRET_ACCESS_KEY)'
-            - name: STORAGE_S3_PATHSTYLEACCESS
-              value: 'true'
-            - name: STORAGE_S3_ALLOWPRIVATEENDPOINTS
-              value: 'false'
-            ${{ endif() }}
-            ${{ if(inputs.enable_s3_storage === 'false') }}
             - name: STORAGE_PROVIDER
               value: 'local'
             - name: STORAGE_LOCAL_BASEPATH
               value: '/storage'
-            ${{ endif() }}
           ports:
             - name: http
               containerPort: 8080
