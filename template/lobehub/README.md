@@ -2,7 +2,7 @@
 
 LobeHub is an open-source AI workspace for chat, agents, knowledge bases, multimodal files, and model provider management. This template deploys LobeHub 2.2.10 with PostgreSQL, Redis, private S3-compatible object storage, and Better Auth on Sealos Cloud.
 
-![LobeHub Screenshot](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/lobe-chat-db/website-screenshot.webp)
+![LobeHub Screenshot](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/lobehub/website-screenshot.webp)
 
 ## About Hosting LobeHub
 
@@ -32,7 +32,7 @@ The template provisions all runtime dependencies used by the supported Sealos to
 - [LobeHub Documentation](https://lobehub.com/docs) - Official product and self-hosting documentation
 - [LobeHub GitHub Repository](https://github.com/lobehub/lobehub) - Source code and releases
 - [Better Auth Configuration](https://lobehub.com/docs/self-hosting/auth) - Registration and authentication settings
-- [Sealos App Store](https://sealos.io/products/app-store/lobe-chat-db) - One-click deployment entry
+- [Sealos App Store](https://sealos.io/products/app-store/lobehub) - One-click deployment entry
 
 ### Implementation Details
 
@@ -52,7 +52,7 @@ Sealos combines Kubernetes application orchestration, managed databases, object 
 
 ## Deployment Guide
 
-1. Open the [LobeHub template](https://sealos.io/products/app-store/lobe-chat-db) and click **Deploy Now**.
+1. Open the [LobeHub template](https://sealos.io/products/app-store/lobehub) and click **Deploy Now**.
 2. Optionally restrict registration with `AUTH_ALLOWED_EMAILS` and configure OpenAI-compatible model inputs. The template generates and persists `JWKS_KEY` automatically.
 3. Wait for PostgreSQL, Redis, object storage, and LobeHub migrations to become ready, typically 2-3 minutes.
 4. Open the generated LobeHub HTTPS URL from Canvas.

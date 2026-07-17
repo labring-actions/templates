@@ -2,7 +2,7 @@
 
 LobeHub 是开源 AI 工作空间，支持聊天、智能体、知识库、多模态文件和模型服务商管理。本模板会在 Sealos Cloud 上部署 LobeHub 2.2.10，并配置 PostgreSQL、Redis、私有 S3 兼容对象存储和 Better Auth。
 
-![LobeHub 截图](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/lobe-chat-db/website-screenshot.webp)
+![LobeHub 截图](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/lobehub/website-screenshot.webp)
 
 ## 关于托管 LobeHub
 
@@ -32,7 +32,7 @@ LobeHub 2.x 使用 Better Auth，并内置邮箱密码注册。邮箱验证和�
 - [LobeHub 文档](https://lobehub.com/docs) - 官方产品与自托管文档
 - [LobeHub GitHub 仓库](https://github.com/lobehub/lobehub) - 源码与版本发布
 - [Better Auth 配置](https://lobehub.com/docs/self-hosting/auth) - 注册与身份认证设置
-- [Sealos 应用商店](https://sealos.io/products/app-store/lobe-chat-db) - 一键部署入口
+- [Sealos 应用商店](https://sealos.io/products/app-store/lobehub) - 一键部署入口
 
 ### 实现细节
 
@@ -52,7 +52,7 @@ Sealos 在一个部署界面中整合 Kubernetes 应用编排、托管数据库�
 
 ## 部署指南
 
-1. 打开 [LobeHub 模板](https://sealos.io/products/app-store/lobe-chat-db)，点击 **Deploy Now**。
+1. 打开 [LobeHub 模板](https://sealos.io/products/app-store/lobehub)，点击 **Deploy Now**。
 2. 按需使用 `AUTH_ALLOWED_EMAILS` 限制注册范围，并配置 OpenAI 兼容模型参数。模板会自动生成并持久化 `JWKS_KEY`。
 3. 等待 PostgreSQL、Redis、对象存储和 LobeHub 数据库迁移就绪，通常需要 2-3 分钟。
 4. 从 Canvas 打开生成的 LobeHub HTTPS 地址。
