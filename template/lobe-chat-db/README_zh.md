@@ -42,18 +42,9 @@ PostgreSQL Pod 首次启动时会下载官方 `pg_search` 0.24.2 Ubuntu 软件�
 
 模板通过 KubeBlocks 托管凭证组合 `DATABASE_URL` 和 `REDIS_URL`。Sealos 从托管 ObjectStorageBucket 注入 S3 endpoint、bucket、access key 和 secret key。
 
-每个部署都需要独立的私有 RS256 密钥对，因此 `JWKS_KEY` 是必填部署参数。使用对应版本的 LobeHub 源码生成密钥：
+每个部署都需要独立的私有 RS256 密钥对，用于 OIDC 和内部 JWT 认证。应用首次启动时，模板会通过 Node.js 生成 2048 位 RSA JWKS，校验私钥字段后写入当前部署的 PostgreSQL 数据库。PostgreSQL advisory lock 会让并发启动的多个副本统一使用同一把密钥。后续重启和扩容时，应用会先读取已保存的密钥，再执行 LobeHub 官方启动程序，部署表单只保留运维参数。
 
-```bash
-git clone --depth 1 --branch v2.2.10 https://github.com/lobehub/lobehub.git
-cd lobehub
-mkdir .jwks-generator
-npm install --prefix .jwks-generator --no-save --ignore-scripts jose@6.2.3
-cp scripts/generate-oidc-jwk.mjs .jwks-generator/
-node .jwks-generator/generate-oidc-jwk.mjs
-```
-
-妥善保存脚本输出的单行 JSON，并在部署时填入 `JWKS_KEY`。
+JWKS 会随 LobeHub 数据库一起备份和恢复。恢复应用数据与认证状态时，JWT 工作流使用的签名身份也会保持一致。
 
 ## 为什么在 Sealos 上部署 LobeHub？
 
@@ -62,10 +53,9 @@ Sealos 在一个部署界面中整合 Kubernetes 应用编排、托管数据库�
 ## 部署指南
 
 1. 打开 [LobeHub 模板](https://sealos.io/products/app-store/lobe-chat-db)，点击 **Deploy Now**。
-2. 将私有 RS256 JWKS JSON 填入 `JWKS_KEY`。
-3. 按需使用 `AUTH_ALLOWED_EMAILS` 限制注册范围，并配置 OpenAI 兼容模型参数。
-4. 等待 PostgreSQL、Redis、对象存储和 LobeHub 数据库迁移就绪，通常需要 2-3 分钟。
-5. 从 Canvas 打开生成的 LobeHub HTTPS 地址。
+2. 按需使用 `AUTH_ALLOWED_EMAILS` 限制注册范围，并配置 OpenAI 兼容模型参数。模板会自动生成并持久化 `JWKS_KEY`。
+3. 等待 PostgreSQL、Redis、对象存储和 LobeHub 数据库迁移就绪，通常需要 2-3 分钟。
+4. 从 Canvas 打开生成的 LobeHub HTTPS 地址。
 
 ## 注册和登录
 
@@ -81,6 +71,7 @@ Sealos 在一个部署界面中整合 Kubernetes 应用编排、托管数据库�
 
 - **AI 对话框**：在 Canvas 中描述资源或环境变量调整需求。
 - **资源卡片**：调整 LobeHub 副本数或资源限制。
+- **JWKS 生命周期**：重启、升级或扩容 LobeHub 时保留 PostgreSQL 数据卷，让所有副本持续使用同一把签名密钥。
 - **模型服务商设置**：登录后添加聊天模型与嵌入模型凭证。文件可以直接保存，配置嵌入模型后会开始知识索引。
 - **SearXNG**：需要联网检索时填写外部 `SEARXNG_URL`。
 - **Marketplace**：智能体与任务推荐依赖外部 LobeHub Market 服务，需要访问 `market.lobehub.com`。
@@ -98,6 +89,10 @@ Sealos 在一个部署界面中整合 Kubernetes 应用编排、托管数据库�
 ### 注册失败
 
 当 `AUTH_ALLOWED_EMAILS` 包含限制条件时，确认注册邮箱符合对应地址或域名。
+
+### JWT 或内部认证失败
+
+首次健康启动的日志会包含 `Generated and stored a deployment-specific JWKS`，后续重启日志会包含 `Loaded deployment-specific JWKS from PostgreSQL`。恢复已有部署时，请使用与应用匹配的 PostgreSQL 数据卷备份，以保持原有签名身份。
 
 ### 文件上传失败
 

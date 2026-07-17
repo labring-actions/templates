@@ -34,11 +34,10 @@ spec:
     key_vaults_secret:
       type: string
       value: ${{ random(43) }}
-  inputs:
-    JWKS_KEY:
-      description: A private RS256 JWKS JSON string generated with the official LobeHub generate-oidc-jwk script.
+    jwks_record_name:
       type: string
-      required: true
+      value: primary
+  inputs:
     AUTH_ALLOWED_EMAILS:
       description: Optional comma-separated email strings or domains allowed to register. This filter does not verify email ownership.
       type: string
@@ -473,6 +472,119 @@ spec:
   terminationPolicy: Delete
   topology: replication
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-optvn-lobehubvn-bootstrapvn-jwksvn-mjs: |
+    import { generateKeyPairSync, randomBytes } from 'node:crypto';
+    import { createRequire } from 'node:module';
+
+    const require = createRequire('/app/startServer.js');
+    const { Client } = require('pg');
+
+    const requiredEnvironment = [
+      'DATABASE_HOST',
+      'DATABASE_PASSWORD',
+      'DATABASE_PORT',
+      'DATABASE_USERNAME',
+      'JWKS_RECORD_NAME',
+    ];
+    for (const name of requiredEnvironment) {
+      if (!process.env[name]) throw new Error(`${name} is required to bootstrap JWKS`);
+    }
+
+    const client = new Client({
+      database: 'lobechat',
+      host: process.env.DATABASE_HOST,
+      password: process.env.DATABASE_PASSWORD,
+      port: Number(process.env.DATABASE_PORT),
+      user: process.env.DATABASE_USERNAME,
+    });
+
+    const validate = (value) => {
+      const jwks = JSON.parse(value);
+      const privateFields = ['d', 'dp', 'dq', 'e', 'n', 'p', 'q', 'qi'];
+      const key = jwks.keys?.find(
+        (item) =>
+          item.alg === 'RS256' &&
+          item.kty === 'RSA' &&
+          item.use === 'sig' &&
+          typeof item.kid === 'string' &&
+          privateFields.every((field) => typeof item[field] === 'string' && item[field]),
+      );
+      if (!key) throw new Error('Stored JWKS does not contain an RS256 RSA private key');
+      return JSON.stringify(jwks);
+    };
+
+    const create = () => {
+      const { privateKey } = generateKeyPairSync('rsa', {
+        modulusLength: 2048,
+        publicExponent: 0x10001,
+      });
+      return JSON.stringify({
+        keys: [
+          {
+            ...privateKey.export({ format: 'jwk' }),
+            alg: 'RS256',
+            kid: randomBytes(8).toString('hex'),
+            use: 'sig',
+          },
+        ],
+      });
+    };
+
+    await client.connect();
+    try {
+      await client.query("SELECT pg_advisory_lock(hashtext('sealos_lobehub_jwks'))");
+      try {
+        await client.query(
+          `CREATE TABLE IF NOT EXISTS "_sealos_runtime_secrets" (
+            "name" text PRIMARY KEY,
+            "value" text NOT NULL,
+            "created_at" timestamptz NOT NULL DEFAULT now()
+          )`,
+        );
+        let result = await client.query(
+          'SELECT "value" FROM "_sealos_runtime_secrets" WHERE "name" = $1',
+          [process.env.JWKS_RECORD_NAME],
+        );
+        if (result.rowCount === 0) {
+          const generated = validate(create());
+          const inserted = await client.query(
+            `INSERT INTO "_sealos_runtime_secrets" ("name", "value")
+             VALUES ($1, $2)
+             ON CONFLICT ("name") DO NOTHING
+             RETURNING "value"`,
+            [process.env.JWKS_RECORD_NAME, generated],
+          );
+          if (inserted.rowCount === 1) {
+            result = inserted;
+            console.error('Generated and stored a deployment-specific JWKS');
+          } else {
+            result = await client.query(
+              'SELECT "value" FROM "_sealos_runtime_secrets" WHERE "name" = $1',
+              [process.env.JWKS_RECORD_NAME],
+            );
+            console.error('Loaded JWKS created by another replica');
+          }
+        } else {
+          console.error('Loaded deployment-specific JWKS from PostgreSQL');
+        }
+        process.env.JWKS_KEY = validate(result.rows[0].value);
+      } finally {
+        await client.query("SELECT pg_advisory_unlock(hashtext('sealos_lobehub_jwks'))");
+      }
+    } finally {
+      await client.end();
+    }
+
+    await import('/app/startServer.js');
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -504,6 +616,16 @@ spec:
         - name: wait-postgres
           image: postgres:16.14-alpine3.24
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 70
+            runAsGroup: 70
+            seccompProfile:
+              type: RuntimeDefault
           env:
             - name: PG_HOST
               valueFrom:
@@ -556,6 +678,16 @@ spec:
         - name: wait-redis
           image: redis:7.2.7-alpine
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
           env:
             - name: REDIS_HOST
               value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
@@ -593,7 +725,21 @@ spec:
         - name: wait-object-storage
           image: minio/mc:RELEASE.2025-05-21T01-59-54Z
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
           env:
+            - name: HOME
+              value: /tmp
+            - name: MC_CONFIG_DIR
+              value: /tmp/.mc
             - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
@@ -648,6 +794,10 @@ spec:
             runAsGroup: 1001
             seccompProfile:
               type: RuntimeDefault
+          command:
+            - /bin/node
+          args:
+            - /opt/lobehub/bootstrap-jwks.mjs
           env:
             - name: APP_URL
               value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
@@ -657,8 +807,8 @@ spec:
               value: ${{ defaults.key_vaults_secret }}
             - name: AUTH_SECRET
               value: ${{ defaults.auth_secret }}
-            - name: JWKS_KEY
-              value: ${{ inputs.JWKS_KEY }}
+            - name: JWKS_RECORD_NAME
+              value: ${{ defaults.jwks_record_name }}
             - name: AUTH_TRUSTED_ORIGINS
               value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: AUTH_ALLOWED_EMAILS
@@ -753,6 +903,11 @@ spec:
             - name: SEARXNG_URL
               value: ${{ inputs.SEARXNG_URL }}
             ${{ endif() }}
+          volumeMounts:
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /opt/lobehub/bootstrap-jwks.mjs
+              subPath: vn-optvn-lobehubvn-bootstrapvn-jwksvn-mjs
+              readOnly: true
           ports:
             - containerPort: 3210
               name: http
@@ -783,6 +938,10 @@ spec:
             requests:
               cpu: 50m
               memory: 102Mi
+      volumes:
+        - name: ${{ defaults.app_name }}-cm
+          configMap:
+            name: ${{ defaults.app_name }}
 ---
 apiVersion: v1
 kind: Service

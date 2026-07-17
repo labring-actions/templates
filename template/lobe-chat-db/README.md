@@ -42,18 +42,9 @@ The PostgreSQL pod downloads the official Ubuntu package for `pg_search` 0.24.2 
 
 The template composes `DATABASE_URL` and `REDIS_URL` from KubeBlocks-managed credentials. Sealos injects the S3 endpoint, bucket, access key, and secret key from the managed ObjectStorageBucket.
 
-`JWKS_KEY` is a required deployment input because each installation needs its own private RS256 key pair. Generate it from the matching LobeHub source release:
+Each installation needs its own private RS256 key pair for OIDC and internal JWT authentication. On the first application start, the template generates a 2048-bit RSA JWKS with Node.js, validates its private-key fields, and stores it in the deployment's PostgreSQL database. A PostgreSQL advisory lock makes concurrent replicas converge on the same key. Later restarts and replicas load the stored value before running the official LobeHub launcher, and the deployment form contains only operational inputs.
 
-```bash
-git clone --depth 1 --branch v2.2.10 https://github.com/lobehub/lobehub.git
-cd lobehub
-mkdir .jwks-generator
-npm install --prefix .jwks-generator --no-save --ignore-scripts jose@6.2.3
-cp scripts/generate-oidc-jwk.mjs .jwks-generator/
-node .jwks-generator/generate-oidc-jwk.mjs
-```
-
-Keep the single-line JSON output private and enter it as `JWKS_KEY` during deployment.
+The JWKS is backed up and restored with the LobeHub database. Restoring application data and authentication state therefore preserves the signing identity used by existing JWT workflows.
 
 ## Why Deploy LobeHub on Sealos?
 
@@ -62,10 +53,9 @@ Sealos combines Kubernetes application orchestration, managed databases, object 
 ## Deployment Guide
 
 1. Open the [LobeHub template](https://sealos.io/products/app-store/lobe-chat-db) and click **Deploy Now**.
-2. Enter the private RS256 JWKS JSON as `JWKS_KEY`.
-3. Optionally restrict registration with `AUTH_ALLOWED_EMAILS` and configure OpenAI-compatible model inputs.
-4. Wait for PostgreSQL, Redis, object storage, and LobeHub migrations to become ready, typically 2-3 minutes.
-5. Open the generated LobeHub HTTPS URL from Canvas.
+2. Optionally restrict registration with `AUTH_ALLOWED_EMAILS` and configure OpenAI-compatible model inputs. The template generates and persists `JWKS_KEY` automatically.
+3. Wait for PostgreSQL, Redis, object storage, and LobeHub migrations to become ready, typically 2-3 minutes.
+4. Open the generated LobeHub HTTPS URL from Canvas.
 
 ## Registration and Login
 
@@ -81,6 +71,7 @@ An empty `AUTH_ALLOWED_EMAILS` value permits open email registration. A comma-se
 
 - **AI Dialog**: Describe resource or environment changes in Canvas.
 - **Resource Cards**: Adjust the LobeHub replica count or resource limits.
+- **JWKS Lifecycle**: Keep the PostgreSQL data volume when restarting, upgrading, or scaling LobeHub so every replica uses the same signing key.
 - **Provider Settings**: Add chat and embedding model credentials after signing in. File storage works immediately; knowledge indexing starts after an embedding provider is configured.
 - **SearXNG**: Supply an external `SEARXNG_URL` when web search is required.
 - **Marketplace**: Agent and task recommendations use the external LobeHub Market service and require outbound access to `market.lobehub.com`.
@@ -98,6 +89,10 @@ The first database start downloads about 67 MiB for `pg_search` and triggers one
 ### Registration Fails
 
 Verify that the email matches `AUTH_ALLOWED_EMAILS` when the field contains a restriction.
+
+### JWT or Internal Authentication Fails
+
+Healthy first-start logs contain `Generated and stored a deployment-specific JWKS`. Later restarts contain `Loaded deployment-specific JWKS from PostgreSQL`. Restore the PostgreSQL data volume from the matching application backup when recovering an existing deployment so its signing identity remains consistent.
 
 ### File Upload Fails
 
