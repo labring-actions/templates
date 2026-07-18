@@ -72,7 +72,7 @@ Sealos 是基于 Kubernetes 的 AI 辅助云操作系统，统一管理部署、
 1. 打开 [Immich 模板](https://sealos.io/products/app-store/immich)，点击 **Deploy Now**。
 2. 在弹窗中配置参数：
    - `enable_machine_learning`：保留 `true` 可启用人脸识别和智能搜索；设为 `false` 可获得更轻量的部署。
-3. 等待部署完成。由于 PostgreSQL、Redis 和应用服务需要依次初始化，完整启动通常需要数分钟。
+3. 等待部署完成。通常需要 2-3 分钟，首次启动时 PostgreSQL、Redis 和应用服务依次初始化，可能需要更久。
 4. 通过生成的地址访问应用：
    - **Immich Web 界面**：打开 Sealos 生成的 URL，例如 `https://<your-app-host>.<your-sealos-domain>`。
 5. 如需后续调整，请打开部署 Canvas，在 AI 对话中描述需求，或点击对应资源卡片修改资源、存储或环境变量。

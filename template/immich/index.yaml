@@ -81,27 +81,21 @@ subjects:
 apiVersion: apps.kubeblocks.io/v1alpha1
 kind: Cluster
 metadata:
-  finalizers:
-    - cluster.kubeblocks.io/finalizer
   name: ${{ defaults.app_name }}-redis
   labels:
     clusterdefinition.kubeblocks.io/name: redis
+    clusterversion.kubeblocks.io/name: redis-7.2.7
     kb.io/database: redis-7.2.7
-    app.kubernetes.io/instance: ${{ defaults.app_name }}
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
     app.kubernetes.io/version: 7.2.7
-    helm.sh/chart: redis-cluster-0.9.0
     sealos-db-provider-cr: ${{ defaults.app_name }}-redis
 spec:
   clusterDefinitionRef: redis
   affinity:
     podAntiAffinity: Preferred
+    tenancy: SharedNode
     topologyKeys:
       - kubernetes.io/hostname
-  tolerations:
-    - key: kb-data
-      operator: Equal
-      value: "true"
-      effect: NoSchedule
   componentSpecs:
     - name: redis
       componentDef: redis-7
@@ -127,6 +121,7 @@ spec:
             resources:
               requests:
                 storage: 1Gi
+            storageClassName: openebs-backup
     - componentDef: redis-sentinel-7
       name: redis-sentinel
       replicas: 1
@@ -147,6 +142,7 @@ spec:
             resources:
               requests:
                 storage: 1Gi
+            storageClassName: openebs-backup
   terminationPolicy: Delete
   topology: replication
 ---
@@ -197,8 +193,8 @@ subjects:
 apiVersion: apps.kubeblocks.io/v1alpha1
 kind: Cluster
 metadata:
-  finalizers:
-    - cluster.kubeblocks.io/finalizer
+  annotations:
+    docker-to-sealos.resource-override-source: live validation shows Immich v2.7.5 reverse geocoding initialization OOMKills PostgreSQL at 512Mi; 1G starts successfully
   labels:
     clusterdefinition.kubeblocks.io/name: postgresql
     clusterversion.kubeblocks.io/name: postgresql-16.4.0
@@ -220,11 +216,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: '1'
-          memory: 1024Mi
+          cpu: 500m
+          memory: 1G
         requests:
-          cpu: 100m
-          memory: 102Mi
+          cpu: 50m
+          memory: 100Mi
       serviceAccountName: ${{ defaults.app_name }}-pg
       switchPolicy:
         type: Noop
@@ -235,7 +231,8 @@ spec:
               - ReadWriteOnce
             resources:
               requests:
-                storage: 2Gi
+                storage: 1Gi
+            storageClassName: openebs-backup
 
   terminationPolicy: Delete
 
@@ -335,8 +332,6 @@ spec:
         app: ${{ defaults.app_name }}
     spec:
       automountServiceAccountToken: false
-      imagePullSecrets:
-        - name: ${{ defaults.app_name }}
       initContainers:
         - name: wait-for-postgresql
           image: postgres:16-alpine
@@ -387,12 +382,26 @@ spec:
         - name: ${{ defaults.app_name }}
           image: ghcr.io/immich-app/immich-server:v2.7.5
           imagePullPolicy: IfNotPresent
+          command:
+            - /bin/bash
+            - -c
+          args:
+            - |
+              set -e
+              unset LD_LIBRARY_PATH
+              unset LD_PRELOAD
+              exec node /usr/src/app/server/dist/main.js
           env:
             # Redis Configuration
             - name: REDIS_HOSTNAME
               value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
             - name: REDIS_PORT
               value: '6379'
+            - name: REDIS_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: username
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -439,10 +448,10 @@ spec:
           resources:
             requests:
               cpu: 50m
-              memory: 102Mi
+              memory: 100Mi
             limits:
               cpu: 500m
-              memory: 1Gi
+              memory: 1G
           livenessProbe:
             failureThreshold: 3
             httpGet:
@@ -522,8 +531,6 @@ spec:
         app: ${{ defaults.app_name }}-ml
     spec:
       automountServiceAccountToken: false
-      imagePullSecrets:
-        - name: ${{ defaults.app_name }}
       containers:
         - name: ${{ defaults.app_name }}-ml
           image: ghcr.io/immich-app/immich-machine-learning:v2.7.5

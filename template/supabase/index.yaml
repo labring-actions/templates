@@ -27,7 +27,7 @@ spec:
   defaults:
     app_host:
       type: string
-      value: ${{ defaults.app_name }}
+      value: supabase-${{ random(8) }}
     app_name:
       type: string
       value: supabase-${{ random(8) }}
@@ -36,13 +36,13 @@ spec:
       value: postgres
     supabase_public_url:
       type: string
-      value: https://${{ defaults.app_name }}.${{ SEALOS_CLOUD_DOMAIN }}
+      value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
     api_external_url:
       type: string
-      value: https://${{ defaults.app_name }}.${{ SEALOS_CLOUD_DOMAIN }}
+      value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/auth/v1
     site_url:
       type: string
-      value: https://${{ defaults.app_name }}.${{ SEALOS_CLOUD_DOMAIN }}
+      value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
     additional_redirect_urls:
       type: string
       value: ''
@@ -108,13 +108,13 @@ spec:
       value: ${{ random(32) }}
     global_s3_bucket:
       type: string
-      value: stub
+      value: supabase
     region:
       type: string
-      value: stub
+      value: auto
     storage_tenant_id:
       type: string
-      value: stub
+      value: ${{ defaults.app_name }}
     s3_protocol_access_key_id:
       type: string
       value: ${{ random(32) }}
@@ -167,6 +167,23 @@ spec:
       type: string
       default: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNlYWxvcyIsInJvbGUiOiJzZXJ2aWNlX3JvbGUiLCJpYXQiOjE3MDQwNjcyMDAsImV4cCI6MjA1MTIyMjQwMH0.gSHZ4wBeDMAbjjmkQ3TEoyOoqq7GR5F36krGv81PQLY
       required: true
+    enable_s3_storage:
+      description: Store Supabase Storage objects in a Sealos S3-compatible bucket.
+      type: boolean
+      default: 'true'
+      required: false
+---
+${{ if(inputs.enable_s3_storage === 'true') }}
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  policy: private
+---
+${{ endif() }}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -381,7 +398,7 @@ metadata:
     app: ${{ defaults.app_name }}-kong-config
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-kong-config
 data:
-  kong.yml.tpl: |
+  vn-etcvn-kongvn-templatevn-kongvn-ymlvn-tpl: |
     _format_version: '2.1'
     _transform: true
 
@@ -407,7 +424,7 @@ data:
 
     services:
       - name: auth-v1-open
-        url: http://__APP_NAME__-auth:9999/verify
+        url: http://__APP_NAME__-auth.__SEALOS_NAMESPACE__.svc.cluster.local:9999/verify
         routes:
           - name: auth-v1-open
             strip_path: true
@@ -417,7 +434,7 @@ data:
           - name: cors
 
       - name: auth-v1-open-callback
-        url: http://__APP_NAME__-auth:9999/callback
+        url: http://__APP_NAME__-auth.__SEALOS_NAMESPACE__.svc.cluster.local:9999/callback
         routes:
           - name: auth-v1-open-callback
             strip_path: true
@@ -427,7 +444,7 @@ data:
           - name: cors
 
       - name: auth-v1-open-authorize
-        url: http://__APP_NAME__-auth:9999/authorize
+        url: http://__APP_NAME__-auth.__SEALOS_NAMESPACE__.svc.cluster.local:9999/authorize
         routes:
           - name: auth-v1-open-authorize
             strip_path: true
@@ -437,7 +454,7 @@ data:
           - name: cors
 
       - name: auth-v1
-        url: http://__APP_NAME__-auth:9999/
+        url: http://__APP_NAME__-auth.__SEALOS_NAMESPACE__.svc.cluster.local:9999/
         routes:
           - name: auth-v1-all
             strip_path: true
@@ -456,7 +473,7 @@ data:
                 - anon
 
       - name: rest-v1
-        url: http://__APP_NAME__-rest:3000/
+        url: http://__APP_NAME__-rest.__SEALOS_NAMESPACE__.svc.cluster.local:3000/
         routes:
           - name: rest-v1-all
             strip_path: true
@@ -475,7 +492,7 @@ data:
                 - anon
 
       - name: graphql-v1
-        url: http://__APP_NAME__-rest:3000/rpc/graphql
+        url: http://__APP_NAME__-rest.__SEALOS_NAMESPACE__.svc.cluster.local:3000/rpc/graphql
         routes:
           - name: graphql-v1-all
             strip_path: true
@@ -499,7 +516,7 @@ data:
                 - anon
 
       - name: realtime-v1-ws
-        url: http://__APP_NAME__-realtime:4000/socket
+        url: http://__APP_NAME__-realtime.__SEALOS_NAMESPACE__.svc.cluster.local:4000/socket
         protocol: ws
         routes:
           - name: realtime-v1-ws
@@ -519,7 +536,7 @@ data:
                 - anon
 
       - name: realtime-v1-rest
-        url: http://__APP_NAME__-realtime:4000/api
+        url: http://__APP_NAME__-realtime.__SEALOS_NAMESPACE__.svc.cluster.local:4000/api
         protocol: http
         routes:
           - name: realtime-v1-rest
@@ -539,7 +556,7 @@ data:
                 - anon
 
       - name: storage-v1
-        url: http://__APP_NAME__-storage:5000/
+        url: http://__APP_NAME__-storage.__SEALOS_NAMESPACE__.svc.cluster.local:5000/
         routes:
           - name: storage-v1-all
             strip_path: true
@@ -549,7 +566,7 @@ data:
           - name: cors
 
       - name: functions-v1
-        url: http://__APP_NAME__-functions:9000/
+        url: http://__APP_NAME__-functions.__SEALOS_NAMESPACE__.svc.cluster.local:9000/
         routes:
           - name: functions-v1-all
             strip_path: true
@@ -559,7 +576,7 @@ data:
           - name: cors
 
       - name: meta
-        url: http://__APP_NAME__-meta:8080/
+        url: http://__APP_NAME__-meta.__SEALOS_NAMESPACE__.svc.cluster.local:8080/
         routes:
           - name: meta-all
             strip_path: true
@@ -576,7 +593,7 @@ data:
                 - admin
 
       - name: mcp-blocker
-        url: http://__APP_NAME__:3000/api/mcp
+        url: http://__APP_NAME__.__SEALOS_NAMESPACE__.svc.cluster.local:3000/api/mcp
         routes:
           - name: mcp-blocker-route
             strip_path: true
@@ -589,7 +606,7 @@ data:
               message: Access is forbidden.
 
       - name: mcp
-        url: http://__APP_NAME__:3000/api/mcp
+        url: http://__APP_NAME__.__SEALOS_NAMESPACE__.svc.cluster.local:3000/api/mcp
         routes:
           - name: mcp
             strip_path: true
@@ -602,7 +619,7 @@ data:
               message: Access is forbidden.
 
       - name: dashboard
-        url: http://__APP_NAME__:3000/
+        url: http://__APP_NAME__.__SEALOS_NAMESPACE__.svc.cluster.local:3000/
         routes:
           - name: dashboard-all
             strip_path: true
@@ -622,7 +639,7 @@ metadata:
     app: ${{ defaults.app_name }}-supavisor-config
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-supavisor-config
 data:
-  pooler.exs: "{:ok, _} = Application.ensure_all_started(:supavisor)\n\n{:ok, version}\
+  vn-etcvn-poolervn-poolervn-exs: "{:ok, _} = Application.ensure_all_started(:supavisor)\n\n{:ok, version}\
     \ =\n  case Supavisor.Repo.query!(\"select version()\") do\n    %{rows: [[ver]]}\
     \ -> Supavisor.Helpers.parse_pg_version(ver)\n    _ -> nil\n  end\n\nparams =\
     \ %{\n  \"external_id\" => System.get_env(\"POOLER_TENANT_ID\"),\n  \"db_host\"\
@@ -646,7 +663,7 @@ metadata:
     app: ${{ defaults.app_name }}-vector-config
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-vector-config
 data:
-  vector.yml: "api:\n  enabled: true\n  address: 0.0.0.0:9001\n\nsources:\n  internal_metrics:\n\
+  vn-etcvn-vectorvn-vectorvn-yml: "api:\n  enabled: true\n  address: 0.0.0.0:9001\n\nsources:\n  internal_metrics:\n\
     \    type: internal_metrics\n\nsinks:\n  blackhole:\n    type: blackhole\n   \
     \ inputs:\n      - internal_metrics\n"
 ---
@@ -658,7 +675,7 @@ metadata:
     app: ${{ defaults.app_name }}-functions-code
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-functions-code
 data:
-  main-index.ts: "import * as jose from 'https://deno.land/x/jose@v4.14.4/index.ts'\n\
+  vn-homevn-denovn-functionsvn-mainvn-indexvn-ts: "import * as jose from 'https://deno.land/x/jose@v4.14.4/index.ts'\n\
     \nconsole.log('main function started')\n\nconst JWT_SECRET = Deno.env.get('JWT_SECRET')\n\
     const VERIFY_JWT = Deno.env.get('VERIFY_JWT') === 'true'\n\nfunction getAuthToken(req:\
     \ Request) {\n  const authHeader = req.headers.get('authorization')\n  if (!authHeader)\
@@ -691,7 +708,7 @@ data:
     \  } catch (e) {\n    const error = { msg: e.toString() }\n    return new Response(JSON.stringify(error),\
     \ {\n      status: 500,\n      headers: { 'Content-Type': 'application/json' },\n\
     \    })\n  }\n})\n"
-  hello-index.ts: "// Follow this setup guide to integrate the Deno language server\
+  vn-homevn-denovn-functionsvn-hellovn-indexvn-ts: "// Follow this setup guide to integrate the Deno language server\
     \ with your editor:\n// https://deno.land/manual/getting_started/setup_your_environment\n\
     // This enables autocomplete, go to definition, etc.\n\nDeno.serve(async () =>\
     \ {\n  return new Response(\n    `\"Hello from Edge Functions!\"`,\n    { headers:\
@@ -737,7 +754,7 @@ spec:
         - name: HOSTNAME
           value: '::'
         - name: STUDIO_PG_META_URL
-          value: http://${{ defaults.app_name }}-meta:8080
+          value: http://${{ defaults.app_name }}-meta.${{ SEALOS_NAMESPACE }}.svc.cluster.local:8080
         - name: POSTGRES_PORT
           valueFrom:
             secretKeyRef:
@@ -764,9 +781,9 @@ spec:
         - name: OPENAI_API_KEY
           value: ${{ defaults.openai_api_key }}
         - name: SUPABASE_URL
-          value: http://${{ defaults.app_name }}-kong:8000
+          value: http://${{ defaults.app_name }}-kong.${{ SEALOS_NAMESPACE }}.svc.cluster.local:8000
         - name: SUPABASE_PUBLIC_URL
-          value: https://${{ defaults.app_name }}.${{ SEALOS_CLOUD_DOMAIN }}
+          value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
         - name: SUPABASE_ANON_KEY
           value: ${{ inputs.anon_key }}
         - name: SUPABASE_SERVICE_KEY
@@ -780,7 +797,7 @@ spec:
         - name: LOGFLARE_PRIVATE_ACCESS_TOKEN
           value: ${{ defaults.logflare_private_access_token }}
         - name: LOGFLARE_URL
-          value: http://${{ defaults.app_name }}-analytics:4000
+          value: http://${{ defaults.app_name }}-analytics.${{ SEALOS_NAMESPACE }}.svc.cluster.local:4000
         - name: NEXT_PUBLIC_ENABLE_LOGS
           value: 'True'
         - name: NEXT_ANALYTICS_BACKEND_PROVIDER
@@ -876,10 +893,11 @@ spec:
             memory: 25Mi
         ports:
         - containerPort: 8000
-        - containerPort: 8443
         env:
         - name: APP_NAME
           value: ${{ defaults.app_name }}
+        - name: SEALOS_NAMESPACE
+          value: ${{ SEALOS_NAMESPACE }}
         - name: KONG_DATABASE
           value: 'off'
         - name: KONG_DECLARATIVE_CONFIG
@@ -909,6 +927,7 @@ spec:
         - |
           sed \
             -e "s|__APP_NAME__|${APP_NAME}|g" \
+            -e "s|__SEALOS_NAMESPACE__|${SEALOS_NAMESPACE}|g" \
             -e "s|__ANON_KEY__|${SUPABASE_ANON_KEY}|g" \
             -e "s|__SERVICE_ROLE_KEY__|${SUPABASE_SERVICE_KEY}|g" \
             -e "s|__DASHBOARD_USERNAME__|${DASHBOARD_USERNAME}|g" \
@@ -916,14 +935,18 @@ spec:
             /etc/kong-template/kong.yml.tpl > /tmp/kong.yml
           exec /docker-entrypoint.sh kong docker-start
         volumeMounts:
-        - name: kong-config
+        - name: vn-etcvn-kongvn-templatevn-kongvn-ymlvn-tpl
           mountPath: /etc/kong-template/kong.yml.tpl
-          subPath: kong.yml.tpl
+          subPath: ./etc/kong-template/kong.yml.tpl
           readOnly: true
       volumes:
-      - name: kong-config
+      - name: vn-etcvn-kongvn-templatevn-kongvn-ymlvn-tpl
         configMap:
           name: ${{ defaults.app_name }}-kong-config
+          items:
+          - key: vn-etcvn-kongvn-templatevn-kongvn-ymlvn-tpl
+            path: ./etc/kong-template/kong.yml.tpl
+          defaultMode: 420
   serviceName: ${{ defaults.app_name }}-kong
 ---
 apiVersion: apps/v1
@@ -966,7 +989,7 @@ spec:
         - name: GOTRUE_API_PORT
           value: '9999'
         - name: API_EXTERNAL_URL
-          value: https://${{ defaults.app_name }}.${{ SEALOS_CLOUD_DOMAIN }}
+          value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/auth/v1
         - name: GOTRUE_DB_DRIVER
           value: postgres
         - name: GOTRUE_DB_HOST
@@ -992,7 +1015,7 @@ spec:
         - name: GOTRUE_DB_DATABASE_URL
           value: postgres://$(GOTRUE_DB_USER):$(GOTRUE_DB_PASSWORD)@$(GOTRUE_DB_HOST):$(GOTRUE_DB_PORT)/postgres
         - name: GOTRUE_SITE_URL
-          value: https://${{ defaults.app_name }}.${{ SEALOS_CLOUD_DOMAIN }}
+          value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
         - name: GOTRUE_URI_ALLOW_LIST
           value: ${{ defaults.additional_redirect_urls }}
         - name: GOTRUE_DISABLE_SIGNUP
@@ -1266,7 +1289,7 @@ spec:
         - name: SERVICE_KEY
           value: ${{ inputs.service_role_key }}
         - name: POSTGREST_URL
-          value: http://${{ defaults.app_name }}-rest:3000
+          value: http://${{ defaults.app_name }}-rest.${{ SEALOS_NAMESPACE }}.svc.cluster.local:3000
         - name: PGRST_JWT_SECRET
           value: ${{ inputs.jwt_secret }}
         - name: STORAGE_DB_HOST
@@ -1291,16 +1314,50 @@ spec:
               key: username
         - name: DATABASE_URL
           value: postgres://$(STORAGE_DB_USER):$(STORAGE_DB_PASSWORD)@$(STORAGE_DB_HOST):$(STORAGE_DB_PORT)/postgres
+        - name: STORAGE_PUBLIC_URL
+          value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
         - name: REQUEST_ALLOW_X_FORWARDED_PATH
           value: 'true'
         - name: FILE_SIZE_LIMIT
           value: '52428800'
+        ${{ if(inputs.enable_s3_storage === 'true') }}
+        - name: STORAGE_BACKEND
+          value: s3
+        - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key
+              key: external
+        - name: GLOBAL_S3_ENDPOINT
+          value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+        - name: GLOBAL_S3_PROTOCOL
+          value: https
+        - name: GLOBAL_S3_FORCE_PATH_STYLE
+          value: 'true'
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key
+              key: accessKey
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key
+              key: secretKey
+        - name: GLOBAL_S3_BUCKET
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+              key: bucket
+        ${{ endif() }}
+        ${{ if(inputs.enable_s3_storage !== 'true') }}
         - name: STORAGE_BACKEND
           value: file
         - name: GLOBAL_S3_BUCKET
           value: ${{ defaults.global_s3_bucket }}
         - name: FILE_STORAGE_BACKEND_PATH
           value: /var/lib/storage
+        ${{ endif() }}
         - name: TENANT_ID
           value: ${{ defaults.storage_tenant_id }}
         - name: REGION
@@ -1308,7 +1365,7 @@ spec:
         - name: ENABLE_IMAGE_TRANSFORMATION
           value: 'true'
         - name: IMGPROXY_URL
-          value: http://${{ defaults.app_name }}-imgproxy:5001
+          value: http://${{ defaults.app_name }}-imgproxy.${{ SEALOS_NAMESPACE }}.svc.cluster.local:5001
         - name: S3_PROTOCOL_ACCESS_KEY_ID
           value: ${{ defaults.s3_protocol_access_key_id }}
         - name: S3_PROTOCOL_ACCESS_KEY_SECRET
@@ -1522,9 +1579,9 @@ spec:
         - name: JWT_SECRET
           value: ${{ inputs.jwt_secret }}
         - name: SUPABASE_URL
-          value: http://${{ defaults.app_name }}-kong:8000
+          value: http://${{ defaults.app_name }}-kong.${{ SEALOS_NAMESPACE }}.svc.cluster.local:8000
         - name: SUPABASE_PUBLIC_URL
-          value: https://${{ defaults.app_name }}.${{ SEALOS_CLOUD_DOMAIN }}
+          value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
         - name: SUPABASE_ANON_KEY
           value: ${{ inputs.anon_key }}
         - name: SUPABASE_SERVICE_ROLE_KEY
@@ -1558,20 +1615,31 @@ spec:
         - --main-service
         - /home/deno/functions/main
         volumeMounts:
-        - name: functions-code
+        - name: vn-homevn-denovn-functionsvn-mainvn-indexvn-ts
           mountPath: /home/deno/functions/main/index.ts
-          subPath: main-index.ts
+          subPath: ./home/deno/functions/main/index.ts
           readOnly: true
-        - name: functions-code
+        - name: vn-homevn-denovn-functionsvn-hellovn-indexvn-ts
           mountPath: /home/deno/functions/hello/index.ts
-          subPath: hello-index.ts
+          subPath: ./home/deno/functions/hello/index.ts
           readOnly: true
         - name: vn-rootvn-cachevn-deno
           mountPath: /root/.cache/deno
       volumes:
-      - name: functions-code
+      - name: vn-homevn-denovn-functionsvn-mainvn-indexvn-ts
         configMap:
           name: ${{ defaults.app_name }}-functions-code
+          items:
+          - key: vn-homevn-denovn-functionsvn-mainvn-indexvn-ts
+            path: ./home/deno/functions/main/index.ts
+          defaultMode: 420
+      - name: vn-homevn-denovn-functionsvn-hellovn-indexvn-ts
+        configMap:
+          name: ${{ defaults.app_name }}-functions-code
+          items:
+          - key: vn-homevn-denovn-functionsvn-hellovn-indexvn-ts
+            path: ./home/deno/functions/hello/index.ts
+          defaultMode: 420
   serviceName: ${{ defaults.app_name }}-functions
   volumeClaimTemplates:
   - metadata:
@@ -1616,10 +1684,10 @@ spec:
         resources:
           limits:
             cpu: 200m
-            memory: 1024Mi
+            memory: 1G
           requests:
             cpu: 20m
-            memory: 102Mi
+            memory: 100Mi
         env:
         - name: LOGFLARE_NODE_HOST
           value: 127.0.0.1
@@ -1748,14 +1816,18 @@ spec:
           timeoutSeconds: 5
           failureThreshold: 3
         volumeMounts:
-        - name: vector-config
+        - name: vn-etcvn-vectorvn-vectorvn-yml
           mountPath: /etc/vector/vector.yml
-          subPath: vector.yml
+          subPath: ./etc/vector/vector.yml
           readOnly: true
       volumes:
-      - name: vector-config
+      - name: vn-etcvn-vectorvn-vectorvn-yml
         configMap:
           name: ${{ defaults.app_name }}-vector-config
+          items:
+          - key: vn-etcvn-vectorvn-vectorvn-yml
+            path: ./etc/vector/vector.yml
+          defaultMode: 420
   serviceName: ${{ defaults.app_name }}-vector
 ---
 apiVersion: apps/v1
@@ -1882,14 +1954,18 @@ spec:
           timeoutSeconds: 5
           failureThreshold: 5
         volumeMounts:
-        - name: supavisor-config
+        - name: vn-etcvn-poolervn-poolervn-exs
           mountPath: /etc/pooler/pooler.exs
-          subPath: pooler.exs
+          subPath: ./etc/pooler/pooler.exs
           readOnly: true
       volumes:
-      - name: supavisor-config
+      - name: vn-etcvn-poolervn-poolervn-exs
         configMap:
           name: ${{ defaults.app_name }}-supavisor-config
+          items:
+          - key: vn-etcvn-poolervn-poolervn-exs
+            path: ./etc/pooler/pooler.exs
+          defaultMode: 420
   serviceName: ${{ defaults.app_name }}-supavisor
 ---
 apiVersion: v1
@@ -1904,10 +1980,6 @@ spec:
   - name: tcp-8000
     port: 8000
     targetPort: 8000
-    protocol: TCP
-  - name: tcp-8443
-    port: 8443
-    targetPort: 8443
     protocol: TCP
   selector:
     app: ${{ defaults.app_name }}-kong
@@ -2082,7 +2154,7 @@ metadata:
   name: ${{ defaults.app_name }}-kong
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-kong
-    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/proxy-body-size: 32m
@@ -2099,7 +2171,7 @@ metadata:
       \ {\n  expires 30d;\n  add_header Cache-Control \"public\";\n}"
 spec:
   rules:
-  - host: ${{ defaults.app_name }}.${{ SEALOS_CLOUD_DOMAIN }}
+  - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
     http:
       paths:
       - pathType: Prefix
@@ -2111,7 +2183,7 @@ spec:
               number: 8000
   tls:
   - hosts:
-    - ${{ defaults.app_name }}.${{ SEALOS_CLOUD_DOMAIN }}
+    - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
     secretName: ${{ SEALOS_CERT_SECRET_NAME }}
 ---
 apiVersion: app.sealos.io/v1
@@ -2122,7 +2194,7 @@ metadata:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   data:
-    url: https://${{ defaults.app_name }}.${{ SEALOS_CLOUD_DOMAIN }}
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
   displayType: normal
   icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/supabase/logo.png
   name: Supabase
