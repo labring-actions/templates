@@ -1,0 +1,164 @@
+# Template Update Status
+
+Generated at: 2026-07-08T11:08:05+00:00
+Repo: /Users/longnv/bin/repo/templates-version-refresh-20260708
+
+## Summary
+
+- updated: 45
+- blocked: 228
+- validation-needed: 0
+- skipped: 0
+
+## Updated Templates
+
+- appwrite: 3 candidates
+- cobalt: 1 candidates
+- derper: 2 candidates
+- dolibarr: 1 candidates
+- evolution-api: 2 candidates
+- ghost: 2 candidates
+- grafana: 1 candidates
+- jellyfin: 1 candidates
+- langflow: 1 candidates
+- listmonk: 2 candidates
+- litellm: 1 candidates
+- logto: 1 candidates
+- loki: 1 candidates
+- matomo: 2 candidates
+- mautic: 3 candidates
+- meilisearch: 1 candidates
+- minecraft: 2 candidates
+- netbird: 4 candidates
+- node-red: 1 candidates
+- openobserve: 1 candidates
+- paperclip: 1 candidates
+- prestashop: 2 candidates
+- pterodactyl: 3 candidates
+- stalwart: 1 candidates
+- trendradar: 1 candidates
+- typebot: 4 candidates
+
+## Blocked Templates
+
+- Reactive-Resume: docker-to-sealos artifact validation reported existing template rule failures
+- Readeck: docker-to-sealos artifact validation reported existing template rule failures
+- anything-llm: docker-to-sealos artifact validation reported existing template rule failures
+- appflowy: docker-to-sealos artifact validation reported existing template rule failures
+- authentik: docker-to-sealos artifact validation reported existing template rule failures
+- billionmail: docker-to-sealos artifact validation reported existing template rule failures
+- budibase: docker-to-sealos artifact validation reported existing template rule failures
+- bunkerweb: docker-to-sealos artifact validation reported existing template rule failures
+- bytebase: docker-to-sealos artifact validation reported existing template rule failures
+- casdoor: docker-to-sealos artifact validation reported existing template rule failures
+- changedetection: docker-to-sealos artifact validation reported existing template rule failures
+- chatgpt-next-web: docker-to-sealos artifact validation reported existing template rule failures
+- chatgpt-on-wechat: docker-to-sealos artifact validation reported existing template rule failures
+- chatnio: docker-to-sealos artifact validation reported existing template rule failures
+- chatwoot: docker-to-sealos artifact validation reported existing template rule failures
+- code-server: docker-to-sealos artifact validation reported existing template rule failures
+- coze-studio: docker-to-sealos artifact validation reported existing template rule failures
+- crawl4ai: docker-to-sealos artifact validation reported existing template rule failures
+- crmeb: docker-to-sealos artifact validation reported existing template rule failures
+- cronicle: docker-to-sealos artifact validation reported existing template rule failures
+- dataease: docker-to-sealos artifact validation reported existing template rule failures
+- dbgate: docker-to-sealos artifact validation reported existing template rule failures
+- deeplx: docker-to-sealos artifact validation reported existing template rule failures
+- dify: docker-to-sealos artifact validation reported existing template rule failures
+- directus: docker-to-sealos artifact validation reported existing template rule failures
+- docuseal: docker-to-sealos artifact validation reported existing template rule failures
+- drawdb: docker-to-sealos artifact validation reported existing template rule failures
+- edgequake: docker-to-sealos artifact validation reported existing template rule failures
+- elasticsearch: docker-to-sealos artifact validation reported existing template rule failures
+- emqx: docker-to-sealos artifact validation reported existing template rule failures
+- erpnext: docker-to-sealos artifact validation reported existing template rule failures
+- ever-gauzy: docker-to-sealos artifact validation reported existing template rule failures
+- fastgpt: docker-to-sealos artifact validation reported existing template rule failures
+- fastgpt-milvus: docker-to-sealos artifact validation reported existing template rule failures
+- fastgpt-pro: docker-to-sealos artifact validation reported existing template rule failures
+- featbit-standard: docker-to-sealos artifact validation reported existing template rule failures
+- firecrawl: docker-to-sealos artifact validation reported existing template rule failures
+- flarum: docker-to-sealos artifact validation reported existing template rule failures
+- flowise: docker-to-sealos artifact validation reported existing template rule failures
+- formbricks: docker-to-sealos artifact validation reported existing template rule failures
+- frp: docker-to-sealos artifact validation reported existing template rule failures
+- gitea: docker-to-sealos artifact validation reported existing template rule failures
+- glitchtip: docker-to-sealos artifact validation reported existing template rule failures
+- grafana-otel: docker-to-sealos artifact validation reported existing template rule failures
+- halo: docker-to-sealos artifact validation reported existing template rule failures
+- harbor: docker-to-sealos artifact validation reported existing template rule failures
+- hasura: docker-to-sealos artifact validation reported existing template rule failures
+- headscale: docker-to-sealos artifact validation reported existing template rule failures
+- illa-builder: docker-to-sealos artifact validation reported existing template rule failures
+- immich: docker-to-sealos artifact validation reported existing template rule failures
+- insforge: docker-to-sealos artifact validation reported existing template rule failures
+- kanboard: docker-to-sealos artifact validation reported existing template rule failures
+- kaneo: docker-to-sealos artifact validation reported existing template rule failures
+- keycloak: docker-to-sealos artifact validation reported existing template rule failures
+- keystone: docker-to-sealos artifact validation reported existing template rule failures
+- kuvasz: docker-to-sealos artifact validation reported existing template rule failures
+- laf: docker-to-sealos artifact validation reported existing template rule failures
+- langfuse: docker-to-sealos artifact validation reported existing template rule failures
+- librechat: docker-to-sealos artifact validation reported existing template rule failures
+- liebianbao: docker-to-sealos artifact validation reported existing template rule failures
+- llmgateway: docker-to-sealos artifact validation reported existing template rule failures
+- lobe-chat-db: docker-to-sealos artifact validation reported existing template rule failures
+- mastodon: docker-to-sealos artifact validation reported existing template rule failures
+- metabase: docker-to-sealos artifact validation reported existing template rule failures
+- mlflow: docker-to-sealos artifact validation reported existing template rule failures
+- n8n: docker-to-sealos artifact validation reported existing template rule failures
+- nacos: docker-to-sealos artifact validation reported existing template rule failures
+- nexus: docker-to-sealos artifact validation reported existing template rule failures
+- nocodb: docker-to-sealos artifact validation reported existing template rule failures
+- nofx: docker-to-sealos artifact validation reported existing template rule failures
+- odysseus: docker-to-sealos artifact validation reported existing template rule failures
+- open-webui: docker-to-sealos artifact validation reported existing template rule failures
+- openclaw: docker-to-sealos artifact validation reported existing template rule failures
+- openlist: docker-to-sealos artifact validation reported existing template rule failures
+- outline: docker-to-sealos artifact validation reported existing template rule failures
+- overleaf: docker-to-sealos artifact validation reported existing template rule failures
+- pageplug: docker-to-sealos artifact validation reported existing template rule failures
+- pangolin: docker-to-sealos artifact validation reported existing template rule failures
+- pdf2zh: docker-to-sealos artifact validation reported existing template rule failures
+- penpot: docker-to-sealos artifact validation reported existing template rule failures
+- perplexica: docker-to-sealos artifact validation reported existing template rule failures
+- phpmyadmin: docker-to-sealos artifact validation reported existing template rule failures
+- planka: docker-to-sealos artifact validation reported existing template rule failures
+- pocket-id: docker-to-sealos artifact validation reported existing template rule failures
+- pocketbase: docker-to-sealos artifact validation reported existing template rule failures
+- posthog: docker-to-sealos artifact validation reported existing template rule failures
+- postiz: docker-to-sealos artifact validation reported existing template rule failures
+- presenton: docker-to-sealos artifact validation reported existing template rule failures
+- privatebin: docker-to-sealos artifact validation reported existing template rule failures
+- quay: docker-to-sealos artifact validation reported existing template rule failures
+- refly: docker-to-sealos artifact validation reported existing template rule failures
+- registry: docker-to-sealos artifact validation reported existing template rule failures
+- rocketchat: docker-to-sealos artifact validation reported existing template rule failures
+- rocketchat-micro: docker-to-sealos artifact validation reported existing template rule failures
+- rsshub: docker-to-sealos artifact validation reported existing template rule failures
+- rybbit: docker-to-sealos artifact validation reported existing template rule failures
+- s-pdf: docker-to-sealos artifact validation reported existing template rule failures
+- signoz: docker-to-sealos artifact validation reported existing template rule failures
+- skardi: docker-to-sealos artifact validation reported existing template rule failures
+- strapi: docker-to-sealos artifact validation reported existing template rule failures
+- sub2api: docker-to-sealos artifact validation reported existing template rule failures
+- supabase: docker-to-sealos artifact validation reported existing template rule failures
+- surveyking: docker-to-sealos artifact validation reported existing template rule failures
+- tailchat: docker-to-sealos artifact validation reported existing template rule failures
+- tianji: docker-to-sealos artifact validation reported existing template rule failures
+- tolgee: docker-to-sealos artifact validation reported existing template rule failures
+- tooljet: docker-to-sealos artifact validation reported existing template rule failures
+- tradingagents: docker-to-sealos artifact validation reported existing template rule failures
+- tududi: docker-to-sealos artifact validation reported existing template rule failures
+- twenty: docker-to-sealos artifact validation reported existing template rule failures
+- typo3: docker-to-sealos artifact validation reported existing template rule failures
+- umami: docker-to-sealos artifact validation reported existing template rule failures
+- uptime-kuma: docker-to-sealos artifact validation reported existing template rule failures
+- webos: docker-to-sealos artifact validation reported existing template rule failures
+- wewe-rss: docker-to-sealos artifact validation reported existing template rule failures
+- woocommerce: docker-to-sealos artifact validation reported existing template rule failures
+- wordpress: docker-to-sealos artifact validation reported existing template rule failures
+- wrenai: docker-to-sealos artifact validation reported existing template rule failures
+- yourls: docker-to-sealos artifact validation reported existing template rule failures
+- zitadel: docker-to-sealos artifact validation reported existing template rule failures
+- zot: docker-to-sealos artifact validation reported existing template rule failures

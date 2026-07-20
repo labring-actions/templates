@@ -1,0 +1,134 @@
+# Blocked Template List
+
+Source: `.sealos/update-reports/template-update-status.json`
+
+Blocked templates: 121
+Blocked candidates: 228
+
+These templates were excluded from the submitted image refresh diff because
+per-artifact docker-to-sealos validation reported existing template rule
+failures beyond the scoped image version update.
+
+| Template | Blocked candidates |
+| --- | ---: |
+| `Reactive-Resume` | 2 |
+| `Readeck` | 1 |
+| `anything-llm` | 1 |
+| `appflowy` | 4 |
+| `authentik` | 1 |
+| `billionmail` | 4 |
+| `budibase` | 4 |
+| `bunkerweb` | 4 |
+| `bytebase` | 1 |
+| `casdoor` | 2 |
+| `changedetection` | 1 |
+| `chatgpt-next-web` | 1 |
+| `chatgpt-on-wechat` | 1 |
+| `chatnio` | 1 |
+| `chatwoot` | 1 |
+| `code-server` | 1 |
+| `coze-studio` | 6 |
+| `crawl4ai` | 1 |
+| `crmeb` | 1 |
+| `cronicle` | 1 |
+| `dataease` | 2 |
+| `dbgate` | 1 |
+| `deeplx` | 1 |
+| `dify` | 4 |
+| `directus` | 3 |
+| `docuseal` | 1 |
+| `drawdb` | 1 |
+| `edgequake` | 2 |
+| `elasticsearch` | 1 |
+| `emqx` | 1 |
+| `erpnext` | 4 |
+| `ever-gauzy` | 1 |
+| `fastgpt` | 5 |
+| `fastgpt-milvus` | 5 |
+| `fastgpt-pro` | 6 |
+| `featbit-standard` | 4 |
+| `firecrawl` | 3 |
+| `flarum` | 1 |
+| `flowise` | 1 |
+| `formbricks` | 1 |
+| `frp` | 1 |
+| `gitea` | 1 |
+| `glitchtip` | 1 |
+| `grafana-otel` | 3 |
+| `halo` | 1 |
+| `harbor` | 6 |
+| `hasura` | 2 |
+| `headscale` | 1 |
+| `illa-builder` | 1 |
+| `immich` | 1 |
+| `insforge` | 3 |
+| `kanboard` | 1 |
+| `kaneo` | 2 |
+| `keycloak` | 1 |
+| `keystone` | 1 |
+| `kuvasz` | 1 |
+| `laf` | 1 |
+| `langfuse` | 4 |
+| `librechat` | 1 |
+| `liebianbao` | 2 |
+| `llmgateway` | 6 |
+| `lobe-chat-db` | 1 |
+| `mastodon` | 2 |
+| `metabase` | 1 |
+| `mlflow` | 1 |
+| `n8n` | 2 |
+| `nacos` | 1 |
+| `nexus` | 2 |
+| `nocodb` | 1 |
+| `nofx` | 1 |
+| `odysseus` | 2 |
+| `open-webui` | 1 |
+| `openclaw` | 1 |
+| `openlist` | 1 |
+| `outline` | 1 |
+| `overleaf` | 1 |
+| `pageplug` | 1 |
+| `pangolin` | 1 |
+| `pdf2zh` | 1 |
+| `penpot` | 3 |
+| `perplexica` | 1 |
+| `phpmyadmin` | 1 |
+| `planka` | 1 |
+| `pocket-id` | 1 |
+| `pocketbase` | 1 |
+| `posthog` | 2 |
+| `postiz` | 4 |
+| `presenton` | 1 |
+| `privatebin` | 1 |
+| `quay` | 2 |
+| `refly` | 1 |
+| `registry` | 2 |
+| `rocketchat` | 1 |
+| `rocketchat-micro` | 7 |
+| `rsshub` | 1 |
+| `rybbit` | 1 |
+| `s-pdf` | 1 |
+| `signoz` | 4 |
+| `skardi` | 1 |
+| `strapi` | 1 |
+| `sub2api` | 1 |
+| `supabase` | 11 |
+| `surveyking` | 2 |
+| `tailchat` | 1 |
+| `tianji` | 1 |
+| `tolgee` | 1 |
+| `tooljet` | 2 |
+| `tradingagents` | 1 |
+| `tududi` | 1 |
+| `twenty` | 1 |
+| `typo3` | 1 |
+| `umami` | 1 |
+| `uptime-kuma` | 1 |
+| `webos` | 1 |
+| `wewe-rss` | 1 |
+| `woocommerce` | 2 |
+| `wordpress` | 1 |
+| `wrenai` | 5 |
+| `yourls` | 2 |
+| `zitadel` | 1 |
+| `zot` | 2 |
