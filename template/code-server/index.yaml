@@ -8,6 +8,7 @@ spec:
     gitRepo: "https://github.com/coder/code-server"
     author: "Sealos"
     description: "VS Code in the browser"
+    locale: en
     readme: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/code-server/README.md"
     icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/code-server/logo.png"
     screenshots:
@@ -17,9 +18,8 @@ spec:
         - tool
     defaults:
         app_host:
-            # number or string..
             type: string
-            value: ${{ random(8) }}
+            value: code-server-${{ random(8) }}
         app_name:
             type: string
             value: code-server-${{ random(8) }}
@@ -28,21 +28,38 @@ spec:
             value: "Asia/Shanghai"
     inputs:
         PASSWORD:
-            description: "Access Password"
+            description: "Password for code-server login"
             type: string
-            default: "sealos123"
             required: true
     i18n:
         zh:
+            description: "在浏览器中运行 VS Code，用于在线编码、开发环境访问和远程项目管理。"
             readme: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/code-server/README_zh.md"
 
 ---
-apiVersion: apps/v1
-kind: StatefulSet
+apiVersion: v1
+kind: PersistentVolumeClaim
 metadata:
     name: ${{ defaults.app_name }}
     annotations:
-        originImageName: codercom/code-server:4.90.3-39
+        path: /home/coder
+        value: "1"
+    labels:
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+        app: ${{ defaults.app_name }}
+spec:
+    accessModes:
+        - ReadWriteOnce
+    resources:
+        requests:
+            storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: ${{ defaults.app_name }}
+    annotations:
+        originImageName: codercom/code-server:4.128.0@sha256:bd4a3a022ff016954bf9ae6ea0bce6c7eef96a69da4d2fe34552638f32d4820c
         deploy.cloud.sealos.io/minReplicas: "1"
         deploy.cloud.sealos.io/maxReplicas: "1"
     labels:
@@ -52,24 +69,28 @@ spec:
     replicas: 1
     revisionHistoryLimit: 1
     minReadySeconds: 10
-    serviceName: ${{ defaults.app_name }}
     selector:
         matchLabels:
             app: ${{ defaults.app_name }}
     strategy:
-        type: RollingUpdate
-        rollingUpdate:
-            maxUnavailable: 1
-            maxSurge: 0
+        type: Recreate
     template:
         metadata:
             labels:
                 app: ${{ defaults.app_name }}
         spec:
             automountServiceAccountToken: false
+            securityContext:
+                runAsNonRoot: true
+                runAsUser: 1000
+                runAsGroup: 1000
+                fsGroup: 1000
+                fsGroupChangePolicy: OnRootMismatch
+                seccompProfile:
+                    type: RuntimeDefault
             containers:
                 - name: ${{ defaults.app_name }}
-                  image: codercom/code-server:4.90.3-39
+                  image: codercom/code-server:4.128.0@sha256:bd4a3a022ff016954bf9ae6ea0bce6c7eef96a69da4d2fe34552638f32d4820c
                   env:
                       - name: TZ
                         value: ${{ defaults.time_zone }}
@@ -77,38 +98,58 @@ spec:
                         value: ${{ inputs.PASSWORD }}
                   resources:
                       requests:
-                          cpu: 200m
-                          memory: 200Mi
+                          cpu: 20m
+                          memory: 51Mi
                       limits:
-                          cpu: 2000m
-                          memory: 2Gi
+                          cpu: 200m
+                          memory: 512Mi
                   command:
-                      - /bin/sh
-                      - "-c"
+                      - /usr/bin/dumb-init
+                      - /usr/bin/code-server
                   args:
-                      - |
-                          mkdir -p /home/coder/workspace && /usr/bin/entrypoint.sh --bind-addr 0.0.0.0:8080 /home/coder/workspace
+                      - --bind-addr
+                      - 0.0.0.0:8080
+                      - .
+                  securityContext:
+                      allowPrivilegeEscalation: false
+                      capabilities:
+                          drop:
+                              - ALL
                   ports:
-                      - containerPort: 8080
+                      - name: http
+                        containerPort: 8080
+                        protocol: TCP
+                  startupProbe:
+                      httpGet:
+                          path: /healthz
+                          port: http
+                      periodSeconds: 10
+                      timeoutSeconds: 5
+                      failureThreshold: 30
+                  livenessProbe:
+                      httpGet:
+                          path: /healthz
+                          port: http
+                      initialDelaySeconds: 30
+                      periodSeconds: 30
+                      timeoutSeconds: 5
+                      failureThreshold: 3
+                  readinessProbe:
+                      httpGet:
+                          path: /healthz
+                          port: http
+                      initialDelaySeconds: 10
+                      periodSeconds: 10
+                      timeoutSeconds: 5
+                      failureThreshold: 3
                   imagePullPolicy: IfNotPresent
                   volumeMounts:
                       - name: vn-homevn-coder
                         mountPath: /home/coder
-            volumes: []
-            securityContext:
-                fsGroup: 1000
-    volumeClaimTemplates:
-        - metadata:
-              annotations:
-                  path: /home/coder
-                  value: "1"
-              name: vn-homevn-coder
-          spec:
-              accessModes:
-                  - ReadWriteOnce
-              resources:
-                  requests:
-                      storage: 1Gi
+            volumes:
+                - name: vn-homevn-coder
+                  persistentVolumeClaim:
+                      claimName: ${{ defaults.app_name }}
 ---
 apiVersion: v1
 kind: Service
@@ -116,9 +157,12 @@ metadata:
     name: ${{ defaults.app_name }}
     labels:
         cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+        app: ${{ defaults.app_name }}
 spec:
     ports:
-        - port: 8080
+        - name: http
+          port: 8080
+          targetPort: http
     selector:
         app: ${{ defaults.app_name }}
 ---
@@ -128,6 +172,7 @@ metadata:
     name: ${{ defaults.app_name }}
     labels:
         cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+        app: ${{ defaults.app_name }}
         cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
     annotations:
         kubernetes.io/ingress.class: nginx
@@ -135,9 +180,8 @@ metadata:
         nginx.ingress.kubernetes.io/server-snippet: |
             client_header_buffer_size 64k;
             large_client_header_buffers 4 128k;
-        nginx.ingress.kubernetes.io/ssl-redirect: "false"
+        nginx.ingress.kubernetes.io/ssl-redirect: "true"
         nginx.ingress.kubernetes.io/backend-protocol: HTTP
-        nginx.ingress.kubernetes.io/rewrite-target: /$2
         nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
         nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
         nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
@@ -153,7 +197,7 @@ spec:
           http:
               paths:
                   - pathType: Prefix
-                    path: /()(.*)
+                    path: /
                     backend:
                         service:
                             name: ${{ defaults.app_name }}
@@ -169,10 +213,12 @@ apiVersion: app.sealos.io/v1
 kind: App
 metadata:
     name: ${{ defaults.app_name }}
+    labels:
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
     data:
         url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
     displayType: normal
     icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/code-server/logo.png"
     name: Code Server
-    type: iframe
+    type: link

@@ -1,39 +1,77 @@
-# chatgpt-next-web
+# Deploy and Host NextChat on Sealos
 
-## Overview
+NextChat is a lightweight AI assistant web UI for OpenAI-compatible providers, Azure OpenAI, Claude, DeepSeek, Gemini, and other model gateways. This template deploys the official NextChat container with HTTPS access on Sealos Cloud.
 
-A cross-platform ChatGPT/Gemini UI.
+![NextChat Screenshot](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/chatgpt-next-web/website-screenshot.webp)
 
-This Sealos template deploys **chatgpt-next-web** as the `chatgpt-next-web` application. It uses the repository-maintained Sealos manifest and keeps deployment, networking, and storage configuration inside the template.
+## About Hosting NextChat
 
-## Deploy on Sealos
+NextChat runs as a single web application and stores chat state in the browser. The Sealos template creates a Deployment, Service, Ingress, and App entry, then injects model-provider settings through deployment inputs.
 
-Open this template in the Sealos App Store, review the configuration values, and click **Deploy**. Sealos renders the template variables, creates the required Kubernetes resources, and manages the public endpoint for the application.
+Access control is handled by the required `CODE` input. The template generates a unique default code, and users enter one of the comma-separated access codes on the first screen.
 
-## Access
+## Common Use Cases
 
-After deployment, open `https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}`. The concrete hostname is generated from `defaults.app_host` and your Sealos Cloud domain.
+- **Private ChatGPT UI**: Run a fast personal chat interface with your own API key.
+- **Team Access Code Gateway**: Share one HTTPS endpoint protected by one or more access codes.
+- **OpenAI-Compatible Proxy UI**: Point `BASE_URL` to a compatible gateway or self-hosted endpoint.
+- **Azure OpenAI Frontend**: Configure Azure deployment URL, key, and API version during deployment.
+
+## Deployment Guide
+
+1. Open the [NextChat template](https://sealos.io/products/app-store/chatgpt-next-web) and click **Deploy Now**.
+2. Enter `OPENAI_API_KEY`. Use commas to rotate multiple keys.
+3. Keep the generated `CODE` or replace it with a private comma-separated access password list.
+4. Optionally configure:
+   - `BASE_URL`: OpenAI-compatible API base URL
+   - `HIDE_USER_API_KEY`: set to `1` to hide the user API key field
+   - `DISABLE_GPT4`: set to `1` to hide GPT-4 model choices
+   - `ENABLE_BALANCE_QUERY`: set to `1` to enable balance query features
+   - `AZURE_URL`, `AZURE_API_KEY`, `AZURE_API_VERSION`: Azure OpenAI settings
+5. Wait for the Deployment to become ready, then open the generated HTTPS URL from Sealos Canvas.
+6. Enter a value from `CODE` on the access-code screen.
 
 ## Configuration
 
-The following user-facing inputs are available during deployment:
-
 | Name | Description | Required | Default |
 |------|-------------|----------|---------|
-| `AZURE_API_KEY` | Azure 密钥 | `false` | `<redacted>` |
-| `AZURE_API_VERSION` | Azure API 版本 | `false` | `` |
-| `AZURE_URL` | Azure 部署地址 | `false` | `https://{azure-resource-url}/openai/deployments/{deploy-name}` |
-| `BASE_URL` | 如果你手动配置了 OpenAI 接口代理，可以使用此配置项来覆盖默认的 OpenAI API 请求基础 URL | `false` | `https://api.openai.com` |
-| `CODE` | 设置页面中的访问密码，可以使用逗号隔开多个密码 | `false` | `` |
-| `DISABLE_GPT4` | 如果你不想让用户使用 GPT-4，将此环境变量设置为 1 即可 | `false` | `` |
-| `HIDE_BALANCE_QUERY` | 如果你想启用余额查询功能，将此环境变量设置为 1 即可 | `false` | `` |
-| `HIDE_USER_API_KEY` | 如果你不想让用户自行填入 API Key，将此环境变量设置为 1 即可 | `false` | `<redacted>` |
-| `OPENAI_API_KEY` | 这是你在 OpenAI 账户页面申请的 API 密钥，使用英文逗号隔开多个 key，这样可以随机轮询这些 key | `true` | `<redacted>` |
-| `OPENAI_ORG_ID` | 指定 OpenAI 中的组织 ID | `false` | `` |
+| `OPENAI_API_KEY` | OpenAI-compatible API keys, comma-separated when multiple keys should be rotated. | `true` | `<redacted>` |
+| `CODE` | Access codes for the web UI, comma-separated when multiple codes are allowed. | `true` | generated 16-character value |
+| `BASE_URL` | OpenAI-compatible API base URL for proxies or self-hosted endpoints. | `false` | `https://api.openai.com` |
+| `OPENAI_ORG_ID` | OpenAI organization ID. | `false` | `` |
+| `HIDE_USER_API_KEY` | Set to `1` to hide the user-provided API key field in the UI. | `false` | `` |
+| `DISABLE_GPT4` | Set to `1` to disable GPT-4 model options. | `false` | `` |
+| `ENABLE_BALANCE_QUERY` | Set to `1` to enable balance query features. | `false` | `` |
+| `AZURE_URL` | Azure OpenAI deployment URL. | `false` | `https://{azure-resource-url}/openai/deployments/{deploy-name}` |
+| `AZURE_API_KEY` | Azure OpenAI API key. | `false` | `<redacted>` |
+| `AZURE_API_VERSION` | Azure OpenAI API version. | `false` | `` |
 
-Keep sensitive values in Sealos-managed inputs or generated defaults. Do not commit private credentials to the template repository.
+Store private API keys and access codes in Sealos-managed inputs. Keep `CODE` private because the public HTTPS endpoint uses the deployment's server-side model API key.
 
-## Official Links
+## Scaling
 
-- Official website: https://github.com/Yidadaa/ChatGPT-Next-Web
-- Source repository: https://github.com/Yidadaa/ChatGPT-Next-Web
+The template is tuned for a small single-instance web UI. Increase CPU and memory from Sealos Canvas if many users share the same deployment or if the UI serves through a slower model gateway.
+
+## Troubleshooting
+
+### Access code is rejected
+
+Check that the value entered in the browser matches one of the comma-separated values in `CODE`, then restart the Deployment after changing the input.
+
+### Model requests fail
+
+Verify `OPENAI_API_KEY`, `BASE_URL`, Azure settings, and model-provider rate limits. For OpenAI-compatible gateways, confirm that the gateway supports the selected model names.
+
+### Balance query is unavailable
+
+Set `ENABLE_BALANCE_QUERY` to `1` and restart the Deployment.
+
+## Additional Resources
+
+- [NextChat Website](https://nextchat.club/)
+- [NextChat Source Code](https://github.com/ChatGPTNextWeb/NextChat)
+- [Sealos Documentation](https://sealos.io/docs)
+
+## License
+
+This Sealos template is provided under the template repository license. NextChat is licensed by its upstream project.

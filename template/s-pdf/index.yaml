@@ -4,20 +4,20 @@ metadata:
   name: s-pdf
 spec:
   title: 'Stirling-PDF'
-  url: 'https://stirling.com'
+  url: 'https://www.stirlingpdf.com/'
   gitRepo: 'https://github.com/Stirling-Tools/Stirling-PDF'
   author: 'Sealos'
-  description: '1 Locally hosted web application that allows you to perform various operations on PDF files.'
+  description: 'A self-hosted PDF toolbox for merging, splitting, conversion, OCR, compression, redaction, and other document workflows.'
   readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/s-pdf/README.md'
   icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/s-pdf/logo.png'
   screenshots:
     - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/s-pdf/website-screenshot.webp'
   templateType: inline
+  locale: en
   categories:
     - tool
   defaults:
     app_host:
-      # number or string..
       type: string
       value: s-pdf-${{ random(8) }}
     app_name:
@@ -25,81 +25,41 @@ spec:
       value: s-pdf-${{ random(8) }}
   inputs:
     use_postgresql:
-      description: 'Use PostgreSQL database for production workloads (recommended for better performance and data persistence)'
+      description: 'Use an independent PostgreSQL database. A valid Stirling-PDF Pro or Enterprise license is required.'
       type: boolean
       default: 'false'
       required: false
-    DOCKER_ENABLE_SECURITY:
-      description: "download security jar (required as true for auth login)"
+    PREMIUM_KEY:
+      description: 'Valid Stirling-PDF Pro or Enterprise license key. Required when PostgreSQL is enabled.'
       type: string
-      default: "false"
-      required: false
-    SECURITY_ENABLELOGIN:
-      description: "set to 'true' to enable login"
+      default: ''
+      required: true
+      if: inputs.use_postgresql === 'true'
+    SECURITY_INITIALLOGIN_USERNAME:
+      description: 'Initial administrator username for the fresh Stirling-PDF data volume.'
       type: string
-      default: "false"
-      required: false
-    LANGS:
-      description: "define custom font libraries to install for use for document conversions"
+      required: true
+    SECURITY_INITIALLOGIN_PASSWORD:
+      description: 'Initial administrator password for the fresh Stirling-PDF data volume.'
       type: string
-      default: "en-GB,en-US,zh-CN,zh-TW"
+      required: true
+    SYSTEM_DEFAULTLOCALE:
+      description: 'Default Stirling-PDF interface locale.'
+      type: string
+      default: 'en-US'
       required: false
     INSTALL_BOOK_AND_ADVANCED_HTML_OPS:
-      description: "download calibre onto stirling-pdf enabling pdf to/from book and advanced html conversion"
-      type: string
-      default: "true"
-      required: false
-    SYSTEM_DEFAULTLOCALE:
-      description: "Set the default language"
-      type: string
-      default: "en-US"
-      required: false
-    UI_APPNAME:
-      description: "Application's visible name"
-      type: string
-      default: "Stirling-PDF"
-      required: false
-    UI_HOMEDESCRIPTION:
-      description: "Short description or tagline shown on homepage"
-      type: string
-      default: "Demo site for Stirling-PDF"
-      required: false
-    UI_APPNAMENAVBAR:
-      description: "Name displayed on the navigation bar"
-      type: string
-      default: "Stirling-PDF"
-      required: false
-    METRICS_ENABLED:
-      description: "enable Info APIs (`/api/*`) endpoints"
-      type: string
-      default: "true"
-      required: false
-    SYSTEM_GOOGLEVISIBILITY:
-      description: "allow Google visibility (via robots.txt)"
-      type: string
-      default: "true"
+      description: 'Enable Calibre-backed book conversion and advanced HTML conversion.'
+      type: boolean
+      default: 'false'
       required: false
   i18n:
     zh:
+      description: '一个自托管 PDF 工具箱，支持合并、拆分、转换、OCR、压缩、涂黑和其他文档处理流程。'
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/s-pdf/README_zh.md'
----
-${{ if(inputs.SYSTEM_DEFAULTLOCALE === 'zh-CN') }}
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: ${{ defaults.app_name }}
-data:
-  vn-etcvn-apkvn-repositories: |-
-    https://mirrors.ustc.edu.cn/alpine/v3.20/main
-    https://mirrors.ustc.edu.cn/alpine/v3.20/community
-    @testing https://mirrors.ustc.edu.cn/alpine/edge/main
-    @testing https://mirrors.ustc.edu.cn/alpine/edge/community
-    @testing https://mirrors.ustc.edu.cn/alpine/edge/testing
-${{ endif() }}
 
-${{ if(inputs.use_postgresql === 'true') }}
 ---
+${{ if(inputs.use_postgresql === 'true' && inputs.PREMIUM_KEY !== '') }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -147,25 +107,24 @@ subjects:
 apiVersion: apps.kubeblocks.io/v1alpha1
 kind: Cluster
 metadata:
-  finalizers:
-    - cluster.kubeblocks.io/finalizer
   labels:
+    kb.io/database: postgresql-16.4.0
     clusterdefinition.kubeblocks.io/name: postgresql
-    clusterversion.kubeblocks.io/name: postgresql-14.8.0
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
-  annotations: {}
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
   name: ${{ defaults.app_name }}-pg
 spec:
   affinity:
-    nodeLabels: {}
     podAntiAffinity: Preferred
     tenancy: SharedNode
-    topologyKeys: []
   clusterDefinitionRef: postgresql
-  clusterVersionRef: postgresql-14.8.0
+  clusterVersionRef: postgresql-16.4.0
   componentSpecs:
     - componentDefRef: postgresql
-      monitor: true
+      disableExporter: true
+      enabledLogs:
+        - running
       name: postgresql
       replicas: 1
       resources:
@@ -186,8 +145,8 @@ spec:
             resources:
               requests:
                 storage: 1Gi
+            storageClassName: openebs-backup
   terminationPolicy: Delete
-  tolerations: []
 
 ---
 apiVersion: batch/v1
@@ -195,27 +154,59 @@ kind: Job
 metadata:
   name: ${{ defaults.app_name }}-pg-init
 spec:
-  completions: 1
+  backoffLimit: 3
   template:
     spec:
+      automountServiceAccountToken: false
       containers:
         - name: pgsql-init
-          image: postgres:14-alpine
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
           env:
-            - name: PG_PASSWORD
+            - name: PGHOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PGPORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PGPASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
-            - name: DATABASE_URL
-              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
           command:
             - /bin/sh
             - -c
             - |
-              until psql ${DATABASE_URL} -c 'CREATE DATABASE stirling_pdf;' &>/dev/null; do sleep 1; done
-      restartPolicy: Never
-  backoffLimit: 0
+              set -eu
+              for i in $(seq 1 60); do
+                if pg_isready -d postgres >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 2
+              done
+              pg_isready -d postgres >/dev/null 2>&1
+              if psql -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='stirling_pdf'" | grep -q 1; then
+                exit 0
+              fi
+              psql -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE "stirling_pdf";'
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+      restartPolicy: OnFailure
   ttlSecondsAfterFinished: 300
 ${{ endif() }}
 
@@ -225,12 +216,12 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: ghcr.io/stirling-tools/stirling-pdf:1.2.0-fat
+    originImageName: docker.io/stirlingtools/stirling-pdf:2.14.2-fat
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   replicas: 1
   revisionHistoryLimit: 1
@@ -244,54 +235,98 @@ spec:
       labels:
         app: ${{ defaults.app_name }}
     spec:
-      terminationGracePeriodSeconds: 10
       automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      ${{ if(inputs.use_postgresql === 'true' && inputs.PREMIUM_KEY !== '') }}
       initContainers:
-        - name: take-data-dir-ownership
-          image: alpine
-          command: ["/bin/sh", "-c", "chown -R 1000:1000 /tmp"]
+        - name: wait-postgresql-database
+          image: postgres:16-alpine
           imagePullPolicy: IfNotPresent
-          volumeMounts:
-            - name: vn-tmp
-              mountPath: /tmp
-      containers:
-        - name: ${{ defaults.app_name }}
-          image: ghcr.io/stirling-tools/stirling-pdf:1.2.0-fat
           env:
-            - name: DOCKER_ENABLE_SECURITY
-              value: ${{ inputs.DOCKER_ENABLE_SECURITY }}
-            - name: SECURITY_ENABLELOGIN
-              value: ${{ inputs.SECURITY_ENABLELOGIN }}
-            - name: LANGS
-              value: ${{ inputs.LANGS }}
-            - name: INSTALL_BOOK_AND_ADVANCED_HTML_OPS
-              value: ${{ inputs.INSTALL_BOOK_AND_ADVANCED_HTML_OPS }}
-            - name: SYSTEM_DEFAULTLOCALE
-              value: ${{ inputs.SYSTEM_DEFAULTLOCALE }}
-            - name: UI_APPNAME
-              value: ${{ inputs.UI_APPNAME }}
-            - name: UI_HOMEDESCRIPTION
-              value: ${{ inputs.UI_HOMEDESCRIPTION }}
-            - name: UI_APPNAMENAVBAR
-              value: ${{ inputs.UI_APPNAMENAVBAR }}
-            - name: METRICS_ENABLED
-              value: ${{ inputs.METRICS_ENABLED }}
-            - name: SYSTEM_GOOGLEVISIBILITY
-              value: ${{ inputs.SYSTEM_GOOGLEVISIBILITY }}
-            ${{ if(inputs.use_postgresql === 'true') }}
-            - name: SYSTEM_DATASOURCE_ENABLECUSTOMDATABASE
-              value: 'true'
-            - name: DB_POSTGRESDB_PORT
+            - name: PGHOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PGPORT
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: port
-            - name: DB_POSTGRESDB_USER
+            - name: PGUSER
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: username
-            - name: DB_POSTGRESDB_PASSWORD
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              for i in $(seq 1 120); do
+                if psql -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='stirling_pdf'" | grep -q 1; then
+                  exit 0
+                fi
+                sleep 2
+              done
+              exit 1
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+      ${{ endif() }}
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: docker.io/stirlingtools/stirling-pdf:2.14.2-fat
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DISABLE_ADDITIONAL_FEATURES
+              value: 'false'
+            - name: DOCKER_ENABLE_SECURITY
+              value: 'true'
+            - name: SECURITY_ENABLELOGIN
+              value: 'true'
+            - name: SECURITY_INITIALLOGIN_USERNAME
+              value: ${{ inputs.SECURITY_INITIALLOGIN_USERNAME }}
+            - name: SECURITY_INITIALLOGIN_PASSWORD
+              value: ${{ inputs.SECURITY_INITIALLOGIN_PASSWORD }}
+            - name: SYSTEM_DEFAULTLOCALE
+              value: ${{ inputs.SYSTEM_DEFAULTLOCALE }}
+            - name: INSTALL_BOOK_AND_ADVANCED_HTML_OPS
+              value: ${{ inputs.INSTALL_BOOK_AND_ADVANCED_HTML_OPS }}
+            - name: SYSTEM_MAXFILESIZE
+              value: '200'
+            - name: METRICS_ENABLED
+              value: 'true'
+            - name: SYSTEM_GOOGLEVISIBILITY
+              value: 'false'
+            - name: SHOW_SURVEY
+              value: 'false'
+            - name: STORAGE_ENABLED
+              value: 'true'
+            ${{ if(inputs.use_postgresql === 'true' && inputs.PREMIUM_KEY !== '') }}
+            - name: PREMIUM_ENABLED
+              value: 'true'
+            - name: PREMIUM_KEY
+              value: ${{ inputs.PREMIUM_KEY }}
+            ${{ endif() }}
+            ${{ if(inputs.use_postgresql === 'true' && inputs.PREMIUM_KEY !== '') }}
+            - name: SYSTEM_DATASOURCE_ENABLECUSTOMDATABASE
+              value: 'true'
+            - name: SYSTEM_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: SYSTEM_DATASOURCE_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
@@ -301,74 +336,74 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: host
+            - name: DB_POSTGRESDB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
             - name: SYSTEM_DATASOURCE_CUSTOMDATABASEURL
-              value: 'jdbc:postgresql://$(DB_POSTGRESDB_USER):$(DB_POSTGRESDB_PASSWORD)@$(DB_POSTGRESDB_HOST):$(DB_POSTGRESDB_PORT)/stirling_pdf'
+              value: 'jdbc:postgresql://$(DB_POSTGRESDB_HOST):$(DB_POSTGRESDB_PORT)/stirling_pdf'
             ${{ endif() }}
-          resources:
-            requests:
-              cpu: 100m
-              memory: 204Mi
-              ephemeral-storage: "200Mi"
-            limits:
-              cpu: 1000m
-              memory: 2048Mi
-              ephemeral-storage: "200Mi"
+            - name: STORAGE_PROVIDER
+              value: 'local'
+            - name: STORAGE_LOCAL_BASEPATH
+              value: '/storage'
           ports:
             - name: http
-              protocol: TCP
               containerPort: 8080
-          imagePullPolicy: IfNotPresent
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 500m
+              memory: 2048Mi
+            requests:
+              cpu: 50m
+              memory: 204Mi
           volumeMounts:
             - name: vn-usrvn-sharevn-tessdata
               mountPath: /usr/share/tessdata
             - name: vn-configs
               mountPath: /configs
-            ${{ if(inputs.SYSTEM_DEFAULTLOCALE === 'zh-CN') }}
-            - name: vn-etcvn-apkvn-repositories
-              mountPath: /etc/apk/repositories
-              subPath: ./etc/apk/repositories
-            ${{ endif() }}
-            - name: vn-customfiles
-              mountPath: /customFiles
-            - name: vn-pipeline
-              mountPath: /pipeline
-            - name: vn-tmp
-              mountPath: /tmp
+            - name: vn-logs
+              mountPath: /logs
+            - name: vn-storage
+              mountPath: /storage
           livenessProbe:
             exec:
               command:
-              - /bin/sh
-              - -c
-              - curl -f http://localhost:8080/api/v1/info/status | grep -q 'UP'
-            initialDelaySeconds: 20
+                - /bin/sh
+                - -c
+                - curl -fs http://localhost:8080/api/v1/info/status | grep -q 'UP'
             periodSeconds: 10
             timeoutSeconds: 5
-            failureThreshold: 10
+            failureThreshold: 6
           readinessProbe:
             exec:
               command:
-              - /bin/sh
-              - -c
-              - curl -f http://localhost:8080/api/v1/info/status | grep -q 'UP'
-            initialDelaySeconds: 20
+                - /bin/sh
+                - -c
+                - curl -fs http://localhost:8080/api/v1/info/status | grep -q 'UP'
             periodSeconds: 10
             timeoutSeconds: 5
-            failureThreshold: 5
-      ${{ if(inputs.SYSTEM_DEFAULTLOCALE === 'zh-CN') }}
-      volumes:
-        - name: vn-etcvn-apkvn-repositories
-          configMap:
-            name: ${{ defaults.app_name }}
-            items:
-              - key: vn-etcvn-apkvn-repositories
-                path: ./etc/apk/repositories
-      ${{ endif() }}
+            failureThreshold: 6
+          startupProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - curl -fs http://localhost:8080/api/v1/info/status | grep -q 'UP'
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
   volumeClaimTemplates:
     - metadata:
+        name: vn-usrvn-sharevn-tessdata
         annotations:
           path: /usr/share/tessdata
           value: '1'
-        name: vn-usrvn-sharevn-tessdata
+        labels:
+          app: ${{ defaults.app_name }}
+          cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
       spec:
         accessModes:
           - ReadWriteOnce
@@ -376,10 +411,13 @@ spec:
           requests:
             storage: 1Gi
     - metadata:
+        name: vn-configs
         annotations:
           path: /configs
           value: '1'
-        name: vn-configs
+        labels:
+          app: ${{ defaults.app_name }}
+          cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
       spec:
         accessModes:
           - ReadWriteOnce
@@ -387,10 +425,13 @@ spec:
           requests:
             storage: 1Gi
     - metadata:
+        name: vn-logs
         annotations:
-          path: /customFiles
+          path: /logs
           value: '1'
-        name: vn-customfiles
+        labels:
+          app: ${{ defaults.app_name }}
+          cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
       spec:
         accessModes:
           - ReadWriteOnce
@@ -398,21 +439,13 @@ spec:
           requests:
             storage: 1Gi
     - metadata:
+        name: vn-storage
         annotations:
-          path: /pipeline
+          path: /storage
           value: '1'
-        name: vn-pipeline
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 1Gi
-    - metadata:
-        annotations:
-          path: /tmp
-          value: '1'
-        name: vn-tmp
+        labels:
+          app: ${{ defaults.app_name }}
+          cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
       spec:
         accessModes:
           - ReadWriteOnce
@@ -426,18 +459,23 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 8080
+    - name: http
+      port: 8080
+      targetPort: http
   selector:
     app: ${{ defaults.app_name }}
+
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
@@ -448,7 +486,6 @@ metadata:
       large_client_header_buffers 4 128k;
     nginx.ingress.kubernetes.io/ssl-redirect: 'true'
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
-    nginx.ingress.kubernetes.io/rewrite-target: /$2
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
@@ -464,7 +501,7 @@ spec:
       http:
         paths:
           - pathType: Prefix
-            path: /()(.*)
+            path: /
             backend:
               service:
                 name: ${{ defaults.app_name }}
@@ -486,6 +523,6 @@ spec:
   data:
     url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
   displayType: normal
-  icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/s-pdf/logo.png"
-  name: "Stirling-PDF"
+  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/s-pdf/logo.png'
+  name: 'Stirling-PDF'
   type: link

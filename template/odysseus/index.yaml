@@ -35,12 +35,10 @@ spec:
     admin_user:
       description: Initial Odysseus admin username.
       type: string
-      default: admin
       required: true
     admin_password:
       description: Initial Odysseus admin password.
       type: string
-      default: ''
       required: true
     openai_api_key:
       description: Optional OpenAI API key for cloud model access.
@@ -65,12 +63,26 @@ data:
         - html
         - json
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-optvn-odysseusvn-startvn-sh: |-
+    export CHROMADB_HOST='${{ defaults.app_name }}-chroma.${{ SEALOS_NAMESPACE }}.svc.cluster.local'
+    export CHROMADB_PORT='8000'
+    export DATABASE_URL='sqlite:////app/data/app.db'
+    exec /usr/local/bin/entrypoint.sh uvicorn app:app --host 0.0.0.0 --port 7000
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}-chroma
   annotations:
-    originImageName: chromadb/chroma:1.0.15
+    originImageName: chromadb/chroma:1.5.9
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -91,7 +103,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}-chroma
-          image: chromadb/chroma:1.0.15
+          image: chromadb/chroma:1.5.9
           imagePullPolicy: IfNotPresent
           env:
             - name: ANONYMIZED_TELEMETRY
@@ -191,7 +203,7 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: SEARXNG_BASE_URL
-              value: http://${{ defaults.app_name }}-searxng:8080/
+              value: http://${{ defaults.app_name }}-searxng.${{ SEALOS_NAMESPACE }}.svc.cluster.local:8080/
           ports:
             - name: http
               containerPort: 8080
@@ -225,15 +237,18 @@ spec:
               cpu: 20m
               memory: 25Mi
           volumeMounts:
-            - name: searxng-config
+            - name: ${{ defaults.app_name }}-searxng-cm
               mountPath: /etc/searxng/settings.yml
               subPath: vn-etcvn-searxngvn-settingsvn-yml
             - name: searxng-data
               mountPath: /var/cache/searxng
       volumes:
-        - name: searxng-config
+        - name: ${{ defaults.app_name }}-searxng-cm
           configMap:
             name: ${{ defaults.app_name }}-searxng
+            items:
+              - key: vn-etcvn-searxngvn-settingsvn-yml
+                path: vn-etcvn-searxngvn-settingsvn-yml
   volumeClaimTemplates:
     - metadata:
         name: searxng-data
@@ -267,9 +282,107 @@ spec:
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
+  name: ${{ defaults.app_name }}-ntfy
+  annotations:
+    originImageName: binwiederhier/ntfy:v2.26.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}-ntfy
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-ntfy
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}-ntfy
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-ntfy
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-ntfy
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-ntfy
+          image: binwiederhier/ntfy:v2.26.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - serve
+          env:
+            - name: NTFY_BASE_URL
+              value: http://${{ defaults.app_name }}-ntfy.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /v1/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /v1/health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 5
+          startupProbe:
+            httpGet:
+              path: /v1/health
+              port: http
+            failureThreshold: 30
+            periodSeconds: 5
+            timeoutSeconds: 5
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+          volumeMounts:
+            - name: ntfy-cache
+              mountPath: /var/cache/ntfy
+  volumeClaimTemplates:
+    - metadata:
+        name: ntfy-cache
+        annotations:
+          path: /var/cache/ntfy
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+        storageClassName: openebs-backup
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-ntfy
+  labels:
+    app: ${{ defaults.app_name }}-ntfy
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-ntfy
+spec:
+  selector:
+    app: ${{ defaults.app_name }}-ntfy
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: ghcr.io/pewdiepie-archdaemon/odysseus:1.0.0
+    originImageName: ghcr.io/pewdiepie-archdaemon/odysseus:1.0.2@sha256:80ed3a1c17fd08e95d12fc709889905aca47f51fa3524b07b53d692d25639879
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
     docker-to-sealos.resource-override-source: live Sealos deployment was OOMKilled at the 200m/256Mi baseline while downloading and loading the FastEmbed model on first boot.
@@ -289,23 +402,67 @@ spec:
         app: ${{ defaults.app_name }}
     spec:
       automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ${{ defaults.app_name }}
+      initContainers:
+        - name: wait-chroma
+          image: busybox:1.36.1
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              for i in $(seq 1 120); do
+                if wget -q -O /dev/null http://${{ defaults.app_name }}-chroma.${{ SEALOS_NAMESPACE }}.svc.cluster.local:8000/api/v2/heartbeat; then
+                  exit 0
+                fi
+                sleep 2
+              done
+              exit 1
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+        - name: wait-searxng
+          image: busybox:1.36.1
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              for i in $(seq 1 120); do
+                if wget -q -O /dev/null http://${{ defaults.app_name }}-searxng.${{ SEALOS_NAMESPACE }}.svc.cluster.local:8080/healthz; then
+                  exit 0
+                fi
+                sleep 2
+              done
+              exit 1
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
       containers:
         - name: ${{ defaults.app_name }}
-          image: ghcr.io/pewdiepie-archdaemon/odysseus:1.0.0
+          image: ghcr.io/pewdiepie-archdaemon/odysseus:1.0.2@sha256:80ed3a1c17fd08e95d12fc709889905aca47f51fa3524b07b53d692d25639879
           imagePullPolicy: IfNotPresent
           command:
             - /bin/sh
             - -c
           args:
-            - |
-              export CHROMADB_HOST='${{ defaults.app_name }}-chroma'
-              export CHROMADB_PORT='8000'
-              exec /usr/local/bin/entrypoint.sh uvicorn app:app --host 0.0.0.0 --port 7000
+            - exec /bin/sh /opt/odysseus/start.sh
           env:
             - name: OPENAI_API_KEY
               value: ${{ inputs.openai_api_key }}
             - name: SEARXNG_INSTANCE
-              value: http://${{ defaults.app_name }}-searxng:8080
+              value: http://${{ defaults.app_name }}-searxng.${{ SEALOS_NAMESPACE }}.svc.cluster.local:8080
             - name: ODYSSEUS_DATA_DIR
               value: /app/data
             - name: AUTH_ENABLED
@@ -360,74 +517,41 @@ spec:
           resources:
             limits:
               cpu: 500m
-              memory: 1Gi
+              memory: 1024Mi
             requests:
               cpu: 50m
               memory: 102Mi
           volumeMounts:
-            - name: data
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /opt/odysseus/start.sh
+              subPath: vn-optvn-odysseusvn-startvn-sh
+            - name: vn-appvn-data
               mountPath: /app/data
-            - name: logs
+              subPath: data
+            - name: vn-appvn-data
               mountPath: /app/logs
-            - name: ssh
+              subPath: logs
+            - name: vn-appvn-data
               mountPath: /app/.ssh
-            - name: huggingface
+              subPath: ssh
+            - name: vn-appvn-data
               mountPath: /app/.cache/huggingface
-            - name: local
+              subPath: huggingface
+            - name: vn-appvn-data
               mountPath: /app/.local
+              subPath: local
+      volumes:
+        - name: ${{ defaults.app_name }}-cm
+          configMap:
+            name: ${{ defaults.app_name }}
+            items:
+              - key: vn-optvn-odysseusvn-startvn-sh
+                path: vn-optvn-odysseusvn-startvn-sh
   volumeClaimTemplates:
     - metadata:
-        name: data
+        name: vn-appvn-data
         annotations:
           path: /app/data
-          value: '1'
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 1Gi
-        storageClassName: openebs-backup
-    - metadata:
-        name: logs
-        annotations:
-          path: /app/logs
-          value: '1'
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 1Gi
-        storageClassName: openebs-backup
-    - metadata:
-        name: ssh
-        annotations:
-          path: /app/.ssh
-          value: '1'
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 1Gi
-        storageClassName: openebs-backup
-    - metadata:
-        name: huggingface
-        annotations:
-          path: /app/.cache/huggingface
-          value: '1'
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 1Gi
-        storageClassName: openebs-backup
-    - metadata:
-        name: local
-        annotations:
-          path: /app/.local
           value: '1'
       spec:
         accessModes:
