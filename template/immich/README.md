@@ -1,134 +1,102 @@
-# Deploy and Host Immich on Sealos
+# Deploy Immich on Sealos
 
-Immich is a self-hosted photo and video management platform for backing up, organizing, searching, and sharing personal media. This template deploys Immich with PostgreSQL, Redis, persistent media storage, and optional machine learning on Sealos Cloud.
+[Immich](https://immich.app/) is a self-hosted photo and video management platform with mobile backup, albums, sharing, maps, face recognition, and semantic search. This template deploys Immich v3.0.3 with PostgreSQL, Redis, persistent media storage, HTTPS, and optional machine learning.
 
 ![Immich Screenshot](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/immich/website-screenshot.webp)
 
-## About Hosting Immich
+## About Immich
 
-Immich runs as a web application that provides a browser UI, mobile app sync endpoints, background media processing, and smart library features. The Sealos template provisions the application server, PostgreSQL 16.4 with pgvector, Redis 7.2.7, persistent upload storage, and an optional machine learning service.
+Immich keeps the application and media library under your control. The web interface and official mobile apps use one HTTPS endpoint, while PostgreSQL stores metadata and Redis coordinates background jobs.
 
-The application server stores photos and videos on a persistent volume mounted at `/usr/src/app/upload`. PostgreSQL stores metadata, users, albums, jobs, and vector indexes, while Redis coordinates background jobs and cache data. When machine learning is enabled, a separate Immich ML service provides face recognition, object detection, and smart search support.
+This template follows the upstream container topology:
 
-## Common Use Cases
+- **Immich Server v3.0.3** serves the web UI and API and runs media-processing workers.
+- **Immich Machine Learning v3.0.3** is optional and provides smart search, OCR, object detection, and face recognition.
+- **PostgreSQL 16.4** stores users, assets, albums, jobs, and vector indexes.
+- **Redis 7.2.7 with Sentinel** coordinates queues and cache data.
+- **Persistent volumes** store media at `/data`, the ML model cache, and database data.
 
-- **Personal Photo Backup**: Sync photos and videos from mobile devices to a private server.
-- **Family Media Library**: Organize shared albums, people, places, and timelines in one web UI.
-- **Private Smart Search**: Use local machine learning for face recognition and semantic media search.
-- **Self-Hosted Google Photos Alternative**: Keep media and metadata under your own Sealos-managed deployment.
-
-## Dependencies for Immich Hosting
-
-The Sealos template includes all required runtime dependencies for a single-node Immich deployment:
-
-- **Immich Server v2.7.5**: Web UI, API, background processing, and mobile sync endpoint.
-- **Immich Machine Learning v2.7.5**: Optional ML service for face recognition and smart search.
-- **PostgreSQL 16.4**: KubeBlocks-managed PostgreSQL with the pgvector extension enabled.
-- **Redis 7.2.7**: KubeBlocks-managed Redis for queue and cache coordination.
-- **Persistent Volumes**: Media upload storage, ML cache storage, PostgreSQL data, and Redis data.
-
-### Deployment Dependencies
-
-- [Immich Documentation](https://immich.app/docs/) - Official documentation
-- [Immich Post Installation Guide](https://immich.app/docs/install/post-install/) - First user and admin setup
-- [Immich GitHub Repository](https://github.com/immich-app/immich) - Source code and release notes
-
-### Implementation Details
-
-**Architecture Components:**
-
-This template deploys the following services:
-
-- **Immich Server**: StatefulSet serving the web UI and API on port `2283`.
-- **Immich Machine Learning**: Optional StatefulSet serving ML requests on port `3003`.
-- **PostgreSQL**: KubeBlocks PostgreSQL 16.4 cluster with the `immich` database and vector extensions.
-- **Redis**: KubeBlocks Redis 7.2.7 cluster used by Immich job queues and cache.
-- **Ingress and App Link**: Sealos-managed HTTPS endpoint for browser and mobile app access.
-
-**Configuration:**
-
-- `enable_machine_learning` controls whether the Immich ML service is deployed.
-- The server uses `IMMICH_MACHINE_LEARNING_URL` to reach the ML service when ML is enabled.
-- PostgreSQL is initialized idempotently with the `immich` database and required extensions.
-- Uploaded media persists on `/usr/src/app/upload`; back up this volume together with PostgreSQL.
-
-**License Information:**
-
-Immich is distributed under the GNU Affero General Public License v3.0. This Sealos template follows the license of the templates repository.
+Immich Community Edition uses filesystem-backed media storage. Back up the `/data` volume together with PostgreSQL.
 
 ## Why Deploy Immich on Sealos?
 
-Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies deployment, networking, storage, and lifecycle management. By deploying Immich on Sealos, you get:
-
-- **One-Click Deployment**: Deploy Immich, PostgreSQL, Redis, storage, and HTTPS routing from one template.
-- **Persistent Storage Included**: Keep media uploads, model cache, database data, and Redis data across restarts.
-- **Kubernetes Foundation**: Run Immich on managed Kubernetes without writing Kubernetes manifests by hand.
-- **Easy Customization**: Adjust resources, storage, environment variables, and scaling from Canvas resource cards or the AI dialog.
-- **Instant Public Access**: Get a Sealos-managed HTTPS URL after deployment completes.
-- **Pay-as-You-Go Resources**: Start with tested resource limits and scale as your media library grows.
+- Deploy the complete application, database, cache, storage, and HTTPS route from one template.
+- Keep uploads, model downloads, and database data across restarts.
+- Enable or omit the machine-learning service through one deployment input.
+- Adjust compute and storage later from the Sealos resource view.
 
 ## Deployment Guide
 
 1. Open the [Immich template](https://sealos.io/products/app-store/immich) and click **Deploy Now**.
-2. Configure the parameters in the popup dialog:
-   - `enable_machine_learning`: keep `true` for face recognition and smart search, or set `false` for a lighter deployment.
-3. Wait for deployment to complete. The full stack usually needs several minutes because PostgreSQL, Redis, and the app server must initialize in order.
-4. Access your application via the provided URL:
-   - **Immich Web UI**: open the generated Sealos URL, for example `https://<your-app-host>.<your-sealos-domain>`.
-5. For later changes, open the deployment Canvas and describe your requirements in the AI dialog, or click the relevant resource cards to modify resources, storage, or environment variables.
+2. Choose the `enable_machine_learning` setting:
+   - `true` enables smart search, OCR, face recognition, and object detection.
+   - `false` deploys the core photo and video library with a smaller resource footprint.
+3. Start the deployment and allow several minutes for PostgreSQL, Redis, Immich Server, and the optional ML service to initialize.
+4. Open the generated Immich HTTPS URL from the Sealos application link.
 
-## First Login and Registration
+## First Registration and Login
 
-Immich does not ship with a default username or password. On a fresh deployment, open the web UI and complete the **Getting Started** flow; the first user you register becomes the administrator.
+A fresh Immich deployment starts with the administrator registration screen.
 
-After the admin account is created, sign in with that email and password. Additional users can be invited or created from the Immich administration settings according to your access policy.
+1. Click **Get Started**.
+2. Enter the administrator email, password, password confirmation, and display name.
+3. Click **Sign Up**. The first registered account becomes the administrator.
+4. Sign in with the same email and password.
+5. Complete the onboarding settings, then open **Photos** or **Albums** to begin using the library.
+
+Immich creates no preset credentials. Store the administrator credentials in a password manager. Additional users can be created from **Administration > Users**.
+
+## Mobile App Setup
+
+Install the official Immich mobile app and enter the generated Sealos HTTPS URL as the server endpoint. Sign in with an Immich account, then configure mobile backup folders from the app.
+
+## Resource and Storage Baseline
+
+The template uses the smallest resource tiers that completed a fresh deployment and an upload, thumbnail, download, album, and machine-learning workflow:
+
+| Component | CPU limit | Memory limit | Initial storage |
+| --- | ---: | ---: | ---: |
+| Immich Server | 500m | 2 GiB | 1 GiB media volume |
+| PostgreSQL | 500m | 2 GiB | 1 GiB data volume |
+| Redis | 500m | 512 MiB | 1 GiB data volume |
+| Redis Sentinel | 500m | 512 MiB | 1 GiB data volume |
+| Machine Learning | 500m | 4 GiB | 1 GiB model cache |
+
+The 2 GiB server and PostgreSQL limits cover the first startup, schema migration, and media workflow peaks. The 4 GiB ML limit preserves operating headroom while OCR, face recognition, and visual search models are loaded together. Increase storage before importing a large library, and increase memory for large videos or concurrent ML jobs.
 
 ## Configuration
 
-After deployment, you can configure Immich through:
+- Use **Administration** in Immich to manage users, jobs, libraries, storage templates, and server settings.
+- Use the Sealos resource view to resize the Immich, PostgreSQL, Redis, and ML workloads.
+- Keep the media path mounted at `/data` when changing the workload.
+- Keep the generated database and Redis credentials connected through their Sealos Secrets.
+- The default Ingress accepts uploads up to 32 MiB. Increase `nginx.ingress.kubernetes.io/proxy-body-size` on the deployed Ingress before uploading larger media files.
 
-- **Immich Administration UI**: Manage users, libraries, jobs, storage template settings, and server preferences.
-- **Sealos AI Dialog**: Describe desired changes such as resource increases or environment-variable updates.
-- **Sealos Resource Cards**: Adjust StatefulSet resources, storage size, Ingress settings, or database resources.
-- **Mobile Apps**: Use the generated Sealos URL as the server endpoint in the official Immich mobile app.
+## Backup and Upgrade
 
-## Scaling
-
-Start with the template defaults, then scale based on library size and feature usage:
-
-1. Open the Canvas for your Immich deployment.
-2. Click the Immich server, ML service, PostgreSQL, or Redis resource card.
-3. Increase CPU, memory, storage, or replica settings as needed.
-4. Apply the changes and wait for the resources to roll out.
-
-Large libraries and ML-heavy workloads need more memory and storage. Always back up PostgreSQL and the upload volume before major upgrades or storage changes.
+Create coordinated backups of the Immich `/data` volume and PostgreSQL database. The ML cache and Redis data can be regenerated, while media files and PostgreSQL metadata form the durable library state. Review the [Immich backup and restore guide](https://immich.app/docs/administration/backup-and-restore/) before upgrades.
 
 ## Troubleshooting
 
-### The web page is not ready immediately
+### The page is still starting
 
-Immich depends on PostgreSQL and Redis. If the page is temporarily unavailable right after deployment, wait until the PostgreSQL, Redis, and Immich server pods are ready, then refresh the generated URL.
+Wait for the PostgreSQL, Redis, and Immich pods to become ready. A fresh database initialization and the first model downloads can take several minutes.
 
-### First login asks for account creation
+### Smart search or face recognition is unavailable
 
-This is expected for a fresh Immich deployment. Register the first account in the Getting Started flow; that account becomes the administrator.
+Confirm that `enable_machine_learning` was set to `true` and that the ML pod is ready. The first request downloads models into the persistent cache.
 
-### Uploads or machine learning jobs are slow
+### Uploads fail for large files
 
-Increase Immich server or ML service CPU and memory from the Sealos Canvas. Large video uploads, thumbnail generation, face recognition, and smart search indexing can be resource-intensive.
+Increase `nginx.ingress.kubernetes.io/proxy-body-size` on the deployed Ingress, check free space on the `/data` volume, and increase the Immich Server resources for large videos or concurrent uploads.
 
-### Getting Help
+## Resources
 
 - [Immich Documentation](https://immich.app/docs/)
-- [Immich GitHub Issues](https://github.com/immich-app/immich/issues)
-- [Sealos Discord](https://discord.gg/wdUn538zVP)
-
-## Additional Resources
-
-- [Immich Mobile App Documentation](https://immich.app/docs/features/mobile-app/)
-- [Immich Backup and Restore Guide](https://immich.app/docs/administration/backup-and-restore/)
-- [Immich Release Notes](https://github.com/immich-app/immich/releases)
+- [Post-installation Guide](https://immich.app/docs/install/post-install/)
+- [Mobile App Guide](https://immich.app/docs/features/mobile-app/)
+- [Immich GitHub Repository](https://github.com/immich-app/immich)
 
 ## License
 
-This Sealos template is provided under the templates repository license. Immich itself is licensed under the GNU Affero General Public License v3.0.
+Immich is licensed under the GNU Affero General Public License v3.0. This Sealos template follows the templates repository license.

@@ -1,6 +1,8 @@
 # Deploy and Host Langflow on Sealos
 
-Langflow is a visual low-code builder for RAG, agentic workflows, and AI applications. This template deploys Langflow 1.9.5 as a single persistent service on Sealos Cloud, with optional PostgreSQL for production storage.
+Langflow is a visual low-code builder for RAG, agentic workflows, and AI applications. This template deploys Langflow 1.10.2 as a persistent service on Sealos Cloud, with SQLite by default and optional PostgreSQL.
+
+![Langflow Screenshot](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/langflow/website-screenshot.webp)
 
 ## About Hosting Langflow
 
@@ -34,15 +36,15 @@ The Sealos template includes the Langflow application container, persistent stor
 
 This template deploys the following resources:
 
-- **Langflow Service**: Official Langflow 1.9.5 container serving the web UI and API on port 7860.
+- **Langflow Service**: Official Langflow 1.10.2 container serving the web UI and API on port 7860.
 - **Persistent Storage**: Two persistent volumes for application data and exported flow files.
 - **PostgreSQL (Optional)**: KubeBlocks PostgreSQL 16.4.0 with an idempotent initialization Job when `enable_database` is set to `true`.
 - **Ingress and App Entry**: Sealos-managed HTTPS routing and a dashboard link for the deployed instance.
 
 **Configuration:**
 
-- `admin_username` sets the initial Langflow superuser username. The default is `admin`.
-- `admin_password` sets the initial superuser password and is required for sign-in.
+- `admin_username` sets the initial Langflow superuser username and is required.
+- `admin_password` sets the initial superuser password and is required.
 - `enable_database` switches storage from persistent SQLite to PostgreSQL for larger or production-oriented deployments.
 - `LANGFLOW_AUTO_LOGIN` is set to `false`, so the visual editor requires sign-in instead of anonymous superuser access.
 - `LANGFLOW_SECRET_KEY` is generated per deployment for encryption-sensitive Langflow internals.
@@ -66,8 +68,8 @@ Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies
 
 1. Open the [Langflow template](https://sealos.io/products/app-store/langflow) and click **Deploy Now**.
 2. Configure the deployment parameters:
-   - `admin_username`: Initial superuser username, default `admin`.
-   - `admin_password`: Initial superuser password used to sign in after deployment.
+   - `admin_username`: Required initial superuser username.
+   - `admin_password`: Required initial superuser password used to sign in after deployment.
    - `enable_database`: Set to `true` to use PostgreSQL, or keep `false` to use persistent SQLite.
 3. Wait for deployment to complete. Langflow can take several minutes on first start because the container initializes components and the web server.
 4. Access the application from the Sealos-provided URL and sign in with the configured `admin_username` and `admin_password`.
@@ -93,7 +95,7 @@ Langflow is deployed as a single persistent StatefulSet. To scale resources:
 3. Increase CPU or memory if you run large flows, load many components, or use memory-heavy connectors.
 4. Apply the change and wait for the pod to restart and become ready.
 
-The template uses a cold-start validated profile of 2 CPU and 4Gi memory. Lower memory settings may fail during initialization.
+The Langflow container uses a `500m` CPU limit and a `4Gi` memory limit. Validation measured a SQLite cold-start peak of about `1851Mi`, steady SQLite usage of `1264-1279Mi`, and steady PostgreSQL usage of about `1249Mi`. The `4Gi` tier preserves cold-start headroom for component loading.
 
 ## Troubleshooting
 

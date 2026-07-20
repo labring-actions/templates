@@ -36,12 +36,10 @@ spec:
     admin_username:
       description: Initial Langflow superuser username.
       type: string
-      default: admin
       required: true
     admin_password:
       description: Initial Langflow superuser password. Use a strong password.
       type: string
-      default: ''
       required: true
     enable_database:
       description: Enable PostgreSQL instead of the built-in SQLite database.
@@ -211,12 +209,28 @@ spec:
               fi
 ${{ endif() }}
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-appvn-startvn-sh: |
+    if [ -n "${LANGFLOW_POSTGRES_URL:-}" ]; then
+      export LANGFLOW_DATABASE_URL="$LANGFLOW_POSTGRES_URL"
+    else
+      export LANGFLOW_DATABASE_URL="$LANGFLOW_SQLITE_URL"
+    fi
+    exec langflow run --host 0.0.0.0 --port 7860
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: langflowai/langflow:1.9.5
+    originImageName: langflowai/langflow:1.10.2
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -242,15 +256,73 @@ spec:
         runAsUser: 1000
         seccompProfile:
           type: RuntimeDefault
+      initContainers:
+        ${{ if(inputs.enable_database === 'true') }}
+        - name: wait-postgres
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export PGPASSWORD="$PG_PASSWORD"
+              for i in $(seq 1 120); do
+                if pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d langflow >/dev/null 2>&1 \
+                  && psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d langflow -tAc 'SELECT 1' | grep -q 1; then
+                  exit 0
+                fi
+                sleep 3
+              done
+              echo "Langflow database is not ready" >&2
+              exit 1
+        ${{ endif() }}
       containers:
         - name: ${{ defaults.app_name }}
-          image: langflowai/langflow:1.9.5
+          image: langflowai/langflow:1.10.2
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           command:
             - /bin/bash
-            - -ec
+            - -c
           args:
-            - langflow run --host 0.0.0.0 --port 7860
+            - exec /bin/bash /app/start.sh
           ports:
             - name: http
               containerPort: 7860
@@ -291,24 +363,27 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: host
-            - name: LANGFLOW_DATABASE_URL
+            - name: LANGFLOW_POSTGRES_URL
               value: postgresql://$(PG_USER):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/langflow
             ${{ else() }}
-            - name: LANGFLOW_DATABASE_URL
+            - name: LANGFLOW_SQLITE_URL
               value: sqlite:////app/data/langflow.db
             ${{ endif() }}
           resources:
             limits:
-              cpu: 2
-              memory: 4Gi
+              cpu: 500m
+              memory: 4096Mi
             requests:
-              cpu: 200m
-              memory: 400Mi
+              cpu: 50m
+              memory: 409Mi
           volumeMounts:
             - name: vn-appvn-data
               mountPath: /app/data
             - name: vn-appvn-flows
               mountPath: /app/flows
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /app/start.sh
+              subPath: vn-appvn-startvn-sh
           startupProbe:
             httpGet:
               path: /health
@@ -330,6 +405,10 @@ spec:
             periodSeconds: 20
             timeoutSeconds: 5
             failureThreshold: 6
+      volumes:
+        - name: ${{ defaults.app_name }}-cm
+          configMap:
+            name: ${{ defaults.app_name }}
   volumeClaimTemplates:
     - metadata:
         annotations:

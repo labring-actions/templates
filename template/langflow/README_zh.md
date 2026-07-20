@@ -1,6 +1,8 @@
 # 在 Sealos 上部署和托管 Langflow
 
-Langflow 是一个面向 RAG、智能体工作流和 AI 应用的可视化低代码构建器。此模板会在 Sealos Cloud 上部署 Langflow 1.9.5 单服务实例，并可选择启用 PostgreSQL 作为生产存储。
+Langflow 是一个面向 RAG、智能体工作流和 AI 应用的可视化低代码构建器。此模板会在 Sealos Cloud 上部署 Langflow 1.10.2 持久化服务，默认使用 SQLite，并可选择启用 PostgreSQL。
+
+![Langflow 截图](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/langflow/website-screenshot.webp)
 
 ## 关于托管 Langflow
 
@@ -34,15 +36,15 @@ Sealos 模板包含 Langflow 应用容器、用于 `/app/data` 和 `/app/flows` 
 
 此模板会部署以下资源：
 
-- **Langflow 服务**：官方 Langflow 1.9.5 容器，在 7860 端口提供 Web UI 和 API。
+- **Langflow 服务**：官方 Langflow 1.10.2 容器，在 7860 端口提供 Web UI 和 API。
 - **持久化存储**：两个持久化卷，用于保存应用数据和导出的 flow 文件。
 - **PostgreSQL（可选）**：启用 `enable_database` 后创建 KubeBlocks PostgreSQL 16.4.0，并通过幂等初始化 Job 创建数据库。
 - **Ingress 和应用入口**：Sealos 托管 HTTPS 路由，以及部署后的仪表盘入口。
 
 **配置说明：**
 
-- `admin_username` 设置初始 Langflow 超级用户用户名，默认值为 `admin`。
-- `admin_password` 设置初始超级用户密码，登录时必须使用。
+- `admin_username` 设置初始 Langflow 超级用户用户名，为必填项。
+- `admin_password` 设置初始超级用户密码，为必填项。
 - `enable_database` 可将存储从持久化 SQLite 切换到 PostgreSQL，适合更大规模或生产场景。
 - `LANGFLOW_AUTO_LOGIN` 设置为 `false`，因此可视化编辑器需要登录，而不是匿名超级用户访问。
 - `LANGFLOW_SECRET_KEY` 会在每次部署时生成，用于 Langflow 内部加密相关能力。
@@ -66,8 +68,8 @@ Sealos 是基于 Kubernetes 的 AI 辅助云操作系统，统一了部署、网
 
 1. 打开 [Langflow 模板](https://sealos.io/products/app-store/langflow)，点击 **Deploy Now**。
 2. 配置部署参数：
-   - `admin_username`：初始超级用户用户名，默认 `admin`。
-   - `admin_password`：初始超级用户密码，部署完成后用于登录。
+   - `admin_username`：必填的初始超级用户用户名。
+   - `admin_password`：必填的初始超级用户密码，部署完成后用于登录。
    - `enable_database`：设置为 `true` 使用 PostgreSQL，保持 `false` 则使用持久化 SQLite。
 3. 等待部署完成。Langflow 首次启动需要初始化组件和 Web 服务，通常需要数分钟。
 4. 通过 Sealos 提供的 URL 访问应用，并使用配置的 `admin_username` 和 `admin_password` 登录。
@@ -93,7 +95,7 @@ Langflow 以单副本持久化 StatefulSet 部署。如需调整资源：
 3. 如果运行大型 flow、加载大量组件或使用高内存连接器，可提高 CPU 或内存。
 4. 应用变更并等待 Pod 重启后重新就绪。
 
-模板使用经过冷启动验证的 2 CPU 和 4Gi 内存配置。手动降低内存可能导致初始化阶段 OOMKilled。
+Langflow 容器使用 `500m` CPU 上限和 `4Gi` 内存上限。实测 SQLite 冷启动峰值约为 `1851Mi`，SQLite 稳态占用为 `1264-1279Mi`，PostgreSQL 分支稳态占用约为 `1249Mi`。`4Gi` 档位为组件加载保留了充足的冷启动余量。
 
 ## 故障排查
 
