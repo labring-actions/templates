@@ -8,7 +8,7 @@ Supabase 是一个开源后端平台，把 PostgreSQL、身份认证、实时订
 
 在这个模板里，Supabase 采用以 Kong 为入口的多服务架构。Studio 提供 Web 控制台，Auth、REST、Realtime、Storage 与 Edge Functions 通过同一个公网域名按路径统一暴露。Imgproxy 作为 sidecar 与 Storage 运行在同一个 Pod 中，本地图片转换可直接读取两者共享的持久卷。
 
-部署时会通过 Kubeblocks 自动创建 PostgreSQL 集群，用初始化 Job 预置 Supabase 所需的 schema 与角色，再通过受控冷重启启用 logical WAL，并通过 Kubernetes Secret 完成凭据注入。Storage 服务提供两条官方后端路径：默认将文件保存到持久化卷，也可以通过 `enable_s3_storage=true` 切换到私有 Sealos `ObjectStorageBucket`。
+部署时会通过 Kubeblocks 自动创建 PostgreSQL 集群，用初始化 Job 预置 Supabase 所需的 schema 与角色，再通过受控冷重启启用 logical WAL，并通过 Kubernetes Secret 完成凭据注入。每个新实例还会自动生成独立的 JWT 根密钥，各服务启动时会派生相互匹配的旧版 `anon` 与 `service_role` 密钥。Storage 服务提供两条官方后端路径：默认将文件保存到持久化卷，也可以通过 `enable_s3_storage=true` 切换到私有 Sealos `ObjectStorageBucket`。
 
 Sealos 还会自动处理 Ingress、TLS、公网域名和 Canvas 中的生命周期运维，让你把精力集中在业务开发，而不是集群底层细节。
 
@@ -55,13 +55,9 @@ Sealos 还会自动处理 Ingress、TLS、公网域名和 Canvas 中的生命周
 
 **配置项：**
 
-- 必填输入参数：
-  - `jwt_secret`：供 Auth、REST、Studio、Storage 共同使用的 JWT 签名密钥。
-  - `anon_key`：由 `jwt_secret` 签发的匿名 API 密钥。
-  - `service_role_key`：由 `jwt_secret` 签发的服务角色 API 密钥。
+- 部署输入参数：
   - `dashboard_username`：Studio HTTP Basic Auth 用户名，默认值为 `supabase`。
   - `dashboard_password`：为 Studio HTTP Basic Auth 设置的密码。
-- 可选存储参数：
   - `enable_s3_storage=false` 时，文件写入 Storage API 与 Imgproxy 共享的单个 1 GiB 持久化卷。
   - `enable_s3_storage=true` 时，创建私有 Sealos `ObjectStorageBucket` 并注入 S3 凭据，渲染拓扑会移除 Storage PVC。
 - 默认公网访问地址为 `https://<app-name>-kong.<your-sealos-domain>`。
@@ -70,16 +66,9 @@ Sealos 还会自动处理 Ingress、TLS、公网域名和 Canvas 中的生命周
 - SMTP、注册策略、JWT 过期时间、存储后端参数与连接池限制都可在 Canvas 里通过环境变量调整。
 - PostgreSQL 数据、Storage/Imgproxy 共享文件、Studio snippets/functions、Edge Runtime 缓存都配置了持久化卷。
 
-部署前请生成一组唯一且相互匹配的旧版 JWT 密钥。Supabase 官方 Docker 辅助脚本会把所需值写入 `docker/.env`：
+模板会为每个新实例自动生成独立的 64 字符根密钥。Studio、Kong、Storage 与 Edge Functions 会在进程启动时从根密钥派生相同的 HS256 旧版 API 密钥。固定 JWT claims 可确保 Pod 重启和单个服务重启后继续得到相同的密钥。
 
-```bash
-git clone --depth 1 https://github.com/supabase/supabase.git
-cd supabase/docker
-cp .env.example .env
-sh ./utils/generate-keys.sh
-```
-
-将 `.env` 中的 `JWT_SECRET`、`ANON_KEY`、`SERVICE_ROLE_KEY` 分别填入 `jwt_secret`、`anon_key`、`service_role_key`。`service_role_key` 可以绕过行级安全策略，仅应存放在可信的服务端环境中。
+登录 Studio 后，打开 **Project Settings > API Keys**，再选择 **Legacy anon, service_role API keys** 即可复制自动生成的密钥。浏览器和移动客户端使用 `anon`，可信服务端使用 `service_role`。`service_role` 具备绕过行级安全策略的权限。每个新实例都会获得新的密钥组，客户端与服务端配置需要使用目标实例中显示的密钥。
 
 **许可证信息：**
 
@@ -103,11 +92,9 @@ Sealos 是构建在 Kubernetes 之上的 AI 辅助云操作系统，把开发、
 
 1. 打开 [Supabase 模板](https://sealos.io/products/app-store/supabase)，点击 **Deploy Now**。
 2. 在弹窗中配置参数：
-   - 使用上方官方脚本生成唯一密钥组。
-   - 将相互匹配的 `JWT_SECRET`、`ANON_KEY`、`SERVICE_ROLE_KEY` 分别填入 `jwt_secret`、`anon_key`、`service_role_key`。
    - 为 Studio 设置易于记忆的 `dashboard_username` 与强 `dashboard_password`。
-   - 其他参数无特殊需求时可保持默认值。
-3. 等待部署完成（通常 2-3 分钟）。完成后会自动跳转到 Canvas。后续若需变更，可在 AI 对话中描述需求，或直接编辑资源卡片。
+   - 保持 `enable_s3_storage=false` 可使用本地持久化存储；启用该选项会创建私有 Sealos Object Storage Bucket。
+3. 等待部署完成（通常需要 4-6 分钟，其中包含数据库初始化和受控冷重启）。完成后会自动跳转到 Canvas。后续若需变更，可在 AI 对话中描述需求，或直接编辑资源卡片。
 4. 通过系统生成的公网地址访问应用：
    - **Studio 控制台**：`https://<app-name>-kong.<your-sealos-domain>/`
    - **REST API**：`https://<app-name>-kong.<your-sealos-domain>/rest/v1/`
@@ -119,9 +106,10 @@ Sealos 是构建在 Kubernetes 之上的 AI 辅助云操作系统，把开发、
 ### Studio 登录与首次操作
 
 1. 打开 Studio 地址，在浏览器 Basic Auth 弹窗中输入部署时设置的 `dashboard_username` 与 `dashboard_password`。
-2. 在 **Table Editor** 中创建 `notes` 表，添加文本列并插入一行数据，确认 Studio、PostgREST 和 PostgreSQL 迁移已经就绪。
-3. 在 **SQL Editor** 运行 `select * from notes;`，确认查询返回刚插入的数据。
-4. 在 **Storage** 中创建私有 bucket，上传小文件并下载，再核对文件内容。匿名访问测试保持 bucket 为私有状态。
+2. 打开 **Project Settings > API Keys**，再选择 **Legacy anon, service_role API keys**。客户端复制 `anon`，可信服务端复制 `service_role`。
+3. 在 **Table Editor** 中创建 `notes` 表，添加文本列并插入一行数据，确认 Studio、PostgREST 和 PostgreSQL 迁移已经就绪。
+4. 在 **SQL Editor** 运行 `select * from notes;`，确认查询返回刚插入的数据。
+5. 在 **Storage** 中创建私有 bucket，上传小文件并下载，再核对文件内容。匿名访问测试保持 bucket 为私有状态。
 
 启用 `enable_s3_storage=true` 后，上传与下载会经过私有 Sealos 对象存储桶。原始 bucket 地址的匿名请求保持受限，文件交付使用 Storage API 或限时签名 URL。
 
@@ -138,7 +126,7 @@ Sealos 是构建在 Kubernetes 之上的 AI 辅助云操作系统，把开发、
 - 如需生产邮件能力，先替换模板中的 SMTP 占位参数。
 - 生产 SMTP 配置并验证完成后，再关闭邮箱自动确认。
 - 根据认证策略确认 `GOTRUE_DISABLE_SIGNUP`、手机/邮箱注册开关和重定向白名单。
-- 确认客户端使用 `anon_key`，服务端受信任流程使用 `service_role_key`。
+- 将当前实例的旧版 `anon` 密钥配置到客户端，将 `service_role` 密钥配置到可信服务端任务。
 - 根据边缘函数安全策略，校验 `functions_verify_jwt` 配置是否符合预期。
 
 ## 扩缩容
@@ -156,7 +144,7 @@ Sealos 是构建在 Kubernetes 之上的 AI 辅助云操作系统，把开发、
 
 **问题：调用 API 时返回 401/403**
 - 原因：API 密钥使用错误，或缺少 `apikey`/`Authorization` 请求头。
-- 解决：客户端使用 `anon_key`，`service_role_key` 仅用于受信任的服务端路径。
+- 解决：打开目标实例的 **Project Settings > API Keys**，选择 **Legacy anon, service_role API keys** 并复制密钥，客户端请求使用 `anon`，可信服务端路径使用 `service_role`。
 
 **问题：无法登录或收不到验证邮件**
 - 原因：SMTP 仍是占位配置，或注册策略限制过严。

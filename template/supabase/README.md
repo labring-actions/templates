@@ -8,7 +8,7 @@ Supabase is an open source backend platform that combines PostgreSQL, authentica
 
 Supabase in this template runs as a multi-service architecture behind Kong. Studio provides the web console, while Auth, REST, Realtime, Storage, and Edge Functions are exposed through a single public domain with path-based routing. Imgproxy runs as a sidecar in the Storage pod so local files remain available to image transformations through one shared volume.
 
-The deployment automatically provisions a PostgreSQL cluster through Kubeblocks, initializes required Supabase schemas and roles with a bootstrap job, enables logical WAL through a managed cold restart, and wires credentials through Kubernetes secrets. The Storage service supports two documented backends: local files on a persistent volume, or a private Sealos `ObjectStorageBucket` selected with `enable_s3_storage=true`.
+The deployment automatically provisions a PostgreSQL cluster through Kubeblocks, initializes required Supabase schemas and roles with a bootstrap job, enables logical WAL through a managed cold restart, and wires credentials through Kubernetes secrets. Each new installation also generates an instance-specific JWT root secret and derives a matching legacy `anon` and `service_role` key set when the services start. The Storage service supports two documented backends: local files on a persistent volume, or a private Sealos `ObjectStorageBucket` selected with `enable_s3_storage=true`.
 
 Sealos also handles ingress, TLS, public domain access, and lifecycle operations in Canvas, so you can focus on product development instead of cluster plumbing.
 
@@ -55,13 +55,9 @@ This template deploys the following services:
 
 **Configuration:**
 
-- Required input parameters:
-  - `jwt_secret`: JWT signing secret used by Auth, REST, Studio, and Storage.
-  - `anon_key`: Anonymous API key signed by `jwt_secret`.
-  - `service_role_key`: Service role API key signed by `jwt_secret`.
+- Deployment input parameters:
   - `dashboard_username`: Username for the Studio HTTP Basic Auth prompt; the default is `supabase`.
   - `dashboard_password`: Password you set for the Studio HTTP Basic Auth prompt.
-- Optional storage input:
   - `enable_s3_storage=false` stores objects under `/var/lib/storage` on one 1 GiB PVC shared by Storage API and Imgproxy.
   - `enable_s3_storage=true` provisions a private Sealos `ObjectStorageBucket`, injects its S3 credentials, and removes the Storage PVC from the rendered topology.
 - Public access defaults to `https://<app-name>-kong.<your-sealos-domain>`.
@@ -70,16 +66,9 @@ This template deploys the following services:
 - SMTP, signup behavior, JWT expiry, storage backend settings, and pooler limits are configurable via environment variables in Canvas.
 - Persistent volumes are created for PostgreSQL data, shared Storage/Imgproxy files, Studio snippets/functions, and Edge Runtime cache.
 
-Generate a unique, matching legacy JWT key set before deployment. The official Supabase Docker helper writes the required values to `docker/.env`:
+The template generates a unique 64-character root secret for every new installation. Studio, Kong, Storage, and Edge Functions derive the same HS256 legacy API keys from that root secret during process startup. Fixed JWT claims keep the keys stable across Pod restarts and individual service restarts.
 
-```bash
-git clone --depth 1 https://github.com/supabase/supabase.git
-cd supabase/docker
-cp .env.example .env
-sh ./utils/generate-keys.sh
-```
-
-Copy `JWT_SECRET`, `ANON_KEY`, and `SERVICE_ROLE_KEY` from `.env` into `jwt_secret`, `anon_key`, and `service_role_key`. Keep `service_role_key` on trusted server-side systems because it bypasses Row Level Security.
+After signing in to Studio, open **Project Settings > API Keys**, then select **Legacy anon, service_role API keys** to copy the generated keys. Use the `anon` key in browser and mobile clients. Keep the `service_role` key in trusted server-side systems because it bypasses Row Level Security. A new installation receives a new key set, so client and server configuration must use the keys shown by the target instance.
 
 **License Information:**
 
@@ -103,11 +92,9 @@ Deploy Supabase on Sealos and focus on shipping features instead of managing inf
 
 1. Open the [Supabase template](https://sealos.io/products/app-store/supabase) and click **Deploy Now**.
 2. Configure the parameters in the popup dialog:
-   - Generate a unique key set with the official helper above.
-   - Enter the matching `JWT_SECRET`, `ANON_KEY`, and `SERVICE_ROLE_KEY` values in `jwt_secret`, `anon_key`, and `service_role_key`.
    - Set a memorable `dashboard_username` and a strong `dashboard_password` for Studio.
-   - Keep defaults for other values unless you have specific networking or auth requirements.
-3. Wait for deployment to complete (typically 2-3 minutes). After deployment, you will be redirected to the Canvas. For later changes, describe your requirements in the AI dialog or edit resource cards directly.
+   - Keep `enable_s3_storage=false` for local persistent storage, or enable it to provision a private Sealos Object Storage bucket.
+3. Wait for deployment to complete (typically 4-6 minutes, including database initialization and the managed cold restart). After deployment, you will be redirected to the Canvas. For later changes, describe your requirements in the AI dialog or edit resource cards directly.
 4. Access your application via the generated public URL:
    - **Studio Dashboard**: `https://<app-name>-kong.<your-sealos-domain>/`
    - **REST API**: `https://<app-name>-kong.<your-sealos-domain>/rest/v1/`
@@ -119,9 +106,10 @@ Deploy Supabase on Sealos and focus on shipping features instead of managing inf
 ### Studio login and first actions
 
 1. Open the Studio URL. In the browser Basic Auth prompt, enter the `dashboard_username` and `dashboard_password` chosen during deployment.
-2. In **Table Editor**, create a table such as `notes` with a text column, then insert one row. This confirms Studio, PostgREST, and PostgreSQL migrations are ready.
-3. In **SQL Editor**, run `select * from notes;` and confirm the inserted row is returned.
-4. In **Storage**, create a private bucket, upload a small file, download it, and compare its contents. Keep the bucket private when testing anonymous access.
+2. Open **Project Settings > API Keys**, then select **Legacy anon, service_role API keys**. Copy `anon` for client applications and `service_role` for trusted server-side applications.
+3. In **Table Editor**, create a table such as `notes` with a text column, then insert one row. This confirms Studio, PostgREST, and PostgreSQL migrations are ready.
+4. In **SQL Editor**, run `select * from notes;` and confirm the inserted row is returned.
+5. In **Storage**, create a private bucket, upload a small file, download it, and compare its contents. Keep the bucket private when testing anonymous access.
 
 When `enable_s3_storage=true`, the upload and download flow uses the private Sealos Object Storage bucket. Anonymous requests to the raw bucket endpoint remain restricted; use the Storage API or a time-bounded signed URL for delivery.
 
@@ -138,7 +126,7 @@ Recommended post-deployment checks:
 - Replace placeholder SMTP values if you need production email flows.
 - Disable automatic email confirmation after production SMTP is configured and verified.
 - Confirm `GOTRUE_DISABLE_SIGNUP`, phone/email signup options, and redirect allow list fit your auth policy.
-- Verify your client apps use `anon_key` and server-side jobs use `service_role_key`.
+- Copy the current instance's legacy `anon` key into client apps and its `service_role` key into trusted server-side jobs.
 - Keep `functions_verify_jwt` aligned with your edge function security model.
 
 ## Scaling
@@ -156,7 +144,7 @@ To scale your Supabase deployment:
 
 **Issue: 401/403 when calling APIs**
 - Cause: Invalid API key usage or missing `apikey`/`Authorization` headers.
-- Solution: Use `anon_key` for client requests and `service_role_key` only on trusted server-side paths.
+- Solution: Open **Project Settings > API Keys**, select **Legacy anon, service_role API keys**, then use `anon` for client requests and `service_role` on trusted server-side paths.
 
 **Issue: Cannot sign in or receive verification emails**
 - Cause: SMTP defaults are placeholders or signup policies are restrictive.

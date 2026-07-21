@@ -28,6 +28,9 @@ spec:
     app_name:
       type: string
       value: supabase-${{ random(8) }}
+    jwt_secret:
+      type: string
+      value: ${{ random(64) }}
     postgres_db:
       type: string
       value: postgres
@@ -143,18 +146,6 @@ spec:
       type: string
       value: 'true'
   inputs:
-    jwt_secret:
-      description: Single-line JWT signing secret for Auth, PostgREST, Studio, and Storage API.
-      type: string
-      required: true
-    anon_key:
-      description: Single-line anonymous API key in JWT format (must be signed by jwt_secret).
-      type: string
-      required: true
-    service_role_key:
-      description: Single-line service role API key in JWT format (must be signed by jwt_secret).
-      type: string
-      required: true
     enable_s3_storage:
       description: Use a Sealos ObjectStorageBucket as the Supabase Storage S3 backend; clear to use the local persistent volume.
       type: boolean
@@ -790,6 +781,39 @@ data:
       fi
     }
 
+    sign_hs256() {
+      unsigned="$1"
+      signature="$(
+        printf '%s' "${unsigned}" \
+          | openssl dgst -binary -sha256 -hmac "${JWT_SECRET}" \
+          | openssl enc -base64 -A \
+          | tr '+/' '-_' \
+          | tr -d '='
+      )"
+      if [ "${#signature}" -ne 43 ]; then
+        echo "Failed to derive Supabase API key signature" >&2
+        exit 1
+      fi
+      printf '%s.%s' "${unsigned}" "${signature}"
+    }
+
+    require_single_line JWT_SECRET "${JWT_SECRET}"
+    if [ "${#JWT_SECRET}" -lt 32 ]; then
+      echo "JWT_SECRET must contain at least 32 characters" >&2
+      exit 1
+    fi
+    if ! command -v openssl >/dev/null 2>&1; then
+      echo "OpenSSL is required to derive Supabase API keys" >&2
+      exit 1
+    fi
+
+    JWT_HEADER='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9'
+    JWT_ANON_PAYLOAD='eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzg0NTkyMDAwLCJleHAiOjQxMDI0NDQ4MDB9'
+    JWT_SERVICE_PAYLOAD='eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UiLCJpYXQiOjE3ODQ1OTIwMDAsImV4cCI6NDEwMjQ0NDgwMH0'
+    SUPABASE_ANON_KEY="$(sign_hs256 "${JWT_HEADER}.${JWT_ANON_PAYLOAD}")"
+    SUPABASE_SERVICE_KEY="$(sign_hs256 "${JWT_HEADER}.${JWT_SERVICE_PAYLOAD}")"
+    export SUPABASE_ANON_KEY SUPABASE_SERVICE_KEY
+
     require_single_line APP_NAME "${APP_NAME}"
     require_single_line SUPABASE_ANON_KEY "${SUPABASE_ANON_KEY}"
     require_single_line SUPABASE_SERVICE_KEY "${SUPABASE_SERVICE_KEY}"
@@ -810,6 +834,110 @@ data:
       -e "s|__DASHBOARD_PASSWORD__|${DASHBOARD_PASSWORD_ESCAPED}|g" \
       /etc/kong-template/kong.yml.tpl > /tmp/kong.yml
     exec /entrypoint.sh kong docker-start
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-studio
+  labels:
+    app: ${{ defaults.app_name }}-studio
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-studio
+data:
+  vn-usrvn-localvn-binvn-studiovn-startvn-sh: |
+    #!/bin/sh
+    set -eu
+
+    require_single_line() {
+      if [ "$(printf '%s' "$2" | wc -l | tr -d '[:space:]')" -ne 0 ]; then
+        echo "$1 must be a single-line value" >&2
+        exit 1
+      fi
+    }
+
+    sign_hs256() {
+      node -e '
+        const crypto = require("crypto");
+        const secret = process.env.JWT_SECRET;
+        const unsigned = process.argv[1];
+        const signature = crypto
+          .createHmac("sha256", secret)
+          .update(unsigned)
+          .digest("base64url");
+        process.stdout.write(`${unsigned}.${signature}`);
+      ' "$1"
+    }
+
+    require_single_line JWT_SECRET "${JWT_SECRET}"
+    if [ "${#JWT_SECRET}" -lt 32 ]; then
+      echo "JWT_SECRET must contain at least 32 characters" >&2
+      exit 1
+    fi
+    if ! command -v node >/dev/null 2>&1; then
+      echo "Node.js is required to derive Supabase API keys" >&2
+      exit 1
+    fi
+
+    JWT_HEADER='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9'
+    JWT_ANON_PAYLOAD='eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzg0NTkyMDAwLCJleHAiOjQxMDI0NDQ4MDB9'
+    JWT_SERVICE_PAYLOAD='eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UiLCJpYXQiOjE3ODQ1OTIwMDAsImV4cCI6NDEwMjQ0NDgwMH0'
+    SUPABASE_ANON_KEY="$(sign_hs256 "${JWT_HEADER}.${JWT_ANON_PAYLOAD}")"
+    SUPABASE_SERVICE_KEY="$(sign_hs256 "${JWT_HEADER}.${JWT_SERVICE_PAYLOAD}")"
+    AUTH_JWT_SECRET="${JWT_SECRET}"
+    export SUPABASE_ANON_KEY SUPABASE_SERVICE_KEY AUTH_JWT_SECRET
+
+    exec docker-entrypoint.sh node apps/studio/server.js
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-storage
+  labels:
+    app: ${{ defaults.app_name }}-storage
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-storage
+data:
+  vn-usrvn-localvn-binvn-storagevn-startvn-sh: |
+    #!/bin/sh
+    set -eu
+
+    require_single_line() {
+      if [ "$(printf '%s' "$2" | wc -l | tr -d '[:space:]')" -ne 0 ]; then
+        echo "$1 must be a single-line value" >&2
+        exit 1
+      fi
+    }
+
+    sign_hs256() {
+      node -e '
+        const crypto = require("crypto");
+        const secret = process.env.JWT_SECRET;
+        const unsigned = process.argv[1];
+        const signature = crypto
+          .createHmac("sha256", secret)
+          .update(unsigned)
+          .digest("base64url");
+        process.stdout.write(`${unsigned}.${signature}`);
+      ' "$1"
+    }
+
+    require_single_line JWT_SECRET "${JWT_SECRET}"
+    if [ "${#JWT_SECRET}" -lt 32 ]; then
+      echo "JWT_SECRET must contain at least 32 characters" >&2
+      exit 1
+    fi
+    if ! command -v node >/dev/null 2>&1; then
+      echo "Node.js is required to derive Supabase API keys" >&2
+      exit 1
+    fi
+
+    JWT_HEADER='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9'
+    JWT_ANON_PAYLOAD='eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzg0NTkyMDAwLCJleHAiOjQxMDI0NDQ4MDB9'
+    JWT_SERVICE_PAYLOAD='eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UiLCJpYXQiOjE3ODQ1OTIwMDAsImV4cCI6NDEwMjQ0NDgwMH0'
+    ANON_KEY="$(sign_hs256 "${JWT_HEADER}.${JWT_ANON_PAYLOAD}")"
+    SERVICE_KEY="$(sign_hs256 "${JWT_HEADER}.${JWT_SERVICE_PAYLOAD}")"
+    AUTH_JWT_SECRET="${JWT_SECRET}"
+    export ANON_KEY SERVICE_KEY AUTH_JWT_SECRET
+
+    exec docker-entrypoint.sh node dist/start/server.js
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -855,6 +983,51 @@ metadata:
     app: ${{ defaults.app_name }}-functions
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-functions
 data:
+  vn-usrvn-localvn-binvn-functionsvn-startvn-sh: |
+    #!/bin/sh
+    set -eu
+
+    require_single_line() {
+      if [ "$(printf '%s' "$2" | wc -l | tr -d '[:space:]')" -ne 0 ]; then
+        echo "$1 must be a single-line value" >&2
+        exit 1
+      fi
+    }
+
+    sign_hs256() {
+      unsigned="$1"
+      signature="$(
+        printf '%s' "${unsigned}" \
+          | openssl dgst -binary -sha256 -hmac "${JWT_SECRET}" \
+          | openssl enc -base64 -A \
+          | tr '+/' '-_' \
+          | tr -d '='
+      )"
+      if [ "${#signature}" -ne 43 ]; then
+        echo "Failed to derive Supabase API key signature" >&2
+        exit 1
+      fi
+      printf '%s.%s' "${unsigned}" "${signature}"
+    }
+
+    require_single_line JWT_SECRET "${JWT_SECRET}"
+    if [ "${#JWT_SECRET}" -lt 32 ]; then
+      echo "JWT_SECRET must contain at least 32 characters" >&2
+      exit 1
+    fi
+    if ! command -v openssl >/dev/null 2>&1; then
+      echo "OpenSSL is required to derive Supabase API keys" >&2
+      exit 1
+    fi
+
+    JWT_HEADER='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9'
+    JWT_ANON_PAYLOAD='eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzg0NTkyMDAwLCJleHAiOjQxMDI0NDQ4MDB9'
+    JWT_SERVICE_PAYLOAD='eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UiLCJpYXQiOjE3ODQ1OTIwMDAsImV4cCI6NDEwMjQ0NDgwMH0'
+    SUPABASE_ANON_KEY="$(sign_hs256 "${JWT_HEADER}.${JWT_ANON_PAYLOAD}")"
+    SUPABASE_SERVICE_ROLE_KEY="$(sign_hs256 "${JWT_HEADER}.${JWT_SERVICE_PAYLOAD}")"
+    export SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY
+
+    exec /usr/local/bin/edge-runtime start --main-service /home/deno/functions/main
   vn-homevn-denovn-functionsvn-mainvn-indexvn-ts: "import * as jose from 'https://deno.land/x/jose@v4.14.4/index.ts'\n\
     \nconsole.log('main function started')\n\nconst JWT_SECRET = Deno.env.get('JWT_SECRET')\n\
     const VERIFY_JWT = Deno.env.get('VERIFY_JWT') === 'true'\n\nfunction getAuthToken(req:\
@@ -964,12 +1137,12 @@ spec:
           value: http://${{ defaults.app_name }}-kong:8000
         - name: SUPABASE_PUBLIC_URL
           value: https://${{ defaults.app_name }}-kong.${{ SEALOS_CLOUD_DOMAIN }}
+        - name: JWT_SECRET
+          value: ${{ defaults.jwt_secret }}
         - name: SUPABASE_ANON_KEY
-          value: ${{ inputs.anon_key }}
+          value: ''
         - name: SUPABASE_SERVICE_KEY
-          value: ${{ inputs.service_role_key }}
-        - name: AUTH_JWT_SECRET
-          value: ${{ inputs.jwt_secret }}
+          value: ''
         - name: LOGFLARE_API_KEY
           value: ${{ defaults.logflare_public_access_token }}
         - name: LOGFLARE_PUBLIC_ACCESS_TOKEN
@@ -986,6 +1159,11 @@ spec:
           value: /app/snippets
         - name: EDGE_FUNCTIONS_MANAGEMENT_FOLDER
           value: /app/edge-functions
+        command:
+        - /bin/sh
+        args:
+        - -c
+        - exec /bin/sh /usr/local/bin/studio-start.sh
         livenessProbe:
           httpGet: &id001
             path: /api/platform/profile
@@ -1008,10 +1186,18 @@ spec:
           timeoutSeconds: 5
           failureThreshold: 30
         volumeMounts:
+        - name: ${{ defaults.app_name }}-studio-cm
+          mountPath: /usr/local/bin/studio-start.sh
+          subPath: vn-usrvn-localvn-binvn-studiovn-startvn-sh
+          readOnly: true
         - name: vn-appvn-snippets
           mountPath: /app/snippets
         - name: vn-appvn-edgevn-functions
           mountPath: /app/edge-functions
+      volumes:
+      - name: ${{ defaults.app_name }}-studio-cm
+        configMap:
+          name: ${{ defaults.app_name }}-studio
   serviceName: ${{ defaults.app_name }}-studio
   volumeClaimTemplates:
   - metadata:
@@ -1091,10 +1277,12 @@ spec:
           value: 64 160k
         - name: KONG_NGINX_WORKER_PROCESSES
           value: '1'
+        - name: JWT_SECRET
+          value: ${{ defaults.jwt_secret }}
         - name: SUPABASE_ANON_KEY
-          value: ${{ inputs.anon_key }}
+          value: ''
         - name: SUPABASE_SERVICE_KEY
-          value: ${{ inputs.service_role_key }}
+          value: ''
         - name: DASHBOARD_USERNAME
           value: ${{ inputs.dashboard_username }}
         - name: DASHBOARD_PASSWORD
@@ -1199,7 +1387,7 @@ spec:
         - name: GOTRUE_JWT_EXP
           value: ${{ defaults.jwt_expiry }}
         - name: GOTRUE_JWT_SECRET
-          value: ${{ inputs.jwt_secret }}
+          value: ${{ defaults.jwt_secret }}
         - name: GOTRUE_EXTERNAL_EMAIL_ENABLED
           value: ${{ defaults.enable_email_signup }}
         - name: GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED
@@ -1308,11 +1496,11 @@ spec:
         - name: PGRST_DB_ANON_ROLE
           value: anon
         - name: PGRST_JWT_SECRET
-          value: ${{ inputs.jwt_secret }}
+          value: ${{ defaults.jwt_secret }}
         - name: PGRST_DB_USE_LEGACY_GUCS
           value: 'false'
         - name: PGRST_APP_SETTINGS_JWT_SECRET
-          value: ${{ inputs.jwt_secret }}
+          value: ${{ defaults.jwt_secret }}
         - name: PGRST_APP_SETTINGS_JWT_EXP
           value: ${{ defaults.jwt_expiry }}
         args:
@@ -1382,9 +1570,9 @@ spec:
         - name: DB_ENC_KEY
           value: supabaserealtime
         - name: API_JWT_SECRET
-          value: ${{ inputs.jwt_secret }}
+          value: ${{ defaults.jwt_secret }}
         - name: METRICS_JWT_SECRET
-          value: ${{ inputs.jwt_secret }}
+          value: ${{ defaults.jwt_secret }}
         - name: SECRET_KEY_BASE
           value: ${{ defaults.secret_key_base }}
         - name: ERL_AFLAGS
@@ -1456,14 +1644,16 @@ spec:
             cpu: 20m
             memory: 25Mi
         env:
+        - name: JWT_SECRET
+          value: ${{ defaults.jwt_secret }}
         - name: ANON_KEY
-          value: ${{ inputs.anon_key }}
+          value: ''
         - name: SERVICE_KEY
-          value: ${{ inputs.service_role_key }}
+          value: ''
+        - name: AUTH_JWT_SECRET
+          value: ''
         - name: POSTGREST_URL
           value: http://${{ defaults.app_name }}-rest:3000
-        - name: PGRST_JWT_SECRET
-          value: ${{ inputs.jwt_secret }}
         - name: STORAGE_DB_HOST
           valueFrom:
             secretKeyRef:
@@ -1543,6 +1733,11 @@ spec:
           value: ${{ defaults.s3_protocol_access_key_id }}
         - name: S3_PROTOCOL_ACCESS_KEY_SECRET
           value: ${{ defaults.s3_protocol_access_key_secret }}
+        command:
+        - /bin/sh
+        args:
+        - -c
+        - exec /bin/sh /usr/local/bin/storage-start.sh
         livenessProbe:
           httpGet: &id001
             path: /status
@@ -1558,8 +1753,18 @@ spec:
           periodSeconds: 5
           timeoutSeconds: 5
           failureThreshold: 3
-        ${{ if(inputs.enable_s3_storage === 'false') }}
+        startupProbe:
+          httpGet: *id001
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 30
         volumeMounts:
+        - name: ${{ defaults.app_name }}-storage-cm
+          mountPath: /usr/local/bin/storage-start.sh
+          subPath: vn-usrvn-localvn-binvn-storagevn-startvn-sh
+          readOnly: true
+        ${{ if(inputs.enable_s3_storage === 'false') }}
         - name: vn-varvn-libvn-storage
           mountPath: /var/lib/storage
         ${{ endif() }}
@@ -1604,6 +1809,10 @@ spec:
         - name: vn-varvn-libvn-storage
           mountPath: /var/lib/storage
         ${{ endif() }}
+      volumes:
+      - name: ${{ defaults.app_name }}-storage-cm
+        configMap:
+          name: ${{ defaults.app_name }}-storage
   serviceName: ${{ defaults.app_name }}-storage
 ${{ if(inputs.enable_s3_storage === 'false') }}
   volumeClaimTemplates:
@@ -1718,15 +1927,15 @@ spec:
             memory: 25Mi
         env:
         - name: JWT_SECRET
-          value: ${{ inputs.jwt_secret }}
+          value: ${{ defaults.jwt_secret }}
+        - name: SUPABASE_ANON_KEY
+          value: ''
+        - name: SUPABASE_SERVICE_ROLE_KEY
+          value: ''
         - name: SUPABASE_URL
           value: http://${{ defaults.app_name }}-kong:8000
         - name: SUPABASE_PUBLIC_URL
           value: https://${{ defaults.app_name }}-kong.${{ SEALOS_CLOUD_DOMAIN }}
-        - name: SUPABASE_ANON_KEY
-          value: ${{ inputs.anon_key }}
-        - name: SUPABASE_SERVICE_ROLE_KEY
-          value: ${{ inputs.service_role_key }}
         - name: SUPABASE_DB_HOST
           valueFrom:
             secretKeyRef:
@@ -1751,11 +1960,16 @@ spec:
           value: postgresql://$(SUPABASE_DB_USER):$(SUPABASE_DB_PASSWORD)@$(SUPABASE_DB_HOST):$(SUPABASE_DB_PORT)/postgres
         - name: VERIFY_JWT
           value: ${{ defaults.functions_verify_jwt }}
+        command:
+        - /bin/sh
         args:
-        - start
-        - --main-service
-        - /home/deno/functions/main
+        - -c
+        - exec /bin/sh /usr/local/bin/functions-start.sh
         volumeMounts:
+        - name: ${{ defaults.app_name }}-functions-cm
+          mountPath: /usr/local/bin/functions-start.sh
+          subPath: vn-usrvn-localvn-binvn-functionsvn-startvn-sh
+          readOnly: true
         - name: ${{ defaults.app_name }}-functions-cm
           mountPath: /home/deno/functions/main/index.ts
           subPath: vn-homevn-denovn-functionsvn-mainvn-indexvn-ts
@@ -2080,9 +2294,9 @@ spec:
         - name: VAULT_ENC_KEY
           value: ${{ defaults.vault_enc_key }}
         - name: API_JWT_SECRET
-          value: ${{ inputs.jwt_secret }}
+          value: ${{ defaults.jwt_secret }}
         - name: METRICS_JWT_SECRET
-          value: ${{ inputs.jwt_secret }}
+          value: ${{ defaults.jwt_secret }}
         - name: REGION
           value: ${{ defaults.region }}
         - name: ERL_AFLAGS
