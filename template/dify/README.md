@@ -1,6 +1,6 @@
 # Deploy and Host Dify on Sealos
 
-Dify is an open-source LLM application development platform for building AI agents, workflows, chatbots, and RAG applications. This template deploys Dify with PostgreSQL, Redis, Weaviate, object storage, sandbox execution, and the plugin daemon on Sealos Cloud.
+Dify is an open-source LLM application development platform for building AI agents, workflows, chatbots, and RAG applications. This template deploys Dify 1.15.0 with PostgreSQL, Redis, Weaviate, sandbox execution, the plugin daemon, and an optional private Sealos Object Storage bucket.
 
 ![Dify Screenshot](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/dify/website-screenshot.webp)
 
@@ -42,14 +42,15 @@ The Sealos template includes all required runtime services: Dify Web, Dify API, 
 - **PostgreSQL**: Stores Dify application metadata and a separate plugin database.
 - **Redis**: Provides queue and cache services for the API, workers, and plugin daemon.
 - **Weaviate**: Provides the default vector database for knowledge indexing.
-- **Object Storage**: Stores uploaded files and plugin packages when `use_sealos_objectstorage` is enabled.
+- **Storage**: Uses persistent local volumes by default. When `enable_s3_storage` is `true`, uploaded files and plugin packages use a private Sealos Object Storage bucket.
 
 **Configuration:**
 
-- `init_password` sets the initial administrator password used on the first setup screen.
-- `use_sealos_objectstorage` provisions a Sealos ObjectStorage bucket and injects S3-compatible credentials.
+- `init_password` is required and unlocks the first Dify setup screen.
+- `enable_s3_storage` defaults to `false`. Set it to `true` to provision a private Sealos Object Storage bucket and inject S3-compatible credentials.
 - Dify URLs are configured to `https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}` for console, API, app, and service endpoints.
 - PostgreSQL and Redis credentials are sourced from Sealos-managed KubeBlocks secrets.
+- Internal API, Redis, Weaviate, Sandbox, and Plugin Daemon traffic uses namespace-qualified cluster DNS names.
 
 **License Information:**
 
@@ -69,19 +70,20 @@ Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies
 
 1. Open the [Dify template](https://sealos.io/products/app-store/dify) and click **Deploy Now**.
 2. Configure the deployment parameters:
-   - `init_password`: Enter the password for the first Dify administrator.
-   - `use_sealos_objectstorage`: Keep `true` for Sealos-managed S3-compatible storage.
-3. Wait for deployment to complete, typically 2-3 minutes. After deployment, Sealos redirects you to the Canvas.
+   - `init_password`: Enter a required password that unlocks the initial setup page.
+   - `enable_s3_storage`: Keep `false` for persistent local storage, or set `true` for a private Sealos S3-compatible bucket.
+3. Wait for deployment to complete. The databases, migrations, API workers, and web console can take several minutes on first start.
 4. Open the Dify App entry or the public URL shown by Sealos.
-5. On the first setup screen, create the initial administrator account. Use any valid administrator email and the `init_password` value entered during deployment.
-6. Log in with the administrator email and password.
+5. Enter `init_password` on the **Administrator initialization password** screen and click **Verify**.
+6. On the next screen, enter the administrator email, display name, and account password, then click **Set up**. The account password can be different from `init_password`.
+7. Sign in later with the administrator email and the account password created in step 6.
 
 ## First Login Checks
 
 After login, verify two core interactions:
 
-1. Open **Studio** and create a Chatflow or Chatbot app.
-2. Open **Knowledge** and create a knowledge base to confirm the API, worker, Redis queue, Weaviate, and storage path are connected.
+1. Open **Studio**, create a Workflow or Chatflow app, and open its editor.
+2. Open **Knowledge** and upload a small text file to confirm the API, worker, Redis queue, Weaviate, and selected storage path are connected.
 
 Model providers are configured inside Dify after login. Add your provider API key in Dify settings before running model-backed chats or workflows.
 
@@ -103,7 +105,19 @@ To scale Dify:
 3. Adjust CPU, memory, storage, or replica settings.
 4. Apply the changes in the dialog and wait for the rollout to finish.
 
-The template assigns the `1G` memory tier to the API, worker, and beat containers. Live startup validation showed the beat process can exceed `256Mi` during scheduler boot. The Web container uses TCP probes so the first-init redirect and login flow complete in the browser.
+The validated application resource profile is:
+
+| Component | CPU limit | Memory limit | Observed memory peak |
+| --- | ---: | ---: | ---: |
+| API | `500m` | `1Gi` | `756Mi` with two Gunicorn workers |
+| Worker | `500m` | `1Gi` | `400Mi` |
+| Worker Beat | `500m` | `1Gi` | `390Mi` |
+| Web | `200m` | `1Gi` | `388Mi` |
+| Weaviate | `500m` | `512Mi` | `79Mi` |
+| Sandbox | `200m` | `512Mi` | `46Mi` |
+| Plugin Daemon | `200m` | `512Mi` | `15Mi` |
+
+The API runs two Gunicorn workers so console traffic and health checks remain responsive during plugin and workflow requests. Its probes use the same container-local `/health` check as the official Dify Compose deployment.
 
 For larger workloads, scale the API and worker containers first, then increase PostgreSQL, Redis, and Weaviate resources based on observed bottlenecks.
 
@@ -117,7 +131,7 @@ For larger workloads, scale the API and worker containers first, then increase P
 ### Knowledge base indexing stalls
 
 - Cause: Worker, Redis, Weaviate, or object storage connectivity is delayed.
-- Solution: Check worker logs, Redis status, and Weaviate readiness. Confirm `use_sealos_objectstorage` stayed enabled for persistent uploads.
+- Solution: Check worker logs, Redis status, and Weaviate readiness. Confirm the deployed `enable_s3_storage` mode matches the intended storage backend.
 
 ### Plugin installation fails
 

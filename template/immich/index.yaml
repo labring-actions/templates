@@ -220,11 +220,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: '1'
-          memory: 1024Mi
+          cpu: 500m
+          memory: 2048Mi
         requests:
-          cpu: 100m
-          memory: 102Mi
+          cpu: 50m
+          memory: 204Mi
       serviceAccountName: ${{ defaults.app_name }}-pg
       switchPolicy:
         type: Noop
@@ -235,7 +235,7 @@ spec:
               - ReadWriteOnce
             resources:
               requests:
-                storage: 2Gi
+                storage: 1Gi
 
   terminationPolicy: Delete
 
@@ -308,7 +308,7 @@ spec:
               memory: 128Mi
       restartPolicy: OnFailure
   backoffLimit: 3
-  ttlSecondsAfterFinished: 300
+  ttlSecondsAfterFinished: 30
 
 ---
 apiVersion: apps/v1
@@ -316,7 +316,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: ghcr.io/immich-app/immich-server:v2.7.5
+    originImageName: ghcr.io/immich-app/immich-server:v3.0.3
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '3'
   labels:
@@ -370,12 +370,14 @@ spec:
             - |
               set -eu
               for i in $(seq 1 120); do
-                if psql -h "${PGHOST}" -p "${PGPORT}" -U "${PGUSER}" -d "${PGDATABASE}" -tAc 'SELECT 1' >/dev/null 2>&1; then
+                if psql -h "${PGHOST}" -p "${PGPORT}" -U "${PGUSER}" -d "${PGDATABASE}" -tAc 'SELECT 1' >/dev/null 2>&1 \
+                  && psql -h "${PGHOST}" -p "${PGPORT}" -U "${PGUSER}" -d "${PGDATABASE}" -tAc "SELECT count(*) FROM pg_extension WHERE extname IN ('uuid-ossp', 'unaccent', 'cube', 'earthdistance', 'pg_trgm', 'vector')" 2>/dev/null | grep -qx '6'; then
                   exit 0
                 fi
                 sleep 2
               done
               psql -h "${PGHOST}" -p "${PGPORT}" -U "${PGUSER}" -d "${PGDATABASE}" -tAc 'SELECT 1' >/dev/null
+              psql -h "${PGHOST}" -p "${PGPORT}" -U "${PGUSER}" -d "${PGDATABASE}" -tAc "SELECT count(*) FROM pg_extension WHERE extname IN ('uuid-ossp', 'unaccent', 'cube', 'earthdistance', 'pg_trgm', 'vector')" | grep -qx '6'
           resources:
             requests:
               cpu: 10m
@@ -385,7 +387,7 @@ spec:
               memory: 128Mi
       containers:
         - name: ${{ defaults.app_name }}
-          image: ghcr.io/immich-app/immich-server:v2.7.5
+          image: ghcr.io/immich-app/immich-server:v3.0.3
           imagePullPolicy: IfNotPresent
           env:
             # Redis Configuration
@@ -423,8 +425,6 @@ spec:
               value: immich
             - name: DB_VECTOR_EXTENSION
               value: pgvector
-            - name: IMMICH_MEDIA_LOCATION
-              value: /usr/src/app/upload
             # Machine Learning Configuration
             ${{ if(inputs.enable_machine_learning === 'true') }}
             - name: IMMICH_MACHINE_LEARNING_URL
@@ -434,15 +434,15 @@ spec:
             - containerPort: 2283
               name: http
           volumeMounts:
-            - name: vn-usrvn-srcvn-appvn-upload
-              mountPath: /usr/src/app/upload
+            - name: vn-data
+              mountPath: /data
           resources:
             requests:
               cpu: 50m
-              memory: 102Mi
+              memory: 204Mi
             limits:
               cpu: 500m
-              memory: 1Gi
+              memory: 2048Mi
           livenessProbe:
             failureThreshold: 3
             httpGet:
@@ -470,9 +470,9 @@ spec:
   volumeClaimTemplates:
     - metadata:
         annotations:
-          path: /usr/src/app/upload
+          path: /data
           value: '1'
-        name: vn-usrvn-srcvn-appvn-upload
+        name: vn-data
       spec:
         accessModes:
           - ReadWriteOnce
@@ -503,7 +503,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}-ml
   annotations:
-    originImageName: ghcr.io/immich-app/immich-machine-learning:v2.7.5
+    originImageName: ghcr.io/immich-app/immich-machine-learning:v3.0.3
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '2'
   labels:
@@ -526,7 +526,7 @@ spec:
         - name: ${{ defaults.app_name }}
       containers:
         - name: ${{ defaults.app_name }}-ml
-          image: ghcr.io/immich-app/immich-machine-learning:v2.7.5
+          image: ghcr.io/immich-app/immich-machine-learning:v3.0.3
           imagePullPolicy: IfNotPresent
           env:
             - name: NODE_ENV
@@ -550,10 +550,10 @@ spec:
           resources:
             requests:
               cpu: 50m
-              memory: 51Mi
+              memory: 409Mi
             limits:
               cpu: 500m
-              memory: 512Mi
+              memory: 4096Mi
           livenessProbe:
             failureThreshold: 3
             httpGet:
@@ -561,7 +561,7 @@ spec:
               port: http
             initialDelaySeconds: 0
             periodSeconds: 10
-            timeoutSeconds: 1
+            timeoutSeconds: 5
           readinessProbe:
             failureThreshold: 3
             httpGet:
@@ -569,7 +569,7 @@ spec:
               port: http
             initialDelaySeconds: 0
             periodSeconds: 10
-            timeoutSeconds: 1
+            timeoutSeconds: 5
           startupProbe:
             failureThreshold: 60
             httpGet:

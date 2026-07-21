@@ -1,6 +1,6 @@
 # 在 Sealos 上部署和托管 Dify
 
-Dify 是一个开源的大模型应用开发平台，可用于构建 AI Agent、工作流、聊天机器人和 RAG 应用。此模板会在 Sealos Cloud 上部署包含 PostgreSQL、Redis、Weaviate、对象存储、沙箱执行和插件守护进程的 Dify。
+Dify 是一个开源的大模型应用开发平台，可用于构建 AI Agent、工作流、聊天机器人和 RAG 应用。此模板会在 Sealos Cloud 上部署 Dify 1.15.0，包含 PostgreSQL、Redis、Weaviate、沙箱执行、插件守护进程，以及可选的私有 Sealos 对象存储桶。
 
 ![Dify 截图](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/dify/website-screenshot.webp)
 
@@ -42,14 +42,15 @@ Dify 以多服务 AI 应用平台运行。Web 服务提供控制台和公开应�
 - **PostgreSQL**：存储 Dify 应用元数据和独立插件数据库。
 - **Redis**：为 API、Worker 和 Plugin Daemon 提供队列与缓存。
 - **Weaviate**：作为默认向量数据库，用于知识库索引。
-- **对象存储**：启用 `use_sealos_objectstorage` 后，用于保存上传文件和插件包。
+- **存储**：默认使用持久化本地卷。将 `enable_s3_storage` 设置为 `true` 后，上传文件和插件包会使用私有 Sealos 对象存储桶。
 
 **配置：**
 
-- `init_password` 设置首次安装页面使用的管理员初始密码。
-- `use_sealos_objectstorage` 创建 Sealos ObjectStorage Bucket，并注入 S3 兼容凭据。
+- `init_password` 为必填项，用于解锁 Dify 首次设置页面。
+- `enable_s3_storage` 默认为 `false`。设置为 `true` 后，模板会创建私有 Sealos Object Storage Bucket，并注入 S3 兼容凭据。
 - Dify 控制台、API、应用和服务端点统一配置为 `https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}`。
 - PostgreSQL 和 Redis 凭据来自 Sealos 管理的 KubeBlocks Secret。
+- API、Redis、Weaviate、Sandbox 和 Plugin Daemon 的内部通信使用带命名空间的集群域名。
 
 **许可证信息：**
 
@@ -69,19 +70,20 @@ Sealos 是基于 Kubernetes 的 AI 云操作系统，统一管理应用部署、
 
 1. 打开 [Dify 模板](https://sealos.io/products/app-store/dify)，点击 **立即部署**。
 2. 配置部署参数：
-   - `init_password`：填写首次 Dify 管理员密码。
-   - `use_sealos_objectstorage`：保持 `true`，使用 Sealos 管理的 S3 兼容对象存储。
-3. 等待部署完成，通常需要 2-3 分钟。部署完成后，Sealos 会跳转到 Canvas。
+   - `init_password`：填写用于解锁首次设置页面的必填密码。
+   - `enable_s3_storage`：保持 `false` 使用持久化本地存储；设置为 `true` 使用私有 Sealos S3 兼容存储桶。
+3. 等待部署完成。数据库、迁移、API Worker 和 Web 控制台首次启动通常需要数分钟。
 4. 打开 Dify 应用入口，或打开 Sealos 展示的公网 URL。
-5. 在首次设置页面创建初始管理员账号。邮箱可填写任意有效管理员邮箱，密码使用部署时填写的 `init_password`。
-6. 使用管理员邮箱和密码登录 Dify。
+5. 在**管理员初始化密码**页面输入 `init_password`，点击**验证**。
+6. 在下一页填写管理员邮箱、显示名称和账号密码，然后点击**设置**。账号密码可以和 `init_password` 使用不同的值。
+7. 后续使用管理员邮箱和第 6 步创建的账号密码登录 Dify。
 
 ## 首次登录检查
 
 登录后，执行两个核心交互：
 
-1. 打开 **Studio**，创建一个 Chatflow 或 Chatbot 应用。
-2. 打开 **Knowledge**，创建一个知识库，用于确认 API、Worker、Redis 队列、Weaviate 和存储路径已连通。
+1. 打开 **Studio**，创建一个 Workflow 或 Chatflow 应用，并进入编辑器。
+2. 打开 **Knowledge**，上传一个小型文本文件，用于确认 API、Worker、Redis 队列、Weaviate 和所选存储路径已连通。
 
 模型供应商需要在 Dify 控制台内配置。运行基于模型的聊天或工作流前，请先在设置中添加模型供应商 API Key。
 
@@ -103,7 +105,19 @@ Sealos 是基于 Kubernetes 的 AI 云操作系统，统一管理应用部署、
 3. 调整 CPU、内存、存储或副本数。
 4. 在对话框中应用变更，并等待滚动更新完成。
 
-模板为 API、Worker 和 Beat 容器使用 `1G` 内存档位；现场启动验证中，Beat 初始化会超过 `256Mi`。Web 使用 TCP 探针，让首次初始化重定向和登录流程在页面内完成。
+应用组件使用以下实测资源档位：
+
+| 组件 | CPU 上限 | 内存上限 | 实测内存峰值 |
+| --- | ---: | ---: | ---: |
+| API | `500m` | `1Gi` | 双 Gunicorn Worker 下 `756Mi` |
+| Worker | `500m` | `1Gi` | `400Mi` |
+| Worker Beat | `500m` | `1Gi` | `390Mi` |
+| Web | `200m` | `1Gi` | `388Mi` |
+| Weaviate | `500m` | `512Mi` | `79Mi` |
+| Sandbox | `200m` | `512Mi` | `46Mi` |
+| Plugin Daemon | `200m` | `512Mi` | `15Mi` |
+
+API 使用两个 Gunicorn Worker，让控制台流量、插件请求和健康检查可以并行处理。健康检查采用 Dify 官方 Compose 同款的容器内 `/health` 请求。
 
 更大负载下，优先扩展 API 和 Worker 容器，再根据瓶颈提升 PostgreSQL、Redis 和 Weaviate 资源。
 
@@ -117,7 +131,7 @@ Sealos 是基于 Kubernetes 的 AI 云操作系统，统一管理应用部署、
 ### 知识库索引卡住
 
 - 原因：Worker、Redis、Weaviate 或对象存储连接存在延迟。
-- 解决方法：查看 Worker 日志、Redis 状态和 Weaviate 就绪状态，并确认 `use_sealos_objectstorage` 保持启用。
+- 解决方法：查看 Worker 日志、Redis 状态和 Weaviate 就绪状态，并确认部署时的 `enable_s3_storage` 模式符合预期存储后端。
 
 ### 插件安装失败
 

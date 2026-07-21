@@ -1,134 +1,102 @@
-# 在 Sealos 上部署和托管 Immich
+# 在 Sealos 上部署 Immich
 
-Immich 是一款自托管照片和视频管理平台，可用于备份、整理、搜索和分享个人媒体。此模板会在 Sealos Cloud 上部署 Immich，并包含 PostgreSQL、Redis、持久化媒体存储和可选机器学习服务。
+[Immich](https://immich.app/) 是一款自托管照片和视频管理平台，提供移动端备份、相册、共享、地图、人脸识别和语义搜索。此模板会部署 Immich v3.0.3、PostgreSQL、Redis、持久化媒体存储、HTTPS 入口和可选机器学习服务。
 
 ![Immich 截图](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/immich/website-screenshot.webp)
 
-## 关于 Immich 托管
+## 关于 Immich
 
-Immich 提供浏览器界面、移动端同步接口、后台媒体处理和智能图库功能。Sealos 模板会自动创建应用服务、带 pgvector 的 PostgreSQL 16.4、Redis 7.2.7、持久化上传存储，以及可选的机器学习服务。
+Immich 让应用和媒体库由你掌控。Web 界面和官方移动端 App 共用一个 HTTPS 入口，PostgreSQL 保存元数据，Redis 负责协调后台任务。
 
-应用服务会将照片和视频保存在挂载到 `/usr/src/app/upload` 的持久化卷中。PostgreSQL 保存元数据、用户、相册、任务和向量索引；Redis 负责后台任务队列和缓存。启用机器学习后，独立的 Immich ML 服务会提供人脸识别、目标检测和智能搜索能力。
+此模板遵循上游容器拓扑：
 
-## 常见使用场景
+- **Immich Server v3.0.3** 提供 Web 界面和 API，并运行媒体处理任务。
+- **Immich Machine Learning v3.0.3** 为可选组件，提供智能搜索、OCR、目标检测和人脸识别。
+- **PostgreSQL 16.4** 保存用户、媒体、相册、任务和向量索引。
+- **Redis 7.2.7 与 Sentinel** 协调任务队列和缓存数据。
+- **持久化卷** 保存 `/data` 中的媒体文件、机器学习模型缓存和数据库数据。
 
-- **个人照片备份**：将手机照片和视频同步到自己的私有服务。
-- **家庭媒体库**：集中管理共享相册、人物、地点和时间线。
-- **私有智能搜索**：使用本地机器学习能力进行人脸识别和语义搜索。
-- **自托管 Google Photos 替代方案**：将媒体文件和元数据保留在自己的 Sealos 部署中。
+Immich 社区版使用文件系统保存媒体。备份时需要同时保护 `/data` 卷和 PostgreSQL。
 
-## Immich 托管依赖
+## 在 Sealos 上部署 Immich 的优势
 
-此 Sealos 模板包含单节点 Immich 部署所需的运行依赖：
-
-- **Immich Server v2.7.5**：Web 界面、API、后台处理和移动端同步入口。
-- **Immich Machine Learning v2.7.5**：可选机器学习服务，用于人脸识别和智能搜索。
-- **PostgreSQL 16.4**：由 KubeBlocks 管理，并启用 pgvector 扩展。
-- **Redis 7.2.7**：由 KubeBlocks 管理，用于任务队列和缓存协调。
-- **持久化卷**：媒体上传、机器学习缓存、PostgreSQL 数据和 Redis 数据都会持久化保存。
-
-### 部署依赖
-
-- [Immich 文档](https://immich.app/docs/) - 官方文档
-- [Immich 安装后配置指南](https://immich.app/docs/install/post-install/) - 首个用户和管理员设置
-- [Immich GitHub 仓库](https://github.com/immich-app/immich) - 源码和发布记录
-
-### 实现细节
-
-**架构组件：**
-
-此模板会部署以下服务：
-
-- **Immich Server**：StatefulSet，监听 `2283` 端口，提供 Web 界面和 API。
-- **Immich Machine Learning**：可选 StatefulSet，监听 `3003` 端口，处理机器学习请求。
-- **PostgreSQL**：KubeBlocks PostgreSQL 16.4 集群，包含 `immich` 数据库和向量扩展。
-- **Redis**：KubeBlocks Redis 7.2.7 集群，用于 Immich 任务队列和缓存。
-- **Ingress 和 App 入口**：由 Sealos 管理的 HTTPS 访问地址。
-
-**配置说明：**
-
-- `enable_machine_learning` 控制是否部署 Immich ML 服务。
-- 启用机器学习时，服务端通过 `IMMICH_MACHINE_LEARNING_URL` 访问 ML 服务。
-- PostgreSQL 初始化任务会幂等创建 `immich` 数据库和所需扩展。
-- 上传的媒体文件保存在 `/usr/src/app/upload`；备份时请同时备份此卷和 PostgreSQL。
-
-**许可证信息：**
-
-Immich 使用 GNU Affero General Public License v3.0 发布。此 Sealos 模板遵循模板仓库的许可证。
-
-## 为什么在 Sealos 上部署 Immich？
-
-Sealos 是基于 Kubernetes 的 AI 辅助云操作系统，统一管理部署、网络、存储和应用生命周期。在 Sealos 上部署 Immich 可以获得：
-
-- **一键部署**：通过一个模板部署 Immich、PostgreSQL、Redis、存储和 HTTPS 入口。
-- **内置持久化存储**：媒体上传、模型缓存、数据库和 Redis 数据可在重启后保留。
-- **Kubernetes 底座**：无需手写 Kubernetes YAML，也能运行在托管 Kubernetes 上。
-- **易于调整配置**：可通过 Canvas 资源卡片或 AI 对话调整资源、存储、环境变量和扩缩容设置。
-- **即时公网访问**：部署完成后获得 Sealos 管理的 HTTPS 地址。
-- **按量使用资源**：从测试过的资源配置开始，随着媒体库增长逐步扩容。
+- 通过一个模板创建完整应用、数据库、缓存、存储和 HTTPS 入口。
+- 上传文件、模型和数据库数据可在重启后持续保留。
+- 通过一个部署参数控制机器学习服务。
+- 后续可在 Sealos 资源视图中调整计算和存储规格。
 
 ## 部署指南
 
 1. 打开 [Immich 模板](https://sealos.io/products/app-store/immich)，点击 **Deploy Now**。
-2. 在弹窗中配置参数：
-   - `enable_machine_learning`：保留 `true` 可启用人脸识别和智能搜索；设为 `false` 可获得更轻量的部署。
-3. 等待部署完成。由于 PostgreSQL、Redis 和应用服务需要依次初始化，完整启动通常需要数分钟。
-4. 通过生成的地址访问应用：
-   - **Immich Web 界面**：打开 Sealos 生成的 URL，例如 `https://<your-app-host>.<your-sealos-domain>`。
-5. 如需后续调整，请打开部署 Canvas，在 AI 对话中描述需求，或点击对应资源卡片修改资源、存储或环境变量。
+2. 选择 `enable_machine_learning`：
+   - `true` 会启用智能搜索、OCR、人脸识别和目标检测。
+   - `false` 会部署资源占用更低的核心照片和视频管理服务。
+3. 开始部署，等待 PostgreSQL、Redis、Immich Server 和可选 ML 服务完成初始化。首次启动通常需要数分钟。
+4. 从 Sealos 应用入口打开生成的 Immich HTTPS 地址。
 
-## 首次登录和注册
+## 首次注册和登录
 
-Immich 不提供默认用户名或密码。全新部署后，打开 Web 界面并完成 **Getting Started** 流程；第一个注册的用户会成为管理员。
+全新 Immich 部署会显示管理员注册页面。
 
-管理员账号创建后，使用该邮箱和密码登录。后续可根据访问策略，在 Immich 管理设置中邀请或创建其他用户。
+1. 点击 **Get Started**。
+2. 填写管理员邮箱、密码、确认密码和显示名称。
+3. 点击 **Sign Up**。首个注册账号会成为管理员。
+4. 使用同一邮箱和密码登录。
+5. 完成新手设置，然后进入 **Photos** 或 **Albums** 开始使用媒体库。
+
+Immich 会由你创建初始凭据。请使用密码管理器保存管理员账号。管理员可在 **Administration > Users** 中创建更多用户。
+
+## 移动端 App 设置
+
+安装官方 Immich 移动端 App，将 Sealos 生成的 HTTPS 地址填入服务器地址。使用 Immich 账号登录，然后在 App 中配置移动端备份目录。
+
+## 资源与存储基线
+
+模板使用已经完成全新部署、上传、缩略图、下载、相册和机器学习工作流验证的最小资源档位：
+
+| 组件 | CPU 上限 | 内存上限 | 初始存储 |
+| --- | ---: | ---: | ---: |
+| Immich Server | 500m | 2 GiB | 1 GiB 媒体卷 |
+| PostgreSQL | 500m | 2 GiB | 1 GiB 数据卷 |
+| Redis | 500m | 512 MiB | 1 GiB 数据卷 |
+| Redis Sentinel | 500m | 512 MiB | 1 GiB 数据卷 |
+| Machine Learning | 500m | 4 GiB | 1 GiB 模型缓存 |
+
+Server 和 PostgreSQL 的 2 GiB 内存上限覆盖首次启动、数据库迁移和媒体工作流峰值。ML 的 4 GiB 内存上限为 OCR、人脸识别和视觉搜索模型同时加载保留运行余量。导入大型媒体库前请扩充存储，大视频和并发机器学习任务也需要更多内存。
 
 ## 配置
 
-部署完成后，可以通过以下方式配置 Immich：
+- 在 Immich 的 **Administration** 中管理用户、任务、图库、存储模板和服务设置。
+- 在 Sealos 资源视图中调整 Immich、PostgreSQL、Redis 和 ML 工作负载规格。
+- 调整工作负载时保持媒体目录挂载到 `/data`。
+- 保持应用通过 Sealos Secret 使用自动生成的数据库和 Redis 凭据。
+- 默认 Ingress 接受最大 32 MiB 的上传。上传更大的媒体文件前，请提高已部署 Ingress 的 `nginx.ingress.kubernetes.io/proxy-body-size`。
 
-- **Immich 管理界面**：管理用户、图库、任务、存储模板设置和服务偏好。
-- **Sealos AI 对话**：描述需要的变更，例如增加资源或更新环境变量。
-- **Sealos 资源卡片**：调整 StatefulSet 资源、存储容量、Ingress 设置或数据库资源。
-- **移动端 App**：在官方 Immich 移动端中，将 Sealos 生成的 URL 填为服务器地址。
+## 备份与升级
 
-## 扩缩容
-
-建议先使用模板默认配置，再根据媒体库规模和功能使用情况扩容：
-
-1. 打开 Immich 部署对应的 Canvas。
-2. 点击 Immich Server、ML 服务、PostgreSQL 或 Redis 资源卡片。
-3. 按需增加 CPU、内存、存储或副本配置。
-4. 应用变更并等待资源滚动更新完成。
-
-大型媒体库和高强度机器学习任务会需要更多内存和存储。进行大版本升级或存储变更前，请先备份 PostgreSQL 和上传卷。
+请协调备份 Immich `/data` 卷和 PostgreSQL 数据库。ML 缓存和 Redis 数据可以重新生成，媒体文件和 PostgreSQL 元数据共同组成需要长期保护的媒体库。升级前请阅读 [Immich 备份与恢复指南](https://immich.app/docs/administration/backup-and-restore/)。
 
 ## 故障排查
 
-### Web 页面刚部署后暂时不可用
+### 页面仍在启动
 
-Immich 依赖 PostgreSQL 和 Redis。若部署后页面暂时无法打开，请等待 PostgreSQL、Redis 和 Immich Server Pod 都进入就绪状态后再刷新生成的 URL。
+等待 PostgreSQL、Redis 和 Immich Pod 进入就绪状态。全新数据库初始化和首次模型下载通常需要数分钟。
 
-### 首次登录时要求创建账号
+### 智能搜索或人脸识别无法使用
 
-这是全新 Immich 部署的正常行为。请在 Getting Started 流程中注册第一个账号，该账号会成为管理员。
+确认 `enable_machine_learning` 设置为 `true`，并检查 ML Pod 已经就绪。首次请求会将模型下载到持久化缓存。
 
-### 上传或机器学习任务较慢
+### 大文件上传失败
 
-请在 Sealos Canvas 中增加 Immich Server 或 ML 服务的 CPU 和内存。大视频上传、缩略图生成、人脸识别和智能搜索索引都会消耗较多资源。
+提高已部署 Ingress 的 `nginx.ingress.kubernetes.io/proxy-body-size`，检查 `/data` 卷的可用空间，并为大视频或并发上传提高 Immich Server 资源。
 
-### 获取帮助
+## 相关资源
 
 - [Immich 文档](https://immich.app/docs/)
-- [Immich GitHub Issues](https://github.com/immich-app/immich/issues)
-- [Sealos Discord](https://discord.gg/wdUn538zVP)
-
-## 更多资源
-
-- [Immich 移动端文档](https://immich.app/docs/features/mobile-app/)
-- [Immich 备份与恢复指南](https://immich.app/docs/administration/backup-and-restore/)
-- [Immich 发布记录](https://github.com/immich-app/immich/releases)
+- [安装后配置指南](https://immich.app/docs/install/post-install/)
+- [移动端 App 指南](https://immich.app/docs/features/mobile-app/)
+- [Immich GitHub 仓库](https://github.com/immich-app/immich)
 
 ## 许可证
 
-此 Sealos 模板遵循模板仓库许可证。Immich 本身使用 GNU Affero General Public License v3.0。
+Immich 使用 GNU Affero General Public License v3.0。此 Sealos 模板遵循模板仓库许可证。

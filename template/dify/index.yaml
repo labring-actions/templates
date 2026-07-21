@@ -46,15 +46,14 @@ spec:
     init_password:
       description: Initial administrator password for the first Dify setup screen.
       type: string
-      default: ''
       required: true
-    use_sealos_objectstorage:
-      description: Use the Sealos ObjectStorage bucket for Dify uploaded files and plugin packages.
+    enable_s3_storage:
+      description: Enable Sealos Object Storage for Dify uploaded files and plugin packages.
       type: boolean
-      default: 'true'
+      default: 'false'
       required: false
 ---
-${{ if(inputs.use_sealos_objectstorage === 'true') }}
+${{ if(inputs.enable_s3_storage === 'true') }}
 apiVersion: objectstorage.sealos.io/v1
 kind: ObjectStorageBucket
 metadata:
@@ -395,10 +394,10 @@ spec:
         resources:
           requests:
             cpu: 50m
-            memory: 102Mi
+            memory: 51Mi
           limits:
             cpu: 500m
-            memory: 1024Mi
+            memory: 512Mi
         imagePullPolicy: IfNotPresent
         volumeMounts:
         - name: vn-varvn-libvn-weaviate
@@ -536,6 +535,8 @@ spec:
         env:
         - name: MODE
           value: api
+        - name: SERVER_WORKER_AMOUNT
+          value: '2'
         - name: LOG_LEVEL
           value: INFO
         - name: SECRET_KEY
@@ -577,7 +578,7 @@ spec:
         - name: DB_DATABASE
           value: dify
         - name: REDIS_HOST
-          value: ${{ defaults.app_name }}-redis-redis-redis
+          value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
         - name: REDIS_PORT
           value: '6379'
         - name: REDIS_USERNAME
@@ -595,40 +596,50 @@ spec:
         - name: REDIS_DB
           value: '0'
         - name: CELERY_BROKER_URL
-          value: redis://$(REDIS_USERNAME):$(REDIS_PASSWORD)@$(REDIS_HOST).${{ SEALOS_NAMESPACE }}.svc:$(REDIS_PORT)/1
+          value: redis://$(REDIS_USERNAME):$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)/1
         - name: WEB_API_CORS_ALLOW_ORIGINS
           value: '*'
         - name: CONSOLE_CORS_ALLOW_ORIGINS
           value: '*'
-        ${{ if(inputs.use_sealos_objectstorage === 'true') }}
+        ${{ if(inputs.enable_s3_storage === 'true') }}
         - name: STORAGE_TYPE
           value: s3
-        - name: S3_ENDPOINT_HOST
+        - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
           valueFrom:
             secretKeyRef:
               name: object-storage-key
               key: external
         - name: S3_ENDPOINT
-          value: https://$(S3_ENDPOINT_HOST)
+          value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
         - name: S3_REGION
           value: us-east-1
-        - name: S3_BUCKET_NAME
+        - name: S3_BUCKET
           valueFrom:
             secretKeyRef:
               name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
               key: bucket
-        - name: S3_ACCESS_KEY
+        - name: S3_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
               name: object-storage-key
               key: accessKey
-        - name: S3_SECRET_KEY
+        - name: S3_SECRET_ACCESS_KEY
           valueFrom:
             secretKeyRef:
               name: object-storage-key
               key: secretKey
+        - name: S3_BUCKET_NAME
+          value: $(S3_BUCKET)
+        - name: S3_ACCESS_KEY
+          value: $(S3_ACCESS_KEY_ID)
+        - name: S3_SECRET_KEY
+          value: $(S3_SECRET_ACCESS_KEY)
         - name: S3_USE_AWS_MANAGED_IAM
           value: 'false'
+        - name: S3_USE_AWS
+          value: 'false'
+        - name: S3_USE_PATH_STYLE
+          value: 'true'
         ${{ else() }}
         - name: STORAGE_TYPE
           value: opendal
@@ -642,7 +653,7 @@ spec:
         - name: VECTOR_STORE
           value: weaviate
         - name: WEAVIATE_HOST
-          value: ${{ defaults.app_name }}-weaviate
+          value: ${{ defaults.app_name }}-weaviate.${{ SEALOS_NAMESPACE }}.svc.cluster.local
         - name: WEAVIATE_PORT
           value: '8080'
         - name: WEAVIATE_ENDPOINT
@@ -652,7 +663,7 @@ spec:
         - name: WEAVIATE_GRPC_ENDPOINT
           value: grpc://$(WEAVIATE_HOST):50051
         - name: CODE_EXECUTION_ENDPOINT
-          value: http://${{ defaults.app_name }}-sandbox.${{ SEALOS_NAMESPACE }}.svc:8194
+          value: http://${{ defaults.app_name }}-sandbox.${{ SEALOS_NAMESPACE }}.svc.cluster.local:8194
         - name: CODE_MAX_NUMBER
           value: '9223372036854775807'
         - name: CODE_MIN_NUMBER
@@ -670,11 +681,11 @@ spec:
         - name: APP_WEB_URL
           value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
         - name: PLUGIN_DAEMON_URL
-          value: http://${{ defaults.app_name }}-plugin-daemon:5002
+          value: http://${{ defaults.app_name }}-plugin-daemon.${{ SEALOS_NAMESPACE }}.svc.cluster.local:5002
         - name: PLUGIN_DAEMON_KEY
           value: ${{ defaults.plugin_daemon_key }}
         - name: PLUGIN_REMOTE_INSTALL_HOST
-          value: ${{ defaults.app_name }}-plugin-daemon
+          value: ${{ defaults.app_name }}-plugin-daemon.${{ SEALOS_NAMESPACE }}.svc.cluster.local
         - name: PLUGIN_REMOTE_INSTALL_PORT
           value: '5003'
         - name: PLUGIN_MAX_PACKAGE_SIZE
@@ -688,11 +699,11 @@ spec:
         resources:
           requests:
             cpu: 50m
-            memory: 204Mi
+            memory: 102Mi
             ephemeral-storage: 200Mi
           limits:
             cpu: 500m
-            memory: 2048Mi
+            memory: 1024Mi
             ephemeral-storage: 200Mi
         ports:
         - containerPort: 5001
@@ -701,23 +712,32 @@ spec:
         - name: vn-appvn-apivn-storage
           mountPath: /app/api/storage
         startupProbe:
-          httpGet:
-            path: /health
-            port: 5001
+          exec:
+            command:
+            - curl
+            - -fsS
+            - http://127.0.0.1:5001/health
           failureThreshold: 30
           periodSeconds: 10
+          timeoutSeconds: 5
         livenessProbe:
-          httpGet:
-            path: /health
-            port: 5001
+          exec:
+            command:
+            - curl
+            - -fsS
+            - http://127.0.0.1:5001/health
           periodSeconds: 30
           timeoutSeconds: 5
+          failureThreshold: 3
         readinessProbe:
-          httpGet:
-            path: /health
-            port: 5001
+          exec:
+            command:
+            - curl
+            - -fsS
+            - http://127.0.0.1:5001/health
           periodSeconds: 10
           timeoutSeconds: 5
+          failureThreshold: 3
       - name: ${{ defaults.app_name }}-worker
         image: langgenius/dify-api:1.15.0
         env:
@@ -750,7 +770,7 @@ spec:
         - name: DB_DATABASE
           value: dify
         - name: REDIS_HOST
-          value: ${{ defaults.app_name }}-redis-redis-redis
+          value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
         - name: REDIS_PORT
           value: '6379'
         - name: REDIS_USERNAME
@@ -768,40 +788,50 @@ spec:
         - name: REDIS_DB
           value: '0'
         - name: CELERY_BROKER_URL
-          value: redis://$(REDIS_USERNAME):$(REDIS_PASSWORD)@$(REDIS_HOST).${{ SEALOS_NAMESPACE }}.svc:$(REDIS_PORT)/1
+          value: redis://$(REDIS_USERNAME):$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)/1
         - name: WEB_API_CORS_ALLOW_ORIGINS
           value: '*'
         - name: CONSOLE_CORS_ALLOW_ORIGINS
           value: '*'
-        ${{ if(inputs.use_sealos_objectstorage === 'true') }}
+        ${{ if(inputs.enable_s3_storage === 'true') }}
         - name: STORAGE_TYPE
           value: s3
-        - name: S3_ENDPOINT_HOST
+        - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
           valueFrom:
             secretKeyRef:
               name: object-storage-key
               key: external
         - name: S3_ENDPOINT
-          value: https://$(S3_ENDPOINT_HOST)
+          value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
         - name: S3_REGION
           value: us-east-1
-        - name: S3_BUCKET_NAME
+        - name: S3_BUCKET
           valueFrom:
             secretKeyRef:
               name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
               key: bucket
-        - name: S3_ACCESS_KEY
+        - name: S3_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
               name: object-storage-key
               key: accessKey
-        - name: S3_SECRET_KEY
+        - name: S3_SECRET_ACCESS_KEY
           valueFrom:
             secretKeyRef:
               name: object-storage-key
               key: secretKey
+        - name: S3_BUCKET_NAME
+          value: $(S3_BUCKET)
+        - name: S3_ACCESS_KEY
+          value: $(S3_ACCESS_KEY_ID)
+        - name: S3_SECRET_KEY
+          value: $(S3_SECRET_ACCESS_KEY)
         - name: S3_USE_AWS_MANAGED_IAM
           value: 'false'
+        - name: S3_USE_AWS
+          value: 'false'
+        - name: S3_USE_PATH_STYLE
+          value: 'true'
         ${{ else() }}
         - name: STORAGE_TYPE
           value: opendal
@@ -815,7 +845,7 @@ spec:
         - name: VECTOR_STORE
           value: weaviate
         - name: WEAVIATE_HOST
-          value: ${{ defaults.app_name }}-weaviate
+          value: ${{ defaults.app_name }}-weaviate.${{ SEALOS_NAMESPACE }}.svc.cluster.local
         - name: WEAVIATE_PORT
           value: '8080'
         - name: WEAVIATE_ENDPOINT
@@ -833,11 +863,11 @@ spec:
         - name: SERVICE_API_URL
           value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
         - name: PLUGIN_DAEMON_URL
-          value: http://${{ defaults.app_name }}-plugin-daemon:5002
+          value: http://${{ defaults.app_name }}-plugin-daemon.${{ SEALOS_NAMESPACE }}.svc.cluster.local:5002
         - name: PLUGIN_DAEMON_KEY
           value: ${{ defaults.plugin_daemon_key }}
         - name: PLUGIN_REMOTE_INSTALL_HOST
-          value: ${{ defaults.app_name }}-plugin-daemon
+          value: ${{ defaults.app_name }}-plugin-daemon.${{ SEALOS_NAMESPACE }}.svc.cluster.local
         - name: PLUGIN_REMOTE_INSTALL_PORT
           value: '5003'
         - name: PLUGIN_MAX_PACKAGE_SIZE
@@ -851,11 +881,11 @@ spec:
         resources:
           requests:
             cpu: 50m
-            memory: 204Mi
+            memory: 102Mi
             ephemeral-storage: 200Mi
           limits:
             cpu: 500m
-            memory: 2048Mi
+            memory: 1024Mi
             ephemeral-storage: 200Mi
         ports:
         - containerPort: 5001
@@ -913,7 +943,7 @@ spec:
         - name: DB_DATABASE
           value: dify
         - name: REDIS_HOST
-          value: ${{ defaults.app_name }}-redis-redis-redis
+          value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
         - name: REDIS_PORT
           value: '6379'
         - name: REDIS_USERNAME
@@ -931,40 +961,50 @@ spec:
         - name: REDIS_DB
           value: '0'
         - name: CELERY_BROKER_URL
-          value: redis://$(REDIS_USERNAME):$(REDIS_PASSWORD)@$(REDIS_HOST).${{ SEALOS_NAMESPACE }}.svc:$(REDIS_PORT)/1
+          value: redis://$(REDIS_USERNAME):$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)/1
         - name: WEB_API_CORS_ALLOW_ORIGINS
           value: '*'
         - name: CONSOLE_CORS_ALLOW_ORIGINS
           value: '*'
-        ${{ if(inputs.use_sealos_objectstorage === 'true') }}
+        ${{ if(inputs.enable_s3_storage === 'true') }}
         - name: STORAGE_TYPE
           value: s3
-        - name: S3_ENDPOINT_HOST
+        - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
           valueFrom:
             secretKeyRef:
               name: object-storage-key
               key: external
         - name: S3_ENDPOINT
-          value: https://$(S3_ENDPOINT_HOST)
+          value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
         - name: S3_REGION
           value: us-east-1
-        - name: S3_BUCKET_NAME
+        - name: S3_BUCKET
           valueFrom:
             secretKeyRef:
               name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
               key: bucket
-        - name: S3_ACCESS_KEY
+        - name: S3_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
               name: object-storage-key
               key: accessKey
-        - name: S3_SECRET_KEY
+        - name: S3_SECRET_ACCESS_KEY
           valueFrom:
             secretKeyRef:
               name: object-storage-key
               key: secretKey
+        - name: S3_BUCKET_NAME
+          value: $(S3_BUCKET)
+        - name: S3_ACCESS_KEY
+          value: $(S3_ACCESS_KEY_ID)
+        - name: S3_SECRET_KEY
+          value: $(S3_SECRET_ACCESS_KEY)
         - name: S3_USE_AWS_MANAGED_IAM
           value: 'false'
+        - name: S3_USE_AWS
+          value: 'false'
+        - name: S3_USE_PATH_STYLE
+          value: 'true'
         ${{ else() }}
         - name: STORAGE_TYPE
           value: opendal
@@ -978,7 +1018,7 @@ spec:
         - name: VECTOR_STORE
           value: weaviate
         - name: WEAVIATE_HOST
-          value: ${{ defaults.app_name }}-weaviate
+          value: ${{ defaults.app_name }}-weaviate.${{ SEALOS_NAMESPACE }}.svc.cluster.local
         - name: WEAVIATE_PORT
           value: '8080'
         - name: WEAVIATE_ENDPOINT
@@ -996,11 +1036,11 @@ spec:
         - name: SERVICE_API_URL
           value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
         - name: PLUGIN_DAEMON_URL
-          value: http://${{ defaults.app_name }}-plugin-daemon:5002
+          value: http://${{ defaults.app_name }}-plugin-daemon.${{ SEALOS_NAMESPACE }}.svc.cluster.local:5002
         - name: PLUGIN_DAEMON_KEY
           value: ${{ defaults.plugin_daemon_key }}
         - name: PLUGIN_REMOTE_INSTALL_HOST
-          value: ${{ defaults.app_name }}-plugin-daemon
+          value: ${{ defaults.app_name }}-plugin-daemon.${{ SEALOS_NAMESPACE }}.svc.cluster.local
         - name: PLUGIN_REMOTE_INSTALL_PORT
           value: '5003'
         - name: PLUGIN_MAX_PACKAGE_SIZE
@@ -1014,10 +1054,10 @@ spec:
         resources:
           requests:
             cpu: 50m
-            memory: 204Mi
+            memory: 102Mi
           limits:
             cpu: 500m
-            memory: 2048Mi
+            memory: 1024Mi
         ports:
         - containerPort: 5001
         imagePullPolicy: IfNotPresent
@@ -1143,10 +1183,10 @@ spec:
         resources:
           requests:
             cpu: 20m
-            memory: 204Mi
+            memory: 102Mi
           limits:
             cpu: 200m
-            memory: 2048Mi
+            memory: 1024Mi
         ports:
         - containerPort: 3000
         imagePullPolicy: IfNotPresent
@@ -1346,11 +1386,11 @@ spec:
         resources:
           requests:
             cpu: 20m
-            memory: 102Mi
+            memory: 51Mi
             ephemeral-storage: 512Mi
           limits:
             cpu: 200m
-            memory: 1024Mi
+            memory: 512Mi
             ephemeral-storage: 512Mi
         ports:
         - containerPort: 8194
@@ -1486,7 +1526,7 @@ spec:
         - name: DB_DATABASE
           value: dify_plugin
         - name: REDIS_HOST
-          value: ${{ defaults.app_name }}-redis-redis-redis
+          value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
         - name: REDIS_PORT
           value: '6379'
         - name: REDIS_USERNAME
@@ -1523,7 +1563,7 @@ spec:
           value: '300'
         - name: PIP_MIRROR_URL
           value: https://pypi.tuna.tsinghua.edu.cn/simple
-        ${{ if(inputs.use_sealos_objectstorage === 'true') }}
+        ${{ if(inputs.enable_s3_storage === 'true') }}
         - name: PLUGIN_STORAGE_TYPE
           value: s3
         - name: PLUGIN_STORAGE_OSS_BUCKET
@@ -1531,25 +1571,29 @@ spec:
             secretKeyRef:
               name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
               key: bucket
-        - name: S3_ENDPOINT_HOST
+        - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
           valueFrom:
             secretKeyRef:
               name: object-storage-key
               key: external
         - name: S3_ENDPOINT
-          value: https://$(S3_ENDPOINT_HOST)
+          value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
         - name: S3_USE_PATH_STYLE
           value: 'true'
-        - name: AWS_ACCESS_KEY
+        - name: S3_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
               name: object-storage-key
               key: accessKey
-        - name: AWS_SECRET_KEY
+        - name: S3_SECRET_ACCESS_KEY
           valueFrom:
             secretKeyRef:
               name: object-storage-key
               key: secretKey
+        - name: AWS_ACCESS_KEY
+          value: $(S3_ACCESS_KEY_ID)
+        - name: AWS_SECRET_KEY
+          value: $(S3_SECRET_ACCESS_KEY)
         - name: AWS_REGION
           value: us-east-1
         ${{ else() }}
@@ -1559,7 +1603,7 @@ spec:
           value: /app/storage
         ${{ endif() }}
         - name: DIFY_INNER_API_URL
-          value: http://${{ defaults.app_name }}-api:5001
+          value: http://${{ defaults.app_name }}-api.${{ SEALOS_NAMESPACE }}.svc.cluster.local:5001
         - name: DIFY_INNER_API_KEY
           value: ${{ defaults.inner_api_key }}
         - name: PLUGIN_MAX_EXECUTION_TIMEOUT
@@ -1571,11 +1615,11 @@ spec:
         resources:
           requests:
             cpu: 20m
-            memory: 102Mi
+            memory: 51Mi
             ephemeral-storage: 500Mi
           limits:
             cpu: 200m
-            memory: 1024Mi
+            memory: 512Mi
             ephemeral-storage: 500Mi
         ports:
         - name: server-port
@@ -1597,7 +1641,7 @@ spec:
       - ReadWriteOnce
       resources:
         requests:
-          storage: 3Gi
+          storage: 1Gi
       storageClassName: openebs-backup
 ---
 apiVersion: v1

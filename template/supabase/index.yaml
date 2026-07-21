@@ -25,24 +25,24 @@ spec:
   - backend
   - database
   defaults:
-    app_host:
-      type: string
-      value: ${{ defaults.app_name }}
     app_name:
       type: string
       value: supabase-${{ random(8) }}
+    jwt_secret:
+      type: string
+      value: ${{ random(64) }}
     postgres_db:
       type: string
       value: postgres
     supabase_public_url:
       type: string
-      value: https://${{ defaults.app_name }}.${{ SEALOS_CLOUD_DOMAIN }}
+      value: https://${{ defaults.app_name }}-kong.${{ SEALOS_CLOUD_DOMAIN }}
     api_external_url:
       type: string
-      value: https://${{ defaults.app_name }}.${{ SEALOS_CLOUD_DOMAIN }}
+      value: https://${{ defaults.app_name }}-kong.${{ SEALOS_CLOUD_DOMAIN }}
     site_url:
       type: string
-      value: https://${{ defaults.app_name }}.${{ SEALOS_CLOUD_DOMAIN }}
+      value: https://${{ defaults.app_name }}-kong.${{ SEALOS_CLOUD_DOMAIN }}
     additional_redirect_urls:
       type: string
       value: ''
@@ -60,7 +60,7 @@ spec:
       value: 'false'
     enable_email_autoconfirm:
       type: string
-      value: 'false'
+      value: 'true'
     enable_phone_signup:
       type: string
       value: 'true'
@@ -142,31 +142,36 @@ spec:
     pooler_db_pool_size:
       type: string
       value: '5'
-    imgproxy_enable_webp_detection:
+    imgproxy_auto_webp:
       type: string
       value: 'true'
-    dashboard_username:
-      type: string
-      value: supabase
-    dashboard_password:
-      type: string
-      value: ${{ random(20) }}
   inputs:
-    jwt_secret:
-      description: JWT signing secret for Auth, PostgREST, Studio, and Storage API.
+    enable_s3_storage:
+      description: Use a Sealos ObjectStorageBucket as the Supabase Storage S3 backend; clear to use the local persistent volume.
+      type: boolean
+      default: 'false'
+      required: false
+    dashboard_username:
+      description: Single-line username for the HTTP Basic Auth prompt that protects Supabase Studio.
       type: string
-      default: super-secret-jwt-token-with-at-least-32-characters-long
+      default: supabase
       required: true
-    anon_key:
-      description: Anonymous API key in JWT format (must be signed by jwt_secret).
+    dashboard_password:
+      description: Single-line password for the HTTP Basic Auth prompt that protects Supabase Studio.
       type: string
-      default: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNlYWxvcyIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNzA0MDY3MjAwLCJleHAiOjIwNTEyMjI0MDB9.V5KvFbM6nMq-n8Ic1-9662IR7z4l00fNZD1mk4q8l84
       required: true
-    service_role_key:
-      description: Service role API key in JWT format (must be signed by jwt_secret).
-      type: string
-      default: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNlYWxvcyIsInJvbGUiOiJzZXJ2aWNlX3JvbGUiLCJpYXQiOjE3MDQwNjcyMDAsImV4cCI6MjA1MTIyMjQwMH0.gSHZ4wBeDMAbjjmkQ3TEoyOoqq7GR5F36krGv81PQLY
-      required: true
+---
+${{ if(inputs.enable_s3_storage === 'true') }}
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  policy: private
+---
+${{ endif() }}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -209,12 +214,74 @@ subjects:
 - kind: ServiceAccount
   name: ${{ defaults.app_name }}-pg
 ---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg-restart
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg-restart
+rules:
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ''
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+- apiGroups:
+  - ''
+  resources:
+  - pods/exec
+  verbs:
+  - create
+- apiGroups:
+  - apps.kubeblocks.io
+  resources:
+  - clusters
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - apps.kubeblocks.io
+  resources:
+  - opsrequests
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg-restart
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg-restart
+subjects:
+- kind: ServiceAccount
+  name: ${{ defaults.app_name }}-pg-restart
+---
 apiVersion: apps.kubeblocks.io/v1alpha1
 kind: Cluster
 metadata:
   name: ${{ defaults.app_name }}-pg
   labels:
     kb.io/database: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
     clusterdefinition.kubeblocks.io/name: postgresql
     clusterversion.kubeblocks.io/name: postgresql-16.4.0
 spec:
@@ -301,6 +368,7 @@ spec:
           CREATE SCHEMA IF NOT EXISTS storage;
           CREATE SCHEMA IF NOT EXISTS realtime;
           CREATE SCHEMA IF NOT EXISTS _realtime;
+          CREATE SCHEMA IF NOT EXISTS graphql_public;
 
           SELECT 'CREATE DATABASE _supabase'
           WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname='_supabase')\gexec
@@ -314,7 +382,7 @@ spec:
           WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon')\gexec
           SELECT 'CREATE ROLE authenticated NOLOGIN NOINHERIT'
           WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated')\gexec
-          SELECT 'CREATE ROLE service_role NOLOGIN NOINHERIT'
+          SELECT 'CREATE ROLE service_role NOLOGIN NOINHERIT BYPASSRLS'
           WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role')\gexec
           SELECT 'CREATE ROLE authenticator NOINHERIT LOGIN'
           WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticator')\gexec
@@ -326,9 +394,11 @@ spec:
           GRANT anon TO authenticator;
           GRANT authenticated TO authenticator;
           GRANT service_role TO authenticator;
+          ALTER ROLE service_role WITH BYPASSRLS;
           GRANT authenticator TO supabase_storage_admin;
 
           GRANT USAGE ON SCHEMA storage TO postgres, anon, authenticated, service_role;
+          GRANT USAGE ON SCHEMA graphql_public TO postgres, anon, authenticated, service_role;
           GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA storage TO postgres, anon, authenticated, service_role;
           GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA storage TO postgres, anon, authenticated, service_role;
           ALTER DEFAULT PRIVILEGES IN SCHEMA storage GRANT ALL ON TABLES TO postgres, anon, authenticated, service_role;
@@ -362,7 +432,7 @@ spec:
           psql -v ON_ERROR_STOP=1 -c "ALTER ROLE anon SET search_path = storage, public;"
           psql -v ON_ERROR_STOP=1 -c "ALTER ROLE authenticated SET search_path = storage, public;"
           psql -v ON_ERROR_STOP=1 -c "ALTER ROLE service_role SET search_path = storage, public;"
-          psql -v ON_ERROR_STOP=1 -c "ALTER ROLE CURRENT_USER SET search_path = storage, public;"
+          psql -v ON_ERROR_STOP=1 -c "ALTER ROLE CURRENT_USER SET search_path = auth, storage, public;"
         volumeMounts:
         - name: pg-conn
           mountPath: /db-secret
@@ -373,15 +443,94 @@ spec:
           secretName: ${{ defaults.app_name }}-pg-conn-credential
           optional: true
 ---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-restart
+  labels:
+    app: ${{ defaults.app_name }}-pg-restart
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-pg-restart
+spec:
+  backoffLimit: 20
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-pg-restart
+      annotations:
+        sealos.io/service-account-token-reason: Create and monitor the KubeBlocks restart required by the PostgreSQL wal_level setting.
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: ${{ defaults.app_name }}-pg-restart
+      automountServiceAccountToken: true
+      containers:
+      - name: ${{ defaults.app_name }}-pg-restart
+        image: bitnamilegacy/kubectl:1.33.4@sha256:ed0b31a0508da84ee655c5c6e01bd3897fc56ad6cf69debb27fa1893a06d2246
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 20m
+            memory: 25Mi
+        env:
+        - name: APP_NAME
+          value: ${{ defaults.app_name }}
+        command:
+        - /bin/sh
+        - -ec
+        args:
+        - |
+          until [ "$(kubectl get job "${APP_NAME}-pg-init" -o jsonpath='{.status.succeeded}' 2>/dev/null)" = "1" ]; do
+            sleep 5
+          done
+
+          PG_POD="$(kubectl get pod \
+            -l "app.kubernetes.io/instance=${APP_NAME}-pg,apps.kubeblocks.io/component-name=postgresql" \
+            -o jsonpath='{.items[0].metadata.name}')"
+          until [ -n "${PG_POD}" ]; do
+            sleep 5
+            PG_POD="$(kubectl get pod \
+              -l "app.kubernetes.io/instance=${APP_NAME}-pg,apps.kubeblocks.io/component-name=postgresql" \
+              -o jsonpath='{.items[0].metadata.name}')"
+          done
+
+          kubectl exec "${PG_POD}" -c postgresql -- \
+            patronictl -c /home/postgres/postgres.yml edit-config \
+            -p wal_level=logical --force
+
+          if ! kubectl get opsrequest "${APP_NAME}-pg-restart" >/dev/null 2>&1; then
+            cat <<EOF | kubectl create -f -
+          apiVersion: apps.kubeblocks.io/v1alpha1
+          kind: OpsRequest
+          metadata:
+            name: ${APP_NAME}-pg-restart
+          spec:
+            clusterName: ${APP_NAME}-pg
+            type: Restart
+            restart:
+            - componentName: postgresql
+            ttlSecondsAfterSucceed: 300
+          EOF
+          fi
+
+          until [ "$(kubectl get opsrequest "${APP_NAME}-pg-restart" -o jsonpath='{.status.phase}' 2>/dev/null)" = "Succeed" ]; do
+            sleep 5
+          done
+
+          until [ "$(kubectl get cluster "${APP_NAME}-pg" -o jsonpath='{.status.phase}' 2>/dev/null)" = "Running" ]; do
+            sleep 5
+          done
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: ${{ defaults.app_name }}-kong-config
+  name: ${{ defaults.app_name }}-kong
   labels:
-    app: ${{ defaults.app_name }}-kong-config
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-kong-config
+    app: ${{ defaults.app_name }}-kong
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-kong
 data:
-  kong.yml.tpl: |
+  vn-etcvn-kongvn-templatevn-kongvn-ymlvn-tpl: |
     _format_version: '2.1'
     _transform: true
 
@@ -576,7 +725,7 @@ data:
                 - admin
 
       - name: mcp-blocker
-        url: http://__APP_NAME__:3000/api/mcp
+        url: http://__APP_NAME__-studio:3000/api/mcp
         routes:
           - name: mcp-blocker-route
             strip_path: true
@@ -589,7 +738,7 @@ data:
               message: Access is forbidden.
 
       - name: mcp
-        url: http://__APP_NAME__:3000/api/mcp
+        url: http://__APP_NAME__-studio:3000/api/mcp
         routes:
           - name: mcp
             strip_path: true
@@ -602,7 +751,7 @@ data:
               message: Access is forbidden.
 
       - name: dashboard
-        url: http://__APP_NAME__:3000/
+        url: http://__APP_NAME__-studio:3000/
         routes:
           - name: dashboard-all
             strip_path: true
@@ -613,16 +762,192 @@ data:
           - name: basic-auth
             config:
               hide_credentials: true
+  vn-usrvn-localvn-binvn-kongvn-startvn-sh: |
+    #!/bin/sh
+    set -eu
+
+    escape_sed_replacement() {
+      printf '%s' "$1" | sed 's/[\\&|]/\\&/g'
+    }
+
+    escape_yaml_single_quoted_sed_replacement() {
+      printf '%s' "$1" | sed "s/'/''/g" | sed 's/[\\&|]/\\&/g'
+    }
+
+    require_single_line() {
+      if [ "$(printf '%s' "$2" | wc -l | tr -d '[:space:]')" -ne 0 ]; then
+        echo "$1 must be a single-line value" >&2
+        exit 1
+      fi
+    }
+
+    sign_hs256() {
+      unsigned="$1"
+      signature="$(
+        printf '%s' "${unsigned}" \
+          | openssl dgst -binary -sha256 -hmac "${JWT_SECRET}" \
+          | openssl enc -base64 -A \
+          | tr '+/' '-_' \
+          | tr -d '='
+      )"
+      if [ "${#signature}" -ne 43 ]; then
+        echo "Failed to derive Supabase API key signature" >&2
+        exit 1
+      fi
+      printf '%s.%s' "${unsigned}" "${signature}"
+    }
+
+    require_single_line JWT_SECRET "${JWT_SECRET}"
+    if [ "${#JWT_SECRET}" -lt 32 ]; then
+      echo "JWT_SECRET must contain at least 32 characters" >&2
+      exit 1
+    fi
+    if ! command -v openssl >/dev/null 2>&1; then
+      echo "OpenSSL is required to derive Supabase API keys" >&2
+      exit 1
+    fi
+
+    JWT_HEADER='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9'
+    JWT_ANON_PAYLOAD='eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzg0NTkyMDAwLCJleHAiOjQxMDI0NDQ4MDB9'
+    JWT_SERVICE_PAYLOAD='eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UiLCJpYXQiOjE3ODQ1OTIwMDAsImV4cCI6NDEwMjQ0NDgwMH0'
+    SUPABASE_ANON_KEY="$(sign_hs256 "${JWT_HEADER}.${JWT_ANON_PAYLOAD}")"
+    SUPABASE_SERVICE_KEY="$(sign_hs256 "${JWT_HEADER}.${JWT_SERVICE_PAYLOAD}")"
+    export SUPABASE_ANON_KEY SUPABASE_SERVICE_KEY
+
+    require_single_line APP_NAME "${APP_NAME}"
+    require_single_line SUPABASE_ANON_KEY "${SUPABASE_ANON_KEY}"
+    require_single_line SUPABASE_SERVICE_KEY "${SUPABASE_SERVICE_KEY}"
+    require_single_line DASHBOARD_USERNAME "${DASHBOARD_USERNAME}"
+    require_single_line DASHBOARD_PASSWORD "${DASHBOARD_PASSWORD}"
+
+    APP_NAME_ESCAPED="$(escape_sed_replacement "${APP_NAME}")"
+    ANON_KEY_ESCAPED="$(escape_sed_replacement "${SUPABASE_ANON_KEY}")"
+    SERVICE_KEY_ESCAPED="$(escape_sed_replacement "${SUPABASE_SERVICE_KEY}")"
+    DASHBOARD_USERNAME_ESCAPED="$(escape_yaml_single_quoted_sed_replacement "${DASHBOARD_USERNAME}")"
+    DASHBOARD_PASSWORD_ESCAPED="$(escape_yaml_single_quoted_sed_replacement "${DASHBOARD_PASSWORD}")"
+
+    sed \
+      -e "s|__APP_NAME__|${APP_NAME_ESCAPED}|g" \
+      -e "s|__ANON_KEY__|${ANON_KEY_ESCAPED}|g" \
+      -e "s|__SERVICE_ROLE_KEY__|${SERVICE_KEY_ESCAPED}|g" \
+      -e "s|__DASHBOARD_USERNAME__|${DASHBOARD_USERNAME_ESCAPED}|g" \
+      -e "s|__DASHBOARD_PASSWORD__|${DASHBOARD_PASSWORD_ESCAPED}|g" \
+      /etc/kong-template/kong.yml.tpl > /tmp/kong.yml
+    exec /entrypoint.sh kong docker-start
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: ${{ defaults.app_name }}-supavisor-config
+  name: ${{ defaults.app_name }}-studio
   labels:
-    app: ${{ defaults.app_name }}-supavisor-config
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-supavisor-config
+    app: ${{ defaults.app_name }}-studio
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-studio
 data:
-  pooler.exs: "{:ok, _} = Application.ensure_all_started(:supavisor)\n\n{:ok, version}\
+  vn-usrvn-localvn-binvn-studiovn-startvn-sh: |
+    #!/bin/sh
+    set -eu
+
+    require_single_line() {
+      if [ "$(printf '%s' "$2" | wc -l | tr -d '[:space:]')" -ne 0 ]; then
+        echo "$1 must be a single-line value" >&2
+        exit 1
+      fi
+    }
+
+    sign_hs256() {
+      node -e '
+        const crypto = require("crypto");
+        const secret = process.env.JWT_SECRET;
+        const unsigned = process.argv[1];
+        const signature = crypto
+          .createHmac("sha256", secret)
+          .update(unsigned)
+          .digest("base64url");
+        process.stdout.write(`${unsigned}.${signature}`);
+      ' "$1"
+    }
+
+    require_single_line JWT_SECRET "${JWT_SECRET}"
+    if [ "${#JWT_SECRET}" -lt 32 ]; then
+      echo "JWT_SECRET must contain at least 32 characters" >&2
+      exit 1
+    fi
+    if ! command -v node >/dev/null 2>&1; then
+      echo "Node.js is required to derive Supabase API keys" >&2
+      exit 1
+    fi
+
+    JWT_HEADER='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9'
+    JWT_ANON_PAYLOAD='eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzg0NTkyMDAwLCJleHAiOjQxMDI0NDQ4MDB9'
+    JWT_SERVICE_PAYLOAD='eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UiLCJpYXQiOjE3ODQ1OTIwMDAsImV4cCI6NDEwMjQ0NDgwMH0'
+    SUPABASE_ANON_KEY="$(sign_hs256 "${JWT_HEADER}.${JWT_ANON_PAYLOAD}")"
+    SUPABASE_SERVICE_KEY="$(sign_hs256 "${JWT_HEADER}.${JWT_SERVICE_PAYLOAD}")"
+    AUTH_JWT_SECRET="${JWT_SECRET}"
+    export SUPABASE_ANON_KEY SUPABASE_SERVICE_KEY AUTH_JWT_SECRET
+
+    exec docker-entrypoint.sh node apps/studio/server.js
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-storage
+  labels:
+    app: ${{ defaults.app_name }}-storage
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-storage
+data:
+  vn-usrvn-localvn-binvn-storagevn-startvn-sh: |
+    #!/bin/sh
+    set -eu
+
+    require_single_line() {
+      if [ "$(printf '%s' "$2" | wc -l | tr -d '[:space:]')" -ne 0 ]; then
+        echo "$1 must be a single-line value" >&2
+        exit 1
+      fi
+    }
+
+    sign_hs256() {
+      node -e '
+        const crypto = require("crypto");
+        const secret = process.env.JWT_SECRET;
+        const unsigned = process.argv[1];
+        const signature = crypto
+          .createHmac("sha256", secret)
+          .update(unsigned)
+          .digest("base64url");
+        process.stdout.write(`${unsigned}.${signature}`);
+      ' "$1"
+    }
+
+    require_single_line JWT_SECRET "${JWT_SECRET}"
+    if [ "${#JWT_SECRET}" -lt 32 ]; then
+      echo "JWT_SECRET must contain at least 32 characters" >&2
+      exit 1
+    fi
+    if ! command -v node >/dev/null 2>&1; then
+      echo "Node.js is required to derive Supabase API keys" >&2
+      exit 1
+    fi
+
+    JWT_HEADER='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9'
+    JWT_ANON_PAYLOAD='eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzg0NTkyMDAwLCJleHAiOjQxMDI0NDQ4MDB9'
+    JWT_SERVICE_PAYLOAD='eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UiLCJpYXQiOjE3ODQ1OTIwMDAsImV4cCI6NDEwMjQ0NDgwMH0'
+    ANON_KEY="$(sign_hs256 "${JWT_HEADER}.${JWT_ANON_PAYLOAD}")"
+    SERVICE_KEY="$(sign_hs256 "${JWT_HEADER}.${JWT_SERVICE_PAYLOAD}")"
+    AUTH_JWT_SECRET="${JWT_SECRET}"
+    export ANON_KEY SERVICE_KEY AUTH_JWT_SECRET
+
+    exec docker-entrypoint.sh node dist/start/server.js
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-supavisor
+  labels:
+    app: ${{ defaults.app_name }}-supavisor
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-supavisor
+data:
+  vn-etcvn-poolervn-poolervn-exs: "{:ok, _} = Application.ensure_all_started(:supavisor)\n\n{:ok, version}\
     \ =\n  case Supavisor.Repo.query!(\"select version()\") do\n    %{rows: [[ver]]}\
     \ -> Supavisor.Helpers.parse_pg_version(ver)\n    _ -> nil\n  end\n\nparams =\
     \ %{\n  \"external_id\" => System.get_env(\"POOLER_TENANT_ID\"),\n  \"db_host\"\
@@ -641,24 +966,69 @@ data:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: ${{ defaults.app_name }}-vector-config
+  name: ${{ defaults.app_name }}-vector
   labels:
-    app: ${{ defaults.app_name }}-vector-config
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-vector-config
+    app: ${{ defaults.app_name }}-vector
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-vector
 data:
-  vector.yml: "api:\n  enabled: true\n  address: 0.0.0.0:9001\n\nsources:\n  internal_metrics:\n\
+  vn-etcvn-vectorvn-vectorvn-yml: "api:\n  enabled: true\n  address: 0.0.0.0:9001\n\nsources:\n  internal_metrics:\n\
     \    type: internal_metrics\n\nsinks:\n  blackhole:\n    type: blackhole\n   \
     \ inputs:\n      - internal_metrics\n"
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: ${{ defaults.app_name }}-functions-code
+  name: ${{ defaults.app_name }}-functions
   labels:
-    app: ${{ defaults.app_name }}-functions-code
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-functions-code
+    app: ${{ defaults.app_name }}-functions
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-functions
 data:
-  main-index.ts: "import * as jose from 'https://deno.land/x/jose@v4.14.4/index.ts'\n\
+  vn-usrvn-localvn-binvn-functionsvn-startvn-sh: |
+    #!/bin/sh
+    set -eu
+
+    require_single_line() {
+      if [ "$(printf '%s' "$2" | wc -l | tr -d '[:space:]')" -ne 0 ]; then
+        echo "$1 must be a single-line value" >&2
+        exit 1
+      fi
+    }
+
+    sign_hs256() {
+      unsigned="$1"
+      signature="$(
+        printf '%s' "${unsigned}" \
+          | openssl dgst -binary -sha256 -hmac "${JWT_SECRET}" \
+          | openssl enc -base64 -A \
+          | tr '+/' '-_' \
+          | tr -d '='
+      )"
+      if [ "${#signature}" -ne 43 ]; then
+        echo "Failed to derive Supabase API key signature" >&2
+        exit 1
+      fi
+      printf '%s.%s' "${unsigned}" "${signature}"
+    }
+
+    require_single_line JWT_SECRET "${JWT_SECRET}"
+    if [ "${#JWT_SECRET}" -lt 32 ]; then
+      echo "JWT_SECRET must contain at least 32 characters" >&2
+      exit 1
+    fi
+    if ! command -v openssl >/dev/null 2>&1; then
+      echo "OpenSSL is required to derive Supabase API keys" >&2
+      exit 1
+    fi
+
+    JWT_HEADER='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9'
+    JWT_ANON_PAYLOAD='eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzg0NTkyMDAwLCJleHAiOjQxMDI0NDQ4MDB9'
+    JWT_SERVICE_PAYLOAD='eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UiLCJpYXQiOjE3ODQ1OTIwMDAsImV4cCI6NDEwMjQ0NDgwMH0'
+    SUPABASE_ANON_KEY="$(sign_hs256 "${JWT_HEADER}.${JWT_ANON_PAYLOAD}")"
+    SUPABASE_SERVICE_ROLE_KEY="$(sign_hs256 "${JWT_HEADER}.${JWT_SERVICE_PAYLOAD}")"
+    export SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY
+
+    exec /usr/local/bin/edge-runtime start --main-service /home/deno/functions/main
+  vn-homevn-denovn-functionsvn-mainvn-indexvn-ts: "import * as jose from 'https://deno.land/x/jose@v4.14.4/index.ts'\n\
     \nconsole.log('main function started')\n\nconst JWT_SECRET = Deno.env.get('JWT_SECRET')\n\
     const VERIFY_JWT = Deno.env.get('VERIFY_JWT') === 'true'\n\nfunction getAuthToken(req:\
     \ Request) {\n  const authHeader = req.headers.get('authorization')\n  if (!authHeader)\
@@ -691,7 +1061,7 @@ data:
     \  } catch (e) {\n    const error = { msg: e.toString() }\n    return new Response(JSON.stringify(error),\
     \ {\n      status: 500,\n      headers: { 'Content-Type': 'application/json' },\n\
     \    })\n  }\n})\n"
-  hello-index.ts: "// Follow this setup guide to integrate the Deno language server\
+  vn-homevn-denovn-functionsvn-hellovn-indexvn-ts: "// Follow this setup guide to integrate the Deno language server\
     \ with your editor:\n// https://deno.land/manual/getting_started/setup_your_environment\n\
     // This enables autocomplete, go to definition, etc.\n\nDeno.serve(async () =>\
     \ {\n  return new Response(\n    `\"Hello from Edge Functions!\"`,\n    { headers:\
@@ -702,29 +1072,29 @@ data:
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: ${{ defaults.app_name }}
+  name: ${{ defaults.app_name }}-studio
   annotations:
-    originImageName: supabase/studio:2026.02.16-sha-26c615c
+    originImageName: supabase/studio:2026.07.07-sha-a6a04f2
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-studio
+    app: ${{ defaults.app_name }}-studio
 spec:
   replicas: 1
   revisionHistoryLimit: 1
   selector:
     matchLabels:
-      app: ${{ defaults.app_name }}
+      app: ${{ defaults.app_name }}-studio
   template:
     metadata:
       labels:
-        app: ${{ defaults.app_name }}
+        app: ${{ defaults.app_name }}-studio
     spec:
       automountServiceAccountToken: false
       containers:
-      - name: ${{ defaults.app_name }}
-        image: supabase/studio:2026.02.16-sha-26c615c
+      - name: ${{ defaults.app_name }}-studio
+        image: supabase/studio:2026.07.07-sha-a6a04f2
         imagePullPolicy: IfNotPresent
         resources:
           limits:
@@ -766,13 +1136,13 @@ spec:
         - name: SUPABASE_URL
           value: http://${{ defaults.app_name }}-kong:8000
         - name: SUPABASE_PUBLIC_URL
-          value: https://${{ defaults.app_name }}.${{ SEALOS_CLOUD_DOMAIN }}
+          value: https://${{ defaults.app_name }}-kong.${{ SEALOS_CLOUD_DOMAIN }}
+        - name: JWT_SECRET
+          value: ${{ defaults.jwt_secret }}
         - name: SUPABASE_ANON_KEY
-          value: ${{ inputs.anon_key }}
+          value: ''
         - name: SUPABASE_SERVICE_KEY
-          value: ${{ inputs.service_role_key }}
-        - name: AUTH_JWT_SECRET
-          value: ${{ inputs.jwt_secret }}
+          value: ''
         - name: LOGFLARE_API_KEY
           value: ${{ defaults.logflare_public_access_token }}
         - name: LOGFLARE_PUBLIC_ACCESS_TOKEN
@@ -789,6 +1159,11 @@ spec:
           value: /app/snippets
         - name: EDGE_FUNCTIONS_MANAGEMENT_FOLDER
           value: /app/edge-functions
+        command:
+        - /bin/sh
+        args:
+        - -c
+        - exec /bin/sh /usr/local/bin/studio-start.sh
         livenessProbe:
           httpGet: &id001
             path: /api/platform/profile
@@ -811,11 +1186,19 @@ spec:
           timeoutSeconds: 5
           failureThreshold: 30
         volumeMounts:
+        - name: ${{ defaults.app_name }}-studio-cm
+          mountPath: /usr/local/bin/studio-start.sh
+          subPath: vn-usrvn-localvn-binvn-studiovn-startvn-sh
+          readOnly: true
         - name: vn-appvn-snippets
           mountPath: /app/snippets
         - name: vn-appvn-edgevn-functions
           mountPath: /app/edge-functions
-  serviceName: ${{ defaults.app_name }}
+      volumes:
+      - name: ${{ defaults.app_name }}-studio-cm
+        configMap:
+          name: ${{ defaults.app_name }}-studio
+  serviceName: ${{ defaults.app_name }}-studio
   volumeClaimTemplates:
   - metadata:
       name: vn-appvn-snippets
@@ -845,7 +1228,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}-kong
   annotations:
-    originImageName: kong:2.8.1
+    originImageName: kong/kong:3.9.1
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -865,7 +1248,7 @@ spec:
       automountServiceAccountToken: false
       containers:
       - name: ${{ defaults.app_name }}-kong
-        image: kong:2.8.1
+        image: kong/kong:3.9.1
         imagePullPolicy: IfNotPresent
         resources:
           limits:
@@ -894,36 +1277,34 @@ spec:
           value: 64 160k
         - name: KONG_NGINX_WORKER_PROCESSES
           value: '1'
+        - name: JWT_SECRET
+          value: ${{ defaults.jwt_secret }}
         - name: SUPABASE_ANON_KEY
-          value: ${{ inputs.anon_key }}
+          value: ''
         - name: SUPABASE_SERVICE_KEY
-          value: ${{ inputs.service_role_key }}
+          value: ''
         - name: DASHBOARD_USERNAME
-          value: ${{ defaults.dashboard_username }}
+          value: ${{ inputs.dashboard_username }}
         - name: DASHBOARD_PASSWORD
-          value: ${{ defaults.dashboard_password }}
+          value: ${{ inputs.dashboard_password }}
         command:
         - /bin/sh
-        - -ec
         args:
-        - |
-          sed \
-            -e "s|__APP_NAME__|${APP_NAME}|g" \
-            -e "s|__ANON_KEY__|${SUPABASE_ANON_KEY}|g" \
-            -e "s|__SERVICE_ROLE_KEY__|${SUPABASE_SERVICE_KEY}|g" \
-            -e "s|__DASHBOARD_USERNAME__|${DASHBOARD_USERNAME}|g" \
-            -e "s|__DASHBOARD_PASSWORD__|${DASHBOARD_PASSWORD}|g" \
-            /etc/kong-template/kong.yml.tpl > /tmp/kong.yml
-          exec /docker-entrypoint.sh kong docker-start
+        - -c
+        - exec /bin/sh /usr/local/bin/kong-start.sh
         volumeMounts:
-        - name: kong-config
+        - name: ${{ defaults.app_name }}-kong-cm
           mountPath: /etc/kong-template/kong.yml.tpl
-          subPath: kong.yml.tpl
+          subPath: vn-etcvn-kongvn-templatevn-kongvn-ymlvn-tpl
+          readOnly: true
+        - name: ${{ defaults.app_name }}-kong-cm
+          mountPath: /usr/local/bin/kong-start.sh
+          subPath: vn-usrvn-localvn-binvn-kongvn-startvn-sh
           readOnly: true
       volumes:
-      - name: kong-config
+      - name: ${{ defaults.app_name }}-kong-cm
         configMap:
-          name: ${{ defaults.app_name }}-kong-config
+          name: ${{ defaults.app_name }}-kong
   serviceName: ${{ defaults.app_name }}-kong
 ---
 apiVersion: apps/v1
@@ -931,7 +1312,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-auth
   annotations:
-    originImageName: supabase/gotrue:v2.186.0
+    originImageName: supabase/gotrue:v2.189.0
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -951,7 +1332,7 @@ spec:
       automountServiceAccountToken: false
       containers:
       - name: ${{ defaults.app_name }}-auth
-        image: supabase/gotrue:v2.186.0
+        image: supabase/gotrue:v2.189.0
         imagePullPolicy: IfNotPresent
         resources:
           limits:
@@ -966,7 +1347,7 @@ spec:
         - name: GOTRUE_API_PORT
           value: '9999'
         - name: API_EXTERNAL_URL
-          value: https://${{ defaults.app_name }}.${{ SEALOS_CLOUD_DOMAIN }}
+          value: https://${{ defaults.app_name }}-kong.${{ SEALOS_CLOUD_DOMAIN }}
         - name: GOTRUE_DB_DRIVER
           value: postgres
         - name: GOTRUE_DB_HOST
@@ -992,7 +1373,7 @@ spec:
         - name: GOTRUE_DB_DATABASE_URL
           value: postgres://$(GOTRUE_DB_USER):$(GOTRUE_DB_PASSWORD)@$(GOTRUE_DB_HOST):$(GOTRUE_DB_PORT)/postgres
         - name: GOTRUE_SITE_URL
-          value: https://${{ defaults.app_name }}.${{ SEALOS_CLOUD_DOMAIN }}
+          value: https://${{ defaults.app_name }}-kong.${{ SEALOS_CLOUD_DOMAIN }}
         - name: GOTRUE_URI_ALLOW_LIST
           value: ${{ defaults.additional_redirect_urls }}
         - name: GOTRUE_DISABLE_SIGNUP
@@ -1006,7 +1387,7 @@ spec:
         - name: GOTRUE_JWT_EXP
           value: ${{ defaults.jwt_expiry }}
         - name: GOTRUE_JWT_SECRET
-          value: ${{ inputs.jwt_secret }}
+          value: ${{ defaults.jwt_secret }}
         - name: GOTRUE_EXTERNAL_EMAIL_ENABLED
           value: ${{ defaults.enable_email_signup }}
         - name: GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED
@@ -1058,7 +1439,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-rest
   annotations:
-    originImageName: postgrest/postgrest@sha256:b574528fe109c8343c1247155734d03df8c34b462f342dca0ccc20244fc36ef9
+    originImageName: postgrest/postgrest@sha256:54000f24847d01a2c2302e0041cf0618b875c57fb48507d743cfa9aaa50bf43c
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -1078,7 +1459,7 @@ spec:
       automountServiceAccountToken: false
       containers:
       - name: ${{ defaults.app_name }}-rest
-        image: postgrest/postgrest@sha256:b574528fe109c8343c1247155734d03df8c34b462f342dca0ccc20244fc36ef9
+        image: postgrest/postgrest@sha256:54000f24847d01a2c2302e0041cf0618b875c57fb48507d743cfa9aaa50bf43c
         imagePullPolicy: IfNotPresent
         resources:
           limits:
@@ -1115,11 +1496,11 @@ spec:
         - name: PGRST_DB_ANON_ROLE
           value: anon
         - name: PGRST_JWT_SECRET
-          value: ${{ inputs.jwt_secret }}
+          value: ${{ defaults.jwt_secret }}
         - name: PGRST_DB_USE_LEGACY_GUCS
           value: 'false'
         - name: PGRST_APP_SETTINGS_JWT_SECRET
-          value: ${{ inputs.jwt_secret }}
+          value: ${{ defaults.jwt_secret }}
         - name: PGRST_APP_SETTINGS_JWT_EXP
           value: ${{ defaults.jwt_expiry }}
         args:
@@ -1130,7 +1511,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-realtime
   annotations:
-    originImageName: supabase/realtime:v2.76.5
+    originImageName: supabase/realtime:v2.102.3
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -1150,7 +1531,7 @@ spec:
       automountServiceAccountToken: false
       containers:
       - name: ${{ defaults.app_name }}-realtime
-        image: supabase/realtime:v2.76.5
+        image: supabase/realtime:v2.102.3
         imagePullPolicy: IfNotPresent
         resources:
           limits:
@@ -1189,7 +1570,9 @@ spec:
         - name: DB_ENC_KEY
           value: supabaserealtime
         - name: API_JWT_SECRET
-          value: ${{ inputs.jwt_secret }}
+          value: ${{ defaults.jwt_secret }}
+        - name: METRICS_JWT_SECRET
+          value: ${{ defaults.jwt_secret }}
         - name: SECRET_KEY_BASE
           value: ${{ defaults.secret_key_base }}
         - name: ERL_AFLAGS
@@ -1231,7 +1614,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}-storage
   annotations:
-    originImageName: supabase/storage-api:v1.37.8
+    originImageName: supabase/storage-api:v1.60.4
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -1251,7 +1634,7 @@ spec:
       automountServiceAccountToken: false
       containers:
       - name: ${{ defaults.app_name }}-storage
-        image: supabase/storage-api:v1.37.8
+        image: supabase/storage-api:v1.60.4
         imagePullPolicy: IfNotPresent
         resources:
           limits:
@@ -1261,14 +1644,16 @@ spec:
             cpu: 20m
             memory: 25Mi
         env:
+        - name: JWT_SECRET
+          value: ${{ defaults.jwt_secret }}
         - name: ANON_KEY
-          value: ${{ inputs.anon_key }}
+          value: ''
         - name: SERVICE_KEY
-          value: ${{ inputs.service_role_key }}
+          value: ''
+        - name: AUTH_JWT_SECRET
+          value: ''
         - name: POSTGREST_URL
           value: http://${{ defaults.app_name }}-rest:3000
-        - name: PGRST_JWT_SECRET
-          value: ${{ inputs.jwt_secret }}
         - name: STORAGE_DB_HOST
           valueFrom:
             secretKeyRef:
@@ -1295,12 +1680,47 @@ spec:
           value: 'true'
         - name: FILE_SIZE_LIMIT
           value: '52428800'
+        ${{ if(inputs.enable_s3_storage === 'true') }}
+        - name: STORAGE_BACKEND
+          value: s3
+        - name: GLOBAL_S3_BUCKET
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+              key: bucket
+        - name: S3_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key
+              key: accessKey
+        - name: S3_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key
+              key: secretKey
+        - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key
+              key: external
+        - name: GLOBAL_S3_ENDPOINT
+          value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+        - name: GLOBAL_S3_PROTOCOL
+          value: https
+        - name: GLOBAL_S3_FORCE_PATH_STYLE
+          value: 'true'
+        - name: AWS_ACCESS_KEY_ID
+          value: $(S3_ACCESS_KEY_ID)
+        - name: AWS_SECRET_ACCESS_KEY
+          value: $(S3_SECRET_ACCESS_KEY)
+        ${{ else() }}
         - name: STORAGE_BACKEND
           value: file
         - name: GLOBAL_S3_BUCKET
           value: ${{ defaults.global_s3_bucket }}
         - name: FILE_STORAGE_BACKEND_PATH
           value: /var/lib/storage
+        ${{ endif() }}
         - name: TENANT_ID
           value: ${{ defaults.storage_tenant_id }}
         - name: REGION
@@ -1308,11 +1728,16 @@ spec:
         - name: ENABLE_IMAGE_TRANSFORMATION
           value: 'true'
         - name: IMGPROXY_URL
-          value: http://${{ defaults.app_name }}-imgproxy:5001
+          value: http://127.0.0.1:5001
         - name: S3_PROTOCOL_ACCESS_KEY_ID
           value: ${{ defaults.s3_protocol_access_key_id }}
         - name: S3_PROTOCOL_ACCESS_KEY_SECRET
           value: ${{ defaults.s3_protocol_access_key_secret }}
+        command:
+        - /bin/sh
+        args:
+        - -c
+        - exec /bin/sh /usr/local/bin/storage-start.sh
         livenessProbe:
           httpGet: &id001
             path: /status
@@ -1328,47 +1753,21 @@ spec:
           periodSeconds: 5
           timeoutSeconds: 5
           failureThreshold: 3
+        startupProbe:
+          httpGet: *id001
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 30
         volumeMounts:
+        - name: ${{ defaults.app_name }}-storage-cm
+          mountPath: /usr/local/bin/storage-start.sh
+          subPath: vn-usrvn-localvn-binvn-storagevn-startvn-sh
+          readOnly: true
+        ${{ if(inputs.enable_s3_storage === 'false') }}
         - name: vn-varvn-libvn-storage
           mountPath: /var/lib/storage
-  serviceName: ${{ defaults.app_name }}-storage
-  volumeClaimTemplates:
-  - metadata:
-      name: vn-varvn-libvn-storage
-      annotations:
-        path: /var/lib/storage
-        value: '1'
-    spec:
-      accessModes:
-      - ReadWriteOnce
-      resources:
-        requests:
-          storage: 1Gi
----
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: ${{ defaults.app_name }}-imgproxy
-  annotations:
-    originImageName: darthsim/imgproxy:v3.30.1
-    deploy.cloud.sealos.io/minReplicas: '1'
-    deploy.cloud.sealos.io/maxReplicas: '1'
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-imgproxy
-    app: ${{ defaults.app_name }}-imgproxy
-spec:
-  replicas: 1
-  revisionHistoryLimit: 1
-  selector:
-    matchLabels:
-      app: ${{ defaults.app_name }}-imgproxy
-  template:
-    metadata:
-      labels:
-        app: ${{ defaults.app_name }}-imgproxy
-    spec:
-      automountServiceAccountToken: false
-      containers:
+        ${{ endif() }}
       - name: ${{ defaults.app_name }}-imgproxy
         image: darthsim/imgproxy:v3.30.1
         imagePullPolicy: IfNotPresent
@@ -1381,17 +1780,17 @@ spec:
             memory: 25Mi
         env:
         - name: IMGPROXY_BIND
-          value: :5001
+          value: 127.0.0.1:5001
         - name: IMGPROXY_LOCAL_FILESYSTEM_ROOT
           value: /
         - name: IMGPROXY_USE_ETAG
           value: 'true'
-        - name: IMGPROXY_ENABLE_WEBP_DETECTION
-          value: ${{ defaults.imgproxy_enable_webp_detection }}
+        - name: IMGPROXY_AUTO_WEBP
+          value: ${{ defaults.imgproxy_auto_webp }}
         - name: IMGPROXY_MAX_SRC_RESOLUTION
           value: '16.8'
         livenessProbe:
-          exec: &id001
+          exec: &id002
             command:
             - imgproxy
             - health
@@ -1400,15 +1799,22 @@ spec:
           timeoutSeconds: 5
           failureThreshold: 3
         readinessProbe:
-          exec: *id001
+          exec: *id002
           initialDelaySeconds: 10
           periodSeconds: 5
           timeoutSeconds: 5
           failureThreshold: 3
+        ${{ if(inputs.enable_s3_storage === 'false') }}
         volumeMounts:
         - name: vn-varvn-libvn-storage
           mountPath: /var/lib/storage
-  serviceName: ${{ defaults.app_name }}-imgproxy
+        ${{ endif() }}
+      volumes:
+      - name: ${{ defaults.app_name }}-storage-cm
+        configMap:
+          name: ${{ defaults.app_name }}-storage
+  serviceName: ${{ defaults.app_name }}-storage
+${{ if(inputs.enable_s3_storage === 'false') }}
   volumeClaimTemplates:
   - metadata:
       name: vn-varvn-libvn-storage
@@ -1421,13 +1827,14 @@ spec:
       resources:
         requests:
           storage: 1Gi
+${{ endif() }}
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-meta
   annotations:
-    originImageName: supabase/postgres-meta:v0.95.2
+    originImageName: supabase/postgres-meta:v0.96.6
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -1447,7 +1854,7 @@ spec:
       automountServiceAccountToken: false
       containers:
       - name: ${{ defaults.app_name }}-meta
-        image: supabase/postgres-meta:v0.95.2
+        image: supabase/postgres-meta:v0.96.6
         imagePullPolicy: IfNotPresent
         resources:
           limits:
@@ -1489,7 +1896,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}-functions
   annotations:
-    originImageName: supabase/edge-runtime:v1.70.3
+    originImageName: supabase/edge-runtime:v1.74.0
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -1509,7 +1916,7 @@ spec:
       automountServiceAccountToken: false
       containers:
       - name: ${{ defaults.app_name }}-functions
-        image: supabase/edge-runtime:v1.70.3
+        image: supabase/edge-runtime:v1.74.0
         imagePullPolicy: IfNotPresent
         resources:
           limits:
@@ -1520,15 +1927,15 @@ spec:
             memory: 25Mi
         env:
         - name: JWT_SECRET
-          value: ${{ inputs.jwt_secret }}
+          value: ${{ defaults.jwt_secret }}
+        - name: SUPABASE_ANON_KEY
+          value: ''
+        - name: SUPABASE_SERVICE_ROLE_KEY
+          value: ''
         - name: SUPABASE_URL
           value: http://${{ defaults.app_name }}-kong:8000
         - name: SUPABASE_PUBLIC_URL
-          value: https://${{ defaults.app_name }}.${{ SEALOS_CLOUD_DOMAIN }}
-        - name: SUPABASE_ANON_KEY
-          value: ${{ inputs.anon_key }}
-        - name: SUPABASE_SERVICE_ROLE_KEY
-          value: ${{ inputs.service_role_key }}
+          value: https://${{ defaults.app_name }}-kong.${{ SEALOS_CLOUD_DOMAIN }}
         - name: SUPABASE_DB_HOST
           valueFrom:
             secretKeyRef:
@@ -1553,25 +1960,30 @@ spec:
           value: postgresql://$(SUPABASE_DB_USER):$(SUPABASE_DB_PASSWORD)@$(SUPABASE_DB_HOST):$(SUPABASE_DB_PORT)/postgres
         - name: VERIFY_JWT
           value: ${{ defaults.functions_verify_jwt }}
+        command:
+        - /bin/sh
         args:
-        - start
-        - --main-service
-        - /home/deno/functions/main
+        - -c
+        - exec /bin/sh /usr/local/bin/functions-start.sh
         volumeMounts:
-        - name: functions-code
-          mountPath: /home/deno/functions/main/index.ts
-          subPath: main-index.ts
+        - name: ${{ defaults.app_name }}-functions-cm
+          mountPath: /usr/local/bin/functions-start.sh
+          subPath: vn-usrvn-localvn-binvn-functionsvn-startvn-sh
           readOnly: true
-        - name: functions-code
+        - name: ${{ defaults.app_name }}-functions-cm
+          mountPath: /home/deno/functions/main/index.ts
+          subPath: vn-homevn-denovn-functionsvn-mainvn-indexvn-ts
+          readOnly: true
+        - name: ${{ defaults.app_name }}-functions-cm
           mountPath: /home/deno/functions/hello/index.ts
-          subPath: hello-index.ts
+          subPath: vn-homevn-denovn-functionsvn-hellovn-indexvn-ts
           readOnly: true
         - name: vn-rootvn-cachevn-deno
           mountPath: /root/.cache/deno
       volumes:
-      - name: functions-code
+      - name: ${{ defaults.app_name }}-functions-cm
         configMap:
-          name: ${{ defaults.app_name }}-functions-code
+          name: ${{ defaults.app_name }}-functions
   serviceName: ${{ defaults.app_name }}-functions
   volumeClaimTemplates:
   - metadata:
@@ -1591,7 +2003,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-analytics
   annotations:
-    originImageName: supabase/logflare:1.31.2
+    originImageName: supabase/logflare:1.43.1
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -1609,9 +2021,52 @@ spec:
         app: ${{ defaults.app_name }}-analytics
     spec:
       automountServiceAccountToken: false
+      initContainers:
+      - name: wait-for-logical-wal
+        image: postgres:16.4
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 20m
+            memory: 25Mi
+        env:
+        - name: PGHOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: PGPORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
+        - name: PGUSER
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: username
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: password
+        command:
+        - /bin/sh
+        - -ec
+        args:
+        - |
+          until pg_isready; do
+            sleep 5
+          done
+          until [ "$(psql -d postgres -tAc 'SHOW wal_level' | tr -d '[:space:]')" = "logical" ]; do
+            sleep 5
+          done
       containers:
       - name: ${{ defaults.app_name }}-analytics
-        image: supabase/logflare:1.31.2
+        image: supabase/logflare:1.43.1
         imagePullPolicy: IfNotPresent
         resources:
           limits:
@@ -1748,14 +2203,14 @@ spec:
           timeoutSeconds: 5
           failureThreshold: 3
         volumeMounts:
-        - name: vector-config
+        - name: ${{ defaults.app_name }}-vector-cm
           mountPath: /etc/vector/vector.yml
-          subPath: vector.yml
+          subPath: vn-etcvn-vectorvn-vectorvn-yml
           readOnly: true
       volumes:
-      - name: vector-config
+      - name: ${{ defaults.app_name }}-vector-cm
         configMap:
-          name: ${{ defaults.app_name }}-vector-config
+          name: ${{ defaults.app_name }}-vector
   serviceName: ${{ defaults.app_name }}-vector
 ---
 apiVersion: apps/v1
@@ -1763,7 +2218,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}-supavisor
   annotations:
-    originImageName: supabase/supavisor:2.7.4
+    originImageName: supabase/supavisor:2.9.5
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -1783,7 +2238,7 @@ spec:
       automountServiceAccountToken: false
       containers:
       - name: ${{ defaults.app_name }}-supavisor
-        image: supabase/supavisor:2.7.4
+        image: supabase/supavisor:2.9.5
         imagePullPolicy: IfNotPresent
         resources:
           limits:
@@ -1839,9 +2294,9 @@ spec:
         - name: VAULT_ENC_KEY
           value: ${{ defaults.vault_enc_key }}
         - name: API_JWT_SECRET
-          value: ${{ inputs.jwt_secret }}
+          value: ${{ defaults.jwt_secret }}
         - name: METRICS_JWT_SECRET
-          value: ${{ inputs.jwt_secret }}
+          value: ${{ defaults.jwt_secret }}
         - name: REGION
           value: ${{ defaults.region }}
         - name: ERL_AFLAGS
@@ -1882,14 +2337,14 @@ spec:
           timeoutSeconds: 5
           failureThreshold: 5
         volumeMounts:
-        - name: supavisor-config
+        - name: ${{ defaults.app_name }}-supavisor-cm
           mountPath: /etc/pooler/pooler.exs
-          subPath: pooler.exs
+          subPath: vn-etcvn-poolervn-poolervn-exs
           readOnly: true
       volumes:
-      - name: supavisor-config
+      - name: ${{ defaults.app_name }}-supavisor-cm
         configMap:
-          name: ${{ defaults.app_name }}-supavisor-config
+          name: ${{ defaults.app_name }}-supavisor
   serviceName: ${{ defaults.app_name }}-supavisor
 ---
 apiVersion: v1
@@ -1935,10 +2390,10 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: ${{ defaults.app_name }}
+  name: ${{ defaults.app_name }}-studio
   labels:
-    app: ${{ defaults.app_name }}
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}-studio
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-studio
 spec:
   ports:
   - name: tcp-3000
@@ -1946,7 +2401,7 @@ spec:
     targetPort: 3000
     protocol: TCP
   selector:
-    app: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}-studio
 ---
 apiVersion: v1
 kind: Service
@@ -2015,22 +2470,6 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: ${{ defaults.app_name }}-imgproxy
-  labels:
-    app: ${{ defaults.app_name }}-imgproxy
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-imgproxy
-spec:
-  ports:
-  - name: tcp-5001
-    port: 5001
-    targetPort: 5001
-    protocol: TCP
-  selector:
-    app: ${{ defaults.app_name }}-imgproxy
----
-apiVersion: v1
-kind: Service
-metadata:
   name: ${{ defaults.app_name }}-meta
   labels:
     app: ${{ defaults.app_name }}-meta
@@ -2082,7 +2521,7 @@ metadata:
   name: ${{ defaults.app_name }}-kong
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-kong
-    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_name }}-kong
   annotations:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/proxy-body-size: 32m
@@ -2099,7 +2538,7 @@ metadata:
       \ {\n  expires 30d;\n  add_header Cache-Control \"public\";\n}"
 spec:
   rules:
-  - host: ${{ defaults.app_name }}.${{ SEALOS_CLOUD_DOMAIN }}
+  - host: ${{ defaults.app_name }}-kong.${{ SEALOS_CLOUD_DOMAIN }}
     http:
       paths:
       - pathType: Prefix
@@ -2111,18 +2550,18 @@ spec:
               number: 8000
   tls:
   - hosts:
-    - ${{ defaults.app_name }}.${{ SEALOS_CLOUD_DOMAIN }}
+    - ${{ defaults.app_name }}-kong.${{ SEALOS_CLOUD_DOMAIN }}
     secretName: ${{ SEALOS_CERT_SECRET_NAME }}
 ---
 apiVersion: app.sealos.io/v1
 kind: App
 metadata:
-  name: ${{ defaults.app_name }}
+  name: ${{ defaults.app_name }}-kong
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-kong
 spec:
   data:
-    url: https://${{ defaults.app_name }}.${{ SEALOS_CLOUD_DOMAIN }}
+    url: https://${{ defaults.app_name }}-kong.${{ SEALOS_CLOUD_DOMAIN }}
   displayType: normal
   icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/supabase/logo.png
   name: Supabase
