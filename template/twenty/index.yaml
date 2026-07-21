@@ -27,9 +27,28 @@ spec:
     app_name:
       type: string
       value: twenty-${{ random(8) }}
-    app_secret:
+    encryption_key:
       type: string
-      value: ${{ random(32) }}
+      value: ${{ random(64) }}
+  inputs:
+    USE_S3_STORAGE:
+      description: 'Use S3 object storage instead of shared local storage'
+      type: boolean
+      default: 'false'
+      required: false
+
+---
+${{ if(inputs.USE_S3_STORAGE === 'true') }}
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  policy: private
+---
+${{ endif() }}
 
 ---
 apiVersion: v1
@@ -38,6 +57,8 @@ metadata:
   name: ${{ defaults.app_name }}-pg
   labels:
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -46,47 +67,15 @@ metadata:
   name: ${{ defaults.app_name }}-pg
   labels:
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
 rules:
   - apiGroups:
-      - ""
+      - '*'
     resources:
-      - events
+      - '*'
     verbs:
-      - create
-  - apiGroups:
-      - ""
-    resources:
-      - configmaps
-    verbs:
-      - create
-      - get
-      - list
-      - patch
-      - update
-      - watch
-      - delete
-  - apiGroups:
-      - ""
-    resources:
-      - endpoints
-    verbs:
-      - create
-      - get
-      - list
-      - patch
-      - update
-      - watch
-      - delete
-  - apiGroups:
-      - ""
-    resources:
-      - pods
-    verbs:
-      - get
-      - list
-      - patch
-      - update
-      - watch
+      - '*'
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -95,6 +84,8 @@ metadata:
   name: ${{ defaults.app_name }}-pg
   labels:
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -109,6 +100,10 @@ kind: Cluster
 metadata:
   name: ${{ defaults.app_name }}-pg
   labels:
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+    kb.io/database: postgresql-16.4.0
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
 spec:
   affinity:
@@ -117,20 +112,25 @@ spec:
     tenancy: SharedNode
     topologyKeys: []
   clusterDefinitionRef: postgresql
-  clusterVersionRef: postgresql-14.8.0
+  clusterVersionRef: postgresql-16.4.0
+  disableExporter: true
+  enabledLogs:
+    - running
   componentSpecs:
     - componentDefRef: postgresql
-      monitor: true
+      monitor: false
       name: postgresql
       replicas: 1
       resources:
         limits:
-          cpu: 1000m
-          memory: 1024Mi
+          cpu: 500m
+          memory: 512Mi
         requests:
-          cpu: 100m
-          memory: 102Mi
+          cpu: 50m
+          memory: 51Mi
       serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
       volumeClaimTemplates:
         - name: data
           spec:
@@ -138,8 +138,10 @@ spec:
               - ReadWriteOnce
             resources:
               requests:
-                storage: 5Gi
+                storage: 1Gi
+            storageClassName: openebs-backup
   terminationPolicy: Delete
+  tolerations: []
 
 ---
 apiVersion: batch/v1
@@ -152,7 +154,7 @@ spec:
     spec:
       containers:
         - name: pgsql-init
-          image: postgres:14-alpine
+          image: postgres:16.10-alpine3.22
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_PASSWORD
@@ -181,7 +183,17 @@ spec:
             - /bin/sh
             - -c
             - |
-              until psql ${DATABASE_URL} -c 'CREATE DATABASE twenty;' &>/dev/null; do sleep 1; done
+              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME"; do sleep 2; done
+              if ! psql "$DATABASE_URL" -tAc "SELECT 1 FROM pg_database WHERE datname='twenty'" | grep -q 1; then
+                psql "$DATABASE_URL" -c 'CREATE DATABASE twenty;'
+              fi
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
       restartPolicy: Never
   backoffLimit: 0
   ttlSecondsAfterFinished: 300
@@ -193,6 +205,8 @@ metadata:
   name: ${{ defaults.app_name }}-redis
   labels:
     sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -201,13 +215,15 @@ metadata:
   name: ${{ defaults.app_name }}-redis
   labels:
     sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
 rules:
   - apiGroups:
-      - ""
+      - '*'
     resources:
-      - events
+      - '*'
     verbs:
-      - create
+      - '*'
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -216,6 +232,8 @@ metadata:
   name: ${{ defaults.app_name }}-redis
   labels:
     sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -234,7 +252,7 @@ metadata:
   labels:
     clusterdefinition.kubeblocks.io/name: redis
     kb.io/database: redis-7.2.7
-    app.kubernetes.io/instance: ${{ defaults.app_name }}
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
     app.kubernetes.io/version: 7.2.7
     helm.sh/chart: redis-cluster-0.9.0
     sealos-db-provider-cr: ${{ defaults.app_name }}-redis
@@ -279,11 +297,11 @@ spec:
       replicas: 1
       resources:
         limits:
-          cpu: 100m
-          memory: 100Mi
+          cpu: 500m
+          memory: 512Mi
         requests:
-          cpu: 10m
-          memory: 10Mi
+          cpu: 50m
+          memory: 51Mi
       serviceVersion: 7.2.7
       volumeClaimTemplates:
         - name: data
@@ -297,23 +315,31 @@ spec:
   topology: replication
 
 ---
+${{ if(inputs.USE_S3_STORAGE === 'false') }}
 apiVersion: v1
-kind: Secret
+kind: PersistentVolumeClaim
 metadata:
-  name: ${{ defaults.app_name }}-secret
+  name: ${{ defaults.app_name }}-local-storage
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-type: Opaque
-stringData:
-  APP_SECRET: ${{ defaults.app_secret }}
+    app: ${{ defaults.app_name }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: openebs-backup
 
 ---
+${{ endif() }}
+
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: twentycrm/twenty:v1.12.0
+    originImageName: twentycrm/twenty:v2.22.0
     deploy.cloud.sealos.io/minReplicas: "1"
     deploy.cloud.sealos.io/maxReplicas: "1"
   labels:
@@ -333,8 +359,9 @@ spec:
     spec:
       automountServiceAccountToken: false
       initContainers:
+        ${{ if(inputs.USE_S3_STORAGE === 'false') }}
         - name: fix-permissions
-          image: busybox:latest
+          image: busybox:1.37.0
           imagePullPolicy: IfNotPresent
           command:
             - sh
@@ -344,9 +371,83 @@ spec:
           volumeMounts:
             - name: vn-appvn-packagesvn-twentyvn-servervn-vn-localvn-storage
               mountPath: /app/packages/twenty-server/.local-storage
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+        ${{ endif() }}
+        - name: wait-for-db
+          image: postgres:16.10-alpine3.22
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+          command:
+            - /bin/sh
+            - -c
+            - |
+              successes=0
+              while [ "$successes" -lt 3 ]; do
+                if psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='twenty'" | grep -q 1; then
+                  successes=$((successes + 1))
+                else
+                  successes=0
+                fi
+                sleep 2
+              done
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+        - name: wait-for-redis
+          image: redis:7.2.7-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+          command:
+            - /bin/sh
+            - -c
+            - until redis-cli -h "$REDIS_HOST" -p 6379 -a "$REDIS_PASSWORD" ping | grep -q PONG; do sleep 2; done
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
       containers:
         - name: ${{ defaults.app_name }}
-          image: twentycrm/twenty:v1.12.0
+          image: twentycrm/twenty:v2.22.0
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_PASSWORD
@@ -377,7 +478,7 @@ spec:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
             - name: REDIS_HOST
-              value: ${{ defaults.app_name }}-redis-redis-redis
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
             - name: REDIS_PORT
               value: '6379'
             - name: REDIS_URL
@@ -389,16 +490,53 @@ spec:
             - name: SIGN_IN_PREFILLED
               value: "false"
             - name: STORAGE_TYPE
+              ${{ if(inputs.USE_S3_STORAGE === 'true') }}
+              value: s3
+              ${{ else() }}
               value: local
+              ${{ endif() }}
+            ${{ if(inputs.USE_S3_STORAGE === 'true') }}
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            - name: STORAGE_S3_ACCESS_KEY_ID
+              value: $(S3_ACCESS_KEY_ID)
+            - name: STORAGE_S3_SECRET_ACCESS_KEY
+              value: $(S3_SECRET_ACCESS_KEY)
+            - name: STORAGE_S3_NAME
+              value: $(S3_BUCKET)
+            - name: STORAGE_S3_ENDPOINT
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+            - name: STORAGE_S3_REGION
+              value: us-west-2
+            ${{ endif() }}
             - name: ACCESS_TOKEN_EXPIRES_IN
               value: 7d
             - name: LOGIN_TOKEN_EXPIRES_IN
               value: 1h
-            - name: APP_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-secret
-                  key: APP_SECRET
+            - name: ENCRYPTION_KEY
+              value: ${{ defaults.encryption_key }}
+            - name: DISABLE_DB_MIGRATIONS
+              value: "false"
+            - name: DISABLE_CRON_JOBS_REGISTRATION
+              value: "false"
           ports:
             - containerPort: 3000
               name: http
@@ -420,28 +558,32 @@ spec:
             periodSeconds: 5
             timeoutSeconds: 3
             failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+              scheme: HTTP
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 120
           resources:
             requests:
               cpu: 100m
-              memory: 102Mi
+              memory: 204Mi
             limits:
-              cpu: 1000m
-              memory: 1024Mi
+              cpu: 1
+              memory: 2048Mi
           volumeMounts:
+            ${{ if(inputs.USE_S3_STORAGE === 'false') }}
             - name: vn-appvn-packagesvn-twentyvn-servervn-vn-localvn-storage
               mountPath: /app/packages/twenty-server/.local-storage
-  volumeClaimTemplates:
-    - metadata:
-        annotations:
-          path: /app/packages/twenty-server/.local-storage
-          value: "0.1"
-        name: vn-appvn-packagesvn-twentyvn-servervn-vn-localvn-storage
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 100Mi
+            ${{ endif() }}
+      ${{ if(inputs.USE_S3_STORAGE === 'false') }}
+      volumes:
+        - name: vn-appvn-packagesvn-twentyvn-servervn-vn-localvn-storage
+          persistentVolumeClaim:
+            claimName: ${{ defaults.app_name }}-local-storage
+      ${{ endif() }}
 
 ---
 apiVersion: apps/v1
@@ -449,7 +591,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-worker
   annotations:
-    originImageName: twentycrm/twenty:v1.12.0
+    originImageName: twentycrm/twenty:v2.22.0
     deploy.cloud.sealos.io/minReplicas: "1"
     deploy.cloud.sealos.io/maxReplicas: "1"
   labels:
@@ -467,9 +609,33 @@ spec:
         app: ${{ defaults.app_name }}-worker
     spec:
       automountServiceAccountToken: false
+      ${{ if(inputs.USE_S3_STORAGE === 'false') }}
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: ${{ defaults.app_name }}
+              topologyKey: kubernetes.io/hostname
+      ${{ endif() }}
+      initContainers:
+        - name: wait-for-server
+          image: curlimages/curl:8.15.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - until curl -fsS http://${{ defaults.app_name }}:3000/healthz; do sleep 2; done
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
       containers:
         - name: ${{ defaults.app_name }}-worker
-          image: twentycrm/twenty:v1.12.0
+          image: twentycrm/twenty:v2.22.0
           imagePullPolicy: IfNotPresent
           command:
             - yarn
@@ -503,7 +669,7 @@ spec:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
             - name: REDIS_HOST
-              value: ${{ defaults.app_name }}-redis-redis-redis
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
             - name: REDIS_PORT
               value: '6379'
             - name: REDIS_URL
@@ -511,21 +677,67 @@ spec:
             - name: SERVER_URL
               value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: DISABLE_DB_MIGRATIONS
-              value: "false"
+              value: "true"
+            - name: DISABLE_CRON_JOBS_REGISTRATION
+              value: "true"
             - name: STORAGE_TYPE
+              ${{ if(inputs.USE_S3_STORAGE === 'true') }}
+              value: s3
+              ${{ else() }}
               value: local
-            - name: APP_SECRET
+              ${{ endif() }}
+            ${{ if(inputs.USE_S3_STORAGE === 'true') }}
+            - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
-                  name: ${{ defaults.app_name }}-secret
-                  key: APP_SECRET
+                  name: object-storage-key
+                  key: accessKey
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            - name: STORAGE_S3_ACCESS_KEY_ID
+              value: $(S3_ACCESS_KEY_ID)
+            - name: STORAGE_S3_SECRET_ACCESS_KEY
+              value: $(S3_SECRET_ACCESS_KEY)
+            - name: STORAGE_S3_NAME
+              value: $(S3_BUCKET)
+            - name: STORAGE_S3_ENDPOINT
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+            - name: STORAGE_S3_REGION
+              value: us-west-2
+            ${{ endif() }}
+            - name: ENCRYPTION_KEY
+              value: ${{ defaults.encryption_key }}
           resources:
             requests:
-              cpu: 250m
-              memory: 1024Mi
+              cpu: 50m
+              memory: 102Mi
             limits:
-              cpu: 1000m
-              memory: 2048Mi
+              cpu: 500m
+              memory: 1024Mi
+          volumeMounts:
+            ${{ if(inputs.USE_S3_STORAGE === 'false') }}
+            - name: vn-appvn-packagesvn-twentyvn-servervn-vn-localvn-storage
+              mountPath: /app/packages/twenty-server/.local-storage
+            ${{ endif() }}
+      ${{ if(inputs.USE_S3_STORAGE === 'false') }}
+      volumes:
+        - name: vn-appvn-packagesvn-twentyvn-servervn-vn-localvn-storage
+          persistentVolumeClaim:
+            claimName: ${{ defaults.app_name }}-local-storage
+      ${{ endif() }}
 
 ---
 apiVersion: v1
@@ -534,9 +746,11 @@ metadata:
   name: ${{ defaults.app_name }}
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 3000
+    - name: http
+      port: 3000
       targetPort: 3000
   selector:
     app: ${{ defaults.app_name }}
@@ -566,7 +780,6 @@ metadata:
         expires 30d;
         add_header Cache-Control "public";
       }
-      more_set_headers "X-Forwarded-For $http_x_forwarded_for";
 spec:
   rules:
     - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
@@ -597,4 +810,4 @@ spec:
   displayType: normal
   icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/twenty/logo.svg"
   name: ${{ defaults.app_name }}
-  type: iframe
+  type: link

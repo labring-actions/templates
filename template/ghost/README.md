@@ -1,108 +1,119 @@
 # Deploy and Host Ghost on Sealos
 
-Ghost is an open-source publishing, newsletter, membership, and subscription platform. This template deploys Ghost with KubeBlocks MySQL and persistent content storage on Sealos Cloud.
+Ghost is an open-source publishing, newsletter, membership, and subscription platform. This template deploys Ghost 6.53.0 on Sealos with managed MySQL, persistent content storage, HTTPS ingress, and optional private S3-compatible media storage.
 
-![Application Screenshot](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/ghost/website-screenshot.webp)
+![Ghost Screenshot](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/ghost/website-screenshot.webp)
 
 ## About Hosting Ghost
 
-Ghost runs as a Node.js application serving the public site and Ghost Admin from the same URL. The Sealos template provisions an external MySQL database because Ghost production mode requires MySQL 8, and it mounts persistent storage at `/var/lib/ghost/content` for themes, images, and local content files.
+Ghost serves the public publication at `/` and Ghost Admin at `/ghost` from one stateful application. The template provisions a KubeBlocks MySQL 8 cluster because Ghost production mode requires MySQL, then initializes the dedicated `ghost` database before the application starts.
 
-The deployment includes a public HTTPS URL, an NGINX ingress, a KubeBlocks MySQL cluster, database initialization, and a stateful Ghost workload.
+Local mode stores themes, images, and content files on the persistent `/var/lib/ghost/content` volume. The optional object storage mode uses Ghost 6.53.0's built-in `S3Storage` adapter for images, media, and files. A small stateless proxy serves objects from the private Sealos bucket through the same application domain.
 
 ## Common Use Cases
 
-- **Independent publishing**: Run a professional blog or publication with Ghost Admin.
-- **Newsletter operations**: Manage posts, members, and newsletters from one CMS.
-- **Membership sites**: Build gated content and subscription workflows.
-- **Team editorial workflow**: Give authors and editors a shared publishing backend.
+- **Independent publishing**: Run a professional blog, magazine, or documentation site.
+- **Newsletters**: Create posts and send email publications from one editorial system.
+- **Membership sites**: Manage members, gated content, and paid subscriptions.
+- **Editorial teams**: Give authors and editors a shared publishing workspace.
 
 ## Dependencies for Ghost Hosting
 
-The Sealos template includes Ghost, KubeBlocks MySQL, persistent storage, HTTPS ingress, and automatic database creation.
+- **Ghost**: `ghost:6.53.0-alpine`
+- **Database**: KubeBlocks MySQL `ac-mysql-8.0.30-1` with a dedicated `ghost` database
+- **Persistent storage**: `/var/lib/ghost/content` for local themes and content files
+- **Optional object storage**: Private Sealos S3-compatible bucket and same-origin read proxy
+- **Network entry**: Service, HTTPS Ingress, and Sealos App resource
 
 ### Deployment Dependencies
 
-- [Ghost Documentation](https://ghost.org/docs/) - Official Ghost documentation
-- [Ghost Docker Image](https://hub.docker.com/_/ghost) - Official Docker image documentation
+- [Ghost Documentation](https://ghost.org/docs/) - Official product and administration documentation
+- [Ghost Configuration](https://ghost.org/docs/config/) - Official runtime configuration reference
+- [Ghost Docker Image](https://hub.docker.com/_/ghost) - Official container guidance
 - [Ghost GitHub Repository](https://github.com/TryGhost/Ghost) - Source code and releases
+- [Sealos Documentation](https://sealos.io/docs) - Platform deployment and operations guides
 
 ### Implementation Details
 
-**Architecture Components:**
+The template sets `NODE_ENV=production`, builds the canonical HTTPS URL from the generated Sealos domain, and reads database credentials directly from the KubeBlocks connection Secret. An initialization Job creates the `ghost` database with `utf8mb4` before the application migration runs.
 
-- **Ghost**: Main publishing and admin application using `ghost:6.44.1-alpine`
-- **MySQL**: KubeBlocks MySQL `ac-mysql-8.0.30-1`
-- **Persistent Storage**: Mounted at `/var/lib/ghost/content`
-- **Ingress**: HTTPS public access on the Sealos domain
+S3 mode configures Ghost's built-in `S3Storage` adapter for images and `media` storage. The bucket stays private. Requests under `/__sealos_storage/` are routed to a stateless proxy that reads authorized objects with the generated bucket credentials.
 
-**Configuration:**
-
-The template sets `NODE_ENV=production`, configures `url` to the generated HTTPS URL, and connects Ghost to the provisioned MySQL database. Ghost serves the public site at `/` and the admin interface at `/ghost`.
-
-**License Information:**
+The tested minimum baseline is `100m` CPU and `256Mi` memory for Ghost, `100m` CPU and `128Mi` memory for the database initialization Job, and `100m` CPU and `128Mi` memory for the optional storage proxy. A 128Mi Ghost cold start was OOM-killed; 256Mi completed a fresh MySQL migration, owner setup, media upload, and post publication with zero restarts. MySQL uses `500m` CPU and `512Mi` memory.
 
 Ghost is licensed under the MIT License.
 
 ## Why Deploy Ghost on Sealos?
 
-Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies the entire application lifecycle, from development in cloud IDEs to production deployment and management. By deploying Ghost on Sealos, you get:
-
-- **One-Click Deployment**: Deploy Ghost, MySQL, storage, ingress, and SSL with a single click.
-- **Persistent Storage Included**: Keep uploaded content and themes across restarts.
-- **Managed Database**: Run Ghost with a KubeBlocks MySQL database.
-- **Instant Public Access**: Use the generated HTTPS URL immediately after deployment.
-- **Easy Customization**: Adjust resources and environment variables from the Sealos Canvas.
-
-Deploy Ghost on Sealos and focus on publishing instead of operating infrastructure.
+- **One-click publication stack**: Create Ghost, MySQL, persistent storage, networking, and TLS together.
+- **Production database**: Use managed MySQL with generated credentials and automatic database initialization.
+- **Persistent content**: Keep themes and local content files across restarts.
+- **Private object storage option**: Move images and media to a Sealos bucket while preserving same-origin delivery.
+- **Instant public access**: Open the generated HTTPS domain after startup.
+- **Canvas operations**: Adjust application resources and storage capacity after deployment.
 
 ## Deployment Guide
 
 1. Open the [Ghost template](https://sealos.io/products/app-store/ghost) and click **Deploy Now**.
-2. Configure the deployment parameters:
-   - **use_s3_storage**: Enable this option when you want Ghost media and uploads to use S3-compatible object storage.
-3. Wait for deployment to complete. This typically takes 2-3 minutes. After deployment, you will be redirected to the Canvas. For later changes, describe your requirements in the dialog to let AI apply updates, or click the relevant resource cards to modify settings.
-4. Access Ghost via the provided URL:
-   - **Public Site**: Use the generated HTTPS URL from Sealos.
-   - **Admin Setup**: Open `/ghost` on the same URL and create the first owner account.
+2. Choose the storage option:
+   - **Enable S3-compatible object storage** (`enable_s3_storage`): Disabled by default. Enable it to store Ghost images, media, and files in a private Sealos bucket.
+3. Wait for MySQL, the database initialization Job, Ghost, and the optional storage proxy to become ready. A fresh deployment can take several minutes while Ghost creates its schema.
+4. Open `https://<your-ghost-domain>/ghost`.
+5. Enter the site title, owner name, email address, and a strong password, then click **Create account & start publishing**.
+6. Create and publish a post to confirm both Ghost Admin and the public site are working.
+
+## First Login and Registration
+
+The first visit to `/ghost` creates the owner account:
+
+1. Open `https://<your-ghost-domain>/ghost`.
+2. Complete the setup form with the publication title and owner details.
+3. Choose a strong password without common phrases. Ghost validates password strength during setup.
+4. Submit the form and wait for Ghost Admin to open.
+
+After setup, the same `/ghost` address shows the normal administrator login page. Sign in with the owner email and password created during setup. Additional staff users are invited from Ghost Admin after email delivery is configured.
 
 ## Configuration
 
-Ghost Admin is available at `https://[your-app-url]/ghost`. The first visit starts the owner account setup flow where you create the administrator email and password. After setup, use the same `/ghost` path for normal administrator login.
-
-The template disables staff-device email verification during first setup so the owner account can be created before SMTP is configured. Configure SMTP from Ghost Admin before sending newsletters or inviting staff users.
-
-Social Web and Ghost Explore pings are disabled by default for a clean single-node deployment. Enable those features from Ghost Admin after adding the supporting services and public configuration you want to use.
-
-This template uses local persistent content storage by default. The **Use S3-compatible object storage through the Ghost storage adapter configuration** switch creates a Sealos object storage bucket, installs the Ghost S3 storage adapter into `/var/lib/ghost/content/adapters/storage/s3` during startup, and injects the S3 adapter configuration variables.
+- **Storage mode**: Local storage is the default. S3 mode applies to images, media, and files while the content volume continues to hold themes and other local Ghost data.
+- **SMTP**: Configure mail delivery before sending newsletters, password reset messages, or staff invitations.
+- **Payments**: Add Stripe credentials from Ghost Admin before enabling paid memberships.
+- **Social Web and Explore**: The template starts with Social Web and Explore pings disabled for a clean standalone deployment. Enable related features after their public services and settings are prepared.
+- **Staff device verification**: The template disables staff-device email verification so the first owner can be created before SMTP setup.
 
 ## Scaling
 
-To scale Ghost resources:
-
-1. Open the Canvas for your deployment.
-2. Click the Ghost StatefulSet resource card.
-3. Adjust CPU, memory, or storage.
-4. Apply the changes in the dialog.
+Keep one Ghost replica with the default `ReadWriteOnce` content volume. Scale CPU and memory vertically in Canvas as the publication, member list, or newsletter workload grows. Increase the MySQL and PVC resources alongside application demand. A multi-replica design requires shared content storage and a reviewed Ghost clustering strategy.
 
 ## Troubleshooting
 
-**Admin setup page does not load**
+**Ghost Admin is still loading after deployment**
 
-- Cause: Ghost may still be initializing or waiting for MySQL.
-- Solution: Wait for the Ghost workload to become ready, then open `/ghost` again.
+Ghost may be creating the initial MySQL schema. Wait for the Ghost StatefulSet to become Ready, then reload `/ghost`.
 
-**Images or themes disappear after restart**
+**The setup form rejects the password**
 
-- Cause: The content volume was modified or removed.
-- Solution: Keep `/var/lib/ghost/content` mounted to persistent storage.
+Use a longer password with random uppercase and lowercase letters, numbers, and symbols. Avoid common words and product names.
+
+**Newsletter or invitation emails do not arrive**
+
+Configure SMTP in Ghost before using email workflows.
+
+**S3 media returns a storage error**
+
+Confirm the ObjectStorageBucket and storage proxy are Ready. Keep the bucket private and access media through the generated Ghost domain.
+
+**The Ghost pod is OOM-killed during startup**
+
+Keep the default 256Mi application memory limit or increase it for larger publications.
 
 ## Additional Resources
 
-- [Ghost Configuration](https://ghost.org/docs/config/)
-- [Ghost Admin](https://ghost.org/docs/admin/)
-- [Ghost Docker Image](https://hub.docker.com/_/ghost)
+- [Ghost Admin Documentation](https://ghost.org/docs/admin/)
+- [Ghost Memberships](https://ghost.org/docs/members/)
+- [Ghost Email Newsletters](https://ghost.org/docs/newsletters/)
+- [Ghost Self-hosting FAQ](https://ghost.org/docs/faq/self-hosting/)
 
 ## License
 
-This Sealos template is provided under the repository license. Ghost itself is licensed under the MIT License.
+This Sealos template follows the repository license. Ghost is distributed under the MIT License.

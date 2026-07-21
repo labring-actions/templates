@@ -2,6 +2,8 @@ apiVersion: app.sealos.io/v1
 kind: Template
 metadata:
   name: mastodon
+  annotations:
+    docker-to-sealos.object-storage-compatibility-proxy-source: https://github.com/mastodon/mastodon/blob/v4.6.3/config/initializers/paperclip.rb
 spec:
   title: Mastodon
   url: https://joinmastodon.org/
@@ -47,17 +49,14 @@ spec:
     admin_username:
       description: Initial owner username. Use lowercase letters, numbers, or underscores.
       type: string
-      default: admin
       required: true
     admin_email:
       description: Initial owner email address.
       type: string
-      default: admin@example.com
       required: true
     admin_password:
       description: Initial owner password. Change it after the first login.
       type: string
-      default: ''
       required: true
     registration_mode:
       description: Public registration mode for the instance.
@@ -71,13 +70,16 @@ spec:
     vapid_private_key:
       description: VAPID private key for Web Push. Generate it together with vapid_public_key before deployment.
       type: string
-      default: ''
       required: true
     vapid_public_key:
       description: VAPID public key for Web Push. Generate it together with vapid_private_key before deployment.
       type: string
-      default: ''
       required: true
+    enable_s3_storage:
+      description: Store media in a Sealos ObjectStorageBucket. The default stores media on shared persistent local storage.
+      type: boolean
+      default: 'false'
+      required: false
     smtp_enabled:
       description: Enable SMTP for confirmation, notification, and password reset emails.
       type: boolean
@@ -114,6 +116,7 @@ spec:
       required: true
       if: inputs.smtp_enabled === 'true'
 ---
+${{ if(inputs.enable_s3_storage === 'true') }}
 apiVersion: objectstorage.sealos.io/v1
 kind: ObjectStorageBucket
 metadata:
@@ -122,6 +125,8 @@ metadata:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   policy: private
+---
+${{ endif() }}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -280,6 +285,7 @@ metadata:
     kb.io/database: postgresql-16.4.0
     clusterdefinition.kubeblocks.io/name: postgresql
     clusterversion.kubeblocks.io/name: postgresql-16.4.0
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
 spec:
   affinity:
@@ -328,10 +334,21 @@ spec:
     spec:
       automountServiceAccountToken: false
       restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: pgsql-init
           image: postgres:16.4-alpine
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           env:
             - name: PG_PASSWORD
               valueFrom:
@@ -396,17 +413,29 @@ data:
   RAILS_LOG_LEVEL: 'info'
   REGISTRATION_MODE: '${{ inputs.registration_mode }}'
   REDIS_DRIVER: 'ruby'
+  ${{ if(inputs.enable_s3_storage === 'true') }}
   S3_ENABLED: 'true'
   S3_OVERRIDE_PATH_STYLE: 'false'
-  S3_PERMISSION: 'public-read'
+  S3_PERMISSION: 'private'
   S3_PROTOCOL: 'https'
   S3_REGION: 'us-east-1'
+  ${{ endif() }}
+  ${{ if(inputs.enable_s3_storage === 'false') }}
+  S3_ENABLED: 'false'
+  PAPERCLIP_ROOT_PATH: '/opt/mastodon/public/system'
+  PAPERCLIP_ROOT_URL: '/system'
+  ${{ endif() }}
   SECRET_KEY_BASE: '${{ defaults.secret_key_base }}'
   SIDEKIQ_CONCURRENCY: '5'
   SINGLE_USER_MODE: 'false'
   STREAMING_CLUSTER_NUM: '1'
   SMTP_AUTH_METHOD: 'plain'
+  ${{ if(inputs.smtp_enabled === 'true') }}
   SMTP_DELIVERY_METHOD: 'smtp'
+  ${{ endif() }}
+  ${{ if(inputs.smtp_enabled === 'false') }}
+  SMTP_DELIVERY_METHOD: 'logger'
+  ${{ endif() }}
   SMTP_ENABLE_STARTTLS: 'auto'
   SMTP_OPENSSL_VERIFY_MODE: 'peer'
   SMTP_PORT: '${{ inputs.smtp_port }}'
@@ -414,7 +443,147 @@ data:
   SMTP_FROM_ADDRESS: '${{ inputs.smtp_from_address }}'
   VAPID_PRIVATE_KEY: '${{ inputs.vapid_private_key }}'
   VAPID_PUBLIC_KEY: '${{ inputs.vapid_public_key }}'
-  WEB_CONCURRENCY: '1'
+  WEB_CONCURRENCY: '0'
+---
+${{ if(inputs.enable_s3_storage === 'true') }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-media-proxy
+  labels:
+    app: ${{ defaults.app_name }}-media-proxy
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-media-proxy
+data:
+  vn-optvn-mastodonvn-configvn-ru: |
+    # frozen_string_literal: true
+
+    require 'aws-sdk-s3'
+    require 'rack'
+
+    class SealosMediaProxy
+      PREFIX = '/__sealos_media/'
+
+      def initialize
+        @bucket = ENV.fetch('S3_BUCKET')
+        @client = Aws::S3::Client.new(
+          endpoint: ENV.fetch('S3_ENDPOINT'),
+          region: ENV.fetch('S3_REGION', 'us-east-1'),
+          force_path_style: true,
+          credentials: Aws::Credentials.new(
+            ENV.fetch('S3_ACCESS_KEY_ID'),
+            ENV.fetch('S3_SECRET_ACCESS_KEY')
+          )
+        )
+      end
+
+      def call(env)
+        return response(200, 'ok') if env['PATH_INFO'] == "#{PREFIX}__health"
+        return response(405, 'method not allowed') unless %w[GET HEAD].include?(env['REQUEST_METHOD'])
+
+        key = Rack::Utils.unescape_path(env['PATH_INFO'].delete_prefix(PREFIX))
+        return response(404, 'not found') if key.empty? || key.split('/').include?('..') || key.include?("\0")
+
+        object = @client.head_object(bucket: @bucket, key: key)
+        range = byte_range(env['HTTP_RANGE'], object.content_length)
+        if range == :invalid
+          return [416, {
+            'Content-Type' => 'text/plain',
+            'Content-Length' => '0',
+            'Content-Range' => "bytes */#{object.content_length}",
+            'Accept-Ranges' => 'bytes',
+          }, []]
+        end
+
+        headers = {
+          'Content-Type' => object.content_type || 'application/octet-stream',
+          'Content-Length' => object.content_length.to_s,
+          'Cache-Control' => object.cache_control || 'public, max-age=315576000, immutable',
+          'ETag' => object.etag.to_s,
+          'Accept-Ranges' => 'bytes',
+        }
+        headers['Content-Disposition'] = object.content_disposition if object.content_disposition
+
+        status = 200
+        get_options = {bucket: @bucket, key: key}
+        if range
+          first, last = range
+          status = 206
+          headers['Content-Length'] = (last - first + 1).to_s
+          headers['Content-Range'] = "bytes #{first}-#{last}/#{object.content_length}"
+          get_options[:range] = "bytes=#{first}-#{last}"
+        end
+
+        body = if env['REQUEST_METHOD'] == 'HEAD'
+                 []
+               else
+                 Enumerator.new do |stream|
+                   @client.get_object(**get_options) { |chunk| stream << chunk }
+                 end
+               end
+
+        [status, headers, body]
+      rescue Aws::S3::Errors::NoSuchKey, Aws::S3::Errors::NotFound
+        response(404, 'not found')
+      rescue ArgumentError
+        response(400, 'invalid object key')
+      rescue Aws::S3::Errors::ServiceError => error
+        warn("S3 media read failed: #{error.class}")
+        response(502, 'storage unavailable')
+      end
+
+      private
+
+      def byte_range(value, size)
+        return if value.nil?
+        return :invalid unless size.positive?
+
+        match = /\Abytes=(\d*)-(\d*)\z/.match(value)
+        return :invalid unless match && (match[1].length.positive? || match[2].length.positive?)
+
+        if match[1].empty?
+          length = match[2].to_i
+          return :invalid unless length.positive?
+
+          return [[size - length, 0].max, size - 1]
+        end
+
+        first = match[1].to_i
+        return :invalid if first >= size
+
+        last = match[2].empty? ? size - 1 : [match[2].to_i, size - 1].min
+        return :invalid if last < first
+
+        [first, last]
+      end
+
+      def response(status, body)
+        [status, { 'Content-Type' => 'text/plain', 'Content-Length' => body.bytesize.to_s }, [body]]
+      end
+    end
+
+    run SealosMediaProxy.new
+---
+${{ endif() }}
+---
+${{ if(inputs.enable_s3_storage === 'false') }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ${{ defaults.app_name }}-media
+  annotations:
+    path: /opt/mastodon/public/system
+    value: '1'
+  labels:
+    app: ${{ defaults.app_name }}-media
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-media
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+${{ endif() }}
 ---
 apiVersion: batch/v1
 kind: Job
@@ -429,10 +598,22 @@ spec:
     spec:
       automountServiceAccountToken: false
       restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 991
+        runAsGroup: 991
+        fsGroup: 991
+        seccompProfile:
+          type: RuntimeDefault
       initContainers:
         - name: wait-for-redis
-          image: public.ecr.aws/docker/library/redis:7-alpine
+          image: public.ecr.aws/docker/library/redis:7.2.7-alpine
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           env:
             - name: REDIS_HOST
               value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc
@@ -452,8 +633,13 @@ spec:
               memory: 12Mi
       containers:
         - name: mastodon-setup
-          image: ghcr.io/mastodon/mastodon:v4.5.11
+          image: tootsuite/mastodon:v4.6.3
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           command:
             - /bin/bash
             - -c
@@ -522,6 +708,7 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
+            ${{ if(inputs.enable_s3_storage === 'true') }}
             - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
@@ -551,25 +738,26 @@ spec:
             - name: S3_ENDPOINT
               value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
             - name: S3_ALIAS_HOST
-              value: $(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)/$(S3_BUCKET)
+              value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/__sealos_media
+            ${{ endif() }}
             - name: SMTP_LOGIN
               value: ${{ inputs.smtp_login }}
             - name: SMTP_PASSWORD
               value: ${{ inputs.smtp_password }}
           resources:
             limits:
-              cpu: 1000m
-              memory: 1024Mi
-            requests:
               cpu: 100m
-              memory: 128Mi
+              memory: 512Mi
+            requests:
+              cpu: 10m
+              memory: 51Mi
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-web
   annotations:
-    originImageName: ghcr.io/mastodon/mastodon:v4.5.11
+    originImageName: tootsuite/mastodon:v4.6.3
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
     docker-to-sealos.resource-override-source: https://github.com/mastodon/chart/blob/main/values.yaml#masto-web-resources
@@ -583,20 +771,30 @@ spec:
     matchLabels:
       app: ${{ defaults.app_name }}-web
   strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
+    type: Recreate
   template:
     metadata:
       labels:
         app: ${{ defaults.app_name }}-web
     spec:
       automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 991
+        runAsGroup: 991
+        fsGroup: 991
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
       initContainers:
         - name: wait-for-mastodon-schema
           image: public.ecr.aws/docker/library/postgres:16.4-alpine
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           env:
             - name: PGHOST
               valueFrom:
@@ -624,7 +822,7 @@ spec:
             - /bin/sh
             - -ec
             - |
-              until psql -tAc "SELECT to_regclass('public.users') IS NOT NULL" | grep -q t; do
+              until psql -tAc "SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version='20260611150940')" | grep -q t; do
                 sleep 5
               done
           resources:
@@ -636,8 +834,13 @@ spec:
               memory: 12Mi
       containers:
         - name: ${{ defaults.app_name }}-web
-          image: ghcr.io/mastodon/mastodon:v4.5.11
+          image: tootsuite/mastodon:v4.6.3
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           command:
             - bundle
             - exec
@@ -677,6 +880,7 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
+            ${{ if(inputs.enable_s3_storage === 'true') }}
             - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
@@ -706,11 +910,17 @@ spec:
             - name: S3_ENDPOINT
               value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
             - name: S3_ALIAS_HOST
-              value: $(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)/$(S3_BUCKET)
+              value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/__sealos_media
+            ${{ endif() }}
             - name: SMTP_LOGIN
               value: ${{ inputs.smtp_login }}
             - name: SMTP_PASSWORD
               value: ${{ inputs.smtp_password }}
+          ${{ if(inputs.enable_s3_storage === 'false') }}
+          volumeMounts:
+            - name: mastodon-media
+              mountPath: /opt/mastodon/public/system
+          ${{ endif() }}
           ports:
             - name: http
               containerPort: 3000
@@ -739,18 +949,24 @@ spec:
             failureThreshold: 60
           resources:
             limits:
-              cpu: 1000m
-              memory: 1024Mi
-            requests:
               cpu: 100m
-              memory: 128Mi
+              memory: 512Mi
+            requests:
+              cpu: 10m
+              memory: 51Mi
+      ${{ if(inputs.enable_s3_storage === 'false') }}
+      volumes:
+        - name: mastodon-media
+          persistentVolumeClaim:
+            claimName: ${{ defaults.app_name }}-media
+      ${{ endif() }}
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-sidekiq
   annotations:
-    originImageName: ghcr.io/mastodon/mastodon:v4.5.11
+    originImageName: tootsuite/mastodon:v4.6.3
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
     docker-to-sealos.resource-override-source: https://github.com/mastodon/chart/blob/main/values.yaml#masto-sidekiq-resources
@@ -771,10 +987,23 @@ spec:
         app: ${{ defaults.app_name }}-sidekiq
     spec:
       automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 991
+        runAsGroup: 991
+        fsGroup: 991
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
       initContainers:
         - name: wait-for-mastodon-schema
           image: public.ecr.aws/docker/library/postgres:16.4-alpine
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           env:
             - name: PGHOST
               valueFrom:
@@ -802,7 +1031,7 @@ spec:
             - /bin/sh
             - -ec
             - |
-              until psql -tAc "SELECT to_regclass('public.users') IS NOT NULL" | grep -q t; do
+              until psql -tAc "SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version='20260611150940')" | grep -q t; do
                 sleep 5
               done
           resources:
@@ -814,28 +1043,17 @@ spec:
               memory: 12Mi
       containers:
         - name: ${{ defaults.app_name }}-sidekiq
-          image: ghcr.io/mastodon/mastodon:v4.5.11
+          image: tootsuite/mastodon:v4.6.3
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           command:
             - bundle
             - exec
             - sidekiq
-            - -c
-            - '5'
-            - -q
-            - default,8
-            - -q
-            - push,6
-            - -q
-            - ingress,4
-            - -q
-            - mailers,2
-            - -q
-            - pull
-            - -q
-            - scheduler
-            - -q
-            - fasp
           envFrom:
             - configMapRef:
                 name: ${{ defaults.app_name }}-env
@@ -869,6 +1087,7 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
+            ${{ if(inputs.enable_s3_storage === 'true') }}
             - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
@@ -898,11 +1117,17 @@ spec:
             - name: S3_ENDPOINT
               value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
             - name: S3_ALIAS_HOST
-              value: $(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)/$(S3_BUCKET)
+              value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/__sealos_media
+            ${{ endif() }}
             - name: SMTP_LOGIN
               value: ${{ inputs.smtp_login }}
             - name: SMTP_PASSWORD
               value: ${{ inputs.smtp_password }}
+          ${{ if(inputs.enable_s3_storage === 'false') }}
+          volumeMounts:
+            - name: mastodon-media
+              mountPath: /opt/mastodon/public/system
+          ${{ endif() }}
           livenessProbe:
             exec:
               command:
@@ -923,18 +1148,31 @@ spec:
             failureThreshold: 24
           resources:
             limits:
-              cpu: 1000m
-              memory: 768Mi
-            requests:
               cpu: 100m
-              memory: 128Mi
+              memory: 512Mi
+            requests:
+              cpu: 10m
+              memory: 51Mi
+      ${{ if(inputs.enable_s3_storage === 'false') }}
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: ${{ defaults.app_name }}-web
+              topologyKey: kubernetes.io/hostname
+      volumes:
+        - name: mastodon-media
+          persistentVolumeClaim:
+            claimName: ${{ defaults.app_name }}-media
+      ${{ endif() }}
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-streaming
   annotations:
-    originImageName: ghcr.io/mastodon/mastodon-streaming:v4.5.11
+    originImageName: tootsuite/mastodon-streaming:v4.6.3
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
     docker-to-sealos.resource-override-source: https://github.com/mastodon/chart/blob/main/values.yaml#masto-streaming-resources
@@ -958,10 +1196,22 @@ spec:
         app: ${{ defaults.app_name }}-streaming
     spec:
       automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 991
+        runAsGroup: 991
+        fsGroup: 991
+        seccompProfile:
+          type: RuntimeDefault
       initContainers:
         - name: wait-for-mastodon-schema
           image: public.ecr.aws/docker/library/postgres:16.4-alpine
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           env:
             - name: PGHOST
               valueFrom:
@@ -989,7 +1239,7 @@ spec:
             - /bin/sh
             - -ec
             - |
-              until psql -tAc "SELECT to_regclass('public.users') IS NOT NULL" | grep -q t; do
+              until psql -tAc "SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version='20260611150940')" | grep -q t; do
                 sleep 5
               done
           resources:
@@ -1001,11 +1251,16 @@ spec:
               memory: 12Mi
       containers:
         - name: ${{ defaults.app_name }}-streaming
-          image: ghcr.io/mastodon/mastodon-streaming:v4.5.11
+          image: tootsuite/mastodon-streaming:v4.6.3
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           command:
             - node
-            - ./streaming
+            - ./streaming/index.js
           envFrom:
             - configMapRef:
                 name: ${{ defaults.app_name }}-env
@@ -1071,11 +1326,130 @@ spec:
             failureThreshold: 30
           resources:
             limits:
-              cpu: 500m
-              memory: 512Mi
+              cpu: 100m
+              memory: 128Mi
             requests:
-              cpu: 50m
-              memory: 64Mi
+              cpu: 10m
+              memory: 12Mi
+---
+${{ if(inputs.enable_s3_storage === 'true') }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-media-proxy
+  annotations:
+    originImageName: tootsuite/mastodon:v4.6.3
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+    docker-to-sealos.object-storage-compatibility-proxy-source: https://github.com/mastodon/mastodon/blob/v4.6.3/config/initializers/paperclip.rb
+  labels:
+    app: ${{ defaults.app_name }}-media-proxy
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-media-proxy
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-media-proxy
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-media-proxy
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 991
+        runAsGroup: 991
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ${{ defaults.app_name }}-media-proxy
+          image: tootsuite/mastodon:v4.6.3
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - bundle
+            - exec
+            - puma
+            - -b
+            - tcp://0.0.0.0:8080
+            - -w
+            - '0'
+            - -t
+            - '1:1'
+            - /opt/mastodon/config.ru
+          env:
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            - name: S3_ENDPOINT
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+            - name: S3_REGION
+              value: us-east-1
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          volumeMounts:
+            - name: ${{ defaults.app_name }}-media-proxy-cm
+              mountPath: /opt/mastodon/config.ru
+              subPath: vn-optvn-mastodonvn-configvn-ru
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /__sealos_media/__health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /__sealos_media/__health
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 12
+          startupProbe:
+            httpGet:
+              path: /__sealos_media/__health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 30
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+      volumes:
+        - name: ${{ defaults.app_name }}-media-proxy-cm
+          configMap:
+            name: ${{ defaults.app_name }}-media-proxy
+---
+${{ endif() }}
 ---
 apiVersion: v1
 kind: Service
@@ -1104,10 +1478,29 @@ spec:
   selector:
     app: ${{ defaults.app_name }}-streaming
   ports:
-    - name: streaming
+    - name: websocket
       port: 4000
       targetPort: 4000
       protocol: TCP
+---
+${{ if(inputs.enable_s3_storage === 'true') }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-media-proxy
+  labels:
+    app: ${{ defaults.app_name }}-media-proxy
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-media-proxy
+spec:
+  selector:
+    app: ${{ defaults.app_name }}-media-proxy
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+---
+${{ endif() }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -1119,20 +1512,10 @@ metadata:
   annotations:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/proxy-body-size: 32m
-    nginx.ingress.kubernetes.io/server-snippet: |
-      client_header_buffer_size 64k;
-      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '3600'
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '3600'
+    nginx.ingress.kubernetes.io/backend-protocol: WS
     nginx.ingress.kubernetes.io/ssl-redirect: 'true'
-    nginx.ingress.kubernetes.io/backend-protocol: HTTP
-    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
-    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
-    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
-    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
-        expires 30d;
-        add_header Cache-Control "public";
-      }
 spec:
   rules:
     - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
@@ -1179,6 +1562,15 @@ spec:
     - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       http:
         paths:
+          ${{ if(inputs.enable_s3_storage === 'true') }}
+          - pathType: Prefix
+            path: /__sealos_media/
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-media-proxy
+                port:
+                  number: 8080
+          ${{ endif() }}
           - pathType: Prefix
             path: /
             backend:
