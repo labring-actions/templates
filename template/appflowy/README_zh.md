@@ -1,6 +1,6 @@
 # 在 Sealos 上部署和托管 AppFlowy
 
-AppFlowy 是一个开源协作工作空间，支持文档、数据库、看板和团队实时协作。这个模板会在 Sealos 上部署 AppFlowy Cloud 0.16.5 后端组件与 AppFlowy Web 0.15.5。
+AppFlowy 是一个开源协作工作空间，支持文档、数据库、看板和团队实时协作。这个模板会在 Sealos 上部署 AppFlowy Cloud 0.16.5、AppFlowy Web 0.15.5 和 AppFlowy Search 0.16.3。
 
 ![AppFlowy 工作空间](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/appflowy/website-screenshot.webp)
 
@@ -8,9 +8,9 @@ AppFlowy 是一个开源协作工作空间，支持文档、数据库、看板�
 
 AppFlowy 提供类似 Notion 的工作空间体验，支持页面、富文本编辑、团队空间和结构化知识管理。托管版 Web 客户端会连接 AppFlowy Cloud，用于工作空间数据、身份认证、协作 API、WebSocket 同步和后台导入导出任务。
 
-PostgreSQL 通过 KubeBlocks 创建并启用 pgvector，Redis 通过 KubeBlocks 提供缓存和后台任务协调。文件存储默认使用固定版本的私有 MinIO 和持久卷；启用存储选项后会改用 Sealos 托管对象存储桶。
+PostgreSQL 通过 KubeBlocks 创建并启用 pgvector，Redis 通过 KubeBlocks 提供缓存和后台任务协调。文件存储使用 Sealos 托管对象存储桶，并通过私网 S3 兼容代理访问。
 
-核心运行组件包括 Web、Cloud、Worker、GoTrue、PostgreSQL、Redis 和一个 S3 兼容存储后端。上游 0.16.5 组件包还提供 Search、Admin Frontend 和 AI 服务；这个模板默认关闭这些可选服务，以控制基础资源占用。
+核心运行组件包括 Web、Cloud、Worker、Search、GoTrue、PostgreSQL、Redis 和 S3 兼容对象存储。上游组件包还提供 Admin Frontend 和 AI 服务，这些可选界面保持在核心部署范围之外。
 
 ## 常见使用场景
 
@@ -27,10 +27,11 @@ PostgreSQL 通过 KubeBlocks 创建并启用 pgvector，Redis 通过 KubeBlocks 
 - AppFlowy Web 客户端
 - AppFlowy Cloud API 和 WebSocket 服务
 - AppFlowy Worker 后台任务服务
+- AppFlowy Search 关键词索引和查询服务
 - GoTrue 认证服务
 - 启用 pgvector 的 KubeBlocks PostgreSQL
 - KubeBlocks Redis
-- 默认部署带 1Gi 持久卷的内置 MinIO，也可选择 Sealos 对象存储
+- Sealos 托管对象存储和私网兼容代理
 
 ### 部署依赖
 
@@ -48,11 +49,11 @@ PostgreSQL 通过 KubeBlocks 创建并启用 pgvector，Redis 通过 KubeBlocks 
 - **AppFlowy Web**：浏览器端 UI，通过主应用地址访问。
 - **AppFlowy Cloud**：工作空间、文档、协作和文件元数据的 API 与 WebSocket 后端。
 - **AppFlowy Worker**：处理导入、文件相关任务等异步后台任务。
+- **AppFlowy Search**：提供持久化关键词索引和搜索查询。
 - **GoTrue**：AppFlowy 使用的邮箱和密码认证服务。
 - **PostgreSQL**：通过 KubeBlocks 创建并启用 pgvector。
-- **Redis**：默认选择外接 Redis，用于缓存和后台任务协调。
-- **对象存储**：启用 `use_sealos_objectstorage` 时使用 Sealos 托管的 S3 兼容存储桶。
-- **内置 MinIO**：关闭 `use_sealos_objectstorage` 时创建固定版本的 MinIO StatefulSet、持久卷和 HTTPS API 地址。
+- **Redis**：通过 KubeBlocks 提供缓存和后台任务协调。
+- **对象存储**：使用 Sealos 托管的 S3 兼容存储桶和私网 OpenResty 代理。
 
 ### 配置方式
 
@@ -62,9 +63,9 @@ AppFlowy Web 客户端启动时会收到三个公开地址：
 - `APPFLOWY_GOTRUE_BASE_URL`：独立的 GoTrue 认证公网地址
 - `APPFLOWY_WS_BASE_URL`：主应用域名下的 WebSocket 地址
 
-Cloud 和 Worker 服务通过 Kubernetes 内部服务发现连接 PostgreSQL、Redis 和 GoTrue。启动 init container 会等待这些依赖就绪，再启动应用进程。Redis 端点已经指向这个模板创建的 KubeBlocks Redis 数据服务。
+Cloud、Worker 和 Search 服务通过 Kubernetes 内部服务发现连接 PostgreSQL、Redis 和 GoTrue。启动 init container 会等待这些依赖就绪，再启动应用进程。Redis 端点已经指向这个模板创建的 KubeBlocks Redis 数据服务。
 
-启用 Sealos 对象存储时，后端 S3 流量会经过固定版本的私网 OpenResty 兼容代理，浏览器访问的预签名 URL 继续使用公网 HTTPS 端点。代理会为批量清理请求补充 Sealos 对象存储所需的 `Content-MD5` 请求头，然后转发到存储服务。
+后端 S3 流量会经过固定版本的私网 OpenResty 兼容代理，浏览器访问的预签名 URL 使用公网 HTTPS 端点。代理会为批量清理请求补充 Sealos 对象存储所需的 `Content-MD5` 请求头，然后转发到存储服务。Search 复用现有托管桶并关闭建桶动作，实时关键词 Worker 保持运行；最小资源配置关闭可选后台索引任务。
 
 AppFlowy Cloud 使用 `/api/ready` 作为启动、存活和就绪检查端点。GoTrue 拥有独立公网地址，负责服务管理与身份认证。
 
@@ -78,13 +79,13 @@ AppFlowy Cloud 使用 `/api/ready` 作为启动、存活和就绪检查端点。
 | GoTrue | 100m | 128Mi | - |
 | AppFlowy Cloud | 100m | 256Mi | - |
 | AppFlowy Worker | 100m | 128Mi | - |
+| AppFlowy Search | 100m | 128Mi | 1Gi |
 | PostgreSQL | 500m | 512Mi | 1Gi |
 | Redis 数据节点 | 500m | 512Mi | 1Gi |
 | Redis Sentinel | 500m | 512Mi | 1Gi |
-| 内置 MinIO（可选） | 500m | 512Mi | 1Gi |
-| Sealos S3 兼容代理（可选） | 100m | 128Mi | - |
+| Sealos S3 兼容代理 | 100m | 128Mi | - |
 
-注册、页面创建、编辑、重载和 S3 清理实测确定了这些最小档位：Web 与 Cloud 都在 128Mi 档位触及上限，因此使用 256Mi 档位。团队规模扩大后，建议先提高 AppFlowy Cloud 的内存，再根据工作空间规模和访问量调整 PostgreSQL 与 Redis。
+注册、页面创建、编辑、搜索、鉴权对象上传/读取/删除和 60 秒清洁稳定窗口实测确定了这些最小档位：Web 与 Cloud 都在 128Mi 档位触及上限，因此使用 256Mi 档位。团队规模扩大后，建议先提高 AppFlowy Cloud 的内存，再根据工作空间规模和访问量调整 PostgreSQL 与 Redis。
 
 ### 许可信息
 
@@ -98,7 +99,7 @@ Sealos 是基于 Kubernetes 的 AI 云操作系统，统一覆盖从云端开发
 - **托管依赖**：PostgreSQL、Redis、公网入口、TLS 和对象存储一起创建。
 - **持久化存储**：数据库和对象存储数据可在应用重启后保留。
 - **公网 HTTPS 访问**：Sealos 自动提供公网地址和 TLS 证书。
-- **简单配置**：通过部署表单和 Canvas 配置存储后端、账号密码和资源规格。
+- **简单配置**：通过部署表单和 Canvas 配置管理员凭据和资源规格。
 - **Kubernetes 原生运维**：不用手写 Kubernetes 清单，也可以调整资源、查看日志和管理服务。
 - **按量付费**：从模板默认规格起步，随着工作空间负载增长逐步扩容。
 
@@ -106,10 +107,9 @@ Sealos 是基于 Kubernetes 的 AI 云操作系统，统一覆盖从云端开发
 
 1. 打开 [AppFlowy 模板](https://sealos.io/products/app-store/appflowy)，点击 **Deploy Now**。
 2. 配置必填参数：
-   - **Use Sealos Object Storage**：保持关闭会部署内置 MinIO；启用后会创建 Sealos 托管存储桶。
    - **GoTrue admin email**：GoTrue 初始管理员邮箱。
    - **GoTrue admin password**：GoTrue 初始管理员密码。请在部署时设置并保存这个值。
-3. 点击 **Deploy**，等待 2–3 分钟，让 App、PostgreSQL、Redis、存储和公网路由进入就绪状态。完成后 Sealos 会打开 Canvas。
+3. 点击 **Deploy**，等待 2–3 分钟，让 App、Search、PostgreSQL、Redis、对象存储和公网路由进入就绪状态。完成后 Sealos 会打开 Canvas。
 4. 从部署结果或 App 资源卡片打开 AppFlowy 地址。
 5. 在 `/login?action=signUpPassword` 注册工作空间用户，然后进入 `/app`。
 
@@ -125,7 +125,6 @@ AppFlowy 会从主应用地址进入 `/app`。已有用户可以在 Web 登录�
 
 | 参数 | 默认值 | 是否必填 | 说明 |
 | --- | --- | --- | --- |
-| `use_sealos_objectstorage` | `false` | 是 | 启用时使用 Sealos 托管存储桶；关闭时部署固定版本的 MinIO。 |
 | `gotrue_admin_email` | 部署时填写 | 是 | GoTrue 服务管理员邮箱。AppFlowy 工作空间用户请通过 Web 注册创建。 |
 | `gotrue_admin_password` | 部署时填写 | 是 | GoTrue 服务管理员密码。部署时设置并保存。 |
 
@@ -156,9 +155,9 @@ AppFlowy 会从主应用地址进入 `/app`。已有用户可以在 Web 登录�
 
 ### 文件上传或导入失败
 
-- 启用 Sealos 对象存储时，确认存储桶资源和桶级凭据已经就绪。
-- 启用 Sealos 对象存储时，确认私网 S3 兼容代理处于就绪状态。
-- 关闭 Sealos 对象存储时，确认 MinIO StatefulSet、1Gi 持久卷、Service 和存储 Ingress 已经就绪。
+- 确认 Sealos 存储桶资源、共享对象存储凭据和桶名 Secret 已经就绪。
+- 确认私网 S3 兼容代理处于就绪状态。
+- 确认 Cloud、Worker 和 Search 引用了共享对象存储 Secret，以及这个部署创建的桶名 Secret。
 
 ## 相关资源
 

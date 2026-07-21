@@ -3,49 +3,211 @@ kind: Template
 metadata:
   name: uptime-kuma
 spec:
-  title: 'UptimeKuma'
-  url: 'https://uptime.kuma.pet/'
-  gitRepo: 'https://github.com/louislam/uptime-kuma'
-  author: 'Sealos'
-  description: 'Uptime Kuma is an easy-to-use self-hosted monitoring tool.'
-  readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/uptime-kuma/README.md'
-  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/uptime-kuma/logo.svg'
+  title: Uptime Kuma
+  url: https://uptime.kuma.pet/
+  gitRepo: https://github.com/louislam/uptime-kuma
+  author: Sealos
+  description: Uptime Kuma is an easy-to-use self-hosted monitoring tool for websites, APIs, networks, and infrastructure.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/uptime-kuma/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/uptime-kuma/logo.svg
   screenshots:
-    - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/uptime-kuma/website-screenshot.webp'
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/uptime-kuma/website-screenshot.webp
   templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: Uptime Kuma 是一款易于使用的自托管监控工具，可监控网站、API、网络与基础设施。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/uptime-kuma/README_zh.md
   categories:
     - monitor
     - tool
   defaults:
     app_host:
-      # number or string.
       type: string
-      value: ${{ random(8) }}
+      value: uptime-kuma-${{ random(8) }}
     app_name:
       type: string
-      value: uptimekuma-${{ random(8) }}
+      value: uptime-kuma-${{ random(8) }}
   inputs:
+    enable_external_database:
+      description: Enable a dedicated MySQL-compatible database instead of the built-in SQLite database.
+      type: boolean
+      default: 'false'
+      required: false
 
-  i18n:
-    zh:
-      readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/uptime-kuma/README_zh.md'
+---
+${{ if(inputs.enable_external_database === 'true') }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-mysql
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-mysql
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-mysql
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-mysql
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-mysql
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-mysql
+  labels:
+    kb.io/database: ac-mysql-8.0.30-1
+    clusterdefinition.kubeblocks.io/name: apecloud-mysql
+    clusterversion.kubeblocks.io/name: ac-mysql-8.0.30-1
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys:
+      - kubernetes.io/hostname
+  clusterDefinitionRef: apecloud-mysql
+  clusterVersionRef: ac-mysql-8.0.30-1
+  componentSpecs:
+    - componentDefRef: mysql
+      monitor: true
+      name: mysql
+      noCreatePDB: false
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-mysql
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+  tolerations: []
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-mysql-init
+spec:
+  backoffLimit: 10
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: OnFailure
+      containers:
+        - name: mysql-init
+          image: public.ecr.aws/docker/library/mysql:8.0.30
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+          env:
+            - name: MYSQL_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: host
+            - name: MYSQL_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: port
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: username
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: password
+            - name: MYSQL_DATABASE
+              value: uptime_kuma
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              for i in $(seq 1 90); do
+                if mysqladmin ping -h"$MYSQL_HOST" -P"$MYSQL_PORT" -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" --silent; then
+                  break
+                fi
+                if [ "$i" -eq 90 ]; then
+                  echo "MySQL is not ready" >&2
+                  exit 1
+                fi
+                sleep 2
+              done
+              mysql -h"$MYSQL_HOST" -P"$MYSQL_PORT" -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" -e "CREATE DATABASE IF NOT EXISTS \`$MYSQL_DATABASE\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+${{ endif() }}
+
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: louislam/uptime-kuma:1.23.13
+    originImageName: louislam/uptime-kuma:2.4.0
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
+  serviceName: ${{ defaults.app_name }}
   replicas: 1
   revisionHistoryLimit: 1
   minReadySeconds: 10
-  serviceName: ${{ defaults.app_name }}
   selector:
     matchLabels:
       app: ${{ defaults.app_name }}
@@ -54,34 +216,84 @@ spec:
       labels:
         app: ${{ defaults.app_name }}
     spec:
-      terminationGracePeriodSeconds: 10
       automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
       containers:
         - name: ${{ defaults.app_name }}
-          image: louislam/uptime-kuma:1.23.13
-          env: []
-          resources:
-            requests:
-              cpu: 100m
-              memory: 102Mi
-            limits:
-              cpu: 1000m
-              memory: 1024Mi
-          command: []
-          args: []
-          ports:
-            - containerPort: 3001
+          image: louislam/uptime-kuma:2.4.0
           imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3001
+              protocol: TCP
+          env:
+            ${{ if(inputs.enable_external_database === 'true') }}
+            - name: UPTIME_KUMA_DB_TYPE
+              value: mariadb
+            - name: UPTIME_KUMA_DB_HOSTNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: host
+            - name: UPTIME_KUMA_DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: port
+            - name: UPTIME_KUMA_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: username
+            - name: UPTIME_KUMA_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: password
+            - name: UPTIME_KUMA_DB_NAME
+              value: uptime_kuma
+            ${{ else() }}
+            - name: UPTIME_KUMA_DB_TYPE
+              value: sqlite
+            ${{ endif() }}
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 36
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
           volumeMounts:
             - name: vn-appvn-data
               mountPath: /app/data
-      volumes: []
   volumeClaimTemplates:
     - metadata:
+        name: vn-appvn-data
         annotations:
           path: /app/data
           value: '1'
-        name: vn-appvn-data
       spec:
         accessModes:
           - ReadWriteOnce
@@ -95,10 +307,14 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 3001
+    - name: http
+      port: 3001
+      targetPort: http
+      protocol: TCP
   selector:
     app: ${{ defaults.app_name }}
 
@@ -113,26 +329,17 @@ metadata:
   annotations:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/proxy-body-size: 32m
-    nginx.ingress.kubernetes.io/server-snippet: |
-      client_header_buffer_size 64k;
-      large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
-    nginx.ingress.kubernetes.io/backend-protocol: HTTP
-    nginx.ingress.kubernetes.io/rewrite-target: /$2
-    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
-    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
-        expires 30d;
-        add_header Cache-Control "public";
-      }
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '3600'
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '3600'
+    nginx.ingress.kubernetes.io/backend-protocol: WS
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
 spec:
   rules:
     - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       http:
         paths:
           - pathType: Prefix
-            path: /()(.*)
+            path: /
             backend:
               service:
                 name: ${{ defaults.app_name }}
@@ -142,3 +349,18 @@ spec:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/uptime-kuma/logo.svg
+  name: Uptime Kuma
+  type: link
