@@ -46,7 +46,7 @@ Sealos 模板使用 Kubernetes StatefulSet 运行 Paperclip。KubeBlocks 为公�
 - **首个管理员 Bootstrap Helper**：等待 Paperclip 健康端点，为 setup code 创建或轮换邀请，并在初始化成功后放行就绪探针。
 - **持久卷**：保存 `/paperclip` 下的配置、密钥、日志、工作区和本地上传文件。
 - **可选 ObjectStorageBucket**：通过 Paperclip S3 provider 保存附件和公司资产。
-- **Service、Ingress 和 App Resource**：提供公网 HTTPS 地址，并保留指向 setup code 邀请的兼容入口。
+- **Service、两个 Ingress 资源和 App 入口**：提供公网 HTTPS 地址，并保留指向 setup code 邀请的兼容入口。
 
 Paperclip 使用 `authenticated` 部署模式和 `public` 暴露模式。该模式要求配置 `DATABASE_URL`，模板会始终创建独立 PostgreSQL 集群。Paperclip Pod 及其 Init Container 使用 UID/GID `1000` 运行，同时关闭权限提升、移除全部 Linux capabilities，并启用 runtime-default seccomp profile。PostgreSQL 初始化 Job 同样关闭权限提升并移除全部 Linux capabilities。
 
@@ -71,11 +71,12 @@ Paperclip 暴露 `/api/health`。启动与存活探针直接检查该端点；�
 
 ## 为什么在 Sealos 上部署 Paperclip？
 
-- **一键部署**：通过一个模板创建 Paperclip、PostgreSQL、存储和 HTTPS 入口。
+- **基于 Kubernetes 的一键部署**：通过一个模板创建 Paperclip、PostgreSQL、存储和 HTTPS 入口。
 - **持久化工作区**：重启后继续保留加密密钥、日志、工作区和应用状态。
 - **托管对象存储**：可选择私有 S3 兼容存储桶保存上传资产。
 - **公网 HTTPS 访问**：自动获得 Sealos 托管的公网地址。
-- **Canvas 运维**：通过资源卡片调整模型密钥、资源、存储和网络配置。
+- **AI 辅助 Canvas 运维**：在 AI 对话框中描述部署后的变更，或通过资源卡片调整模型密钥、资源、存储和网络配置。
+- **按量付费资源**：个人部署可采用已验证的资源档位，并按实际使用的 Sealos 资源付费。
 
 ## 部署指南
 
@@ -83,26 +84,29 @@ Paperclip 暴露 `/api/health`。启动与存活探针直接检查该端点；�
 2. 确认部署前记录预填的 `first_admin_setup_code`。你可以将其替换为 32-128 位 URL-safe 字符，内容需同时包含大写字母、小写字母和数字。
 3. 选择存储模式。保持 `use_object_storage` 关闭即可使用本地持久化存储；启用后会创建私有 Sealos 对象存储桶。
 4. 填写 Agent 所需的模型服务商 API key。
-5. 等待约 2-3 分钟，让 PostgreSQL 完成迁移、Paperclip 启动并完成首个管理员初始化。
+5. 等待约 2-3 分钟，让 PostgreSQL 完成迁移、Paperclip 启动并完成首个管理员初始化。随后 Sealos 会打开本次部署的 Canvas。
 6. 复制 Sealos 中显示的 Paperclip 公网域名，然后打开 `https://<你的-Paperclip-域名>/invite/<first_admin_setup_code>`。Sealos App 入口会继续指向同一个邀请 URL，作为兼容快捷入口。
+7. 后续需要调整部署时，可在 Canvas AI 对话框中描述变更，或打开对应的资源卡片。
 
 ## 首次登录与注册
 
 1. 使用部署前记录的 code 打开 `https://<你的-Paperclip-域名>/invite/<first_admin_setup_code>`。
-2. 点击 **Sign in / Create account**，选择 **Create account**，填写姓名、邮箱和密码，然后提交表单。
-3. 返回同一个邀请 URL，点击 **Accept bootstrap invite**。
-4. 创建第一家公司，完成 onboarding。
-5. 打开公司看板，即可创建任务、添加评论、调整优先级和配置 Agent。
+2. 点击 **Sign in / Create account**，选择 **Create account**，填写姓名、邮箱和密码，然后点击 **Create account and continue**。
+3. 已有账号时，选择 **I already have an account**，完成登录后返回同一个邀请 URL。
+4. 完成身份验证后，Paperclip 会继续处理邀请。如果邀请仍处于待确认状态，请重新打开同一个邀请 URL，然后点击 **Accept bootstrap invite**。
+5. 创建第一家公司，完成 onboarding。
+6. 打开公司看板，即可创建任务、添加评论、调整优先级和配置 Agent。
 
 首个管理员邀请从最近一次成功准备开始计算 72 小时有效期，并且只能认领一次。Pod 重启会使用同一个 setup code 刷新尚未认领的邀请。首个管理员接受邀请后，可通过公网域名根路径正常登录。邀请有效期间请将 setup code 作为 bearer credential 妥善保管。兼容 App 入口会保存邀请路径，访问后浏览器历史和 Paperclip 请求日志也会记录该路径；请将 Sealos 工作空间和 Paperclip 日志的访问权限控制在可信运维边界内。
 
 ## 配置
 
 - **Web UI**：管理公司、Agent、任务、插件、密钥和审批。
+- **AI 对话框**：在 Sealos Canvas 中描述部署后的变更，由 AI 更新相关资源。
 - **环境变量**：通过 StatefulSet 资源卡片添加或轮换模型服务商 API key。
 - **首个管理员 Setup Code**：部署前记录，并在邀请被认领前妥善保管。
 - **存储**：部署时选择本地持久化存储或 S3 兼容对象存储。
-- **资源**：通过 Sealos Canvas 调整 CPU、内存、持久卷大小或 Ingress 设置。
+- **资源卡片**：通过 Sealos Canvas 调整 CPU、内存、持久卷大小或 Ingress 设置。
 
 ## 故障排查
 
