@@ -43,12 +43,12 @@ The Sealos template runs Paperclip as a Kubernetes StatefulSet. KubeBlocks provi
 - **PostgreSQL Cluster**: Stores users, companies, tasks, approvals, plugins, and runtime metadata.
 - **PostgreSQL init Job**: Waits for PostgreSQL and creates the `paperclip` database idempotently.
 - **Configuration init container**: Writes `/paperclip/instances/default/config.json` for the selected storage mode.
-- **Bootstrap CEO Job**: Creates the first-admin invite used by the Sealos App entry.
+- **First-admin bootstrap helper**: Waits for Paperclip health, creates or rotates the setup-code invitation, and gates readiness until initialization succeeds.
 - **Persistent volume**: Stores `/paperclip` configuration, secrets, logs, workspaces, and local uploads.
 - **Optional ObjectStorageBucket**: Stores attachments and company assets through Paperclip's S3 provider.
-- **Service, Ingress, and App resource**: Provide the public HTTPS endpoint and first-admin entry.
+- **Service, Ingress, and App resource**: Provide the public HTTPS endpoint and a compatibility link to the setup-code invitation.
 
-Paperclip runs in `authenticated` deployment mode with `public` exposure. This mode requires `DATABASE_URL`, so the template always provisions an independent PostgreSQL cluster. The app pod and helper jobs run as UID/GID `1000` with privilege escalation disabled, all Linux capabilities dropped, and the runtime-default seccomp profile.
+Paperclip runs in `authenticated` deployment mode with `public` exposure. This mode requires `DATABASE_URL`, so the template always provisions an independent PostgreSQL cluster. The Paperclip pod and its init containers run as UID/GID `1000` with privilege escalation disabled, all Linux capabilities dropped, and the runtime-default seccomp profile. The PostgreSQL init Job also disables privilege escalation and drops all Linux capabilities.
 
 Optional provider keys can be supplied during deployment:
 
@@ -63,11 +63,11 @@ Storage modes:
 
 **Validated resource limits:**
 
-- Paperclip app: `100m` CPU and `512Mi` memory
-- Init and bootstrap containers: `100m` CPU and `128Mi` memory
+- Paperclip app: `100m` CPU and `1024Mi` memory
+- Init containers: `100m` CPU and `128Mi` memory
 - PostgreSQL: `500m` CPU and `512Mi` memory
 
-Paperclip exposes `/api/health`; the template uses it for startup, readiness, and liveness probes.
+Paperclip exposes `/api/health`. Startup and liveness use this endpoint directly. Readiness also requires `/tmp/paperclip-bootstrap-ready`, which appears after the first-admin invitation is ready or an administrator already exists.
 
 ## Why Deploy Paperclip on Sealos?
 
@@ -80,40 +80,35 @@ Paperclip exposes `/api/health`; the template uses it for startup, readiness, an
 ## Deployment Guide
 
 1. Open the [Paperclip template](https://sealos.io/products/app-store/paperclip) and click **Deploy Now**.
-2. Choose the storage mode. Keep `use_object_storage` disabled for persistent local storage, or enable it for a private Sealos Object Storage bucket.
-3. Add any provider API keys required by your agents.
-4. Wait about 2-3 minutes for PostgreSQL migrations, Paperclip startup, and the bootstrap invite.
-5. Open the Paperclip entry from Sealos. The entry leads directly to the first-admin invitation.
+2. Record the prefilled `first_admin_setup_code` before confirming deployment. You may replace it with 32-128 URL-safe characters containing uppercase letters, lowercase letters, and numbers.
+3. Choose the storage mode. Keep `use_object_storage` disabled for persistent local storage, or enable it for a private Sealos Object Storage bucket.
+4. Add any provider API keys required by your agents.
+5. Wait about 2-3 minutes for PostgreSQL migrations, Paperclip startup, and first-admin setup.
+6. Copy the Paperclip public hostname shown in Sealos and open `https://<your-paperclip-host>/invite/<first_admin_setup_code>`. The Sealos App entry points to the same invitation URL as a compatibility shortcut.
 
 ## First Login and Registration
 
-1. On the invitation page, click **Sign in / Create account**.
-2. Select **Create account**, enter your name, email address, and password, then submit the form.
-3. Return to the invitation page and click **Accept bootstrap invite**.
+1. Open `https://<your-paperclip-host>/invite/<first_admin_setup_code>` with the code recorded before deployment.
+2. Click **Sign in / Create account**, select **Create account**, enter your name, email address, and password, then submit the form.
+3. Return to the same invitation URL and click **Accept bootstrap invite**.
 4. Complete onboarding by creating your first company.
 5. Open the company board to create tasks, add comments, change priorities, and configure agents.
 
-After the first administrator accepts the invitation, use the public host root URL for regular sign-in. The bootstrap invitation expires after 72 hours. The bootstrap Job remains available for five minutes after completion, which provides a short window for inspecting its generated `Invite URL` in logs.
+The first-admin invitation is valid for 72 hours from its latest successful preparation and can be claimed once. A Pod restart refreshes an unclaimed invitation with the same setup code. After the first administrator accepts it, use the public host root URL for regular sign-in. Treat the setup code as a bearer credential while the invitation remains active. The compatibility App entry stores the invitation path, and opening it records the path in browser history and Paperclip request logs; keep access to the Sealos workspace and Paperclip logs within the trusted operator boundary.
 
 ## Configuration
 
 - **Web UI**: Manage companies, agents, tasks, plugins, secrets, and approvals.
 - **Environment variables**: Add or rotate provider API keys from the StatefulSet resource card.
+- **First-admin setup code**: Record it before deployment and keep it private until the invitation is accepted.
 - **Storage**: Select local persistent storage or S3-compatible object storage during deployment.
 - **Resources**: Adjust CPU, memory, volume size, or Ingress settings from Sealos Canvas.
 
 ## Troubleshooting
 
-### The invitation page has expired
+### The setup code is missing or expired
 
-Generate a new first-admin invitation from the Paperclip StatefulSet terminal:
-
-```bash
-node cli/node_modules/tsx/dist/cli.mjs cli/src/index.ts auth bootstrap-ceo \
-  --config "$PAPERCLIP_CONFIG" \
-  --base-url "$PAPERCLIP_PUBLIC_URL" \
-  --expires-hours 72
-```
+Open the existing Paperclip deployment in Sealos, set a fresh valid `first_admin_setup_code`, and redeploy it. The bootstrap helper revokes the previous active invitation and creates a new invitation that remains valid for 72 hours. Record the new code before confirming the redeployment.
 
 ### Agent runs report missing credentials
 

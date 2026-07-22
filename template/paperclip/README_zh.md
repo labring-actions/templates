@@ -43,12 +43,12 @@ Sealos 模板使用 Kubernetes StatefulSet 运行 Paperclip。KubeBlocks 为公�
 - **PostgreSQL Cluster**：存储用户、公司、任务、审批、插件和运行时元数据。
 - **PostgreSQL 初始化 Job**：等待 PostgreSQL 就绪，并以幂等方式创建 `paperclip` 数据库。
 - **配置 Init Container**：根据选定的存储模式写入 `/paperclip/instances/default/config.json`。
-- **Bootstrap CEO Job**：创建 Sealos App 入口使用的首个管理员邀请。
+- **首个管理员 Bootstrap Helper**：等待 Paperclip 健康端点，为 setup code 创建或轮换邀请，并在初始化成功后放行就绪探针。
 - **持久卷**：保存 `/paperclip` 下的配置、密钥、日志、工作区和本地上传文件。
 - **可选 ObjectStorageBucket**：通过 Paperclip S3 provider 保存附件和公司资产。
-- **Service、Ingress 和 App Resource**：提供公网 HTTPS 地址和首个管理员入口。
+- **Service、Ingress 和 App Resource**：提供公网 HTTPS 地址，并保留指向 setup code 邀请的兼容入口。
 
-Paperclip 使用 `authenticated` 部署模式和 `public` 暴露模式。该模式要求配置 `DATABASE_URL`，模板会始终创建独立 PostgreSQL 集群。应用 Pod 和辅助 Job 使用 UID/GID `1000` 运行，同时关闭权限提升、移除全部 Linux capabilities，并启用 runtime-default seccomp profile。
+Paperclip 使用 `authenticated` 部署模式和 `public` 暴露模式。该模式要求配置 `DATABASE_URL`，模板会始终创建独立 PostgreSQL 集群。Paperclip Pod 及其 Init Container 使用 UID/GID `1000` 运行，同时关闭权限提升、移除全部 Linux capabilities，并启用 runtime-default seccomp profile。PostgreSQL 初始化 Job 同样关闭权限提升并移除全部 Linux capabilities。
 
 部署时可填写以下模型服务商密钥：
 
@@ -63,11 +63,11 @@ Paperclip 使用 `authenticated` 部署模式和 `public` 暴露模式。该模�
 
 **已验证的资源限制：**
 
-- Paperclip 应用：`100m` CPU 和 `512Mi` 内存
-- Init Container 与 Bootstrap Container：`100m` CPU 和 `128Mi` 内存
+- Paperclip 应用：`100m` CPU 和 `1024Mi` 内存
+- Init Container：`100m` CPU 和 `128Mi` 内存
 - PostgreSQL：`500m` CPU 和 `512Mi` 内存
 
-Paperclip 暴露 `/api/health`，模板使用该端点作为启动、就绪和存活探针。
+Paperclip 暴露 `/api/health`。启动与存活探针直接检查该端点；就绪探针还会检查 `/tmp/paperclip-bootstrap-ready`，该标记会在首个管理员邀请准备完成或实例已有管理员后生成。
 
 ## 为什么在 Sealos 上部署 Paperclip？
 
@@ -80,40 +80,35 @@ Paperclip 暴露 `/api/health`，模板使用该端点作为启动、就绪和�
 ## 部署指南
 
 1. 打开 [Paperclip 模板](https://sealos.io/products/app-store/paperclip)，点击 **Deploy Now**。
-2. 选择存储模式。保持 `use_object_storage` 关闭即可使用本地持久化存储；启用后会创建私有 Sealos 对象存储桶。
-3. 填写 Agent 所需的模型服务商 API key。
-4. 等待约 2-3 分钟，让 PostgreSQL 完成迁移、Paperclip 启动并创建 Bootstrap 邀请。
-5. 从 Sealos 打开 Paperclip 应用入口，该入口会直接进入首个管理员邀请页面。
+2. 确认部署前记录预填的 `first_admin_setup_code`。你可以将其替换为 32-128 位 URL-safe 字符，内容需同时包含大写字母、小写字母和数字。
+3. 选择存储模式。保持 `use_object_storage` 关闭即可使用本地持久化存储；启用后会创建私有 Sealos 对象存储桶。
+4. 填写 Agent 所需的模型服务商 API key。
+5. 等待约 2-3 分钟，让 PostgreSQL 完成迁移、Paperclip 启动并完成首个管理员初始化。
+6. 复制 Sealos 中显示的 Paperclip 公网域名，然后打开 `https://<你的-Paperclip-域名>/invite/<first_admin_setup_code>`。Sealos App 入口会继续指向同一个邀请 URL，作为兼容快捷入口。
 
 ## 首次登录与注册
 
-1. 在邀请页面点击 **Sign in / Create account**。
-2. 选择 **Create account**，填写姓名、邮箱和密码，然后提交表单。
-3. 返回邀请页面，点击 **Accept bootstrap invite**。
+1. 使用部署前记录的 code 打开 `https://<你的-Paperclip-域名>/invite/<first_admin_setup_code>`。
+2. 点击 **Sign in / Create account**，选择 **Create account**，填写姓名、邮箱和密码，然后提交表单。
+3. 返回同一个邀请 URL，点击 **Accept bootstrap invite**。
 4. 创建第一家公司，完成 onboarding。
 5. 打开公司看板，即可创建任务、添加评论、调整优先级和配置 Agent。
 
-首个管理员接受邀请后，可通过公网域名根路径正常登录。Bootstrap 邀请有效期为 72 小时。Bootstrap Job 完成后会保留五分钟，可在这段时间内通过日志查看生成的 `Invite URL`。
+首个管理员邀请从最近一次成功准备开始计算 72 小时有效期，并且只能认领一次。Pod 重启会使用同一个 setup code 刷新尚未认领的邀请。首个管理员接受邀请后，可通过公网域名根路径正常登录。邀请有效期间请将 setup code 作为 bearer credential 妥善保管。兼容 App 入口会保存邀请路径，访问后浏览器历史和 Paperclip 请求日志也会记录该路径；请将 Sealos 工作空间和 Paperclip 日志的访问权限控制在可信运维边界内。
 
 ## 配置
 
 - **Web UI**：管理公司、Agent、任务、插件、密钥和审批。
 - **环境变量**：通过 StatefulSet 资源卡片添加或轮换模型服务商 API key。
+- **首个管理员 Setup Code**：部署前记录，并在邀请被认领前妥善保管。
 - **存储**：部署时选择本地持久化存储或 S3 兼容对象存储。
 - **资源**：通过 Sealos Canvas 调整 CPU、内存、持久卷大小或 Ingress 设置。
 
 ## 故障排查
 
-### 邀请页面已过期
+### Setup code 丢失或过期
 
-在 Paperclip StatefulSet 终端中生成新的首个管理员邀请：
-
-```bash
-node cli/node_modules/tsx/dist/cli.mjs cli/src/index.ts auth bootstrap-ceo \
-  --config "$PAPERCLIP_CONFIG" \
-  --base-url "$PAPERCLIP_PUBLIC_URL" \
-  --expires-hours 72
-```
+在 Sealos 中打开现有 Paperclip 部署，设置新的合法 `first_admin_setup_code`，然后重新部署。Bootstrap Helper 会撤销旧的有效邀请，并创建一个有效期为 72 小时的新邀请。确认重新部署前请记录新的 code。
 
 ### Agent 运行时提示缺少凭据
 

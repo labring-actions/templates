@@ -41,10 +41,12 @@ spec:
     tool_action_signing_secret:
       type: string
       value: ${{ random(48) }}
-    bootstrap_invite_token:
-      type: string
-      value: pcp_bootstrap_${{ random(48) }}
   inputs:
+    first_admin_setup_code:
+      description: Record this one-time setup code before deployment. It must be 32-128 URL-safe characters with uppercase, lowercase, and a number.
+      type: string
+      default: pcp_bootstrap_A1_${{ random(48) }}
+      required: true
     use_object_storage:
       description: Use S3-compatible object storage for attachments and company assets
       type: boolean
@@ -230,6 +232,201 @@ spec:
   ttlSecondsAfterFinished: 300
 
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-optvn-paperclipvn-startvn-sh: |-
+    #!/bin/sh
+    set -eu
+
+    rm -f /tmp/paperclip-bootstrap-ready
+    /bin/sh /opt/paperclip-bootstrap-invite.sh &
+    unset PAPERCLIP_BOOTSTRAP_INVITE_TOKEN
+
+    if [ "$PAPERCLIP_STORAGE_PROVIDER" = "s3" ]; then
+      export AWS_ACCESS_KEY_ID="$S3_ACCESS_KEY_ID"
+      export AWS_SECRET_ACCESS_KEY="$S3_SECRET_ACCESS_KEY"
+    fi
+
+    exec /usr/local/bin/docker-entrypoint.sh \
+      node --import ./server/node_modules/tsx/dist/loader.mjs server/dist/index.js
+  vn-optvn-paperclipvn-bootstrapvn-invitevn-sh: |-
+    #!/bin/sh
+    set -eu
+
+    ready_file=/tmp/paperclip-bootstrap-ready
+    rm -f "$ready_file"
+
+    attempt=1
+    while [ "$attempt" -le 150 ]; do
+      if curl -fsS http://127.0.0.1:3100/api/health >/dev/null 2>&1; then
+        break
+      fi
+      attempt=$((attempt + 1))
+      sleep 2
+    done
+
+    if ! curl -fsS http://127.0.0.1:3100/api/health >/dev/null 2>&1; then
+      echo "First-admin setup failed: Paperclip did not become healthy within 300 seconds." >&2
+      kill -TERM 1 2>/dev/null || true
+      exit 1
+    fi
+
+    attempt=1
+    while [ "$attempt" -le 30 ]; do
+      if node /app/cli/node_modules/tsx/dist/cli.mjs /opt/paperclip-bootstrap-invite.mjs; then
+        touch "$ready_file"
+        exit 0
+      fi
+      if [ "$attempt" -lt 30 ]; then
+        sleep 2
+      fi
+      attempt=$((attempt + 1))
+    done
+
+    echo "First-admin setup failed after 30 database attempts." >&2
+    kill -TERM 1 2>/dev/null || true
+    exit 1
+  vn-optvn-paperclipvn-bootstrapvn-invitevn-mjs: |-
+    import { createHash } from "node:crypto";
+    import { createRequire } from "node:module";
+    import { createDb, instanceUserRoles, invites } from "/app/packages/db/src/index.ts";
+
+    const require = createRequire("/app/packages/db/src/index.ts");
+    const { and, eq, gt, isNotNull, isNull, sql } = require("drizzle-orm");
+
+    const setupCode = process.env.PAPERCLIP_BOOTSTRAP_INVITE_TOKEN ?? "";
+    const isValidSetupCode =
+      /^[A-Za-z0-9_-]{32,128}$/.test(setupCode) &&
+      /[a-z]/.test(setupCode) &&
+      /[A-Z]/.test(setupCode) &&
+      /[0-9]/.test(setupCode);
+
+    if (!isValidSetupCode) {
+      console.error(
+        "First-admin setup code must be 32-128 URL-safe characters and include uppercase, lowercase, and a number.",
+      );
+      process.exit(2);
+    }
+
+    const db = createDb(process.env.DATABASE_URL);
+    const closableDb = db;
+
+    try {
+      const outcome = await db.transaction(async (tx) => {
+        await tx.execute(sql`lock table ${instanceUserRoles} in share row exclusive mode`);
+
+        const existingAdmin = await tx
+          .select({ id: instanceUserRoles.id })
+          .from(instanceUserRoles)
+          .where(eq(instanceUserRoles.role, "instance_admin"))
+          .limit(1);
+
+        if (existingAdmin.length > 0) {
+          return "complete";
+        }
+
+        const acceptedBootstrapInvite = await tx
+          .select({ id: invites.id })
+          .from(invites)
+          .where(
+            and(
+              eq(invites.inviteType, "bootstrap_ceo"),
+              isNotNull(invites.acceptedAt),
+            ),
+          )
+          .limit(1);
+
+        if (acceptedBootstrapInvite.length > 0) {
+          return "consumed";
+        }
+
+        await tx.execute(sql`lock table ${invites} in share row exclusive mode`);
+
+        const now = new Date();
+        const tokenHash = createHash("sha256").update(setupCode).digest("hex");
+        const matchingInvite = await tx
+          .select({
+            id: invites.id,
+            companyId: invites.companyId,
+            inviteType: invites.inviteType,
+          })
+          .from(invites)
+          .where(eq(invites.tokenHash, tokenHash))
+          .limit(1);
+
+        if (
+          matchingInvite.length > 0 &&
+          (matchingInvite[0].inviteType !== "bootstrap_ceo" ||
+            matchingInvite[0].companyId !== null)
+        ) {
+          throw new Error("Setup code conflicts with another invitation.");
+        }
+
+        await tx
+          .update(invites)
+          .set({ revokedAt: now, updatedAt: now })
+          .where(
+            and(
+              eq(invites.inviteType, "bootstrap_ceo"),
+              isNull(invites.revokedAt),
+              isNull(invites.acceptedAt),
+              gt(invites.expiresAt, now),
+            ),
+          );
+
+        const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000);
+        const inviteValues = {
+          companyId: null,
+          inviteType: "bootstrap_ceo",
+          tokenHash,
+          allowedJoinTypes: "human",
+          defaultsPayload: null,
+          expiresAt,
+          invitedByUserId: "system",
+          revokedAt: null,
+          acceptedAt: null,
+          updatedAt: now,
+        };
+
+        if (matchingInvite.length > 0) {
+          await tx
+            .update(invites)
+            .set(inviteValues)
+            .where(eq(invites.id, matchingInvite[0].id));
+        } else {
+          await tx.insert(invites).values({
+            companyId: null,
+            inviteType: "bootstrap_ceo",
+            tokenHash,
+            allowedJoinTypes: "human",
+            defaultsPayload: null,
+            expiresAt,
+            invitedByUserId: "system",
+          });
+        }
+
+        return "ready";
+      });
+
+      if (outcome === "complete" || outcome === "consumed") {
+        console.log("First-admin setup is already complete.");
+      } else {
+        console.log("First-admin setup is ready. Use the setup code from the deployment form.");
+      }
+    } catch {
+      console.error("First-admin setup database operation failed.");
+      process.exitCode = 1;
+    } finally {
+      await closableDb.$client?.end?.({ timeout: 5 }).catch(() => undefined);
+    }
+
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -264,6 +461,17 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
+      volumes:
+        - name: ${{ defaults.app_name }}-cm
+          configMap:
+            name: ${{ defaults.app_name }}
+            items:
+              - key: vn-optvn-paperclipvn-startvn-sh
+                path: vn-optvn-paperclipvn-startvn-sh
+              - key: vn-optvn-paperclipvn-bootstrapvn-invitevn-sh
+                path: vn-optvn-paperclipvn-bootstrapvn-invitevn-sh
+              - key: vn-optvn-paperclipvn-bootstrapvn-invitevn-mjs
+                path: vn-optvn-paperclipvn-bootstrapvn-invitevn-mjs
       initContainers:
         - name: wait-for-postgres
           image: public.ecr.aws/docker/library/postgres:16.4-alpine
@@ -323,6 +531,8 @@ spec:
               value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: PAPERCLIP_AGENT_JWT_SECRET
               value: ${{ defaults.agent_jwt_secret }}
+            - name: PAPERCLIP_BOOTSTRAP_INVITE_TOKEN
+              value: '${{ inputs.first_admin_setup_code }}'
             - name: PG_HOST
               valueFrom:
                 secretKeyRef:
@@ -381,6 +591,17 @@ spec:
               node <<'NODE'
               const fs = require("fs");
               const path = require("path");
+              const setupCode = process.env.PAPERCLIP_BOOTSTRAP_INVITE_TOKEN || "";
+              const isValidSetupCode =
+                /^[A-Za-z0-9_-]{32,128}$/.test(setupCode) &&
+                /[a-z]/.test(setupCode) &&
+                /[A-Z]/.test(setupCode) &&
+                /[0-9]/.test(setupCode);
+              if (!isValidSetupCode) {
+                throw new Error(
+                  "first_admin_setup_code must be 32-128 URL-safe characters and include uppercase, lowercase, and a number",
+                );
+              }
               const configPath = process.env.PAPERCLIP_CONFIG;
               const storageProvider = process.env.PAPERCLIP_STORAGE_PROVIDER || "local_disk";
               const cfg = {
@@ -508,6 +729,8 @@ spec:
               value: ${{ defaults.better_auth_secret }}
             - name: PAPERCLIP_TOOL_ACTION_SIGNING_SECRET
               value: ${{ defaults.tool_action_signing_secret }}
+            - name: PAPERCLIP_BOOTSTRAP_INVITE_TOKEN
+              value: '${{ inputs.first_admin_setup_code }}'
             - name: PG_HOST
               valueFrom:
                 secretKeyRef:
@@ -575,25 +798,18 @@ spec:
               value: '${{ inputs.gemini_api_key }}'
             - name: HEARTBEAT_SCHEDULER_ENABLED
               value: 'true'
-          ${{ if(inputs.use_object_storage === 'true') }}
           command:
-            - /usr/bin/env
+            - /bin/sh
+            - -c
           args:
-            - AWS_ACCESS_KEY_ID=$(S3_ACCESS_KEY_ID)
-            - AWS_SECRET_ACCESS_KEY=$(S3_SECRET_ACCESS_KEY)
-            - /usr/local/bin/docker-entrypoint.sh
-            - node
-            - --import
-            - ./server/node_modules/tsx/dist/loader.mjs
-            - server/dist/index.js
-          ${{ endif() }}
+            - exec /bin/sh /opt/paperclip-start.sh
           resources:
             limits:
               cpu: 100m
-              memory: 512Mi
+              memory: 1024Mi
             requests:
               cpu: 10m
-              memory: 51Mi
+              memory: 102Mi
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -606,9 +822,11 @@ spec:
             failureThreshold: 30
             periodSeconds: 10
           readinessProbe:
-            httpGet:
-              path: /api/health
-              port: http
+            exec:
+              command:
+                - /bin/sh
+                - -ec
+                - test -f /tmp/paperclip-bootstrap-ready && curl -fsS http://127.0.0.1:3100/api/health >/dev/null
             initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 5
@@ -620,6 +838,15 @@ spec:
             periodSeconds: 20
             timeoutSeconds: 5
           volumeMounts:
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /opt/paperclip-start.sh
+              subPath: vn-optvn-paperclipvn-startvn-sh
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /opt/paperclip-bootstrap-invite.sh
+              subPath: vn-optvn-paperclipvn-bootstrapvn-invitevn-sh
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /opt/paperclip-bootstrap-invite.mjs
+              subPath: vn-optvn-paperclipvn-bootstrapvn-invitevn-mjs
             - name: vn-paperclip
               mountPath: /paperclip
   volumeClaimTemplates:
@@ -665,6 +892,7 @@ metadata:
   annotations:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/enable-access-log: 'false'
     nginx.ingress.kubernetes.io/server-snippet: |
       client_header_buffer_size 64k;
       large_client_header_buffers 4 128k;
@@ -697,213 +925,49 @@ spec:
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
 
 ---
-apiVersion: batch/v1
-kind: Job
+apiVersion: networking.k8s.io/v1
+kind: Ingress
 metadata:
-  name: ${{ defaults.app_name }}-bootstrap-ceo
+  name: ${{ defaults.app_name }}-missing-path
   labels:
     app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/enable-access-log: 'false'
+    nginx.ingress.kubernetes.io/rewrite-target: /api/__sealos_missing
+    nginx.ingress.kubernetes.io/use-regex: 'true'
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
 spec:
-  completions: 1
-  template:
-    spec:
-      automountServiceAccountToken: false
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        runAsGroup: 1000
-        seccompProfile:
-          type: RuntimeDefault
-      containers:
-        - name: bootstrap-ceo
-          image: ghcr.io:443/paperclipai/paperclip@sha256:30237caad0ca3625fd10436a833c3b40809fe54b84debd702896e801d02c584e
-          imagePullPolicy: IfNotPresent
-          env:
-            - name: PAPERCLIP_CONFIG
-              value: /tmp/paperclip/config.json
-            - name: PAPERCLIP_PUBLIC_URL
-              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
-            - name: PAPERCLIP_AUTH_PUBLIC_BASE_URL
-              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
-            - name: PAPERCLIP_AGENT_JWT_SECRET
-              value: ${{ defaults.agent_jwt_secret }}
-            - name: PAPERCLIP_BOOTSTRAP_INVITE_TOKEN
-              value: ${{ defaults.bootstrap_invite_token }}
-            - name: PG_HOST
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: host
-            - name: PG_PORT
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: port
-            - name: PG_USER
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: username
-            - name: PG_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: password
-            - name: DATABASE_URL
-              value: postgres://$(PG_USER):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/paperclip
-          command:
-            - /bin/sh
-            - -ec
-            - |
-              mkdir -p /tmp/paperclip
-              node <<'NODE'
-              const fs = require("fs");
-              const configPath = process.env.PAPERCLIP_CONFIG;
-              const cfg = {
-                $meta: {
-                  version: 1,
-                  updatedAt: new Date().toISOString(),
-                  source: "configure"
-                },
-                database: {
-                  mode: "postgres",
-                  connectionString: process.env.DATABASE_URL,
-                  embeddedPostgresDataDir: "/tmp/paperclip/db",
-                  embeddedPostgresPort: 54329,
-                  backup: {
-                    enabled: true,
-                    intervalMinutes: 60,
-                    retentionDays: 30,
-                    dir: "/tmp/paperclip/backups"
-                  }
-                },
-                logging: {
-                  mode: "file",
-                  logDir: "/tmp/paperclip/logs"
-                },
-                server: {
-                  deploymentMode: "authenticated",
-                  exposure: "public",
-                  bind: "lan",
-                  host: "0.0.0.0",
-                  port: 3100,
-                  allowedHostnames: [],
-                  serveUi: true
-                },
-                auth: {
-                  baseUrlMode: "explicit",
-                  publicBaseUrl: process.env.PAPERCLIP_PUBLIC_URL,
-                  disableSignUp: false
-                },
-                telemetry: {
-                  enabled: true
-                },
-                storage: {
-                  provider: "local_disk",
-                  localDisk: {
-                    baseDir: "/tmp/paperclip/storage"
-                  }
-                },
-                secrets: {
-                  provider: "local_encrypted",
-                  strictMode: false,
-                  localEncrypted: {
-                    keyFilePath: "/tmp/paperclip/secrets/master.key"
-                  }
-                }
-              };
-              fs.writeFileSync(configPath, `${JSON.stringify(cfg, null, 2)}\n`);
-              NODE
-              for i in $(seq 1 120); do
-                if curl -fsS "http://${{ defaults.app_name }}:3100/api/health" >/dev/null; then
-                  break
-                fi
-                sleep 2
-              done
-              curl -fsS "http://${{ defaults.app_name }}:3100/api/health" >/dev/null
-              node cli/node_modules/tsx/dist/cli.mjs -e '
-                import { createHash } from "node:crypto";
-                import { createRequire } from "node:module";
-                import { createDb, instanceUserRoles, invites } from "/app/packages/db/src/index.ts";
-
-                const require = createRequire("/app/packages/db/src/index.ts");
-                const { and, eq, gt, isNull } = require("drizzle-orm");
-
-                async function main() {
-                  const token = process.env.PAPERCLIP_BOOTSTRAP_INVITE_TOKEN;
-                  const baseUrl = process.env.PAPERCLIP_PUBLIC_URL.replace(/\/+$/, "");
-                  const db = createDb(process.env.DATABASE_URL);
-                  const existingAdminCount = await db
-                    .select()
-                    .from(instanceUserRoles)
-                    .where(eq(instanceUserRoles.role, "instance_admin"))
-                    .then((rows) => rows.length);
-
-                  if (existingAdminCount > 0) {
-                    console.log("Instance already has an admin user.");
-                    return;
-                  }
-
-                  const now = new Date();
-                  await db
-                    .update(invites)
-                    .set({ revokedAt: now, updatedAt: now })
-                    .where(
-                      and(
-                        eq(invites.inviteType, "bootstrap_ceo"),
-                        isNull(invites.revokedAt),
-                        isNull(invites.acceptedAt),
-                        gt(invites.expiresAt, now),
-                      ),
-                    );
-                  const tokenHash = createHash("sha256").update(token).digest("hex");
-                  const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000);
-                  await db
-                    .insert(invites)
-                    .values({
-                      inviteType: "bootstrap_ceo",
-                      tokenHash,
-                      allowedJoinTypes: "human",
-                      expiresAt,
-                      invitedByUserId: "system",
-                    })
-                    .onConflictDoUpdate({
-                      target: invites.tokenHash,
-                      set: {
-                        revokedAt: null,
-                        acceptedAt: null,
-                        expiresAt,
-                        updatedAt: now,
-                      },
-                    });
-                  console.log(`Created bootstrap CEO invite.`);
-                  console.log(`Invite URL: ${baseUrl}/invite/${token}`);
-                  console.log(`Expires: ${expiresAt.toISOString()}`);
-                }
-
-                main().then(() => {
-                  process.exit(0);
-                }).catch((error) => {
-                  console.error(error);
-                  process.exit(1);
-                });
-              '
-          resources:
-            limits:
-              cpu: 100m
-              memory: 128Mi
-            requests:
-              cpu: 10m
-              memory: 12Mi
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - ALL
-      restartPolicy: OnFailure
-  backoffLimit: 5
-  ttlSecondsAfterFinished: 300
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: ImplementationSpecific
+            path: /__sealos_missing_.*
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 3100
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
 
 ---
 apiVersion: app.sealos.io/v1
@@ -914,7 +978,7 @@ metadata:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   data:
-    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/invite/${{ defaults.bootstrap_invite_token }}
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/invite/${{ inputs.first_admin_setup_code }}
   displayType: normal
   icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/paperclip/logo.svg
   name: Paperclip
