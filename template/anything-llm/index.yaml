@@ -47,17 +47,11 @@ spec:
         - lancedb
         - pgvector
     auth_token:
-      description: Single-user password for the application. Leave empty to complete onboarding without password protection first.
+      description: Single-user password used to sign in to AnythingLLM.
       type: string
-      default: ''
-      required: false
+      required: true
     openai_api_key:
       description: Optional OpenAI API key used during onboarding or later model configuration.
-      type: string
-      default: ''
-      required: false
-    pgvector_connection_string:
-      description: External PostgreSQL connection string with the pgvector extension enabled.
       type: string
       default: ''
       required: false
@@ -67,15 +61,167 @@ spec:
       default: anythingllm_vectors
       required: false
 ---
+${{ if(inputs.vector_database === 'pgvector') }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+  annotations:
+    kubeblocks.io/extra-env: '{"KB_EMBEDDED_PGVECTOR":"on"}'
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  componentSpecs:
+    - componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
+      name: postgresql
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+spec:
+  backoffLimit: 5
+  template:
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: pg-init
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PGPASSWORD
+              value: $(PG_PASSWORD)
+          command:
+            - /bin/sh
+            - -ec
+          args:
+            - |
+              for i in $(seq 1 90); do
+                if pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 2
+              done
+              pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1
+              if ! psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='anythingllm'" | grep -qx 1; then
+                psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE anythingllm;'
+              fi
+              psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d anythingllm -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS vector;'
+              test "$(psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d anythingllm -Atqc "SELECT count(*) FROM pg_extension WHERE extname='vector'")" = '1'
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+      restartPolicy: Never
+  ttlSecondsAfterFinished: 300
+---
+${{ endif() }}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: mintplexlabs/anythingllm:1.14.0
+    originImageName: mintplexlabs/anythingllm:1.15.0
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
-    docker-to-sealos.resource-override-source: live Sealos deployment was OOMKilled at the 200m/256Mi baseline while starting the bundled collector and server.
+    docker-to-sealos.resource-override-source: 'Live Sealos cold-start validation in ns-let51wad: 256Mi was OOMKilled while starting the bundled server and collector; 100m/512Mi completed login, workspace create/update, a 404 request, and the stability window with zero restarts.'
   labels:
     app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
@@ -93,15 +239,70 @@ spec:
     spec:
       automountServiceAccountToken: false
       securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
         fsGroup: 1000
         fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+${{ if(inputs.vector_database === 'pgvector') }}
+      initContainers:
+        - name: wait-for-pgvector
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PGPASSWORD
+              value: $(PG_PASSWORD)
+          command:
+            - /bin/sh
+            - -ec
+          args:
+            - |
+              for i in $(seq 1 120); do
+                if test "$(psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d anythingllm -Atqc "SELECT count(*) FROM pg_extension WHERE extname='vector'" 2>/dev/null)" = '1'; then
+                  exit 0
+                fi
+                sleep 2
+              done
+              exit 1
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+${{ endif() }}
       containers:
         - name: ${{ defaults.app_name }}
-          image: mintplexlabs/anythingllm:1.14.0
+          image: mintplexlabs/anythingllm:1.15.0
           imagePullPolicy: IfNotPresent
           securityContext:
-            runAsUser: 1000
-            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           env:
             - name: SERVER_PORT
               value: '3001'
@@ -119,12 +320,36 @@ spec:
               value: ${{ inputs.openai_api_key }}
             - name: VECTOR_DB
               value: ${{ inputs.vector_database }}
+${{ if(inputs.vector_database === 'pgvector') }}
+            - name: PGVECTOR_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PGVECTOR_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PGVECTOR_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PGVECTOR_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
             - name: PGVECTOR_CONNECTION_STRING
-              value: ${{ inputs.pgvector_connection_string }}
+              value: postgresql://$(PGVECTOR_USERNAME):$(PGVECTOR_PASSWORD)@$(PGVECTOR_HOST):$(PGVECTOR_PORT)/anythingllm
+${{ endif() }}
             - name: PGVECTOR_TABLE_NAME
               value: ${{ inputs.pgvector_table_name }}
             - name: DISABLE_TELEMETRY
               value: 'true'
+            - name: ANYTHINGLLM_CHROMIUM_ARGS
+              value: --no-sandbox,--disable-setuid-sandbox
           ports:
             - name: http
               containerPort: 3001
@@ -152,11 +377,11 @@ spec:
             timeoutSeconds: 5
           resources:
             limits:
-              cpu: 500m
-              memory: 768Mi
+              cpu: 100m
+              memory: 512Mi
             requests:
-              cpu: 50m
-              memory: 77Mi
+              cpu: 10m
+              memory: 51Mi
           volumeMounts:
             - name: storage
               mountPath: /app/server/storage

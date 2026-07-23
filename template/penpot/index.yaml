@@ -3,96 +3,90 @@ kind: Template
 metadata:
   name: penpot
 spec:
-  title: 'Penpot'
-  url: 'https://penpot.app/'
-  gitRepo: 'https://github.com/penpot/penpot'
-  author: 'Sealos'
-  description: 'The open-source design tool for design and code collaboration.'
-  readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/penpot/README.md'
-  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/penpot/logo.png'
+  title: Penpot
+  url: https://penpot.app/
+  gitRepo: https://github.com/penpot/penpot
+  author: Sealos
+  description: Open-source design and prototyping platform for collaborative product teams.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/penpot/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/penpot/logo.png
   screenshots:
-    - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/penpot/website-screenshot.webp'
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/penpot/website-screenshot.webp
   templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: 面向产品团队协作的开源设计与原型平台。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/penpot/README_zh.md
   categories:
     - tool
+    - frontend
   defaults:
-    app_host:
-      # number or string..
-      type: string
-      value: penpot-${{ random(8) }}
     app_name:
       type: string
       value: penpot-${{ random(8) }}
+    app_host:
+      type: string
+      value: penpot-${{ random(8) }}
+    secret_key:
+      type: string
+      value: ${{ random(64) }}
+  inputs:
+    enable_s3_storage:
+      description: Store uploaded assets in private Sealos Object Storage instead of the shared filesystem volume
+      type: boolean
+      default: 'false'
+      required: false
 
-  i18n:
-    zh:
-      readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/penpot/README_zh.md'
 ---
+${{ if(inputs.enable_s3_storage === 'true') }}
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  policy: private
+
+---
+${{ endif() }}
+${{ if(inputs.enable_s3_storage === 'false') }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ${{ defaults.app_name }}-assets
+  labels:
+    app: ${{ defaults.app_name }}-backend
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-backend
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: openebs-backup
+
+---
+${{ endif() }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
+  name: ${{ defaults.app_name }}-pg
   labels:
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
     app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
     app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-pg
-
----
-apiVersion: apps.kubeblocks.io/v1alpha1
-kind: Cluster
-metadata:
-  finalizers:
-    - cluster.kubeblocks.io/finalizer
-  labels:
-    clusterdefinition.kubeblocks.io/name: postgresql
-    clusterversion.kubeblocks.io/name: postgresql-14.8.0
-    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
-  annotations: {}
-  name: ${{ defaults.app_name }}-pg
-spec:
-  affinity:
-    nodeLabels: {}
-    podAntiAffinity: Preferred
-    tenancy: SharedNode
-    topologyKeys: []
-  clusterDefinitionRef: postgresql
-  clusterVersionRef: postgresql-14.8.0
-  componentSpecs:
-    - componentDefRef: postgresql
-      monitor: true
-      name: postgresql
-      replicas: 1
-      resources:
-        limits:
-          cpu: 500m
-          memory: 512Mi
-        requests:
-          cpu: 50m
-          memory: 51Mi
-      serviceAccountName: ${{ defaults.app_name }}-pg
-      switchPolicy:
-        type: Noop
-      volumeClaimTemplates:
-        - name: data
-          spec:
-            accessModes:
-              - ReadWriteOnce
-            resources:
-              requests:
-                storage: 1Gi
-
-  terminationPolicy: Delete
-  tolerations: []
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
+  name: ${{ defaults.app_name }}-pg
   labels:
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
     app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
     app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-pg
 rules:
   - apiGroups:
       - '*'
@@ -105,11 +99,11 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
+  name: ${{ defaults.app_name }}-pg
   labels:
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
     app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
     app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-pg
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -119,79 +113,31 @@ subjects:
     name: ${{ defaults.app_name }}-pg
 
 ---
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: ${{ defaults.app_name }}-pg-init
-spec:
-  completions: 1
-  template:
-    spec:
-      containers:
-        - name: pgsql-init
-          image: senzing/postgresql-client:2.2.4
-          env:
-            - name: PG_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: password
-            - name: DATABASE_URL
-              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
-          command:
-            - /bin/sh
-            - -c
-            - |
-              until psql ${DATABASE_URL} -c 'CREATE DATABASE penpot;' &>/dev/null; do sleep 1; done
-      restartPolicy: Never
-  backoffLimit: 0
-  ttlSecondsAfterFinished: 300
-
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
-    app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-redis
-
----
 apiVersion: apps.kubeblocks.io/v1alpha1
 kind: Cluster
 metadata:
-  finalizers:
-    - cluster.kubeblocks.io/finalizer
-  name: ${{ defaults.app_name }}-redis
+  name: ${{ defaults.app_name }}-pg
   labels:
-    clusterdefinition.kubeblocks.io/name: redis
-    kb.io/database: redis-7.2.7
-    app.kubernetes.io/instance: ${{ defaults.app_name }}
-    app.kubernetes.io/version: 7.2.7
-    helm.sh/chart: redis-cluster-0.9.0
-    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    kb.io/database: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
 spec:
-  clusterDefinitionRef: redis
   affinity:
     podAntiAffinity: Preferred
-    topologyKeys:
-      - kubernetes.io/hostname
-  tolerations:
-    - key: kb-data
-      operator: Equal
-      value: "true"
-      effect: NoSchedule
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
   componentSpecs:
-    - name: redis
-      componentDef: redis-7
+    - name: postgresql
+      componentDefRef: postgresql
+      disableExporter: true
       enabledLogs:
         - running
-      env:
-        - name: CUSTOM_SENTINEL_MASTER_NAME
-      serviceVersion: 7.2.7
-      serviceAccountName: ${{ defaults.app_name }}-redis
       replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
       resources:
         limits:
           cpu: 500m
@@ -207,16 +153,173 @@ spec:
             resources:
               requests:
                 storage: 1Gi
-    - componentDef: redis-sentinel-7
-      name: redis-sentinel
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+spec:
+  backoffLimit: 3
+  completions: 1
+  template:
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: pg-init
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export PGPASSWORD="$PG_PASSWORD"
+              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; do
+                sleep 2
+              done
+              if ! psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='penpot'" | grep -q 1; then
+                createdb -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" penpot
+              fi
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+      restartPolicy: OnFailure
+  ttlSecondsAfterFinished: 300
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-redis
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-redis
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    kb.io/database: redis-7.2.7
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/version: 7.2.7
+    clusterdefinition.kubeblocks.io/name: redis
+    clusterversion.kubeblocks.io/name: redis-7.2.7
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys:
+      - kubernetes.io/hostname
+  clusterDefinitionRef: redis
+  componentSpecs:
+    - name: redis
+      componentDef: redis-7
+      enabledLogs:
+        - running
+      env:
+        - name: CUSTOM_SENTINEL_MASTER_NAME
       replicas: 1
       resources:
         limits:
-          cpu: 100m
-          memory: 100Mi
+          cpu: 500m
+          memory: 512Mi
         requests:
-          cpu: 10m
-          memory: 10Mi
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      serviceVersion: 7.2.7
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+    - name: redis-sentinel
+      componentDef: redis-sentinel-7
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
       serviceVersion: 7.2.7
       volumeClaimTemplates:
         - name: data
@@ -230,47 +333,25 @@ spec:
   topology: replication
 
 ---
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
+apiVersion: v1
+kind: ConfigMap
 metadata:
+  name: ${{ defaults.app_name }}-frontend
   labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
-    app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-redis
-rules:
-  - apiGroups:
-      - '*'
-    resources:
-      - '*'
-    verbs:
-      - '*'
-
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  labels:
-    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
-    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
-    app.kubernetes.io/managed-by: kbcli
-  name: ${{ defaults.app_name }}-redis
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: ${{ defaults.app_name }}-redis
-subjects:
-  - kind: ServiceAccount
-    name: ${{ defaults.app_name }}-redis
-    namespace: ${{ SEALOS_NAMESPACE }}
-
----
-apiVersion: objectstorage.sealos.io/v1
-kind: ObjectStorageBucket
-metadata:
-  name: ${{ defaults.app_name }}-private
-spec:
-  policy: private
+    app: ${{ defaults.app_name }}-frontend
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-frontend
+data:
+  vn-optvn-penpotvn-startvn-sh: |
+    set -eu
+    sed -i -e "s|^//var penpotFlags = .*;|var penpotFlags = \"$PENPOT_FLAGS\";|" /var/www/app/js/config.js
+    printf 'var penpotPublicURI = "%s";\n' "$PENPOT_PUBLIC_URI" >> /var/www/app/js/config.js
+    export PENPOT_HTTP_SERVER_MAX_BODY_SIZE="${PENPOT_HTTP_SERVER_MAX_BODY_SIZE:-367001600}"
+    export PENPOT_IPV6_LISTEN_DIRECTIVE='listen [::]:8080 default_server reuseport backlog=16384;'
+    envsubst '$PENPOT_BACKEND_URI,$PENPOT_EXPORTER_URI,$PENPOT_NITRATE_URI,$PENPOT_HTTP_SERVER_MAX_BODY_SIZE,$PENPOT_IPV6_LISTEN_DIRECTIVE' < /tmp/nginx.conf.template | sed 's/^worker_processes auto;/worker_processes 1;/' > /etc/nginx/nginx.conf
+    export PENPOT_INTERNAL_RESOLVER="$(awk 'BEGIN{ORS=" "} $1=="nameserver" {sub(/%.*$/,"",$2); print ($2 ~ ":")? "["$2"]": $2}' /etc/resolv.conf)"
+    envsubst '$PENPOT_INTERNAL_RESOLVER' < /tmp/resolvers.conf.template > /etc/nginx/overrides/http.d/resolvers.conf
+    rm -f /etc/nginx/overrides/server.d/mcp-locations.conf
+    exec nginx -g 'daemon off;'
 
 ---
 apiVersion: apps/v1
@@ -278,12 +359,12 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-backend
   annotations:
-    originImageName: penpotapp/backend:2.1.2
+    originImageName: penpotapp/backend:2.16.2
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-backend
     app: ${{ defaults.app_name }}-backend
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-backend
 spec:
   replicas: 1
   revisionHistoryLimit: 1
@@ -291,32 +372,140 @@ spec:
     matchLabels:
       app: ${{ defaults.app_name }}-backend
   strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 0
-      maxSurge: 1
+    type: Recreate
   template:
     metadata:
       labels:
         app: ${{ defaults.app_name }}-backend
     spec:
-      terminationGracePeriodSeconds: 10
       automountServiceAccountToken: false
-      containers:
-        - name: ${{ defaults.app_name }}-backend
-          image: penpotapp/backend:2.1.2
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      ${{ if(inputs.enable_s3_storage === 'false') }}
+      affinity:
+        podAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - ${{ defaults.app_name }}-frontend
+                topologyKey: kubernetes.io/hostname
+      ${{ endif() }}
+      initContainers:
+        - name: wait-for-postgresql
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
           env:
-            - name: PENPOT_FLAGS
-              value: "enable-registration enable-login-with-password disable-email-verification enable-smtp enable-prepl-server"
-            - name: PENPOT_HTTP_SERVER_HOST
-              value: "0.0.0.0"
-            - name: PENPOT_PUBLIC_URI
-              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
-            - name: DATABASE_PORT
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export PGPASSWORD="$PG_PASSWORD"
+              until psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d penpot -tAc 'SELECT 1' | grep -q 1; do
+                sleep 2
+              done
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+        - name: wait-for-redis
+          image: public.ecr.aws/docker/library/redis:7.2.7-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REDIS_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: username
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until redis-cli -h "${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local" -p 6379 --user "$REDIS_USERNAME" -a "$REDIS_PASSWORD" --no-auth-warning ping 2>/dev/null | grep -q PONG; do
+                sleep 2
+              done
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+      containers:
+        - name: ${{ defaults.app_name }}-backend
+          image: penpotapp/backend:2.16.2
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PENPOT_FLAGS
+              value: enable-registration enable-login-with-password disable-email-verification
+            - name: PENPOT_HTTP_SERVER_HOST
+              value: 0.0.0.0
+            - name: PENPOT_HTTP_SERVER_MAX_BODY_SIZE
+              value: '33554432'
+            - name: PENPOT_PUBLIC_URI
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: PENPOT_SECRET_KEY
+              value: ${{ defaults.secret_key }}
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PENPOT_DATABASE_URI
+              value: postgresql://$(PG_HOST):$(PG_PORT)/penpot
             - name: PENPOT_DATABASE_USERNAME
               valueFrom:
                 secretKeyRef:
@@ -327,11 +516,11 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
-            - name: PENPOT_DATABASE_URI
-              value: "postgresql://${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:$(DATABASE_PORT)/penpot"
-            - name: REDIS_PORT
-              value: '6379'
-            - name: REDIS_USER
+            - name: PENPOT_DATABASE_MIN_POOL_SIZE
+              value: '1'
+            - name: PENPOT_DATABASE_MAX_POOL_SIZE
+              value: '10'
+            - name: REDIS_USERNAME
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
@@ -341,64 +530,105 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
             - name: PENPOT_REDIS_URI
-              value: "redis://$(REDIS_USER):$(REDIS_PASSWORD)@${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc:$(REDIS_PORT)/0"
-            - name: PENPOT_ASSETS_STORAGE_BACKEND
-              value: assets-s3
-            - name: AWS_SECRET_ACCESS_KEY
+              value: redis://$(REDIS_USERNAME):$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)/0
+            ${{ if(inputs.enable_s3_storage === 'true') }}
+            - name: PENPOT_OBJECTS_STORAGE_BACKEND
+              value: s3
+            - name: PENPOT_OBJECTS_STORAGE_S3_REGION
+              value: us-east-1
+            - name: PENPOT_OBJECTS_STORAGE_S3_BUCKET
               valueFrom:
                 secretKeyRef:
-                  name: object-storage-key
-                  key: secretKey
-            - name: AWS_ACCESS_KEY_ID
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: accessKey
-            - name: PENPOT_STORAGE_ASSETS_S3_BUCKET
-              value: "penpot"
-            - name: BACKEND_STORAGE_PRIVATE_BUCKET
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-private
-                  key: bucket
-            - name: BACKEND_STORAGE_MINIO_ENDPOINT
+            - name: AWS_ACCESS_KEY_ID
+              value: $(S3_ACCESS_KEY_ID)
+            - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
-                  key: internal
-            - name: PENPOT_STORAGE_ASSETS_S3_ENDPOINT
-              value: "http://$(BACKEND_STORAGE_MINIO_ENDPOINT)/$(BACKEND_STORAGE_PRIVATE_BUCKET)"
+                  key: secretKey
+            - name: AWS_SECRET_ACCESS_KEY
+              value: $(S3_SECRET_ACCESS_KEY)
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            - name: PENPOT_OBJECTS_STORAGE_S3_ENDPOINT
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+            ${{ else() }}
+            - name: PENPOT_OBJECTS_STORAGE_BACKEND
+              value: fs
+            - name: PENPOT_OBJECTS_STORAGE_FS_DIRECTORY
+              value: /opt/data/assets
+            ${{ endif() }}
+            - name: PENPOT_FILE_DATA_BACKEND
+              value: legacy-db
             - name: PENPOT_TELEMETRY_ENABLED
-              value: true
-            - name: PENPOT_SMTP_DEFAULT_FROM
-              value: no-reply@example.com
-            - name: PENPOT_SMTP_DEFAULT_REPLY_TO
-              value: no-reply@example.com
-            - name: PENPOT_SMTP_HOST
-              value: penpot-mailcatch
-            - name: PENPOT_SMTP_PORT
-              value: "1025"
-            - name: PENPOT_SMTP_USERNAME
-              value: 
-            - name: PENPOT_SMTP_PASSWORD
-              value: 
-            - name: PENPOT_SMTP_TLS
-              value: false
-            - name: PENPOT_SMTP_SSL
-              value: false
-          resources:
-            requests:
-              cpu: 1000m
-              memory: 102Mi
-            limits:
-              cpu: 1000m
-              memory: 1024Mi
+              value: 'false'
+            - name: PENPOT_TELEMETRY_REFERER
+              value: kubernetes
           ports:
             - name: http
-              protocol: TCP
               containerPort: 6060
-          imagePullPolicy: IfNotPresent
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            failureThreshold: 60
+            periodSeconds: 5
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources:
+            limits:
+              cpu: 200m
+              memory: 1024Mi
+            requests:
+              cpu: 20m
+              memory: 102Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+          ${{ if(inputs.enable_s3_storage === 'false') }}
+          volumeMounts:
+            - name: vn-optvn-datavn-assets
+              mountPath: /opt/data/assets
+          ${{ endif() }}
+      ${{ if(inputs.enable_s3_storage === 'false') }}
+      volumes:
+        - name: vn-optvn-datavn-assets
+          persistentVolumeClaim:
+            claimName: ${{ defaults.app_name }}-assets
+      ${{ endif() }}
 
 ---
 apiVersion: v1
@@ -406,10 +636,13 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-backend
   labels:
+    app: ${{ defaults.app_name }}-backend
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-backend
 spec:
   ports:
-    - port: 6060
+    - name: http
+      port: 6060
+      targetPort: http
   selector:
     app: ${{ defaults.app_name }}-backend
 
@@ -419,12 +652,12 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-exporter
   annotations:
-    originImageName: penpotapp/exporter:2.1.2
+    originImageName: penpotapp/exporter:2.16.2
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-exporter
     app: ${{ defaults.app_name }}-exporter
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-exporter
 spec:
   replicas: 1
   revisionHistoryLimit: 1
@@ -433,24 +666,25 @@ spec:
       app: ${{ defaults.app_name }}-exporter
   strategy:
     type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 0
-      maxSurge: 1
   template:
     metadata:
       labels:
         app: ${{ defaults.app_name }}-exporter
     spec:
       automountServiceAccountToken: false
-      containers:
-        - name: ${{ defaults.app_name }}-exporter
-          image: penpotapp/exporter:2.1.2
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: wait-for-redis
+          image: public.ecr.aws/docker/library/redis:7.2.7-alpine
+          imagePullPolicy: IfNotPresent
           env:
-            - name: PENPOT_PUBLIC_URI
-              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
-            - name: REDIS_PORT
-              value: '6379'
-            - name: REDIS_USER
+            - name: REDIS_USERNAME
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
@@ -460,19 +694,91 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
-            - name: PENPOT_REDIS_URI
-              value: "redis://$(REDIS_USER):$(REDIS_PASSWORD)@${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc:$(REDIS_PORT)/0"
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until redis-cli -h "${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local" -p 6379 --user "$REDIS_USERNAME" -a "$REDIS_PASSWORD" --no-auth-warning ping 2>/dev/null | grep -q PONG; do
+                sleep 2
+              done
           resources:
-            requests:
-              cpu: 10m
-              memory: 12Mi
             limits:
               cpu: 100m
               memory: 128Mi
-          ports:
-            - containerPort: 6061
+            requests:
+              cpu: 10m
+              memory: 12Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+      containers:
+        - name: ${{ defaults.app_name }}-exporter
+          image: penpotapp/exporter:2.16.2
           imagePullPolicy: IfNotPresent
-
+          env:
+            - name: PENPOT_PUBLIC_URI
+              value: http://${{ defaults.app_name }}-frontend.${{ SEALOS_NAMESPACE }}.svc.cluster.local:8080
+            - name: PENPOT_SECRET_KEY
+              value: ${{ defaults.secret_key }}
+            - name: REDIS_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: username
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
+            - name: PENPOT_REDIS_URI
+              value: redis://$(REDIS_USERNAME):$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)/0
+            - name: PENPOT_TEMPDIR
+              value: /tmp/penpot-exporter
+          ports:
+            - name: http
+              containerPort: 6061
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            failureThreshold: 60
+            periodSeconds: 5
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources:
+            limits:
+              cpu: 100m
+              memory: 512Mi
+            requests:
+              cpu: 10m
+              memory: 51Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
 
 ---
 apiVersion: v1
@@ -480,10 +786,13 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-exporter
   labels:
+    app: ${{ defaults.app_name }}-exporter
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-exporter
 spec:
   ports:
-    - port: 6061
+    - name: http
+      port: 6061
+      targetPort: http
   selector:
     app: ${{ defaults.app_name }}-exporter
 
@@ -493,67 +802,125 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-frontend
   annotations:
-    originImageName: penpotapp/frontend:2.1.2
+    originImageName: penpotapp/frontend:2.16.2
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-frontend
     app: ${{ defaults.app_name }}-frontend
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-frontend
 spec:
   replicas: 1
   revisionHistoryLimit: 1
-  minReadySeconds: 10
   selector:
     matchLabels:
       app: ${{ defaults.app_name }}-frontend
   strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 0
-      maxSurge: 1
+    type: Recreate
   template:
     metadata:
       labels:
         app: ${{ defaults.app_name }}-frontend
     spec:
-      terminationGracePeriodSeconds: 10
       automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      ${{ if(inputs.enable_s3_storage === 'false') }}
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - ${{ defaults.app_name }}-backend
+              topologyKey: kubernetes.io/hostname
+      ${{ endif() }}
       containers:
         - name: ${{ defaults.app_name }}-frontend
-          image: penpotapp/frontend:2.1.2
+          image: penpotapp/frontend:2.16.2
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/bash
+            - -ec
+          args:
+            - exec /bin/bash /opt/penpot/start.sh
           env:
             - name: PENPOT_FLAGS
-              value: "enable-registration enable-login-with-password"
+              value: enable-registration enable-login-with-password disable-email-verification
+            - name: PENPOT_PUBLIC_URI
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: PENPOT_BACKEND_URI
-              value: "http://${{ defaults.app_name }}-backend:6060"
+              value: http://${{ defaults.app_name }}-backend.${{ SEALOS_NAMESPACE }}.svc.cluster.local:6060
             - name: PENPOT_EXPORTER_URI
-              value: "http://${{ defaults.app_name }}-exporter:6061"
+              value: http://${{ defaults.app_name }}-exporter.${{ SEALOS_NAMESPACE }}.svc.cluster.local:6061
+            - name: PENPOT_HTTP_SERVER_MAX_BODY_SIZE
+              value: '33554432'
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            failureThreshold: 60
+            periodSeconds: 5
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
           resources:
-            requests:
-              cpu: 10m
-              memory: 12Mi
             limits:
               cpu: 100m
               memory: 128Mi
-          ports:
-            - name: http
-              protocol: TCP
-              containerPort: 80
-          livenessProbe:
-            exec:
-              command:
-              - /bin/sh
-              - -c
-              - curl -sf http://localhost:80/readyz | grep -i 'ok'
-            initialDelaySeconds: 20
-          readinessProbe:
-            exec:
-              command:
-              - /bin/sh
-              - -c
-              - curl -sf http://localhost:80/readyz | grep -i 'ok'
-            initialDelaySeconds: 20
-          imagePullPolicy: IfNotPresent
+            requests:
+              cpu: 10m
+              memory: 12Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+          volumeMounts:
+            - name: ${{ defaults.app_name }}-frontend-cm
+              mountPath: /opt/penpot/start.sh
+              subPath: vn-optvn-penpotvn-startvn-sh
+          ${{ if(inputs.enable_s3_storage === 'false') }}
+            - name: vn-optvn-datavn-assets
+              mountPath: /opt/data/assets
+          ${{ endif() }}
+      volumes:
+        - name: ${{ defaults.app_name }}-frontend-cm
+          configMap:
+            name: ${{ defaults.app_name }}-frontend
+            items:
+              - key: vn-optvn-penpotvn-startvn-sh
+                path: vn-optvn-penpotvn-startvn-sh
+      ${{ if(inputs.enable_s3_storage === 'false') }}
+        - name: vn-optvn-datavn-assets
+          persistentVolumeClaim:
+            claimName: ${{ defaults.app_name }}-assets
+      ${{ endif() }}
 
 ---
 apiVersion: v1
@@ -561,10 +928,13 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-frontend
   labels:
+    app: ${{ defaults.app_name }}-frontend
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-frontend
 spec:
   ports:
-    - port: 80
+    - name: http
+      port: 8080
+      targetPort: http
   selector:
     app: ${{ defaults.app_name }}-frontend
 
@@ -572,15 +942,12 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: ${{ defaults.app_name }}
+  name: ${{ defaults.app_name }}-frontend
   labels:
+    app: ${{ defaults.app_name }}-frontend
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-frontend
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
-    higress.io/response-header-control-remove: X-Frame-Options
-    higress.io/response-header-control-update: |
-      Content-Security-Policy "default-src * blob: data: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; img-src * data: blob: resource: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; connect-src * wss: blob: resource:; style-src 'self' 'unsafe-inline' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource: *.baidu.com *.bdstatic.com; frame-src 'self' *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} mailto: tel: weixin: mtt: *.baidu.com; frame-ancestors 'self' https://${{ SEALOS_CLOUD_DOMAIN }} https://*.${{ SEALOS_CLOUD_DOMAIN }}"
-      X-Xss-Protection "1; mode=block"
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/proxy-body-size: 32m
     nginx.ingress.kubernetes.io/server-snippet: |
@@ -593,9 +960,6 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
     nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
     nginx.ingress.kubernetes.io/configuration-snippet: |
-      more_clear_headers "X-Frame-Options:";
-      more_set_headers "Content-Security-Policy: default-src * blob: data: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; img-src * data: blob: resource: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }}; connect-src * wss: blob: resource:; style-src 'self' 'unsafe-inline' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} resource: *.baidu.com *.bdstatic.com; frame-src 'self' *.${{ SEALOS_CLOUD_DOMAIN }} ${{ SEALOS_CLOUD_DOMAIN }} mailto: tel: weixin: mtt: *.baidu.com; frame-ancestors 'self' https://${{ SEALOS_CLOUD_DOMAIN }} https://*.${{ SEALOS_CLOUD_DOMAIN }}";
-      more_set_headers "X-Xss-Protection: 1; mode=block";
       if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
         expires 30d;
         add_header Cache-Control "public";
@@ -605,13 +969,13 @@ spec:
     - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       http:
         paths:
-          - pathType: Prefix
-            path: /
+          - path: /
+            pathType: Prefix
             backend:
               service:
                 name: ${{ defaults.app_name }}-frontend
                 port:
-                  number: 80
+                  number: 8080
   tls:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
@@ -628,6 +992,6 @@ spec:
   data:
     url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
   displayType: normal
-  icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/penpot/logo.png"
-  name: "Penpot"
-  type: iframe
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/penpot/logo.png
+  name: Penpot
+  type: link

@@ -1,45 +1,50 @@
 # 在 Sealos 上部署和托管 AnythingLLM
 
-AnythingLLM 是一个集私有聊天、文档摄取、Agent 和工作区知识库于一体的 AI 应用。此模板在 Sealos Cloud 上部署带持久化存储的 AnythingLLM。
+AnythingLLM 是一款自托管 AI 工作空间，支持私有对话、文档摄取、Agent 和检索增强生成（RAG）。此模板会在 Sealos 上部署 AnythingLLM 1.15.0，提供持久化存储，并可按需启用由 Sealos 托管的 PGVector 数据库。
 
 ![AnythingLLM 截图](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/anything-llm/website-screenshot.webp)
 
 ## 关于托管 AnythingLLM
 
-AnythingLLM 以单个 Web 服务运行，包含应用服务、文档摄取流水线、本地工作区存储和向量存储配置。模板会为 `/app/server/storage`、`/app/collector/hotdir`、`/app/collector/outputs` 创建持久卷，用于保存上传文件、工作区数据和处理结果。
+AnythingLLM 将 Web 界面、API 服务、文档采集器和 Agent 运行时整合在一个容器中。模板会持久保存应用数据、上传文档和采集器输出，应用重启后数据依然保留。
 
-默认向量后端是应用存储卷内的 LanceDB。使用外部 PGVector 时，将 **Vector Database** 设为 `pgvector`，并填写 PostgreSQL 连接串和表名。
+LanceDB 是默认向量后端，向量数据保存在应用存储卷中。选择 PGVector 后，模板会通过 KubeBlocks 创建 PostgreSQL 16.4 集群，初始化 `anythingllm` 数据库，启用 `vector` 扩展，并在数据库就绪后启动 AnythingLLM。
 
 ## 常见使用场景
 
-- **私有 AI 聊天**：为不同工作区创建连接自有模型供应商的助手。
-- **文档问答**：上传文件并通过工作区知识库提问。
-- **Agent 工作流**：在浏览器中运行工具和 Agent 操作。
-- **团队知识库**：集中保存项目上下文、文档和对话。
+- **私有 AI 对话**：连接常用模型供应商，在自托管工作空间中保存对话。
+- **文档问答**：上传文件、生成向量，并在对话中检索相关内容。
+- **Agent 工作流**：在同一界面中使用内置工具、Agent 技能和定时任务。
+- **团队知识空间**：按工作区整理文档、提示词和对话记录。
 
 ## AnythingLLM 托管依赖
 
-Sealos 模板包含 AnythingLLM 容器镜像、持久化存储、公开 HTTPS 入口和可选 PGVector 参数。
+模板包含 AnythingLLM 容器、HTTPS 入口和三个持久卷。启用 PGVector 后，还会创建由 Sealos 托管的 PostgreSQL 集群和幂等初始化任务。
 
 ### 部署依赖
 
-- [官方网站](https://anythingllm.com/) - 产品网站
-- [GitHub 仓库](https://github.com/Mintplex-Labs/anything-llm) - 源代码
-- [Docker 指南](https://github.com/Mintplex-Labs/anything-llm/tree/master/docker) - 上游容器部署说明
+- [AnythingLLM 文档](https://docs.anythingllm.com/) - 产品与配置文档
+- [AnythingLLM GitHub 仓库](https://github.com/Mintplex-Labs/anything-llm) - 源代码与版本发布
+- [Docker 部署指南](https://github.com/Mintplex-Labs/anything-llm/blob/v1.15.0/docker/HOW_TO_USE_DOCKER.md) - 官方容器部署说明
 
 ## 实现细节
 
 **架构组件：**
 
-- **AnythingLLM**：Web UI、API 服务、工作区管理、文档摄取和向量后端客户端。
-- **持久化存储**：保存服务端数据、collector hotdir 和 collector outputs。
-- **可选 PGVector**：使用启用 pgvector 扩展的外部 PostgreSQL 作为向量存储。
+- **AnythingLLM**：提供 Web 界面和 API，处理文档、运行 Agent，并连接选定的向量后端。
+- **持久化存储**：在 `/app/server/storage` 保存服务端状态，在 `/app/collector/hotdir` 和 `/app/collector/outputs` 保存采集器数据。
+- **LanceDB**：通过 AnythingLLM 存储卷提供默认的嵌入式向量后端。
+- **可选 PGVector**：选择 `pgvector` 时，通过 KubeBlocks 创建 PostgreSQL 并启用 `vector` 扩展。
+
+**身份验证：**
+
+模板启用 AnythingLLM 单用户密码认证。部署时设置 **Single-user password**，随后在 AnythingLLM 登录页输入同一密码。账户注册属于 AnythingLLM 多用户模式，此模板采用单用户登录流程。
 
 **配置：**
 
-- `auth_token` 设置单用户登录密码。
-- `openai_api_key` 可用于初始化和后续模型配置。
-- `vector_database` 默认是 `lancedb`；选择 `pgvector` 后填写外部 PGVector 字段。
+- `vector_database` 可选择 `lancedb` 或托管的 `pgvector` 分支。
+- `pgvector_table_name` 用于设置 PGVector 的向量表名。
+- `openai_api_key` 可预先配置 OpenAI API Key，也可登录后再设置模型供应商。
 
 **许可证信息：**
 
@@ -47,22 +52,23 @@ AnythingLLM 使用 MIT License。
 
 ## 为什么在 Sealos 上部署 AnythingLLM？
 
-Sealos 提供一键部署、自动 HTTPS、持久化存储和基于 Kubernetes 的生命周期管理。通过 App Store 表单即可获得带可配置存储和模型参数的 AnythingLLM 公网服务。
+Sealos 提供一键部署、自动 HTTPS、持久卷和基于 Kubernetes 的生命周期管理。PGVector 条件选项会自动创建并连接数据库，平台会将数据库凭据直接注入工作负载；按量付费的资源模式也适合个人使用。
 
 ## 部署指南
 
 1. 打开 [AnythingLLM 模板](https://sealos.io/products/app-store/anything-llm)，点击 **Deploy Now**。
-2. 在弹窗中配置参数。设置 **Single-user password** 作为首次登录密码。内置存储保留 **Vector Database** 为 `lancedb`；使用外部向量库时选择 `pgvector` 并填写 PGVector 字段。
-3. 等待部署完成，通常需要 2-3 分钟。部署完成后会进入 Canvas。
-4. 打开生成的应用 URL，使用配置的单用户密码登录。
+2. 设置 **Single-user password**。使用嵌入式存储时保留 **Vector Database** 为 `lancedb`；需要 Sealos 托管的 PostgreSQL 向量后端时选择 `pgvector`。需要立即使用 OpenAI 时可同时填写 API Key。
+3. 等待部署完成。LanceDB 通常需要 2-3 分钟；PGVector 会先初始化 PostgreSQL，耗时可能增加几分钟。部署完成后页面会进入 Canvas。
+4. 打开生成的 AnythingLLM 地址，使用第 2 步设置的单用户密码登录。
+5. 在 AnythingLLM 中配置大语言模型供应商、创建工作区并上传文档。
 
 ## 配置
 
-部署后，可在 AnythingLLM UI 中配置模型供应商、Embedding 供应商、工作区和文档上传设置。资源和环境变量可在 Sealos Canvas 的资源卡片中调整。
+登录后，可在 **Settings** 中配置大语言模型和 Embedding 供应商、Agent 工具、外观与安全选项。后续如需调整计算资源、存储、环境变量和网络，可使用 Sealos Canvas 的 AI 对话框或资源卡片。
 
 ## 更多资源
 
-- [AnythingLLM 文档](https://docs.anythingllm.com/)
+- [AnythingLLM 配置文档](https://docs.anythingllm.com/configuration)
 - [GitHub Issues](https://github.com/Mintplex-Labs/anything-llm/issues)
 - [Sealos Discord](https://discord.gg/wdUn538zVP)
 
