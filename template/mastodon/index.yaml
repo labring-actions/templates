@@ -36,6 +36,9 @@ spec:
     otp_secret:
       type: string
       value: ${{ random(128).toLowerCase().replace(/[^0-9a-f]/g, 'a') }}
+    vapid_seed:
+      type: string
+      value: '${{ random(64) }}'
     active_record_encryption_primary_key:
       type: string
       value: ${{ random(32) }}
@@ -67,14 +70,6 @@ spec:
         - none
         - approved
         - open
-    vapid_private_key:
-      description: VAPID private key for Web Push. Generate it together with vapid_public_key before deployment.
-      type: string
-      required: true
-    vapid_public_key:
-      description: VAPID public key for Web Push. Generate it together with vapid_private_key before deployment.
-      type: string
-      required: true
     enable_s3_storage:
       description: Store media in a Sealos ObjectStorageBucket. The default stores media on shared persistent local storage.
       type: boolean
@@ -441,9 +436,109 @@ data:
   SMTP_PORT: '${{ inputs.smtp_port }}'
   SMTP_SERVER: '${{ inputs.smtp_server }}'
   SMTP_FROM_ADDRESS: '${{ inputs.smtp_from_address }}'
-  VAPID_PRIVATE_KEY: '${{ inputs.vapid_private_key }}'
-  VAPID_PUBLIC_KEY: '${{ inputs.vapid_public_key }}'
   WEB_CONCURRENCY: '0'
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-setup
+  labels:
+    app: ${{ defaults.app_name }}-setup
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-setup
+data:
+  vn-usrvn-localvn-binvn-mastodonvn-vapidvn-entrypointvn-rb: |
+    # frozen_string_literal: true
+
+    require 'base64'
+    require 'openssl'
+    require 'webpush'
+
+    seed = ENV.fetch('VAPID_SEED')
+    abort('VAPID seed must contain at least 32 bytes') if seed.bytesize < 32
+
+    group = OpenSSL::PKey::EC::Group.new('prime256v1')
+    digest = OpenSSL::Digest.digest('SHA256', "mastodon-vapid-v1\0#{seed}")
+    private_scalar = (OpenSSL::BN.new(digest, 2) % (group.order - 1)) + 1
+    public_point = group.generator.mul(private_scalar)
+    private_key = Base64.urlsafe_encode64(private_scalar.to_s(2).rjust(32, "\0"))
+    public_key = Base64.urlsafe_encode64(public_point.to_octet_string(:uncompressed))
+    vapid_key = Webpush::VapidKey.from_keys(public_key, private_key)
+
+    abort('Generated VAPID key pair failed validation') unless vapid_key.curve.check_key
+    abort('VAPID entrypoint requires a command') if ARGV.empty?
+
+    ENV['VAPID_PRIVATE_KEY'] = private_key
+    ENV['VAPID_PUBLIC_KEY'] = public_key
+    ENV.delete('VAPID_SEED')
+    exec(*ARGV)
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-web
+  labels:
+    app: ${{ defaults.app_name }}-web
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-web
+data:
+  vn-usrvn-localvn-binvn-mastodonvn-vapidvn-entrypointvn-rb: |
+    # frozen_string_literal: true
+
+    require 'base64'
+    require 'openssl'
+    require 'webpush'
+
+    seed = ENV.fetch('VAPID_SEED')
+    abort('VAPID seed must contain at least 32 bytes') if seed.bytesize < 32
+
+    group = OpenSSL::PKey::EC::Group.new('prime256v1')
+    digest = OpenSSL::Digest.digest('SHA256', "mastodon-vapid-v1\0#{seed}")
+    private_scalar = (OpenSSL::BN.new(digest, 2) % (group.order - 1)) + 1
+    public_point = group.generator.mul(private_scalar)
+    private_key = Base64.urlsafe_encode64(private_scalar.to_s(2).rjust(32, "\0"))
+    public_key = Base64.urlsafe_encode64(public_point.to_octet_string(:uncompressed))
+    vapid_key = Webpush::VapidKey.from_keys(public_key, private_key)
+
+    abort('Generated VAPID key pair failed validation') unless vapid_key.curve.check_key
+    abort('VAPID entrypoint requires a command') if ARGV.empty?
+
+    ENV['VAPID_PRIVATE_KEY'] = private_key
+    ENV['VAPID_PUBLIC_KEY'] = public_key
+    ENV.delete('VAPID_SEED')
+    exec(*ARGV)
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-sidekiq
+  labels:
+    app: ${{ defaults.app_name }}-sidekiq
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-sidekiq
+data:
+  vn-usrvn-localvn-binvn-mastodonvn-vapidvn-entrypointvn-rb: |
+    # frozen_string_literal: true
+
+    require 'base64'
+    require 'openssl'
+    require 'webpush'
+
+    seed = ENV.fetch('VAPID_SEED')
+    abort('VAPID seed must contain at least 32 bytes') if seed.bytesize < 32
+
+    group = OpenSSL::PKey::EC::Group.new('prime256v1')
+    digest = OpenSSL::Digest.digest('SHA256', "mastodon-vapid-v1\0#{seed}")
+    private_scalar = (OpenSSL::BN.new(digest, 2) % (group.order - 1)) + 1
+    public_point = group.generator.mul(private_scalar)
+    private_key = Base64.urlsafe_encode64(private_scalar.to_s(2).rjust(32, "\0"))
+    public_key = Base64.urlsafe_encode64(public_point.to_octet_string(:uncompressed))
+    vapid_key = Webpush::VapidKey.from_keys(public_key, private_key)
+
+    abort('Generated VAPID key pair failed validation') unless vapid_key.curve.check_key
+    abort('VAPID entrypoint requires a command') if ARGV.empty?
+
+    ENV['VAPID_PRIVATE_KEY'] = private_key
+    ENV['VAPID_PUBLIC_KEY'] = public_key
+    ENV.delete('VAPID_SEED')
+    exec(*ARGV)
 ---
 ${{ if(inputs.enable_s3_storage === 'true') }}
 apiVersion: v1
@@ -641,6 +736,10 @@ spec:
               drop:
                 - ALL
           command:
+            - bundle
+            - exec
+            - ruby
+            - /usr/local/bin/mastodon-vapid-entrypoint.rb
             - /bin/bash
             - -c
             - |
@@ -708,6 +807,12 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
+            - name: VAPID_SEED
+              value: '${{ defaults.vapid_seed }}'
+            - name: VAPID_PRIVATE_KEY
+              value: ''
+            - name: VAPID_PUBLIC_KEY
+              value: ''
             ${{ if(inputs.enable_s3_storage === 'true') }}
             - name: S3_ACCESS_KEY_ID
               valueFrom:
@@ -744,6 +849,10 @@ spec:
               value: ${{ inputs.smtp_login }}
             - name: SMTP_PASSWORD
               value: ${{ inputs.smtp_password }}
+          volumeMounts:
+            - name: ${{ defaults.app_name }}-setup-cm
+              mountPath: /usr/local/bin/mastodon-vapid-entrypoint.rb
+              subPath: vn-usrvn-localvn-binvn-mastodonvn-vapidvn-entrypointvn-rb
           resources:
             limits:
               cpu: 100m
@@ -751,6 +860,10 @@ spec:
             requests:
               cpu: 10m
               memory: 51Mi
+      volumes:
+        - name: ${{ defaults.app_name }}-setup-cm
+          configMap:
+            name: ${{ defaults.app_name }}-setup
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -844,6 +957,10 @@ spec:
           command:
             - bundle
             - exec
+            - ruby
+            - /usr/local/bin/mastodon-vapid-entrypoint.rb
+            - bundle
+            - exec
             - puma
             - -C
             - config/puma.rb
@@ -880,6 +997,12 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
+            - name: VAPID_SEED
+              value: '${{ defaults.vapid_seed }}'
+            - name: VAPID_PRIVATE_KEY
+              value: ''
+            - name: VAPID_PUBLIC_KEY
+              value: ''
             ${{ if(inputs.enable_s3_storage === 'true') }}
             - name: S3_ACCESS_KEY_ID
               valueFrom:
@@ -916,11 +1039,14 @@ spec:
               value: ${{ inputs.smtp_login }}
             - name: SMTP_PASSWORD
               value: ${{ inputs.smtp_password }}
-          ${{ if(inputs.enable_s3_storage === 'false') }}
           volumeMounts:
+            - name: ${{ defaults.app_name }}-web-cm
+              mountPath: /usr/local/bin/mastodon-vapid-entrypoint.rb
+              subPath: vn-usrvn-localvn-binvn-mastodonvn-vapidvn-entrypointvn-rb
+            ${{ if(inputs.enable_s3_storage === 'false') }}
             - name: mastodon-media
               mountPath: /opt/mastodon/public/system
-          ${{ endif() }}
+            ${{ endif() }}
           ports:
             - name: http
               containerPort: 3000
@@ -954,12 +1080,15 @@ spec:
             requests:
               cpu: 10m
               memory: 51Mi
-      ${{ if(inputs.enable_s3_storage === 'false') }}
       volumes:
+        - name: ${{ defaults.app_name }}-web-cm
+          configMap:
+            name: ${{ defaults.app_name }}-web
+        ${{ if(inputs.enable_s3_storage === 'false') }}
         - name: mastodon-media
           persistentVolumeClaim:
             claimName: ${{ defaults.app_name }}-media
-      ${{ endif() }}
+        ${{ endif() }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -1053,6 +1182,10 @@ spec:
           command:
             - bundle
             - exec
+            - ruby
+            - /usr/local/bin/mastodon-vapid-entrypoint.rb
+            - bundle
+            - exec
             - sidekiq
           envFrom:
             - configMapRef:
@@ -1087,6 +1220,12 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
+            - name: VAPID_SEED
+              value: '${{ defaults.vapid_seed }}'
+            - name: VAPID_PRIVATE_KEY
+              value: ''
+            - name: VAPID_PUBLIC_KEY
+              value: ''
             ${{ if(inputs.enable_s3_storage === 'true') }}
             - name: S3_ACCESS_KEY_ID
               valueFrom:
@@ -1123,11 +1262,14 @@ spec:
               value: ${{ inputs.smtp_login }}
             - name: SMTP_PASSWORD
               value: ${{ inputs.smtp_password }}
-          ${{ if(inputs.enable_s3_storage === 'false') }}
           volumeMounts:
+            - name: ${{ defaults.app_name }}-sidekiq-cm
+              mountPath: /usr/local/bin/mastodon-vapid-entrypoint.rb
+              subPath: vn-usrvn-localvn-binvn-mastodonvn-vapidvn-entrypointvn-rb
+            ${{ if(inputs.enable_s3_storage === 'false') }}
             - name: mastodon-media
               mountPath: /opt/mastodon/public/system
-          ${{ endif() }}
+            ${{ endif() }}
           livenessProbe:
             exec:
               command:
@@ -1161,11 +1303,16 @@ spec:
                 matchLabels:
                   app: ${{ defaults.app_name }}-web
               topologyKey: kubernetes.io/hostname
+      ${{ endif() }}
       volumes:
+        - name: ${{ defaults.app_name }}-sidekiq-cm
+          configMap:
+            name: ${{ defaults.app_name }}-sidekiq
+        ${{ if(inputs.enable_s3_storage === 'false') }}
         - name: mastodon-media
           persistentVolumeClaim:
             claimName: ${{ defaults.app_name }}-media
-      ${{ endif() }}
+        ${{ endif() }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -1562,6 +1709,13 @@ spec:
     - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       http:
         paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-web
+                port:
+                  number: 3000
           ${{ if(inputs.enable_s3_storage === 'true') }}
           - pathType: Prefix
             path: /__sealos_media/
@@ -1571,13 +1725,6 @@ spec:
                 port:
                   number: 8080
           ${{ endif() }}
-          - pathType: Prefix
-            path: /
-            backend:
-              service:
-                name: ${{ defaults.app_name }}-web
-                port:
-                  number: 3000
   tls:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}

@@ -10,6 +10,8 @@ Mastodon 让社区拥有独立的社交服务器、审核策略、公开身份�
 
 模板会在部署阶段创建数据库结构和第一个 Owner 账号。公开注册可以保持关闭、采用管理员审核或立即开放。初始 Owner 可以直接登录；账号确认、邀请、通知和密码恢复等邮件流程需要可用的 SMTP。
 
+每次部署还会自动派生一组稳定的 VAPID 密钥，用于 Web Push。Pod 重启和滚动更新会持续使用同一组密钥，管理员只需填写业务配置，部署表单会自动处理加密参数。
+
 ## 常见使用场景
 
 - **社区社交网络**：为组织、创作者社区或兴趣小组运行带审核能力的空间。
@@ -40,6 +42,8 @@ Mastodon 让社区拥有独立的社交服务器、审核策略、公开身份�
 本地存储模式会为 Web 与 Sidekiq 创建共享的 `ReadWriteOnce` 媒体卷。模板通过 Pod Affinity 和 Recreate 策略，让两个媒体写入角色调度到该卷所在节点。
 
 可选 S3 模式会创建私有 `ObjectStorageBucket`。Mastodon 使用自动生成的凭据写入私有对象，无状态同域代理通过 `/__sealos_media/` 提供授权读取。对象原始地址会继续限制匿名读写。
+
+模板会为每个实例生成专属种子，并在 Setup、Web 和 Sidekiq 进程中派生合法的 P-256 VAPID 密钥对。派生后的私钥仅存在于进程内存中，公钥则通过 Mastodon 标准实例 API 提供给浏览器，用于创建推送订阅。
 
 实测最低应用资源基线为：
 
@@ -73,18 +77,12 @@ Mastodon 使用 GNU Affero General Public License v3.0。
    - `none`：关闭公开注册，由 Owner 管理用户。
    - `approved`：访客提交注册申请，由管理员审核。
    - `open`：访客可以立即创建账号。
-4. 提供一组 Web Push VAPID 密钥。可以在 Mastodon 环境中运行：
-
-   ```bash
-   RAILS_ENV=production bundle exec rake mastodon:webpush:generate_vapid_key
-   ```
-
-5. 选择媒体存储模式：
+4. 选择媒体存储模式：
    - 保持 `enable_s3_storage` 关闭，使用共享本地持久卷。
    - 启用 `enable_s3_storage`，创建私有 Sealos S3 兼容 bucket 和同域媒体代理。
-6. 实例需要账号邮件流程时，启用 SMTP 并填写服务器、端口、登录名、密码和发件地址。
-7. 开始部署，等待 PostgreSQL、Redis、数据库迁移、Owner 创建和应用启动完成。全新部署通常需要数分钟。
-8. 从 Canvas 打开自动生成的 Mastodon URL。
+5. 实例需要账号邮件流程时，启用 SMTP 并填写服务器、端口、登录名、密码和发件地址。
+6. 开始部署，等待 PostgreSQL、Redis、数据库迁移、Owner 创建、VAPID 密钥派生和应用启动完成。全新部署通常需要数分钟。
+7. 从 Canvas 打开自动生成的 Mastodon URL。
 
 ## 首次登录与注册
 
@@ -98,6 +96,7 @@ Mastodon 使用 GNU Affero General Public License v3.0。
 
 - **注册**：部署后可以从 Administration 调整注册行为。
 - **SMTP**：为账号确认、邀请、通知和密码恢复配置可靠的出站邮件服务。
+- **Web Push**：每个实例都会自动生成 VAPID 密钥，并在 Pod 重启和滚动更新期间保持稳定。
 - **存储**：本地模式把媒体保存在共享 PVC；S3 模式把媒体保存在私有 bucket，并通过应用域名提供读取。
 - **域名**：Mastodon 身份与 `LOCAL_DOMAIN` 绑定。向社区开放实例前，请先规划自定义域名迁移。
 - **备份**：同时保护 PostgreSQL 与所选媒体存储，形成完整恢复点。
@@ -115,6 +114,10 @@ Mastodon 使用 GNU Affero General Public License v3.0。
 **账号确认或密码恢复邮件缺失**
 
 启用 SMTP，并检查发件地址、服务器、端口、登录名、密码、TLS 行为和邮件服务商投递日志。
+
+**浏览器推送注册失败**
+
+检查 Setup、Web 和 Sidekiq 日志中的 VAPID 派生错误。完整重建实例会生成新密钥，用户再次访问站点时会注册新的浏览器推送订阅。
 
 **媒体上传或图片读取失败**
 

@@ -10,6 +10,8 @@ Mastodon gives a community its own social server, moderation policy, public iden
 
 This template creates the database schema and the first Owner account during deployment. Public registration can stay closed, require administrator approval, or open immediately. SMTP is optional for the initial Owner and required for reliable confirmations, invitations, notifications, and password recovery.
 
+Each deployment also receives a stable, automatically derived VAPID key pair for Web Push. The same instance keeps its keys across Pod restarts and rolling updates, so administrators do not need to generate or paste cryptographic values into the deployment form.
+
 ## Common Use Cases
 
 - **Community social network**: Run a moderated space for an organization, creator community, or interest group.
@@ -40,6 +42,8 @@ This template creates the database schema and the first Owner account during dep
 Local storage mode creates a shared `ReadWriteOnce` media volume for web and Sidekiq. The workloads use pod affinity and a recreate strategy so both media writers stay on the volume's node.
 
 Optional S3 mode creates a private `ObjectStorageBucket`. Mastodon writes private objects with the generated credentials, and a stateless same-origin proxy serves authorized reads under `/__sealos_media/`. Direct anonymous object reads and writes remain blocked.
+
+The template generates an instance-specific seed and derives a valid P-256 VAPID key pair inside the Setup, Web, and Sidekiq processes. The derived private key stays in process memory, while the public key is exposed through Mastodon's standard instance API for browser push subscriptions.
 
 The tested minimum application baseline is:
 
@@ -73,18 +77,12 @@ Mastodon is licensed under the GNU Affero General Public License v3.0.
    - `none`: Closed registration managed by the Owner.
    - `approved`: Visitors submit signup requests for administrator approval.
    - `open`: Visitors create accounts immediately.
-4. Provide one VAPID key pair for Web Push. Generate it from a Mastodon environment with:
-
-   ```bash
-   RAILS_ENV=production bundle exec rake mastodon:webpush:generate_vapid_key
-   ```
-
-5. Choose the media storage mode:
+4. Choose the media storage mode:
    - Keep `enable_s3_storage` disabled for the shared persistent local volume.
    - Enable `enable_s3_storage` for a private Sealos S3-compatible bucket and same-origin media proxy.
-6. Enable SMTP and enter the server, port, login, password, and sender address when the instance needs account email workflows.
-7. Start the deployment and allow several minutes for PostgreSQL, Redis, migrations, Owner creation, and application startup.
-8. Open the generated Mastodon URL from Canvas.
+5. Enable SMTP and enter the server, port, login, password, and sender address when the instance needs account email workflows.
+6. Start the deployment and allow several minutes for PostgreSQL, Redis, migrations, Owner creation, VAPID key derivation, and application startup.
+7. Open the generated Mastodon URL from Canvas.
 
 ## First Login and Registration
 
@@ -98,6 +96,7 @@ For `approved` and `open` registration modes, configure SMTP before inviting pub
 
 - **Registration**: Change signup behavior from Administration after deployment.
 - **SMTP**: Configure reliable outbound delivery for confirmations, invitations, notifications, and password recovery.
+- **Web Push**: VAPID keys are generated automatically per instance and remain stable across Pod restarts and rolling updates.
 - **Storage**: Local mode stores media on the shared PVC. S3 mode stores media in the private bucket and serves reads through the application domain.
 - **Domain**: Mastodon identity is tied to `LOCAL_DOMAIN`. Plan any custom-domain migration before opening the instance to a community.
 - **Backups**: Protect PostgreSQL and the selected media storage together for a complete recovery point.
@@ -115,6 +114,10 @@ Use the exact Owner email or username and password entered in the deployment for
 **Confirmation or password recovery email is missing**
 
 Enable SMTP and verify the sender address, server, port, login, password, TLS behavior, and provider delivery logs.
+
+**Browser push registration fails**
+
+Check the Setup, Web, and Sidekiq logs for VAPID derivation errors. Recreating the entire instance generates a new key pair, and returning users register a fresh browser push subscription when they revisit the site.
 
 **A media upload or image read fails**
 
