@@ -19,7 +19,6 @@ spec:
     - ai
   i18n:
     zh:
-      title: 'Flowise'
       description: '拖放式 UI 构建您的自定义 LLM 流程'
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/flowise/README_zh.md'
   defaults:
@@ -50,6 +49,26 @@ metadata:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   policy: private
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+data:
+  vn-optvn-flowisevn-s3vn-md5vn-js: |
+    'use strict'
+
+    const clientS3 = require('/usr/local/lib/node_modules/flowise/node_modules/@aws-sdk/client-s3')
+    const AwsDeleteObjectsCommand = clientS3.DeleteObjectsCommand
+
+    clientS3.DeleteObjectsCommand = class DeleteObjectsCommand extends AwsDeleteObjectsCommand {
+      constructor(input) {
+        super({ ...input, ChecksumAlgorithm: 'MD5' })
+      }
+    }
 ---
 ${{ endif() }}
 
@@ -105,7 +124,9 @@ metadata:
     - cluster.kubeblocks.io/finalizer
   labels:
     clusterdefinition.kubeblocks.io/name: postgresql
-    clusterversion.kubeblocks.io/name: postgresql-14.8.0
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+    kb.io/database: postgresql-16.4.0
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
   name: ${{ defaults.app_name }}-pg
 spec:
@@ -115,7 +136,10 @@ spec:
     tenancy: SharedNode
     topologyKeys: []
   clusterDefinitionRef: postgresql
-  clusterVersionRef: postgresql-14.8.0
+  clusterVersionRef: postgresql-16.4.0
+  disableExporter: true
+  enabledLogs:
+    - running
   componentSpecs:
     - componentDefRef: postgresql
       monitor: true
@@ -154,7 +178,8 @@ spec:
     spec:
       containers:
         - name: pgsql-init
-          image: postgres:14-alpine
+          image: postgres:16.10-alpine3.22
+          imagePullPolicy: IfNotPresent
           env:
             - name: PGHOST
               valueFrom:
@@ -180,7 +205,17 @@ spec:
             - /bin/sh
             - -c
             - |
-              until psql -c 'CREATE DATABASE flowise;' &>/dev/null; do sleep 1; done
+              until pg_isready -h "$PGHOST" -p "$PGPORT" -U "$PGUSER"; do sleep 2; done
+              if ! psql -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='flowise'" | grep -q 1; then
+                psql -d postgres -c 'CREATE DATABASE flowise;'
+              fi
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
       restartPolicy: Never
   backoffLimit: 0
   ttlSecondsAfterFinished: 300
@@ -192,7 +227,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: flowiseai/flowise:3.0.5
+    originImageName: flowiseai/flowise:3.1.2
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -214,7 +249,8 @@ spec:
       ${{ if(inputs.USE_POSTGRESQL === 'true') }}
       initContainers:
         - name: wait-for-db
-          image: postgres:14-alpine
+          image: postgres:16.10-alpine3.22
+          imagePullPolicy: IfNotPresent
           env:
             - name: PGHOST
               valueFrom:
@@ -246,18 +282,31 @@ spec:
                 sleep 2
               done
               echo "PostgreSQL is ready. Checking if database 'flowise' exists..."
-              until psql -tc "SELECT 1 FROM pg_database WHERE datname = 'flowise'" | grep -q 1; do
+              until psql -tc "SELECT 1 FROM pg_database WHERE datname='flowise'" | grep -q 1; do
                 echo "Database 'flowise' does not exist yet. Waiting..."
                 sleep 2
               done
               echo "Database 'flowise' exists. Proceeding with application startup."
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
       ${{ endif() }}
       containers:
         - name: ${{ defaults.app_name }}
-          image: flowiseai/flowise:3.0.5
+          image: flowiseai/flowise:3.1.2
           env:
             - name: PORT
               value: '3000'
+            - name: APP_URL
+              value: 'https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}'
+            - name: NUMBER_OF_PROXIES
+              value: '1'
+            - name: DISABLE_FLOWISE_TELEMETRY
+              value: 'true'
             - name: APIKEY_PATH
               value: '/root/.flowise'
             - name: SECRETKEY_PATH
@@ -267,6 +316,10 @@ spec:
             - name: JWT_AUTH_TOKEN_SECRET
               value: '${{ random(40) }}'
             - name: JWT_REFRESH_TOKEN_SECRET
+              value: '${{ random(40) }}'
+            - name: EXPRESS_SESSION_SECRET
+              value: '${{ random(40) }}'
+            - name: TOKEN_HASH_SECRET
               value: '${{ random(40) }}'
             - name: JWT_ISSUER
               value: 'Flowise'
@@ -308,21 +361,27 @@ spec:
             ${{ if(inputs.USE_S3_STORAGE === 'true') }}
             - name: STORAGE_TYPE
               value: 's3'
-            - name: S3_STORAGE_ACCESS_KEY_ID
+            - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: accessKey
-            - name: S3_STORAGE_SECRET_ACCESS_KEY
+            - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: secretKey
-            - name: S3_STORAGE_BUCKET_NAME
+            - name: S3_BUCKET
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
                   key: bucket
+            - name: S3_STORAGE_ACCESS_KEY_ID
+              value: '$(S3_ACCESS_KEY_ID)'
+            - name: S3_STORAGE_SECRET_ACCESS_KEY
+              value: '$(S3_SECRET_ACCESS_KEY)'
+            - name: S3_STORAGE_BUCKET_NAME
+              value: '$(S3_BUCKET)'
             - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
               valueFrom:
                 secretKeyRef:
@@ -331,25 +390,22 @@ spec:
             - name: S3_ENDPOINT_URL
               value: 'https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)'
             - name: S3_FORCE_PATH_STYLE
-              value: 'true' 
+              value: 'true'
             - name: S3_STORAGE_REGION
               value: 'us-west-2'
+            - name: NODE_OPTIONS
+              value: '--require=/opt/flowise-s3-md5.js'
             ${{ else() }}
             - name: BLOB_STORAGE_PATH
               value: '/root/.flowise/storage'
             ${{ endif() }}
           resources:
             requests:
-              cpu: 20m
+              cpu: 10m
               memory: 102Mi
             limits:
-              cpu: 200m
+              cpu: 100m
               memory: 1024Mi
-          command:
-            - /bin/sh
-            - '-c'
-          args:
-            - flowise start
           ports:
             - name: http
               containerPort: 3000
@@ -358,26 +414,39 @@ spec:
           volumeMounts:
             - name: vn-rootvn-flowise
               mountPath: /root/.flowise
+            ${{ if(inputs.USE_S3_STORAGE === 'true') }}
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /opt/flowise-s3-md5.js
+              subPath: vn-optvn-flowisevn-s3vn-md5vn-js
+              readOnly: true
+            ${{ endif() }}
           livenessProbe:
-            exec:
-              command:
-              - /bin/sh
-              - -c
-              - curl -f http://localhost:3000/api/v1/ping | grep -q 'pong'
-            initialDelaySeconds: 30
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 10
-          readinessProbe:
-            exec:
-              command:
-              - /bin/sh
-              - -c
-              - curl -f http://localhost:3000/api/v1/ping | grep -q 'pong'
-            initialDelaySeconds: 30
+            httpGet:
+              path: /api/v1/ping
+              port: 3000
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/v1/ping
+              port: 3000
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /api/v1/ping
+              port: 3000
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 36
+      ${{ if(inputs.USE_S3_STORAGE === 'true') }}
+      volumes:
+        - name: ${{ defaults.app_name }}-cm
+          configMap:
+            name: ${{ defaults.app_name }}
+      ${{ endif() }}
   volumeClaimTemplates:
     - metadata:
         annotations:
@@ -399,9 +468,12 @@ metadata:
   name: ${{ defaults.app_name }}
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 3000
+    - name: http
+      port: 3000
+      targetPort: 3000
   selector:
     app: ${{ defaults.app_name }}
 
@@ -460,6 +532,5 @@ spec:
   displayType: normal
   type: link
   icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/flowise/logo.png"
-  url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
   data:
     url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}

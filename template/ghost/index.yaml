@@ -2,6 +2,8 @@ apiVersion: app.sealos.io/v1
 kind: Template
 metadata:
   name: ghost
+  annotations:
+    docker-to-sealos.object-storage-compatibility-proxy-source: https://github.com/TryGhost/Ghost/blob/v6.53.0/ghost/core/core/server/adapters/storage/S3Storage.ts
 spec:
   title: Ghost
   url: https://ghost.org/
@@ -30,14 +32,14 @@ spec:
       type: string
       value: ghost-${{ random(8) }}
   inputs:
-    use_s3_storage:
-      description: Use S3-compatible object storage through the Ghost storage adapter configuration
+    enable_s3_storage:
+      description: Store Ghost images, media, and files in Sealos object storage
       type: boolean
       default: 'false'
       required: false
 
 ---
-${{ if(inputs.use_s3_storage === 'true') }}
+${{ if(inputs.enable_s3_storage === 'true') }}
 apiVersion: objectstorage.sealos.io/v1
 kind: ObjectStorageBucket
 metadata:
@@ -100,6 +102,8 @@ kind: Cluster
 metadata:
   labels:
     kb.io/database: ac-mysql-8.0.30-1
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
     clusterdefinition.kubeblocks.io/name: apecloud-mysql
     clusterversion.kubeblocks.io/name: ac-mysql-8.0.30-1
   name: ${{ defaults.app_name }}-mysql
@@ -187,11 +191,11 @@ spec:
               mysql -h"$MYSQL_HOST" -P"$MYSQL_PORT" -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" -e "CREATE DATABASE IF NOT EXISTS \`$MYSQL_DATABASE\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
           resources:
             limits:
-              cpu: 200m
-              memory: 256Mi
+              cpu: 100m
+              memory: 128Mi
             requests:
-              cpu: 20m
-              memory: 25Mi
+              cpu: 10m
+              memory: 12Mi
       restartPolicy: OnFailure
   backoffLimit: 5
   ttlSecondsAfterFinished: 300
@@ -242,12 +246,93 @@ data:
     exec docker-entrypoint.sh node current/index.js
 
 ---
+${{ if(inputs.enable_s3_storage === 'true') }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-storage-proxy
+  labels:
+    app: ${{ defaults.app_name }}-storage-proxy
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-storage-proxy
+data:
+  vn-usrvn-localvn-binvn-ghostvn-s3vn-proxyvn-js: |
+    const http = require('node:http');
+    const {S3Client, GetObjectCommand} = require('/var/lib/ghost/current/node_modules/@aws-sdk/client-s3');
+
+    const client = new S3Client({
+      region: process.env.S3_REGION,
+      endpoint: process.env.S3_ENDPOINT,
+      forcePathStyle: true,
+      credentials: {
+        accessKeyId: process.env.S3_ACCESS_KEY_ID,
+        secretAccessKey: process.env.S3_SECRET_ACCESS_KEY
+      }
+    });
+    const prefix = '/__sealos_storage/';
+
+    http.createServer(async (req, res) => {
+      const pathname = new URL(req.url, 'http://localhost').pathname;
+      if (pathname === '/healthz') {
+        res.writeHead(200, {'content-type': 'text/plain'});
+        return res.end('ok');
+      }
+      if ((req.method !== 'GET' && req.method !== 'HEAD') || !pathname.startsWith(prefix)) {
+        res.writeHead(404, {'content-type': 'text/plain'});
+        return res.end('not found');
+      }
+
+      let key;
+      try {
+        key = decodeURIComponent(pathname.slice(prefix.length)).replace(/^\/+/, '');
+      } catch {
+        res.writeHead(400, {'content-type': 'text/plain'});
+        return res.end('invalid object key');
+      }
+      if (!key || key.split('/').includes('..')) {
+        res.writeHead(400, {'content-type': 'text/plain'});
+        return res.end('invalid object key');
+      }
+
+      try {
+        const input = {Bucket: process.env.S3_BUCKET, Key: key};
+        if (req.headers.range) input.Range = req.headers.range;
+        const object = await client.send(new GetObjectCommand(input));
+        const headers = {};
+        if (object.ContentType) headers['content-type'] = object.ContentType;
+        if (object.ContentLength !== undefined) headers['content-length'] = String(object.ContentLength);
+        if (object.CacheControl) headers['cache-control'] = object.CacheControl;
+        if (object.ETag) headers.etag = object.ETag;
+        headers['accept-ranges'] = object.AcceptRanges || 'bytes';
+        if (object.ContentRange) headers['content-range'] = object.ContentRange;
+        res.writeHead(object.ContentRange ? 206 : 200, headers);
+        if (req.method === 'HEAD') {
+          object.Body?.destroy?.();
+          return res.end();
+        }
+        if (!object.Body || typeof object.Body.pipe !== 'function') return res.end();
+        object.Body.on('error', () => res.destroy());
+        object.Body.pipe(res);
+      } catch (error) {
+        const upstreamStatus = error?.$metadata?.httpStatusCode;
+        const status = upstreamStatus === 404 || upstreamStatus === 416 ? upstreamStatus : 502;
+        if (status !== 404 && status !== 416) {
+          console.error(`S3 proxy request failed: status=${status} key=${key} error=${error?.name || 'UnknownError'}`);
+        }
+        res.writeHead(status, {'content-type': 'text/plain'});
+        res.end(status === 404 ? 'not found' : status === 416 ? 'range not satisfiable' : 'storage unavailable');
+      }
+    }).listen(2380, '0.0.0.0');
+
+---
+${{ endif() }}
+
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: ghost:6.44.1-alpine
+    originImageName: ghost:6.53.0-alpine
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
     docker-to-sealos.resource-override-source: https://github.com/docker-library/docs/blob/master/ghost/README.md#production-mode
@@ -271,72 +356,9 @@ spec:
       securityContext:
         fsGroup: 1000
         fsGroupChangePolicy: OnRootMismatch
-      initContainers:
-        ${{ if(inputs.use_s3_storage === 'true') }}
-        - name: install-s3-storage-adapter
-          image: public.ecr.aws/docker/library/node:22-alpine
-          imagePullPolicy: IfNotPresent
-          command:
-            - /bin/sh
-            - -ec
-            - |
-              rm -rf /var/lib/ghost/content/adapters/storage/s3
-              mkdir -p /var/lib/ghost/content/adapters/storage/s3
-              npm install --omit=dev --no-audit --no-fund --prefix /var/lib/ghost/content/adapters/storage/s3 ghost-storage-adapter-s3@2.8.0
-              cp -R /var/lib/ghost/content/adapters/storage/s3/node_modules/ghost-storage-adapter-s3/. /var/lib/ghost/content/adapters/storage/s3/
-              chown -R 1000:1000 /var/lib/ghost/content/adapters
-          resources:
-            limits:
-              cpu: 500m
-              memory: 512Mi
-            requests:
-              cpu: 50m
-              memory: 128Mi
-          volumeMounts:
-            - name: vn-varvn-libvn-ghostvn-content
-              mountPath: /var/lib/ghost/content
-        ${{ endif() }}
-        - name: wait-for-mysql
-          image: public.ecr.aws/docker/library/mysql:8.0.30
-          imagePullPolicy: IfNotPresent
-          env:
-            - name: MYSQL_HOST
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-mysql-conn-credential
-                  key: host
-            - name: MYSQL_PORT
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-mysql-conn-credential
-                  key: port
-            - name: MYSQL_USER
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-mysql-conn-credential
-                  key: username
-            - name: MYSQL_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-mysql-conn-credential
-                  key: password
-          command:
-            - /bin/sh
-            - -ec
-            - |
-              until mysqladmin ping -h"$MYSQL_HOST" -P"$MYSQL_PORT" -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" --silent; do
-                sleep 2
-              done
-          resources:
-            limits:
-              cpu: 200m
-              memory: 256Mi
-            requests:
-              cpu: 20m
-              memory: 25Mi
       containers:
         - name: ${{ defaults.app_name }}
-          image: ghost:6.44.1-alpine
+          image: ghost:6.53.0-alpine
           imagePullPolicy: IfNotPresent
           command:
             - /usr/local/bin/ghost-sealos-entrypoint.sh
@@ -378,45 +400,69 @@ spec:
               value: 'false'
             - name: mail__from
               value: Ghost <noreply@${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}>
-            ${{ if(inputs.use_s3_storage === 'true') }}
-            - name: storage__active
-              value: s3
-            - name: storage__s3__accessKeyId
+            ${{ if(inputs.enable_s3_storage === 'true') }}
+            - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: accessKey
-            - name: storage__s3__secretAccessKey
+            - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: secretKey
-            - name: BACKEND_STORAGE_MINIO_INTERNAL_ENDPOINT
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
-                  key: internal
-            - name: storage__s3__region
-              value: us-east-1
-            - name: storage__s3__bucket
+                  key: external
+            - name: S3_BUCKET
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
                   key: bucket
-            - name: storage__s3__endpoint
-              value: http://$(BACKEND_STORAGE_MINIO_INTERNAL_ENDPOINT)
-            - name: storage__s3__forcePathStyle
+            - name: storage__active
+              value: S3Storage
+            - name: storage__media__adapter
+              value: S3Storage
+            - name: storage__media__staticFileURLPrefix
+              value: content/media
+            - name: storage__files__adapter
+              value: S3Storage
+            - name: storage__files__staticFileURLPrefix
+              value: content/files
+            - name: storage__S3Storage__bucket
+              value: $(S3_BUCKET)
+            - name: storage__S3Storage__region
+              value: us-east-1
+            - name: storage__S3Storage__endpoint
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+            - name: storage__S3Storage__forcePathStyle
               value: 'true'
-            - name: storage__s3__acl
-              value: private
+            - name: storage__S3Storage__accessKeyId
+              value: $(S3_ACCESS_KEY_ID)
+            - name: storage__S3Storage__secretAccessKey
+              value: $(S3_SECRET_ACCESS_KEY)
+            - name: storage__S3Storage__cdnUrl
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/__sealos_storage
+            - name: storage__S3Storage__staticFileURLPrefix
+              value: content/images
+            - name: storage__S3Storage__multipartUploadThresholdBytes
+              value: '10485760'
+            - name: storage__S3Storage__multipartChunkSizeBytes
+              value: '10485760'
+            - name: urls__media
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/__sealos_storage
+            - name: urls__files
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/__sealos_storage
             ${{ endif() }}
           resources:
             limits:
-              cpu: 200m
-              memory: 1024Mi
+              cpu: 100m
+              memory: 256Mi
             requests:
-              cpu: 20m
-              memory: 102Mi
+              cpu: 10m
+              memory: 25Mi
           startupProbe:
             exec:
               command:
@@ -426,6 +472,7 @@ spec:
                   node -e "require('http').get('http://127.0.0.1:2368/ghost/api/admin/site/', res => process.exit(res.statusCode >= 200 && res.statusCode < 400 ? 0 : 1)).on('error', () => process.exit(1))"
             failureThreshold: 30
             periodSeconds: 10
+            timeoutSeconds: 5
           readinessProbe:
             exec:
               command:
@@ -456,10 +503,10 @@ spec:
         - name: ${{ defaults.app_name }}-cm
           configMap:
             name: ${{ defaults.app_name }}
-            defaultMode: 493
             items:
               - key: vn-usrvn-localvn-binvn-ghostvn-sealosvn-entrypointvn-sh
                 path: vn-usrvn-localvn-binvn-ghostvn-sealosvn-entrypointvn-sh
+                mode: 493
   volumeClaimTemplates:
     - metadata:
         annotations:
@@ -472,6 +519,117 @@ spec:
         resources:
           requests:
             storage: 1Gi
+
+---
+${{ if(inputs.enable_s3_storage === 'true') }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-storage-proxy
+  annotations:
+    originImageName: ghost:6.53.0-alpine
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+    docker-to-sealos.object-storage-compatibility-proxy-source: https://github.com/TryGhost/Ghost/blob/v6.53.0/ghost/core/core/server/adapters/storage/S3Storage.ts
+  labels:
+    app: ${{ defaults.app_name }}-storage-proxy
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-storage-proxy
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-storage-proxy
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-storage-proxy
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-storage-proxy
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ${{ defaults.app_name }}-storage-proxy
+          image: ghost:6.53.0-alpine
+          imagePullPolicy: IfNotPresent
+          command:
+            - node
+          args:
+            - /usr/local/bin/ghost-s3-proxy.js
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: http
+              containerPort: 2380
+          env:
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: S3_ENDPOINT
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+            - name: S3_REGION
+              value: us-east-1
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: ${{ defaults.app_name }}-storage-proxy-cm
+              mountPath: /usr/local/bin/ghost-s3-proxy.js
+              subPath: vn-usrvn-localvn-binvn-ghostvn-s3vn-proxyvn-js
+      volumes:
+        - name: ${{ defaults.app_name }}-storage-proxy-cm
+          configMap:
+            name: ${{ defaults.app_name }}-storage-proxy
+
+---
+${{ endif() }}
 
 ---
 apiVersion: v1
@@ -488,6 +646,26 @@ spec:
       targetPort: http
   selector:
     app: ${{ defaults.app_name }}
+
+---
+${{ if(inputs.enable_s3_storage === 'true') }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-storage-proxy
+  labels:
+    app: ${{ defaults.app_name }}-storage-proxy
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-storage-proxy
+spec:
+  ports:
+    - name: http
+      port: 2380
+      targetPort: http
+  selector:
+    app: ${{ defaults.app_name }}-storage-proxy
+
+---
+${{ endif() }}
 
 ---
 apiVersion: networking.k8s.io/v1
@@ -526,6 +704,15 @@ spec:
                 name: ${{ defaults.app_name }}
                 port:
                   number: 2368
+          ${{ if(inputs.enable_s3_storage === 'true') }}
+          - pathType: Prefix
+            path: /__sealos_storage/
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-storage-proxy
+                port:
+                  number: 2380
+          ${{ endif() }}
   tls:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
