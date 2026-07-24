@@ -7,7 +7,7 @@ spec:
   url: 'https://rocket.chat/'
   gitRepo: 'https://github.com/RocketChat/Rocket.Chat'
   author: 'Sealos'
-  description: 'Rocket.Chat is an open-source fully customizable communications platform developed in JavaScript for organizations with high standards of data protection.'
+  description: 'Rocket.Chat is an open-source communications platform for secure team messaging, voice, video, and workflow collaboration.'
   readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/rocketchat/README.md'
   icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/rocketchat/logo.svg'
   screenshots:
@@ -16,8 +16,7 @@ spec:
   locale: en
   i18n:
     zh:
-      title: 'Rocket.Chat'
-      description: 'Rocket.Chat 是一个开源的、完全可定制的通信平台，使用 JavaScript 开发，适用于对数据保护有高标准要求的组织。'
+      description: 'Rocket.Chat 是一个开源通信平台，支持安全的团队消息、语音、视频和工作流协作。'
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/rocketchat/README_zh.md'
   categories:
     - tool
@@ -27,52 +26,43 @@ spec:
       value: rocketchat-${{ random(8) }}
     app_host:
       type: string
-      value: ${{ random(8) }}
+      value: rocketchat-${{ random(8) }}
+  inputs:
+    admin_username:
+      description: 'Username for the initial Rocket.Chat administrator'
+      type: string
+      required: true
+    admin_name:
+      description: 'Display name for the initial Rocket.Chat administrator'
+      type: string
+      required: true
+    admin_email:
+      description: 'Email address for the initial Rocket.Chat administrator'
+      type: string
+      required: true
+    admin_password:
+      description: 'Password for the initial Rocket.Chat administrator'
+      type: string
+      required: true
+    enable_s3_storage:
+      description: 'Store uploaded files in private Sealos object storage'
+      type: boolean
+      default: 'false'
+      required: false
 
 ---
-apiVersion: apps.kubeblocks.io/v1alpha1
-kind: Cluster
+${{ if(inputs.enable_s3_storage === 'true') }}
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
 metadata:
-  finalizers:
-    - cluster.kubeblocks.io/finalizer
+  name: ${{ defaults.app_name }}
   labels:
-    kb.io/database: mongodb-8.0.4
-    app.kubernetes.io/instance: ${{ defaults.app_name }}
-    helm.sh/chart: mongodb-cluster-0.9.1
-    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
-  annotations: {}
-  name: ${{ defaults.app_name }}-mongo
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
-  affinity:
-    nodeLabels: {}
-    podAntiAffinity: Preferred
-    tenancy: SharedNode
-    topologyKeys: []
-  clusterDefinitionRef: mongodb
-  clusterVersionRef: mongodb-6.0
-  componentSpecs:
-    - componentDef: mongodb
-      serviceVersion: 8.0.4
-      name: mongodb
-      replicas: 1
-      resources:
-        limits:
-          cpu: 500m
-          memory: 512Mi
-        requests:
-          cpu: 50m
-          memory: 51Mi
-      serviceAccountName: ${{ defaults.app_name }}-mongo
-      volumeClaimTemplates:
-        - name: data
-          spec:
-            accessModes:
-              - ReadWriteOnce
-            resources:
-              requests:
-                storage: 1Gi
-  terminationPolicy: Delete
-  tolerations: []
+  policy: private
+
+---
+${{ endif() }}
 
 ---
 apiVersion: v1
@@ -119,60 +109,44 @@ subjects:
     name: ${{ defaults.app_name }}-mongo
 
 ---
-apiVersion: batch/v1
-kind: Job
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
 metadata:
-  name: ${{ defaults.app_name }}-mongo-init
+  labels:
+    kb.io/database: mongodb-8.0.4
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    clusterdefinition.kubeblocks.io/name: mongodb
+  name: ${{ defaults.app_name }}-mongo
 spec:
-  completions: 1
-  template:
-    spec:
-      containers:
-        - name: mongo-init
-          image: mongo:6.0
-          env:
-            - name: MONGO_INITDB_ROOT_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-mongo-mongodb-account-root
-                  key: password
-            - name: MONGO_HOST
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-mongo-mongodb-account-root
-                  key: host
-          command:
-            - /bin/bash
-            - -c
-            - |
-              # Wait for MongoDB to be ready
-              until mongosh "mongodb://root:${MONGO_INITDB_ROOT_PASSWORD}@${MONGO_HOST}:27017/admin" --eval "db.adminCommand('ping')" &>/dev/null; do
-                echo "Waiting for MongoDB..."
-                sleep 2
-              done
-              
-              # Create rocketchat database and user
-              mongosh "mongodb://root:${MONGO_INITDB_ROOT_PASSWORD}@${MONGO_HOST}:27017/admin" <<EOF
-              use rocketchat
-              db.createUser({
-                user: "rocketchat",
-                pwd: "rocketchat",
-                roles: [
-                  { role: "readWrite", db: "rocketchat" },
-                  { role: "clusterMonitor", db: "admin" }
-                ]
-              })
-              EOF
-          resources:
-            requests:
-              cpu: 10m
-              memory: 51Mi
-            limits:
-              cpu: 100m
-              memory: 512Mi
-      restartPolicy: Never
-  backoffLimit: 0
-  ttlSecondsAfterFinished: 300
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys:
+      - kubernetes.io/hostname
+  componentSpecs:
+    - componentDef: mongodb
+      name: mongodb
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-mongo
+      serviceVersion: 8.0.4
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
 
 ---
 apiVersion: apps/v1
@@ -180,12 +154,12 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: registry.rocket.chat/rocketchat/rocket.chat:7.9.0
+    originImageName: registry.rocket.chat/rocketchat/rocket.chat:8.6.1
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   replicas: 1
   revisionHistoryLimit: 1
@@ -198,42 +172,119 @@ spec:
       labels:
         app: ${{ defaults.app_name }}
     spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65533
+        runAsGroup: 65533
+        fsGroup: 65533
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: ${{ defaults.app_name }}
-          image: registry.rocket.chat/rocketchat/rocket.chat:7.9.0
+          image: registry.rocket.chat/rocketchat/rocket.chat:8.6.1
           imagePullPolicy: IfNotPresent
           env:
+            - name: DEPLOY_METHOD
+              value: kubernetes
             - name: DEPLOY_PLATFORM
               value: sealos
             - name: INSTANCE_IP
               valueFrom:
                 fieldRef:
                   fieldPath: status.podIP
-            - name: MONGO_ROOT_PASSWORD
+            - name: MONGO_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mongo-mongodb-account-root
+                  key: username
+            - name: MONGO_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-mongo-mongodb-account-root
                   key: password
-            - name: MONGO_ENDPOINT
+            - name: MONGO_HOST
+              value: ${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: MONGO_PORT
+              value: '27017'
+            - name: MONGO_URL
+              value: mongodb://$(MONGO_USERNAME):$(MONGO_PASSWORD)@$(MONGO_HOST):$(MONGO_PORT)/rocketchat?replicaSet=${{ defaults.app_name }}-mongo-mongodb&authSource=admin
+            - name: ROOT_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: PORT
+              value: '3000'
+            - name: HTTP_FORWARDED_COUNT
+              value: '1'
+            - name: ADMIN_USERNAME
+              value: ${{ inputs.admin_username }}
+            - name: ADMIN_NAME
+              value: ${{ inputs.admin_name }}
+            - name: ADMIN_EMAIL
+              value: ${{ inputs.admin_email }}
+            - name: ADMIN_EMAIL_VERIFIED
+              value: 'true'
+            - name: ADMIN_PASS
+              value: ${{ inputs.admin_password }}
+            - name: OVERWRITE_SETTING_Prometheus_Enabled
+              value: 'true'
+            - name: OVERWRITE_SETTING_Prometheus_Port
+              value: '9100'
+            ${{ if(inputs.enable_s3_storage === 'true') }}
+            - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
-                  name: ${{ defaults.app_name }}-mongo-mongodb-account-root
-                  key: endpoint
-            - name: MONGO_URL
-              value: mongodb://rocketchat:rocketchat@$(MONGO_ENDPOINT)/rocketchat?replicaSet=${{ defaults.app_name }}-mongo-mongodb
-            - name: MONGO_OPLOG_URL
-              value: mongodb://root:$(MONGO_ROOT_PASSWORD)@$(MONGO_ENDPOINT)/local?replicaSet=${{ defaults.app_name }}-mongo-mongodb&authSource=admin
-            - name: ROOT_URL
-              value: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
-            - name: OVERWRITE_SETTING_Prometheus_Enabled
-              value: "true"
-            - name: OVERWRITE_SETTING_Prometheus_Port
-              value: "9100"
+                  name: object-storage-key
+                  key: accessKey
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: OVERWRITE_SETTING_FileUpload_Storage_Type
+              value: AmazonS3
+            - name: OVERWRITE_SETTING_FileUpload_S3_AWSAccessKeyId
+              value: $(S3_ACCESS_KEY_ID)
+            - name: OVERWRITE_SETTING_FileUpload_S3_AWSSecretAccessKey
+              value: $(S3_SECRET_ACCESS_KEY)
+            - name: OVERWRITE_SETTING_FileUpload_S3_Bucket
+              value: $(S3_BUCKET)
+            - name: OVERWRITE_SETTING_FileUpload_S3_BucketURL
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+            - name: OVERWRITE_SETTING_FileUpload_S3_Region
+              value: us-east-1
+            - name: OVERWRITE_SETTING_FileUpload_S3_ForcePathStyle
+              value: 'true'
+            - name: OVERWRITE_SETTING_FileUpload_S3_URLExpiryTimeSpan
+              value: '120'
+            - name: OVERWRITE_SETTING_FileUpload_ProtectFiles
+              value: 'true'
+            ${{ else() }}
+            - name: OVERWRITE_SETTING_FileUpload_Storage_Type
+              value: GridFS
+            ${{ endif() }}
           ports:
             - name: http
               containerPort: 3000
             - name: metrics
               containerPort: 9100
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 90
           livenessProbe:
             httpGet:
               path: /health
@@ -253,12 +304,20 @@ spec:
             successThreshold: 1
             failureThreshold: 3
           resources:
-            requests:
-              cpu: 100m
-              memory: 102Mi
             limits:
-              cpu: 1000m
-              memory: 1024Mi
+              cpu: 200m
+              memory: 2048Mi
+            requests:
+              cpu: 20m
+              memory: 204Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65533
+            runAsGroup: 65533
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           volumeMounts:
             - name: vn-appvn-uploads
               mountPath: /app/uploads
@@ -281,6 +340,7 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
@@ -301,6 +361,7 @@ kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
@@ -348,6 +409,6 @@ spec:
   data:
     url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
   displayType: normal
-  icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/rocketchat/logo.svg"
+  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/rocketchat/logo.svg'
   name: Rocket.Chat
   type: link

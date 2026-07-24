@@ -7,7 +7,7 @@ spec:
   url: 'https://rocket.chat/'
   gitRepo: 'https://github.com/RocketChat/Rocket.Chat'
   author: 'Sealos'
-  description: 'Rocket.Chat Microservices is an enterprise-grade, open-source communication platform built with a microservices architecture for superior scalability and performance. Ideal for organizations requiring high availability and horizontal scaling capabilities.'
+  description: 'Rocket.Chat 7.9.3 with independently scalable account, authorization, presence, DDP streaming, stream hub, and clustered NATS services.'
   readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/rocketchat-micro/README.md'
   icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/rocketchat-micro/logo.svg'
   screenshots:
@@ -16,8 +16,7 @@ spec:
   locale: en
   i18n:
     zh:
-      title: 'Rocket.Chat (微服务版)'
-      description: 'Rocket.Chat 微服务版本是一个开源的、完全可定制的通信平台，采用微服务架构提供更好的可扩展性和性能。适用于对数据保护有高标准要求的组织。'
+      description: 'Rocket.Chat 7.9.3 微服务部署，包含可独立扩展的账户、鉴权、在线状态、DDP 流、Stream Hub 和 NATS 集群服务。'
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/rocketchat-micro/README_zh.md'
   categories:
     - tool
@@ -27,7 +26,26 @@ spec:
       value: rocketchat-ms-${{ random(8) }}
     app_host:
       type: string
-      value: ${{ random(8) }}
+      value: rocketchat-ms-${{ random(8) }}
+  inputs:
+    enable_s3_storage:
+      description: Store Rocket.Chat file uploads in a private Sealos Object Storage bucket instead of MongoDB GridFS.
+      type: boolean
+      default: 'false'
+      required: false
+---
+${{ if(inputs.enable_s3_storage === 'true') }}
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  policy: private
+---
+${{ endif() }}
 ---
 # MongoDB Database
 apiVersion: v1
@@ -81,10 +99,9 @@ metadata:
     - cluster.kubeblocks.io/finalizer
   labels:
     kb.io/database: mongodb-8.0.4
-    app.kubernetes.io/instance: ${{ defaults.app_name }}
-    helm.sh/chart: mongodb-cluster-0.9.1
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    clusterdefinition.kubeblocks.io/name: mongodb
     sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
-  annotations: {}
   name: ${{ defaults.app_name }}-mongo
 spec:
   affinity:
@@ -113,64 +130,9 @@ spec:
             resources:
               requests:
                 storage: 1Gi
+            storageClassName: openebs-backup
   terminationPolicy: Delete
   tolerations: []
-
----
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: ${{ defaults.app_name }}-mongo-init
-spec:
-  completions: 1
-  template:
-    spec:
-      containers:
-        - name: mongo-init
-          image: mongo:6.0
-          env:
-            - name: MONGO_INITDB_ROOT_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-mongo-mongodb-account-root
-                  key: password
-            - name: MONGO_HOST
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-mongo-mongodb-account-root
-                  key: host
-          command:
-            - /bin/bash
-            - -c
-            - |
-              # Wait for MongoDB to be ready
-              until mongosh "mongodb://root:${MONGO_INITDB_ROOT_PASSWORD}@${MONGO_HOST}:27017/admin" --eval "db.adminCommand('ping')" &>/dev/null; do
-                echo "Waiting for MongoDB..."
-                sleep 2
-              done
-              
-              # Create rocketchat database and user
-              mongosh "mongodb://root:${MONGO_INITDB_ROOT_PASSWORD}@${MONGO_HOST}:27017/admin" <<EOF
-              use rocketchat
-              db.createUser({
-                user: "rocketchat",
-                pwd: "rocketchat",
-                roles: [
-                  { role: "readWrite", db: "rocketchat" },
-                  { role: "clusterMonitor", db: "admin" }
-                ]
-              })
-              EOF
-          resources:
-            requests:
-              cpu: 10m
-              memory: 51Mi
-            limits:
-              cpu: 100m
-              memory: 512Mi
-      restartPolicy: Never
-  backoffLimit: 0
-  ttlSecondsAfterFinished: 300
 
 ---
 # ConfigMap for all application configs
@@ -179,6 +141,7 @@ kind: ConfigMap
 metadata:
   name: ${{ defaults.app_name }}-nats
   labels:
+    app: ${{ defaults.app_name }}-nats
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-nats
 data:
   vn-etcvn-natsvn-configvn-natsvn-conf: |
@@ -194,13 +157,14 @@ data:
     #             #
     ###############
     http: 8222
-    server_name:$POD_NAME
+    server_name: $POD_NAME
     ###################################
     #                                 #
     # NATS Full Mesh Clustering Setup #
     #                                 #
     ###################################
     cluster {
+      name: $CLUSTER_NAME
       port: 6222
 
       routes = [
@@ -221,7 +185,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: rocketchat/rocket.chat:7.9.0
+    originImageName: rocketchat/rocket.chat:7.9.3
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -244,9 +208,52 @@ spec:
         app: ${{ defaults.app_name }}
     spec:
       automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: wait-for-runtime
+          image: mongo:8.0.4
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/bash
+            - -ec
+          args:
+            - |
+              until mongosh "$MONGO_URI" --quiet --eval 'quit(db.hello().isWritablePrimary ? 0 : 1)' >/dev/null 2>&1; do sleep 2; done
+              until (exec 3<>/dev/tcp/${{ defaults.app_name }}-nats.${{ SEALOS_NAMESPACE }}.svc.cluster.local/4222) 2>/dev/null; do sleep 2; done
+          env:
+            - name: MONGO_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mongo-mongodb-account-root
+                  key: username
+            - name: MONGO_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mongo-mongodb-account-root
+                  key: password
+            - name: MONGO_URI
+              value: mongodb://$(MONGO_USERNAME):$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc.cluster.local:27017/admin?replicaSet=${{ defaults.app_name }}-mongo-mongodb&authSource=admin
+          resources:
+            requests:
+              cpu: 10m
+              memory: 12Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
       containers:
         - name: ${{ defaults.app_name }}
-          image: rocketchat/rocket.chat:7.9.0
+          image: rocketchat/rocket.chat:7.9.3
           imagePullPolicy: IfNotPresent
           env:
             - name: DEPLOY_PLATFORM
@@ -255,20 +262,20 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: status.podIP
-            - name: MONGO_ROOT_PASSWORD
+            - name: MONGO_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mongo-mongodb-account-root
+                  key: username
+            - name: MONGO_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-mongo-mongodb-account-root
                   key: password
-            - name: MONGO_ENDPOINT
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-mongo-mongodb-account-root
-                  key: endpoint
             - name: MONGO_URL
-              value: mongodb://rocketchat:rocketchat@$(MONGO_ENDPOINT)/rocketchat?replicaSet=${{ defaults.app_name }}-mongo-mongodb
+              value: mongodb://$(MONGO_USERNAME):$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc.cluster.local:27017/rocketchat?replicaSet=${{ defaults.app_name }}-mongo-mongodb&authSource=admin
             - name: MONGO_OPLOG_URL
-              value: mongodb://root:$(MONGO_ROOT_PASSWORD)@$(MONGO_ENDPOINT)/local?replicaSet=${{ defaults.app_name }}-mongo-mongodb&authSource=admin
+              value: mongodb://$(MONGO_USERNAME):$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc.cluster.local:27017/local?replicaSet=${{ defaults.app_name }}-mongo-mongodb&authSource=admin
             - name: ROOT_URL
               value: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
             - name: OVERWRITE_SETTING_Prometheus_Enabled
@@ -280,7 +287,7 @@ spec:
             - name: MS_METRICS_PORT
               value: "9458"
             - name: TRANSPORTER
-              value: nats://${{ defaults.app_name }}-nats:4222
+              value: nats://${{ defaults.app_name }}-nats.${{ SEALOS_NAMESPACE }}.svc.cluster.local:4222
             - name: MOLECULER_LOG_LEVEL
               value: "warn"
             - name: HEARTBEAT_INTERVAL
@@ -289,6 +296,60 @@ spec:
               value: "30"
             - name: RETRY_ENABLED
               value: 'yes'
+            ${{ if(inputs.enable_s3_storage === 'true') }}
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            - name: OVERWRITE_SETTING_FileUpload_Storage_Type
+              value: AmazonS3
+            - name: OVERWRITE_SETTING_FileUpload_S3_Bucket
+              value: $(S3_BUCKET)
+            - name: OVERWRITE_SETTING_FileUpload_S3_Acl
+              value: private
+            - name: OVERWRITE_SETTING_FileUpload_S3_AWSAccessKeyId
+              value: $(S3_ACCESS_KEY_ID)
+            - name: OVERWRITE_SETTING_FileUpload_S3_AWSSecretAccessKey
+              value: $(S3_SECRET_ACCESS_KEY)
+            - name: OVERWRITE_SETTING_FileUpload_S3_Region
+              value: us-east-1
+            - name: OVERWRITE_SETTING_FileUpload_S3_BucketURL
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+            - name: OVERWRITE_SETTING_FileUpload_S3_SignatureVersion
+              value: v4
+            - name: OVERWRITE_SETTING_FileUpload_S3_ForcePathStyle
+              value: 'true'
+            - name: OVERWRITE_SETTING_FileUpload_S3_URLExpiryTimeSpan
+              value: '300'
+            - name: OVERWRITE_SETTING_FileUpload_S3_Proxy_Avatars
+              value: 'true'
+            - name: OVERWRITE_SETTING_FileUpload_S3_Proxy_Uploads
+              value: 'true'
+            - name: OVERWRITE_SETTING_FileUpload_S3_Proxy_UserDataFiles
+              value: 'true'
+            - name: OVERWRITE_SETTING_FileUpload_ProtectFiles
+              value: 'true'
+            ${{ endif() }}
+            ${{ if(inputs.enable_s3_storage === 'false') }}
+            - name: OVERWRITE_SETTING_FileUpload_Storage_Type
+              value: GridFS
+            ${{ endif() }}
           ports:
             - name: http
               containerPort: 3000
@@ -305,6 +366,13 @@ spec:
             timeoutSeconds: 5
             successThreshold: 1
             failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 60
           readinessProbe:
             httpGet:
               path: /health
@@ -316,11 +384,16 @@ spec:
             failureThreshold: 3
           resources:
             requests:
-              cpu: 100m
-              memory: 256Mi
+              cpu: 20m
+              memory: 102Mi
             limits:
-              cpu: 1000m
+              cpu: 200m
               memory: 1024Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
 
 ---
 # NATS StatefulSet for microservices communication
@@ -329,7 +402,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}-nats
   annotations:
-    originImageName: nats:2.4-alpine
+    originImageName: nats:2.4.0-alpine
     deploy.cloud.sealos.io/minReplicas: '2'
     deploy.cloud.sealos.io/maxReplicas: '2'
   labels:
@@ -349,27 +422,62 @@ spec:
         app: ${{ defaults.app_name }}-nats
     spec:
       automountServiceAccountToken: false
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: ${{ defaults.app_name }}-nats
+                topologyKey: kubernetes.io/hostname
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
       volumes:
-      - name: vn-etcvn-natsvn-configvn-natsvn-conf
+      - name: ${{ defaults.app_name }}-nats-cm
         configMap:
           name: ${{ defaults.app_name }}-nats
-          items:
-            - key: vn-etcvn-natsvn-configvn-natsvn-conf
-              path: ./etc/nats-config/nats.conf
-          defaultMode: 420
-      - name: pid
-        emptyDir: {}
 
       shareProcessNamespace: true
       terminationGracePeriodSeconds: 60
+      initContainers:
+      - name: prepare-nats-runtime
+        image: nats:2.4.0-alpine
+        imagePullPolicy: IfNotPresent
+        command:
+        - /bin/sh
+        - -ec
+        args:
+        - rm -f /var/run/nats/nats.pid
+        resources:
+          requests:
+            cpu: 10m
+            memory: 12Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+        volumeMounts:
+        - name: vn-varvn-runvn-nats
+          mountPath: /var/run/nats
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
       containers:
       - name: ${{ defaults.app_name }}-nats
-        image: nats:2.4-alpine
+        image: nats:2.4.0-alpine
         imagePullPolicy: IfNotPresent
         resources:
           requests:
             cpu: 10m
-            memory: 32Mi
+            memory: 12Mi
           limits:
             cpu: 100m
             memory: 128Mi
@@ -380,8 +488,6 @@ spec:
           name: cluster
         - containerPort: 8222
           name: monitor
-        - containerPort: 7777
-          name: metrics
 
         command:
         - "nats-server"
@@ -399,13 +505,15 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
+        - name: CLUSTER_NAME
+          value: ${{ defaults.app_name }}-nats
         - name: CLUSTER_ADVERTISE
           value: $(POD_NAME).${{ defaults.app_name }}-nats.$(POD_NAMESPACE).svc.cluster.local
         volumeMounts:
-        - name: vn-etcvn-natsvn-configvn-natsvn-conf
+        - name: ${{ defaults.app_name }}-nats-cm
           mountPath: /etc/nats-config/nats.conf
-          subPath: ./etc/nats-config/nats.conf
-        - name: pid
+          subPath: vn-etcvn-natsvn-configvn-natsvn-conf
+        - name: vn-varvn-runvn-nats
           mountPath: /var/run/nats
 
         livenessProbe:
@@ -416,6 +524,13 @@ spec:
           timeoutSeconds: 5
           periodSeconds: 30
           successThreshold: 1
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8222
+          periodSeconds: 10
+          timeoutSeconds: 5
           failureThreshold: 3
         startupProbe:
           httpGet:
@@ -433,17 +548,21 @@ spec:
               command:
               - "nats-server"
               - "-sl=ldm=/var/run/nats/nats.pid"
-
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
       - name: ${{ defaults.app_name }}-nats-reloader
         image: natsio/nats-server-config-reloader:0.6.3
         imagePullPolicy: IfNotPresent
         resources:
           requests:
             cpu: 10m
-            memory: 16Mi
+            memory: 12Mi
           limits:
-            cpu: 50m
-            memory: 32Mi
+            cpu: 100m
+            memory: 128Mi
         command:
         - "nats-server-config-reloader"
         - "-pid"
@@ -451,11 +570,45 @@ spec:
         - "-config"
         - "/etc/nats-config/nats.conf"
         volumeMounts:
-        - name: vn-etcvn-natsvn-configvn-natsvn-conf
+        - name: ${{ defaults.app_name }}-nats-cm
           mountPath: /etc/nats-config/nats.conf
-          subPath: ./etc/nats-config/nats.conf
-        - name: pid
+          subPath: vn-etcvn-natsvn-configvn-natsvn-conf
+        - name: vn-varvn-runvn-nats
           mountPath: /var/run/nats
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-varvn-runvn-nats
+        annotations:
+          path: /var/run/nats
+          value: '1'
+        labels:
+          app: ${{ defaults.app_name }}-nats
+          cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-nats
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ${{ defaults.app_name }}-nats
+  labels:
+    app: ${{ defaults.app_name }}-nats
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-nats
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-nats
 
 ---
 apiVersion: v1
@@ -463,6 +616,7 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
@@ -487,6 +641,7 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-nats
   labels:
+    app: ${{ defaults.app_name }}-nats
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-nats
 spec:
   selector:
@@ -500,8 +655,6 @@ spec:
     port: 6222
   - name: monitor
     port: 8222
-  - name: metrics
-    port: 7777
   - name: leafnodes
     port: 7422
   - name: gateways
@@ -514,7 +667,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-account
   annotations:
-    originImageName: rocketchat/account-service:7.9.0
+    originImageName: rocketchat/account-service:7.9.3
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -537,25 +690,69 @@ spec:
         app: ${{ defaults.app_name }}-account
     spec:
       automountServiceAccountToken: false
-      containers:
-      - name: ${{ defaults.app_name }}-account
-        image: rocketchat/account-service:7.9.0
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+      - name: wait-for-runtime
+        image: mongo:8.0.4
         imagePullPolicy: IfNotPresent
+        command:
+        - /bin/bash
+        - -ec
+        args:
+        - |
+          until mongosh "$MONGO_URL" --quiet --eval 'quit(db.hello().isWritablePrimary ? 0 : 1)' >/dev/null 2>&1; do sleep 2; done
+              until (exec 3<>/dev/tcp/${{ defaults.app_name }}-nats.${{ SEALOS_NAMESPACE }}.svc.cluster.local/4222) 2>/dev/null; do sleep 2; done
+          until mongosh "$MONGO_URL" --quiet --eval 'quit(db.migrations.findOne({_id:"control", locked:false}) ? 0 : 1)' >/dev/null 2>&1; do sleep 2; done
         env:
-        - name: MONGO_ROOT_PASSWORD
+        - name: MONGO_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-mongo-mongodb-account-root
+              key: username
+        - name: MONGO_PASSWORD
           valueFrom:
             secretKeyRef:
               name: ${{ defaults.app_name }}-mongo-mongodb-account-root
               key: password
-        - name: MONGO_ENDPOINT
+        - name: MONGO_URL
+          value: mongodb://$(MONGO_USERNAME):$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc.cluster.local:27017/rocketchat?replicaSet=${{ defaults.app_name }}-mongo-mongodb&authSource=admin
+        resources:
+          requests:
+            cpu: 10m
+            memory: 12Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+      containers:
+      - name: ${{ defaults.app_name }}-account
+        image: rocketchat/account-service:7.9.3
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: MONGO_USERNAME
           valueFrom:
             secretKeyRef:
               name: ${{ defaults.app_name }}-mongo-mongodb-account-root
-              key: endpoint
+              key: username
+        - name: MONGO_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-mongo-mongodb-account-root
+              key: password
         - name: MONGO_URL
-          value: mongodb://rocketchat:rocketchat@$(MONGO_ENDPOINT)/rocketchat?replicaSet=${{ defaults.app_name }}-mongo-mongodb
+          value: mongodb://$(MONGO_USERNAME):$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc.cluster.local:27017/rocketchat?replicaSet=${{ defaults.app_name }}-mongo-mongodb&authSource=admin
         - name: TRANSPORTER
-          value: nats://${{ defaults.app_name }}-nats:4222
+          value: nats://${{ defaults.app_name }}-nats.${{ SEALOS_NAMESPACE }}.svc.cluster.local:4222
         - name: MOLECULER_LOG_LEVEL
           value: "warn"
         - name: HEARTBEAT_INTERVAL
@@ -571,6 +768,24 @@ spec:
         ports:
         - name: ms-metrics
           containerPort: 9458
+        startupProbe:
+          tcpSocket:
+            port: ms-metrics
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 36
+        livenessProbe:
+          tcpSocket:
+            port: ms-metrics
+          periodSeconds: 15
+          timeoutSeconds: 3
+          failureThreshold: 3
+        readinessProbe:
+          tcpSocket:
+            port: ms-metrics
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
         resources:
           requests:
             cpu: 10m
@@ -578,6 +793,11 @@ spec:
           limits:
             cpu: 100m
             memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
 
 ---
 apiVersion: v1
@@ -585,6 +805,7 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-account
   labels:
+    app: ${{ defaults.app_name }}-account
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-account
 spec:
   type: ClusterIP
@@ -603,7 +824,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-authorization
   annotations:
-    originImageName: rocketchat/authorization-service:7.9.0
+    originImageName: rocketchat/authorization-service:7.9.3
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -626,25 +847,61 @@ spec:
         app: ${{ defaults.app_name }}-authorization
     spec:
       automountServiceAccountToken: false
-      containers:
-      - name: ${{ defaults.app_name }}-authorization
-        image: rocketchat/authorization-service:7.9.0
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+      - name: wait-for-runtime
+        image: mongo:8.0.4
         imagePullPolicy: IfNotPresent
+        command: [/bin/bash, -ec]
+        args:
+        - |
+          until mongosh "$MONGO_URL" --quiet --eval 'quit(db.hello().isWritablePrimary ? 0 : 1)' >/dev/null 2>&1; do sleep 2; done
+              until (exec 3<>/dev/tcp/${{ defaults.app_name }}-nats.${{ SEALOS_NAMESPACE }}.svc.cluster.local/4222) 2>/dev/null; do sleep 2; done
+          until mongosh "$MONGO_URL" --quiet --eval 'quit(db.migrations.findOne({_id:"control", locked:false}) ? 0 : 1)' >/dev/null 2>&1; do sleep 2; done
         env:
-        - name: MONGO_ROOT_PASSWORD
+        - name: MONGO_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-mongo-mongodb-account-root
+              key: username
+        - name: MONGO_PASSWORD
           valueFrom:
             secretKeyRef:
               name: ${{ defaults.app_name }}-mongo-mongodb-account-root
               key: password
-        - name: MONGO_ENDPOINT
+        - name: MONGO_URL
+          value: mongodb://$(MONGO_USERNAME):$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc.cluster.local:27017/rocketchat?replicaSet=${{ defaults.app_name }}-mongo-mongodb&authSource=admin
+        resources:
+          requests: {cpu: 10m, memory: 12Mi}
+          limits: {cpu: 100m, memory: 128Mi}
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities: {drop: [ALL]}
+      containers:
+      - name: ${{ defaults.app_name }}-authorization
+        image: rocketchat/authorization-service:7.9.3
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: MONGO_USERNAME
           valueFrom:
             secretKeyRef:
               name: ${{ defaults.app_name }}-mongo-mongodb-account-root
-              key: endpoint
+              key: username
+        - name: MONGO_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-mongo-mongodb-account-root
+              key: password
         - name: MONGO_URL
-          value: mongodb://rocketchat:rocketchat@$(MONGO_ENDPOINT)/rocketchat?replicaSet=${{ defaults.app_name }}-mongo-mongodb
+          value: mongodb://$(MONGO_USERNAME):$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc.cluster.local:27017/rocketchat?replicaSet=${{ defaults.app_name }}-mongo-mongodb&authSource=admin
         - name: TRANSPORTER
-          value: nats://${{ defaults.app_name }}-nats:4222
+          value: nats://${{ defaults.app_name }}-nats.${{ SEALOS_NAMESPACE }}.svc.cluster.local:4222
         - name: MOLECULER_LOG_LEVEL
           value: "warn"
         - name: HEARTBEAT_INTERVAL
@@ -660,6 +917,21 @@ spec:
         ports:
         - name: ms-metrics
           containerPort: 9458
+        startupProbe:
+          tcpSocket: {port: ms-metrics}
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 36
+        livenessProbe:
+          tcpSocket: {port: ms-metrics}
+          periodSeconds: 15
+          timeoutSeconds: 3
+          failureThreshold: 3
+        readinessProbe:
+          tcpSocket: {port: ms-metrics}
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
         resources:
           requests:
             cpu: 10m
@@ -667,6 +939,9 @@ spec:
           limits:
             cpu: 100m
             memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities: {drop: [ALL]}
 
 ---
 apiVersion: v1
@@ -674,6 +949,7 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-authorization
   labels:
+    app: ${{ defaults.app_name }}-authorization
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-authorization
 spec:
   type: ClusterIP
@@ -692,7 +968,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-ddp-streamer
   annotations:
-    originImageName: rocketchat/ddp-streamer-service:7.9.0
+    originImageName: rocketchat/ddp-streamer-service:7.9.3
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -715,25 +991,60 @@ spec:
         app: ${{ defaults.app_name }}-ddp-streamer
     spec:
       automountServiceAccountToken: false
-      containers:
-      - name: ${{ defaults.app_name }}-ddp-streamer
-        image: rocketchat/ddp-streamer-service:7.9.0
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile: {type: RuntimeDefault}
+      initContainers:
+      - name: wait-for-runtime
+        image: mongo:8.0.4
         imagePullPolicy: IfNotPresent
+        command: [/bin/bash, -ec]
+        args:
+        - |
+          until mongosh "$MONGO_URL" --quiet --eval 'quit(db.hello().isWritablePrimary ? 0 : 1)' >/dev/null 2>&1; do sleep 2; done
+              until (exec 3<>/dev/tcp/${{ defaults.app_name }}-nats.${{ SEALOS_NAMESPACE }}.svc.cluster.local/4222) 2>/dev/null; do sleep 2; done
+          until mongosh "$MONGO_URL" --quiet --eval 'quit(db.migrations.findOne({_id:"control", locked:false}) ? 0 : 1)' >/dev/null 2>&1; do sleep 2; done
         env:
-        - name: MONGO_ROOT_PASSWORD
+        - name: MONGO_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-mongo-mongodb-account-root
+              key: username
+        - name: MONGO_PASSWORD
           valueFrom:
             secretKeyRef:
               name: ${{ defaults.app_name }}-mongo-mongodb-account-root
               key: password
-        - name: MONGO_ENDPOINT
+        - name: MONGO_URL
+          value: mongodb://$(MONGO_USERNAME):$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc.cluster.local:27017/rocketchat?replicaSet=${{ defaults.app_name }}-mongo-mongodb&authSource=admin
+        resources:
+          requests: {cpu: 10m, memory: 12Mi}
+          limits: {cpu: 100m, memory: 128Mi}
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities: {drop: [ALL]}
+      containers:
+      - name: ${{ defaults.app_name }}-ddp-streamer
+        image: rocketchat/ddp-streamer-service:7.9.3
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: MONGO_USERNAME
           valueFrom:
             secretKeyRef:
               name: ${{ defaults.app_name }}-mongo-mongodb-account-root
-              key: endpoint
+              key: username
+        - name: MONGO_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-mongo-mongodb-account-root
+              key: password
         - name: MONGO_URL
-          value: mongodb://rocketchat:rocketchat@$(MONGO_ENDPOINT)/rocketchat?replicaSet=${{ defaults.app_name }}-mongo-mongodb
+          value: mongodb://$(MONGO_USERNAME):$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc.cluster.local:27017/rocketchat?replicaSet=${{ defaults.app_name }}-mongo-mongodb&authSource=admin
         - name: TRANSPORTER
-          value: nats://${{ defaults.app_name }}-nats:4222
+          value: nats://${{ defaults.app_name }}-nats.${{ SEALOS_NAMESPACE }}.svc.cluster.local:4222
         - name: MOLECULER_LOG_LEVEL
           value: "warn"
         - name: PORT
@@ -753,6 +1064,27 @@ spec:
           containerPort: 3000
         - name: ms-metrics
           containerPort: 9458
+        startupProbe:
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 36
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 15
+          timeoutSeconds: 3
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
         resources:
           requests:
             cpu: 10m
@@ -760,6 +1092,9 @@ spec:
           limits:
             cpu: 100m
             memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities: {drop: [ALL]}
 
 ---
 apiVersion: v1
@@ -767,6 +1102,7 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-ddp-streamer
   labels:
+    app: ${{ defaults.app_name }}-ddp-streamer
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-ddp-streamer
 spec:
   type: ClusterIP
@@ -790,7 +1126,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-presence
   annotations:
-    originImageName: rocketchat/presence-service:7.9.0
+    originImageName: rocketchat/presence-service:7.9.3
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -813,25 +1149,60 @@ spec:
         app: ${{ defaults.app_name }}-presence
     spec:
       automountServiceAccountToken: false
-      containers:
-      - name: ${{ defaults.app_name }}-presence
-        image: rocketchat/presence-service:7.9.0
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile: {type: RuntimeDefault}
+      initContainers:
+      - name: wait-for-runtime
+        image: mongo:8.0.4
         imagePullPolicy: IfNotPresent
+        command: [/bin/bash, -ec]
+        args:
+        - |
+          until mongosh "$MONGO_URL" --quiet --eval 'quit(db.hello().isWritablePrimary ? 0 : 1)' >/dev/null 2>&1; do sleep 2; done
+              until (exec 3<>/dev/tcp/${{ defaults.app_name }}-nats.${{ SEALOS_NAMESPACE }}.svc.cluster.local/4222) 2>/dev/null; do sleep 2; done
+          until mongosh "$MONGO_URL" --quiet --eval 'quit(db.migrations.findOne({_id:"control", locked:false}) ? 0 : 1)' >/dev/null 2>&1; do sleep 2; done
         env:
-        - name: MONGO_ROOT_PASSWORD
+        - name: MONGO_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-mongo-mongodb-account-root
+              key: username
+        - name: MONGO_PASSWORD
           valueFrom:
             secretKeyRef:
               name: ${{ defaults.app_name }}-mongo-mongodb-account-root
               key: password
-        - name: MONGO_ENDPOINT
+        - name: MONGO_URL
+          value: mongodb://$(MONGO_USERNAME):$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc.cluster.local:27017/rocketchat?replicaSet=${{ defaults.app_name }}-mongo-mongodb&authSource=admin
+        resources:
+          requests: {cpu: 10m, memory: 12Mi}
+          limits: {cpu: 100m, memory: 128Mi}
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities: {drop: [ALL]}
+      containers:
+      - name: ${{ defaults.app_name }}-presence
+        image: rocketchat/presence-service:7.9.3
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: MONGO_USERNAME
           valueFrom:
             secretKeyRef:
               name: ${{ defaults.app_name }}-mongo-mongodb-account-root
-              key: endpoint
+              key: username
+        - name: MONGO_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-mongo-mongodb-account-root
+              key: password
         - name: MONGO_URL
-          value: mongodb://rocketchat:rocketchat@$(MONGO_ENDPOINT)/rocketchat?replicaSet=${{ defaults.app_name }}-mongo-mongodb
+          value: mongodb://$(MONGO_USERNAME):$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc.cluster.local:27017/rocketchat?replicaSet=${{ defaults.app_name }}-mongo-mongodb&authSource=admin
         - name: TRANSPORTER
-          value: nats://${{ defaults.app_name }}-nats:4222
+          value: nats://${{ defaults.app_name }}-nats.${{ SEALOS_NAMESPACE }}.svc.cluster.local:4222
         - name: MOLECULER_LOG_LEVEL
           value: "warn"
         - name: HEARTBEAT_INTERVAL
@@ -847,6 +1218,21 @@ spec:
         ports:
         - name: ms-metrics
           containerPort: 9458
+        startupProbe:
+          tcpSocket: {port: ms-metrics}
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 36
+        livenessProbe:
+          tcpSocket: {port: ms-metrics}
+          periodSeconds: 15
+          timeoutSeconds: 3
+          failureThreshold: 3
+        readinessProbe:
+          tcpSocket: {port: ms-metrics}
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
         resources:
           requests:
             cpu: 10m
@@ -854,6 +1240,9 @@ spec:
           limits:
             cpu: 100m
             memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities: {drop: [ALL]}
 
 ---
 apiVersion: v1
@@ -861,6 +1250,7 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-presence
   labels:
+    app: ${{ defaults.app_name }}-presence
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-presence
 spec:
   type: ClusterIP
@@ -879,7 +1269,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-stream-hub
   annotations:
-    originImageName: rocketchat/stream-hub-service:7.9.0
+    originImageName: rocketchat/stream-hub-service:7.9.3
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -902,27 +1292,62 @@ spec:
         app: ${{ defaults.app_name }}-stream-hub
     spec:
       automountServiceAccountToken: false
-      containers:
-      - name: ${{ defaults.app_name }}-stream-hub
-        image: rocketchat/stream-hub-service:7.9.0
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile: {type: RuntimeDefault}
+      initContainers:
+      - name: wait-for-runtime
+        image: mongo:8.0.4
         imagePullPolicy: IfNotPresent
+        command: [/bin/bash, -ec]
+        args:
+        - |
+          until mongosh "$MONGO_URL" --quiet --eval 'quit(db.hello().isWritablePrimary ? 0 : 1)' >/dev/null 2>&1; do sleep 2; done
+              until (exec 3<>/dev/tcp/${{ defaults.app_name }}-nats.${{ SEALOS_NAMESPACE }}.svc.cluster.local/4222) 2>/dev/null; do sleep 2; done
+          until mongosh "$MONGO_URL" --quiet --eval 'quit(db.migrations.findOne({_id:"control", locked:false}) ? 0 : 1)' >/dev/null 2>&1; do sleep 2; done
         env:
-        - name: MONGO_ROOT_PASSWORD
+        - name: MONGO_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-mongo-mongodb-account-root
+              key: username
+        - name: MONGO_PASSWORD
           valueFrom:
             secretKeyRef:
               name: ${{ defaults.app_name }}-mongo-mongodb-account-root
               key: password
-        - name: MONGO_ENDPOINT
+        - name: MONGO_URL
+          value: mongodb://$(MONGO_USERNAME):$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc.cluster.local:27017/rocketchat?replicaSet=${{ defaults.app_name }}-mongo-mongodb&authSource=admin
+        resources:
+          requests: {cpu: 10m, memory: 12Mi}
+          limits: {cpu: 100m, memory: 128Mi}
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities: {drop: [ALL]}
+      containers:
+      - name: ${{ defaults.app_name }}-stream-hub
+        image: rocketchat/stream-hub-service:7.9.3
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: MONGO_USERNAME
           valueFrom:
             secretKeyRef:
               name: ${{ defaults.app_name }}-mongo-mongodb-account-root
-              key: endpoint
+              key: username
+        - name: MONGO_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-mongo-mongodb-account-root
+              key: password
         - name: MONGO_URL
-          value: mongodb://rocketchat:rocketchat@$(MONGO_ENDPOINT)/rocketchat?replicaSet=${{ defaults.app_name }}-mongo-mongodb
+          value: mongodb://$(MONGO_USERNAME):$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc.cluster.local:27017/rocketchat?replicaSet=${{ defaults.app_name }}-mongo-mongodb&authSource=admin
         - name: MONGO_OPLOG_URL
-          value: mongodb://root:$(MONGO_ROOT_PASSWORD)@$(MONGO_ENDPOINT)/local?replicaSet=${{ defaults.app_name }}-mongo-mongodb&authSource=admin
+          value: mongodb://$(MONGO_USERNAME):$(MONGO_PASSWORD)@${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc.cluster.local:27017/local?replicaSet=${{ defaults.app_name }}-mongo-mongodb&authSource=admin
         - name: TRANSPORTER
-          value: nats://${{ defaults.app_name }}-nats:4222
+          value: nats://${{ defaults.app_name }}-nats.${{ SEALOS_NAMESPACE }}.svc.cluster.local:4222
         - name: MOLECULER_LOG_LEVEL
           value: "warn"
         - name: HEARTBEAT_INTERVAL
@@ -938,6 +1363,21 @@ spec:
         ports:
         - name: ms-metrics
           containerPort: 9458
+        startupProbe:
+          tcpSocket: {port: ms-metrics}
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 36
+        livenessProbe:
+          tcpSocket: {port: ms-metrics}
+          periodSeconds: 15
+          timeoutSeconds: 3
+          failureThreshold: 3
+        readinessProbe:
+          tcpSocket: {port: ms-metrics}
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
         resources:
           requests:
             cpu: 10m
@@ -945,6 +1385,9 @@ spec:
           limits:
             cpu: 100m
             memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities: {drop: [ALL]}
 
 ---
 apiVersion: v1
@@ -952,6 +1395,7 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}-stream-hub
   labels:
+    app: ${{ defaults.app_name }}-stream-hub
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-stream-hub
 spec:
   type: ClusterIP
@@ -970,6 +1414,7 @@ kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
@@ -1001,6 +1446,43 @@ spec:
                 name: ${{ defaults.app_name }}
                 port:
                   number: 3000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-ddp-streamer
+  labels:
+    app: ${{ defaults.app_name }}-ddp-streamer
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-ddp-streamer
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '3600'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '3600'
+    nginx.ingress.kubernetes.io/proxy-http-version: '1.1'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
           - pathType: Prefix
             path: /sockjs
             backend:

@@ -1,145 +1,166 @@
 # Deploy and Host Headscale on Sealos
 
-Headscale is an open source, self-hosted implementation of the Tailscale control server. This template deploys Headscale with Headplane, persistent storage, public Ingress access, and an optional PostgreSQL database on Sealos Cloud.
+Headscale is an open source, self-hosted implementation of the Tailscale control server. This template deploys Headscale 0.29.2 with the Headplane 0.7.0 web UI, persistent storage, TLS-enabled public endpoints, and an optional KubeBlocks PostgreSQL database.
 
-![Headscale Screenshot](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/headscale/website-screenshot.webp)
+![Headscale website](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/headscale/website-screenshot.webp)
 
-## About Hosting Headscale
+## About Headscale
 
-Headscale provides the coordination server for a private Tailscale-compatible tailnet. It handles node registration, user management, route advertisement, DNS settings, ACL policy storage, and control-plane communication while your device traffic remains peer-to-peer whenever possible.
+Headscale coordinates a private Tailscale-compatible network. It manages users, machines, routes, DNS, ACL policies, and device enrollment while compatible clients establish their data paths.
 
-This Sealos template runs Headscale and Headplane in one StatefulSet. Headscale serves the control plane, gRPC endpoint, and metrics endpoint, while Headplane provides a web UI for managing Headscale users, machines, routes, DNS, ACLs, and pre-auth keys.
-
-By default, the template uses SQLite stored on persistent volume storage. If `use_postgresql` is enabled during deployment, Sealos provisions a PostgreSQL 16.4.0 cluster through KubeBlocks, creates the `headscale` database, and renders the PostgreSQL settings into Headscale's `config.yaml` file because Headscale reads database configuration from its configuration file rather than database environment variables.
+The template runs Headscale and Headplane together in one StatefulSet so Headplane can safely reload Headscale configuration through its Kubernetes integration. SQLite is the default database and matches the upstream recommendation for new deployments. The `use_postgresql` option provisions a dedicated PostgreSQL 16.4.0 cluster when your operating model requires an external database.
 
 ## Common Use Cases
 
-- **Private Mesh VPN Control Plane**: Host your own coordination server for Tailscale-compatible clients.
-- **Homelab and Team Networks**: Connect servers, laptops, and services across networks without exposing every service publicly.
-- **Route and DNS Management**: Manage advertised routes, MagicDNS-style settings, and network records from Headplane.
-- **ACL and Tag Administration**: Edit ACL policy settings and organize machine access for small teams or lab environments.
-- **Pre-Auth Key Workflows**: Create reusable or ephemeral pre-auth keys for onboarding devices.
+- Run a private control plane for Tailscale-compatible clients.
+- Connect homelab, edge, and team devices across networks.
+- Manage users, routes, DNS, ACLs, and pre-auth keys from Headplane.
+- Keep control-plane state on persistent Sealos storage.
+- Use a managed PostgreSQL database for database-specific operational requirements.
 
-## Dependencies for Headscale Hosting
+## Dependencies
 
-The Sealos template includes all required runtime components: Headscale, Headplane, persistent storage, Service/Ingress resources, RBAC for Headplane's Kubernetes integration, and optional PostgreSQL through KubeBlocks.
+The template includes the complete server-side runtime: Headscale, Headplane, persistent volumes, Service and Ingress resources, scoped Kubernetes RBAC, and the conditional PostgreSQL resources.
 
-### Deployment Dependencies
+- [Headscale 0.29.2](https://github.com/juanfont/headscale/releases/tag/v0.29.2) provides the control server and APIs.
+- [Headplane 0.7.0](https://github.com/tale/headplane/releases/tag/v0.7.0) provides the administration UI.
+- KubeBlocks provides PostgreSQL 16.4.0 when `use_postgresql` is enabled.
+- A compatible [Tailscale client](https://tailscale.com/download) is required on each device joining the network.
 
-- [Headscale Documentation](https://headscale.net/stable/) - Official Headscale documentation
-- [Headscale GitHub Repository](https://github.com/juanfont/headscale) - Source code and releases
-- [Headplane GitHub Repository](https://github.com/tale/headplane) - Web UI source code and documentation
-- [Tailscale Documentation](https://tailscale.com/kb/) - Client and tailnet concepts
-- [Sealos Documentation](https://sealos.io/docs/) - Sealos platform documentation
+## Architecture
 
-### Implementation Details
+| Component | Version | Purpose | Minimum tested limit |
+| --- | --- | --- | --- |
+| Headscale | `0.29.2-debug` | Control server, REST API, gRPC API, and metrics | `100m` CPU / `128Mi` memory |
+| Headplane | `0.7.0` | Web administration UI | `100m` CPU / `256Mi` memory |
+| SQLite | Embedded | Default Headscale database on persistent storage | Included with Headscale |
+| PostgreSQL | `16.4.0` | Optional KubeBlocks-managed database | `500m` CPU / `512Mi` memory |
+| PostgreSQL init | `postgres:16-alpine` | Creates and verifies the `headscale` database | `100m` CPU / `128Mi` memory |
 
-**Architecture Components:**
+The application uses three `512Mi` persistent volumes:
 
-This template deploys the following services and resources:
+| Path | Contents |
+| --- | --- |
+| `/var/lib/headscale` | SQLite database, keys, and Headscale runtime state |
+| `/etc/headscale` | Validated, non-sensitive Headscale configuration |
+| `/var/lib/headplane` | Headplane state |
 
-- **Headscale**: The control server container using `headscale/headscale:0.29.0-beta.1-debug`.
-- **Headplane**: The web administration UI using `ghcr.io/tale/headplane:0.6.3`.
-- **SQLite Storage**: Default database mode stored at `/var/lib/headscale/db.sqlite` on a persistent volume.
-- **PostgreSQL**: Optional KubeBlocks PostgreSQL 16.4.0 cluster when `use_postgresql` is enabled.
-- **PostgreSQL Init Job**: Creates the `headscale` database idempotently before the app connects.
-- **ConfigMap**: Stores Headscale, DERP, and Headplane configuration files.
-- **Persistent Volumes**: Store Headscale data and generated configuration under `/var/lib/headscale` and `/etc/headscale`.
-- **Ingress Rules**: Expose Headplane at `/admin`, Headscale HTTP traffic on the main domain, and Headscale gRPC on a dedicated gRPC domain.
-
-**Configuration:**
-
-- `use_postgresql` controls whether the template uses SQLite or provisions PostgreSQL.
-- Headscale database settings are rendered into `/etc/headscale/config.yaml` during initialization.
-- Headplane reads `/etc/headscale/headplane.yaml` and connects to Headscale at `http://127.0.0.1:8080` inside the pod.
-- The StatefulSet uses `shareProcessNamespace: true` so Headplane can use its Kubernetes integration with the Headscale process.
-- Headscale and Headplane each receive conservative CPU and memory limits suitable for small deployments.
-
-**License Information:**
-
-Headscale is licensed under the BSD-3-Clause license. Headplane is licensed under the MIT license. This Sealos template follows the license terms of the upstream projects.
+The main public domain serves the Headscale HTTP API and Headplane at `/admin/`. A dedicated public domain exposes the Headscale gRPC endpoint. Metrics remain available only inside the cluster on port `9090`.
 
 ## Why Deploy Headscale on Sealos?
 
-Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies the entire application lifecycle, from development in cloud IDEs to production deployment and management. It is suitable for modern applications, internal tools, SaaS platforms, and multi-service deployments. By deploying Headscale on Sealos, you get:
+- Deploy the complete Headscale and Headplane stack from one App Store template.
+- Receive HTTPS application and gRPC domains with managed TLS certificates.
+- Keep configuration, keys, and database state on persistent volumes.
+- Select embedded SQLite or a KubeBlocks-managed PostgreSQL database during deployment.
+- Inspect resources, logs, events, and container terminals from the Sealos Canvas.
+- Start with the tested minimum resources and adjust capacity as the tailnet grows.
 
-- **One-Click Deployment**: Deploy Headscale and Headplane from the App Store without manually writing Kubernetes YAML.
-- **Optional Database Provisioning**: Use the default SQLite setup or enable PostgreSQL with KubeBlocks-managed database resources.
-- **Easy Customization**: Configure parameters, resource limits, storage, and runtime settings from the Sealos UI.
-- **Zero Kubernetes Expertise Required**: Use Kubernetes-backed workloads, services, persistent volumes, and Ingress without managing the cluster directly.
-- **Persistent Storage Included**: Keep Headscale state and configuration available across pod restarts.
-- **Instant Public Access**: Sealos provisions public URLs and TLS certificates for the deployed application.
-- **AI-Assisted Operations**: Use the Canvas AI dialog for post-deployment changes, or open resource cards to adjust specific resources.
-- **Pay-as-You-Go Efficiency**: Start with small resources and scale only when your tailnet needs more capacity.
-
-Deploy Headscale on Sealos and focus on managing your private network instead of operating infrastructure.
-
-## Deployment Guide
+## Deploy on Sealos
 
 1. Open the [Headscale template](https://sealos.io/products/app-store/headscale) and click **Deploy Now**.
-2. Configure the parameters in the popup dialog:
-   - Keep `use_postgresql` disabled for the default SQLite deployment.
-   - Enable `use_postgresql` if you want Sealos to provision a PostgreSQL database for Headscale.
-3. Wait for deployment to complete, typically 2-3 minutes. After deployment, you will be redirected to the Canvas. For later changes, describe your requirements in the AI dialog or click the relevant resource cards to modify settings.
-4. Access your application via the provided URLs:
-   - **Headplane Admin UI**: Open the main application URL and go to `/admin`.
-   - **Headscale Server URL**: Use the main application domain as the server URL for Headscale clients.
-   - **Headscale gRPC Endpoint**: Use the dedicated gRPC domain when remote CLI access requires gRPC.
+2. Keep `use_postgresql` disabled for the default SQLite deployment. Enable it to provision the dedicated PostgreSQL cluster.
+3. Wait for all resources to become ready. SQLite usually starts in a few minutes. A new PostgreSQL cluster may take several minutes during its first initialization.
+4. Open the application URL. The root path redirects to the Headplane sign-in page at `/admin/`.
+
+## Sign In to Headplane
+
+Headplane authenticates with a Headscale API key. Generate one from the Headscale container in the Sealos terminal:
+
+```bash
+headscale apikeys create
+```
+
+The command displays the key once. Store it securely and paste it into the **API Key** field on the Headplane sign-in page. Headscale gives a new key a 90-day lifetime by default. Set an explicit lifetime when needed:
+
+```bash
+headscale apikeys create --expiration 365d
+```
+
+After signing in:
+
+1. Open **Users**, select **Add user**, and create the first Headscale user.
+2. Open **Settings > Auth Keys**, select **Create pre-auth key**, choose the user, and set the desired lifetime and key options.
+
+## Connect a Device
+
+Install a compatible Tailscale client, then use the main Sealos application URL and the pre-auth key created in Headplane:
+
+```bash
+tailscale up \
+  --login-server=https://your-headscale-domain.example.com \
+  --authkey=<pre-auth-key>
+```
+
+The device appears under **Machines** in Headplane after enrollment.
+
+## Remote Headscale CLI
+
+The template exposes gRPC on a dedicated TLS domain. Use a `headscale` CLI binary matching server version `0.29.2`, then configure the endpoint and API key:
+
+```bash
+export HEADSCALE_CLI_ADDRESS=your-headscale-grpc-domain.example.com:443
+export HEADSCALE_CLI_API_KEY=<api-key>
+headscale users list
+```
+
+The Headplane UI covers the common administration workflow, so remote gRPC access is optional.
+
+## Database Options
+
+### SQLite
+
+SQLite is enabled by default and stores its database at `/var/lib/headscale/db.sqlite`. Write-ahead logging is enabled, and the persistent volume keeps state across Pod replacement.
+
+### PostgreSQL
+
+Enable `use_postgresql` during deployment to create a KubeBlocks PostgreSQL cluster. The template creates the `headscale` database and waits for it to accept authenticated queries. Headscale receives the host, port, username, and password directly from the KubeBlocks Secret through its official `HEADSCALE_DATABASE_POSTGRES_*` environment variables.
+
+The Kubernetes Secret remains the credential source, while `/etc/headscale/config.yaml` contains static, non-sensitive database settings. PostgreSQL adds a database Pod and a `1Gi` data volume. The initialization Job allows up to six minutes for a cold database start.
 
 ## Configuration
 
-After deployment, you can configure Headscale through:
-
-- **Headplane Admin UI**: Manage users, machines, routes, DNS settings, ACLs, and pre-auth keys at `/admin`.
-- **AI Dialog**: Describe configuration changes in the Sealos Canvas and let AI apply updates.
-- **Resource Cards**: Open the StatefulSet, ConfigMap, Ingress, or database resource cards for manual changes.
-- **Configuration Files**: Update Headscale settings in the ConfigMap and restart the workload when needed.
-
-## Scaling
-
-Headscale is usually deployed as a single control-plane instance because it stores state and serves one tailnet. To adjust capacity:
-
-1. Open the Canvas for your deployment.
-2. Click the Headscale StatefulSet resource card.
-3. Adjust CPU or memory resources based on node count and control-plane activity.
-4. Apply the changes in the dialog.
-
-If you enabled PostgreSQL, you can also open the PostgreSQL cluster resource card to adjust database resources and storage.
+- Use Headplane to manage users, machines, routes, DNS, ACL policies, and pre-auth keys.
+- Headscale reads `/etc/headscale/config.yaml` from persistent storage. The init container validates mode, placeholders, and the complete Headscale configuration before replacing an incomplete file with an atomic same-directory move.
+- Headplane reads `/etc/headplane/config.yaml` from the template ConfigMap.
+- Headplane receives its generated cookie secret through `HEADPLANE_SERVER__COOKIE_SECRET`, keeping the value out of the ConfigMap.
+- PostgreSQL credentials are injected directly into the Headscale container from the KubeBlocks connection Secret and stay out of persistent volumes.
+- `shareProcessNamespace` and scoped Pod-read RBAC let Headplane signal Headscale after supported configuration changes.
+- The Pod runs as UID/GID `1000` with `RuntimeDefault` seccomp and all Linux capabilities dropped.
 
 ## Troubleshooting
 
-### Common Issues
+### Headplane rejects the API key
 
-**Headplane cannot manage Headscale**
+Create a fresh API key in the Headscale container and paste the complete value into the sign-in form. API keys are displayed once and expire according to their configured lifetime.
 
-- Cause: Headplane needs access to the Headscale configuration and Kubernetes integration settings.
-- Solution: Confirm the Headscale pod is ready and that the Headplane container can read `/etc/headscale/config.yaml`.
+### A client does not enroll
 
-**Clients cannot register**
+Confirm that `--login-server` uses the main HTTPS application URL and that the pre-auth key belongs to an existing user. Check the **Machines** and **Auth Keys** pages in Headplane.
 
-- Cause: The client may be using the wrong server URL or a missing pre-auth key.
-- Solution: Use the Sealos-provided Headscale domain as the server URL and create a pre-auth key in Headplane.
+### PostgreSQL deployment is still initializing
 
-**PostgreSQL mode does not start**
+Open the Sealos Canvas and inspect the PostgreSQL Cluster, the `*-pg-init` Job, and the Headscale StatefulSet. The application starts after the database accepts an authenticated query and the `headscale` database exists.
 
-- Cause: Headscale waits for the PostgreSQL database and rendered configuration before starting.
-- Solution: Check the PostgreSQL cluster, the `headscale-*-pg-init` Job, and the Headscale pod events in Canvas.
+### Health checks
 
-### Getting Help
+Use these endpoints to verify the two application containers:
 
-- [Headscale Documentation](https://headscale.net/stable/)
-- [Headscale GitHub Issues](https://github.com/juanfont/headscale/issues)
-- [Headplane GitHub Issues](https://github.com/tale/headplane/issues)
-- [Sealos Discord](https://discord.gg/wdUn538zVP)
+```text
+https://your-headscale-domain.example.com/health
+https://your-headscale-domain.example.com/admin/healthz
+```
 
-## Additional Resources
+## Resources
 
-- [Headscale Stable Documentation](https://headscale.net/stable/)
-- [Headscale GitHub Repository](https://github.com/juanfont/headscale)
-- [Headplane GitHub Repository](https://github.com/tale/headplane)
-- [Tailscale Knowledge Base](https://tailscale.com/kb/)
-- [Sealos Documentation](https://sealos.io/docs/)
+- [Headscale documentation](https://headscale.net/stable/)
+- [Headscale API documentation](https://headscale.net/stable/ref/api/)
+- [Headscale GitHub repository](https://github.com/juanfont/headscale)
+- [Headplane documentation](https://headplane.net/)
+- [Headplane GitHub repository](https://github.com/tale/headplane)
+- [Tailscale documentation](https://tailscale.com/kb/)
+- [Sealos documentation](https://sealos.io/docs/)
 
 ## License
 
-This Sealos template is provided under the repository license for Sealos templates. Headscale is licensed under the BSD-3-Clause license, and Headplane is licensed under the MIT license.
+Headscale is available under the BSD-3-Clause license. Headplane is available under the MIT license. This template follows the repository license for Sealos templates.

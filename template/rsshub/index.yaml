@@ -6,13 +6,18 @@ spec:
   title: 'RSSHub'
   url: 'https://docs.rsshub.app/'
   gitRepo: 'https://github.com/DIYgod/RSSHub'
-  author: 'Sealos'
-  description: '🍰 Everything is RSSible'
+  author: 'DIYgod'
+  description: 'RSSHub converts content from hundreds of websites into standard RSS feeds and provides a public HTTP API for feed readers and automation tools.'
   readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/rsshub/README.md'
   icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/rsshub/logo.png'
   screenshots:
     - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/rsshub/website-screenshot.webp'
   templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: 'RSSHub 可将数百个网站的内容转换为标准 RSS 订阅源，并为阅读器和自动化工具提供公共 HTTP API。'
+      readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/rsshub/README_zh.md'
   categories:
     - tool
   defaults:
@@ -22,11 +27,7 @@ spec:
     app_host:
       type: string
       value: rsshub-${{ random(8) }}
-  inputs:
 
-  i18n:
-    zh:
-      readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/rsshub/README_zh.md'
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -36,222 +37,6 @@ metadata:
     app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
     app.kubernetes.io/managed-by: kbcli
   name: ${{ defaults.app_name }}-redis
-
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: ${{ defaults.app_name }}
-  annotations:
-    originImageName: diygod/rsshub:2024-07-06
-    deploy.cloud.sealos.io/minReplicas: '1'
-    deploy.cloud.sealos.io/maxReplicas: '1'
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-    app: ${{ defaults.app_name }}
-spec:
-  replicas: 1
-  revisionHistoryLimit: 1
-  selector:
-    matchLabels:
-      app: ${{ defaults.app_name }}
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 1
-      maxSurge: 0
-  template:
-    metadata:
-      labels:
-        app: ${{ defaults.app_name }}
-    spec:
-      automountServiceAccountToken: false
-      containers:
-        - name: ${{ defaults.app_name }}
-          image: diygod/rsshub:2024-07-06
-          env:
-            - name: REDIS_ENDPOINT
-              value: ${{ defaults.app_name }}-redis-redis-redis:6379
-            - name: REDIS_USERNAME
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-redis-redis-account-default
-                  key: username
-            - name: REDIS_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-redis-redis-account-default
-                  key: password
-            - name: REDIS_URL
-              value: redis://$(REDIS_USERNAME):$(REDIS_PASSWORD)@$(REDIS_ENDPOINT)
-            - name: PUPPETEER_WS_ENDPOINT
-              value: ws://${{ defaults.app_name }}-puppeteer:3000
-          resources:
-            requests:
-              cpu: 50m
-              memory: 51Mi
-            limits:
-              cpu: 500m
-              memory: 512Mi
-          ports:
-            - name: http
-              containerPort: 1200
-              protocol: TCP
-          imagePullPolicy: IfNotPresent
-          livenessProbe:
-            httpGet:
-              path: /
-              port: http
-            initialDelaySeconds: 30
-          readinessProbe:
-            httpGet:
-              path: /
-              port: http
-            initialDelaySeconds: 10
-          volumeMounts: []
-      volumes: []
-
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: ${{ defaults.app_name }}
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-spec:
-  ports:
-    - port: 1200
-  selector:
-    app: ${{ defaults.app_name }}
-
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: ${{ defaults.app_name }}-puppeteer
-  annotations:
-    originImageName: browserless/chrome:1.61.1-chrome-stable
-    deploy.cloud.sealos.io/minReplicas: '1'
-    deploy.cloud.sealos.io/maxReplicas: '1'
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-puppeteer
-    app: ${{ defaults.app_name }}-puppeteer
-spec:
-  replicas: 1
-  revisionHistoryLimit: 1
-  selector:
-    matchLabels:
-      app: ${{ defaults.app_name }}-puppeteer
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 1
-      maxSurge: 0
-  template:
-    metadata:
-      labels:
-        app: ${{ defaults.app_name }}-puppeteer
-    spec:
-      containers:
-        - name: ${{ defaults.app_name }}-puppeteer
-          image: browserless/chrome:1.61.1-chrome-stable
-          resources:
-            requests:
-              cpu: 50m
-              memory: 51Mi
-            limits:
-              cpu: 500m
-              memory: 512Mi
-          ports:
-            - containerPort: 3000
-          imagePullPolicy: IfNotPresent
-          volumeMounts: []
-      volumes: []
-
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: ${{ defaults.app_name }}-puppeteer
-  labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-puppeteer
-spec:
-  ports:
-    - port: 3000
-  selector:
-    app: ${{ defaults.app_name }}-puppeteer
-
----
-apiVersion: apps.kubeblocks.io/v1alpha1
-kind: Cluster
-metadata:
-  finalizers:
-    - cluster.kubeblocks.io/finalizer
-  name: ${{ defaults.app_name }}-redis
-  labels:
-    clusterdefinition.kubeblocks.io/name: redis
-    kb.io/database: redis-7.2.7
-    app.kubernetes.io/instance: ${{ defaults.app_name }}
-    app.kubernetes.io/version: 7.2.7
-    helm.sh/chart: redis-cluster-0.9.0
-    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
-spec:
-  clusterDefinitionRef: redis
-  affinity:
-    podAntiAffinity: Preferred
-    topologyKeys:
-      - kubernetes.io/hostname
-  tolerations:
-    - key: kb-data
-      operator: Equal
-      value: "true"
-      effect: NoSchedule
-  componentSpecs:
-    - name: redis
-      componentDef: redis-7
-      enabledLogs:
-        - running
-      env:
-        - name: CUSTOM_SENTINEL_MASTER_NAME
-      serviceVersion: 7.2.7
-      serviceAccountName: ${{ defaults.app_name }}-redis
-      replicas: 1
-      resources:
-        limits:
-          cpu: 500m
-          memory: 512Mi
-        requests:
-          cpu: 50m
-          memory: 51Mi
-      volumeClaimTemplates:
-        - name: data
-          spec:
-            accessModes:
-              - ReadWriteOnce
-            resources:
-              requests:
-                storage: 1Gi
-    - componentDef: redis-sentinel-7
-      name: redis-sentinel
-      replicas: 1
-      resources:
-        limits:
-          cpu: 100m
-          memory: 100Mi
-        requests:
-          cpu: 10m
-          memory: 10Mi
-      serviceVersion: 7.2.7
-      volumeClaimTemplates:
-        - name: data
-          spec:
-            accessModes:
-              - ReadWriteOnce
-            resources:
-              requests:
-                storage: 1Gi
-  terminationPolicy: Delete
-  topology: replication
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -288,11 +73,295 @@ subjects:
     name: ${{ defaults.app_name }}-redis
 
 ---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    kb.io/database: redis-7.2.7
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/version: 7.2.7
+    clusterdefinition.kubeblocks.io/name: redis
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys:
+      - kubernetes.io/hostname
+  clusterDefinitionRef: redis
+  componentSpecs:
+    - componentDef: redis-7
+      name: redis
+      replicas: 1
+      enabledLogs:
+        - running
+      env:
+        - name: CUSTOM_SENTINEL_MASTER_NAME
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      serviceVersion: 7.2.7
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+    - componentDef: redis-sentinel-7
+      name: redis-sentinel
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      serviceVersion: 7.2.7
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+  terminationPolicy: Delete
+  tolerations: []
+  topology: replication
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: diygod/rsshub:2026-07-23
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: diygod/rsshub:2026-07-23
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: NODE_ENV
+              value: 'production'
+            - name: CACHE_TYPE
+              value: 'redis'
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
+            - name: REDIS_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: username
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
+            - name: REDIS_URL
+              value: redis://$(REDIS_USERNAME):$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)
+            - name: PLAYWRIGHT_WS_ENDPOINT
+              value: ws://${{ defaults.app_name }}-browserless.${{ SEALOS_NAMESPACE }}.svc.cluster.local:3000/chrome/playwright
+          ports:
+            - name: http
+              containerPort: 1200
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 51Mi
+            limits:
+              cpu: '1'
+              memory: 512Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - name: http
+      port: 1200
+      targetPort: 1200
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-browserless
+  annotations:
+    originImageName: ghcr.io/browserless/chrome:v2.55.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}-browserless
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-browserless
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-browserless
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-browserless
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ${{ defaults.app_name }}-browserless
+          image: ghcr.io/browserless/chrome:v2.55.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /pressure
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /pressure
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /pressure
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 51Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-browserless
+  labels:
+    app: ${{ defaults.app_name }}-browserless
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-browserless
+spec:
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-browserless
+
+---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
@@ -301,9 +370,8 @@ metadata:
     nginx.ingress.kubernetes.io/server-snippet: |
       client_header_buffer_size 64k;
       large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
-    nginx.ingress.kubernetes.io/rewrite-target: /$2
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
@@ -319,7 +387,7 @@ spec:
       http:
         paths:
           - pathType: Prefix
-            path: /()(.*)
+            path: /
             backend:
               service:
                 name: ${{ defaults.app_name }}
@@ -341,6 +409,6 @@ spec:
   data:
     url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
   displayType: normal
-  icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/rsshub/logo.png"
-  name: ${{ defaults.app_name }}
-  type: iframe
+  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/rsshub/logo.png'
+  name: 'RSSHub'
+  type: link
