@@ -1,170 +1,163 @@
 # Deploy and Host Directus on Sealos
 
-Directus is an open-source data platform and headless CMS for managing SQL databases with APIs, authentication, file management, and an admin application. This template deploys Directus with PostgreSQL, Redis, persistent volumes, and optional S3-compatible object storage on Sealos Cloud.
+Directus is a composable data platform and headless CMS that adds an admin application, REST and GraphQL APIs, authentication, permissions, files, and automation to a SQL database. This template deploys Directus 12 with Redis and lets you choose the database and file-storage topology at deployment time.
 
-## About Hosting Directus
+![Directus collection backed by PostgreSQL and Sealos S3](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/directus/website-screenshot.webp)
 
-Directus provides a no-code admin interface, REST API, GraphQL API, authentication, permissions, file management, and automation tools on top of a SQL database. It is commonly used to turn existing or new databases into a managed content and data platform without building a custom backend from scratch.
+## What This Template Deploys
 
-The Sealos template provisions Directus as a Kubernetes StatefulSet backed by PostgreSQL for application data and Redis for cache, rate limiting, and runtime coordination. It also creates persistent volumes for local uploads and extensions, and can optionally provision S3-compatible object storage for uploaded files.
+- **Directus `12.1.1`** as a single-replica StatefulSet on port `8055`
+- **Redis `7.2.7`** through KubeBlocks for cache and rate limiting
+- **Managed PostgreSQL `16.4.0`** by default, with embedded SQLite as a lightweight option
+- **Persistent local uploads** by default, with private Sealos S3-compatible object storage as an option
+- **Persistent extensions storage** at `/directus/extensions`
+- **Public HTTPS** through a Sealos-managed Service and Ingress
+- **Startup, readiness, and liveness probes** on `/server/ping`
 
-Sealos handles public HTTPS access, service discovery, persistent storage, resource configuration, and database provisioning so you can deploy Directus without writing Kubernetes manifests manually.
+The template keeps PostgreSQL and object storage independent. You can use any of these combinations:
+
+| Database | File storage | Recommended use |
+| --- | --- | --- |
+| PostgreSQL | Local persistent volume | General single-replica deployment |
+| PostgreSQL | Sealos S3 | Production-oriented file storage and future horizontal scaling |
+| SQLite | Local persistent volume | Evaluation and small single-replica projects |
+| SQLite | Sealos S3 | Lightweight database with durable object storage |
 
 ## Common Use Cases
 
-- **Headless CMS**: Manage content models, media files, users, roles, and API access for websites and applications.
-- **Database Admin App**: Provide a polished admin interface for PostgreSQL-backed internal tools.
-- **API Backend**: Expose REST and GraphQL APIs with authentication and permissions from a managed SQL schema.
-- **Low-Code Data Platform**: Build data workflows, dashboards, and operational tools around structured business data.
-- **Media and File Management**: Store uploaded files locally or in S3-compatible object storage for production-friendly deployments.
+- Headless CMS for websites and applications
+- Internal data administration and operational tools
+- REST or GraphQL backend with authentication and permissions
+- Structured content, user, and file management
+- Low-code workflows and dashboards
 
-## Dependencies for Directus Hosting
+## Deployment
 
-The Sealos template includes the required runtime dependencies for Directus:
+1. Open the [Directus template in the Sealos App Store](https://sealos.io/products/app-store/directus).
+2. Enter a strong initial administrator email and password.
+3. Choose the database and file-storage options.
+4. Click **Deploy** and wait for the Directus workload to become ready. A first deployment with managed PostgreSQL usually takes several minutes while KubeBlocks provisions the database.
+5. Open the HTTPS address shown by Sealos.
 
-- Directus `11.17.4`
-- PostgreSQL `16.4.0` through KubeBlocks
-- Redis `7.2.7` through KubeBlocks
-- Persistent storage for uploads and extensions
-- Optional S3-compatible object storage for uploaded files
-- HTTPS Ingress and Sealos App entry
+### Deployment Parameters
 
-### Deployment Dependencies
+| Parameter | Default | Description |
+| --- | --- | --- |
+| `admin_email` | Required | Email for the first Directus administrator |
+| `admin_password` | Required | Password for the first Directus administrator |
+| `use_postgresql` | `true` | Creates managed PostgreSQL; `false` uses SQLite at `/directus/database/data.db` |
+| `use_object_storage` | `false` | Creates a private Sealos S3 bucket; `false` uses `/directus/uploads` |
 
-- [Directus Documentation](https://directus.io/docs/) - Official Directus documentation
-- [Directus Self-Hosting Guide](https://directus.io/docs/self-hosting/overview) - Runtime and deployment reference
-- [Directus GitHub Repository](https://github.com/directus/directus) - Source code, releases, and issues
-- [Directus Community](https://community.directus.io/) - Community support and discussions
+Administrator credentials are applied when Directus initializes a new database. Changing these values later does not reset an administrator stored in an existing database.
 
-## Implementation Details
+## First Login
 
-**Architecture Components:**
+1. Open the deployed Directus URL.
+2. Sign in with the configured `admin_email` and `admin_password`.
+3. On the first-run license screen, choose **Core plan** for the free, keyless tier or enter a license key for another eligible plan.
+4. Complete or skip the optional usage survey.
+5. Set the project owner or choose **Remind Later**.
 
-This template deploys the following resources:
+The admin application opens at `/admin`. The same public host serves the APIs:
 
-- **Directus StatefulSet**: Runs the Directus web application and API on port `8055` using `directus/directus:11.17.4`.
-- **PostgreSQL Cluster**: Stores Directus system tables, users, roles, permissions, collections, and application data.
-- **PostgreSQL Init Job**: Waits for PostgreSQL readiness and creates the `directus` database idempotently.
-- **Redis Cluster**: Provides Redis for Directus cache, rate limiter storage, and runtime coordination.
-- **Persistent Uploads Volume**: Stores local uploaded files at `/directus/uploads` when object storage is not enabled.
-- **Persistent Extensions Volume**: Stores Directus extensions at `/directus/extensions`.
-- **Optional ObjectStorageBucket**: Creates S3-compatible storage and configures Directus storage under the `sealos` location when `use_object_storage` is enabled.
-- **Service and Ingress**: Exposes Directus through a public HTTPS URL managed by Sealos.
-- **Sealos App Resource**: Adds the deployed Directus instance to the Sealos application interface.
+- REST API: `/items`, `/users`, `/files`, and other resource paths
+- GraphQL API: `/graphql`
+- Unauthenticated health probe: `/server/ping`
 
-**Configuration:**
+Directus 12 restricts `/server/health`; use `/server/ping` for external uptime checks.
 
-The template asks for an initial administrator email and password. It generates the Directus `SECRET`, public host, and application name automatically.
+## Database Options
 
-Directus connects to PostgreSQL through KubeBlocks connection secrets and to Redis through the Sealos cluster service DNS name. Startup containers wait for PostgreSQL and Redis before the main Directus container starts.
+### Managed PostgreSQL
 
-File storage can run in two modes:
+This is the default. The template creates a KubeBlocks PostgreSQL cluster and an idempotent initialization Job for the `directus` database. Directus reads the generated host, port, username, and password from Kubernetes Secrets.
 
-- **Local storage**: Default mode. Directus stores uploaded files in the persistent `/directus/uploads` volume.
-- **Object storage**: Optional mode. When `use_object_storage` is enabled, the template provisions an S3-compatible bucket and configures Directus with `STORAGE_SEALOS_*` environment variables.
+Choose PostgreSQL for production workloads, larger datasets, and deployments that may later use multiple Directus replicas.
 
-**Resource Defaults:**
+### Embedded SQLite
 
-The template uses conservative default resources for Directus, init containers, and database components:
+Disable `use_postgresql` to store the database at `/directus/database/data.db` on a dedicated `1Gi` persistent volume. SQLite reduces the deployment footprint and works well for evaluation and small single-replica projects.
 
-- CPU limit: `200m`
-- Memory limit: `256Mi`
-- CPU request: `20m`
-- Memory request: `25Mi`
+Keep SQLite deployments at one Directus replica because the database file lives on a ReadWriteOnce volume.
 
-**Health Checks:**
+## File Storage Options
 
-Directus uses `/server/health` for startup, readiness, and liveness probes. This keeps the application out of service until the database, Redis, and file storage are ready.
+### Local Persistent Storage
 
-**License Information:**
+With `use_object_storage` disabled, uploaded files are stored at `/directus/uploads` on a dedicated `1Gi` persistent volume.
 
-Directus is distributed under the Business Source License 1.1, with a change license to GNU GPL v3 after the applicable change date. Review the [Directus license](https://github.com/directus/directus/blob/main/license) and [Directus pricing](https://directus.io/pricing) pages for production usage terms.
+### Sealos S3 Object Storage
 
-## Why Deploy Directus on Sealos?
+Enable `use_object_storage` to create a private `ObjectStorageBucket`. Directus uses the S3-compatible `sealos` storage location and stores objects under the `uploads` prefix. Bucket credentials are injected from Sealos-managed Secrets.
 
-Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies the application lifecycle, from cloud development environments to production deployment and operations. By deploying Directus on Sealos, you get:
+Private objects return `403` when requested directly. Users access files through Directus, where authentication and permissions are enforced.
 
-- **One-Click Deployment**: Deploy Directus with PostgreSQL, Redis, storage, and HTTPS access from one template.
-- **Zero Kubernetes Expertise Required**: Use Kubernetes-backed infrastructure without writing manifests or managing cluster internals.
-- **Built-In Persistent Storage**: Keep database data, uploads, and extensions available across restarts.
-- **Optional Object Storage**: Choose S3-compatible storage during deployment when you want a more production-friendly file storage path.
-- **Instant Public Access**: Sealos provisions a public HTTPS URL for the Directus admin app and APIs.
-- **Easy Customization**: Adjust environment variables, resources, storage, and service settings from the Sealos Canvas after deployment.
-- **AI-Assisted Operations**: Describe changes in the Sealos AI dialog or edit resource cards directly for post-deployment updates.
-- **Pay-As-You-Go Efficiency**: Start with lightweight resources and increase them only when your workload needs more capacity.
+## Persistence
 
-Deploy Directus on Sealos and focus on modeling data, managing content, and building APIs instead of managing infrastructure.
+| Path or service | Purpose | Provisioned when |
+| --- | --- | --- |
+| PostgreSQL volume | Directus system and application data | `use_postgresql=true` |
+| `/directus/database` | SQLite database file | `use_postgresql=false` |
+| `/directus/uploads` | Local uploaded files | `use_object_storage=false` |
+| Sealos S3 bucket | Object-backed uploaded files | `use_object_storage=true` |
+| `/directus/extensions` | Directus extensions | Always |
+| Redis volumes | Cache and rate-limiter data | Always |
 
-## Deployment Guide
+## Resource Defaults
 
-1. Open the [Directus template](https://sealos.io/products/app-store/directus) and click **Deploy Now**.
-2. Configure the parameters in the popup dialog:
-   - **admin_email**: Initial Directus administrator email address.
-   - **admin_password**: Initial Directus administrator password.
-   - **use_object_storage**: Enable this option if you want uploaded files stored in S3-compatible object storage instead of the local persistent volume.
-3. Wait for deployment to complete. This typically takes 2-3 minutes. After deployment, you will be redirected to the Canvas. For later changes, describe your requirements in the dialog to let AI apply updates, or click the relevant resource cards to modify settings.
-4. Access your application via the provided URLs:
-   - **Directus Admin App**: Log in with the configured administrator email and password.
-   - **Directus API**: Use the same public URL for REST and GraphQL API access.
+The Directus container uses the official minimum memory requirement and the nearest Sealos CPU tier:
 
-## Configuration
+| Component | CPU limit | Memory limit | CPU request | Memory request |
+| --- | ---: | ---: | ---: | ---: |
+| Directus | `500m` | `512Mi` | `50m` | `51Mi` |
+| PostgreSQL | `500m` | `512Mi` | `50m` | `51Mi` |
+| Redis | `500m` | `512Mi` | `50m` | `51Mi` |
+| Redis Sentinel | `500m` | `512Mi` | `50m` | `51Mi` |
+| Startup and initialization containers | `100m` | `128Mi` | `10m` | `12Mi` |
 
-After deployment, you can configure Directus through:
-
-- **Directus Admin App**: Manage collections, fields, roles, permissions, users, files, flows, and settings.
-- **AI Dialog**: Describe configuration changes in Sealos and let AI apply updates to resources.
-- **Resource Cards**: Open the StatefulSet, database, Redis, storage, or Ingress cards in the Canvas to adjust settings.
-- **Environment Variables**: Modify Directus runtime settings such as storage, cache, public URL, and security options from the workload resource.
-- **Extensions Volume**: Use `/directus/extensions` for Directus extensions that need persistent storage.
-
-For production deployments with multiple replicas or high file-upload volume, enable object storage so uploaded files are not tied to a single local volume.
+Increase Directus memory for large schemas, heavy API traffic, transformations, or extension workloads.
 
 ## Scaling
 
-To scale your deployment:
+The template starts with one Directus replica. Before horizontal scaling:
 
-1. Open the Canvas for your Directus deployment.
-2. Click the Directus StatefulSet resource card.
-3. Adjust CPU, memory, or replica settings in the dialog.
-4. Apply the changes and wait for the workload to roll out.
-
-Directus uses PostgreSQL and Redis as shared backing services. If you increase Directus replicas, prefer object storage for uploaded files so all replicas can access the same file backend.
+1. Use managed PostgreSQL.
+2. Enable Sealos S3 object storage so every replica shares the same file backend.
+3. Distribute the same extensions to every replica.
+4. Keep Redis enabled for shared cache and rate-limiter state.
+5. Adjust the StatefulSet replica and resource settings in Sealos Canvas.
 
 ## Troubleshooting
 
-### Directus does not become ready
+### The application is still starting
 
-- **Cause**: PostgreSQL, Redis, or file storage is not ready yet.
-- **Solution**: Check the Directus StatefulSet logs and the PostgreSQL and Redis resource cards. The template includes startup wait containers and `/server/health` probes, so readiness may take a few minutes during first deployment.
+Open the Directus, PostgreSQL, and Redis resource cards in Sealos Canvas. On the first deployment, the wait containers hold Directus until the backing services are ready. PostgreSQL provisioning can take several minutes.
 
-### Login fails with the initial administrator account
+### The initial administrator cannot sign in
 
-- **Cause**: The wrong administrator email or password was entered during deployment.
-- **Solution**: Use the values configured in the deployment dialog. If they were entered incorrectly, update the deployment or recreate the application with the intended credentials.
+Use the email and password entered during deployment. These values create the first administrator only when the database is initialized. An existing database keeps its stored users and passwords.
 
-### File uploads fail
+### An S3 file returns `403`
 
-- **Cause**: The local uploads volume is not writable, or object storage credentials are not available when object storage mode is enabled.
-- **Solution**: Keep the template's volume permission init container and `fsGroup` settings when customizing the workload. If object storage is enabled, verify that the ObjectStorageBucket and related secrets were created.
+This is expected for the private bucket. Access the file through the Directus `/assets/{id}` endpoint with a user or token that has permission.
 
-### Extensions are not available after restart
+### Geometry support warning appears
 
-- **Cause**: Extensions were not placed in the persistent extensions path.
-- **Solution**: Store extensions under `/directus/extensions`, which is backed by a persistent volume in this template.
+The managed PostgreSQL image does not include PostGIS, and SQLite does not include SpatiaLite. Standard CMS and API features continue to work. Use a compatible spatial database when the project requires geometry fields and spatial queries.
 
-### Getting Help
+### Extensions disappear after customization
 
-- [Directus Documentation](https://directus.io/docs/)
-- [Directus GitHub Issues](https://github.com/directus/directus/issues)
-- [Sealos Discord](https://discord.gg/wdUn538zVP)
+Place persistent extensions under `/directus/extensions`. When using multiple replicas, make the same extension set available to every replica.
 
-## Additional Resources
+## Documentation
 
+- [Directus Docker Guide](https://docs.directus.io/self-hosted/docker-guide)
+- [Directus Configuration Options](https://docs.directus.io/self-hosted/config-options)
 - [Directus API Reference](https://directus.io/docs/api)
-- [Directus Configuration Reference](https://directus.io/docs/configuration)
-- [Directus Self-Hosting Overview](https://directus.io/docs/self-hosting/overview)
+- [Directus GitHub Repository](https://github.com/directus/directus)
 - [Sealos App Store](https://sealos.io/products/app-store)
+- [Sealos Discord](https://discord.gg/wdUn538zVP)
 
 ## License
 
-This Sealos template provides deployment configuration for running Directus on Sealos. Directus itself is distributed under the Business Source License 1.1, with a change license to GNU GPL v3 after the applicable change date. Review the Directus license before using it in production.
+Directus 12 is distributed under the [Monospace Sustainable Core License 1.0 with a GPL future license (MSCL-1.0-GPL)](https://github.com/directus/directus/blob/v12.1.1/license). Review the license and the [Directus pricing page](https://directus.io/pricing) before production use. This repository provides the Sealos deployment template and does not change the Directus license.
