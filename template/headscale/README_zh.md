@@ -1,145 +1,166 @@
-# 在 Sealos 上部署和托管 Headscale
+# 在 Sealos 上部署与托管 Headscale
 
-Headscale 是一个开源的自托管 Tailscale 控制服务器实现。这个模板会在 Sealos Cloud 上部署 Headscale、Headplane、持久化存储、公开 Ingress 访问能力，并支持可选 PostgreSQL 数据库。
+Headscale 是一个开源、自托管的 Tailscale 控制服务器实现。本模板部署 Headscale 0.29.2 和 Headplane 0.7.0 管理界面，并提供持久化存储、启用 TLS 的公网端点，以及可选的 KubeBlocks PostgreSQL 数据库。
 
-![Headscale 截图](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/headscale/website-screenshot.webp)
+![Headscale 官网截图](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/headscale/website-screenshot.webp)
 
-## 关于托管 Headscale
+## 关于 Headscale
 
-Headscale 为私有的 Tailscale 兼容 tailnet 提供协调服务器能力。它负责节点注册、用户管理、路由通告、DNS 设置、ACL 策略存储和控制平面通信；在条件允许时，设备之间的实际流量仍会直接点对点传输。
+Headscale 为私有 Tailscale 兼容网络提供协调服务，负责管理用户、设备、路由、DNS、ACL 策略和设备注册，兼容客户端则负责建立数据传输路径。
 
-这个 Sealos 模板会在同一个 StatefulSet 中运行 Headscale 和 Headplane。Headscale 负责控制平面、gRPC 端点和 metrics 端点，Headplane 提供 Web 管理界面，可用于管理 Headscale 用户、机器、路由、DNS、ACL 和预授权密钥。
-
-默认情况下，模板使用 SQLite，并将数据保存在持久化卷中。如果部署时启用 `use_postgresql`，Sealos 会通过 KubeBlocks 创建 PostgreSQL 16.4.0 集群，初始化 `headscale` 数据库，并把 PostgreSQL 配置写入 Headscale 的 `config.yaml`。这是因为 Headscale 从配置文件读取数据库设置，而不是通过数据库环境变量直接配置。
+本模板在同一个 StatefulSet 中运行 Headscale 与 Headplane，让 Headplane 可以通过 Kubernetes 集成安全地重新加载 Headscale 配置。SQLite 是默认数据库，也符合上游对新部署的建议。启用 `use_postgresql` 后，模板会为需要独立数据库的运维场景创建 PostgreSQL 16.4.0 集群。
 
 ## 常见使用场景
 
-- **私有 Mesh VPN 控制平面**：为 Tailscale 兼容客户端托管自己的协调服务器。
-- **家庭实验室和团队网络**：连接跨网络的服务器、笔记本和服务，而不必将所有服务直接暴露到公网。
-- **路由和 DNS 管理**：通过 Headplane 管理通告路由、类似 MagicDNS 的设置和网络记录。
-- **ACL 和标签管理**：为小团队或实验环境编辑 ACL 策略，并组织机器访问权限。
-- **预授权密钥流程**：创建可复用或临时的预授权密钥，简化设备加入流程。
+- 为 Tailscale 兼容客户端运行私有控制平面。
+- 连接家庭实验室、边缘节点和团队设备。
+- 通过 Headplane 管理用户、路由、DNS、ACL 和预授权密钥。
+- 将控制平面状态保存在 Sealos 持久化存储中。
+- 为特定数据库运维需求使用托管 PostgreSQL。
 
-## Headscale 托管依赖
+## 依赖
 
-Sealos 模板包含所需的运行组件：Headscale、Headplane、持久化存储、Service/Ingress 资源、Headplane Kubernetes 集成所需的 RBAC，以及可选的 KubeBlocks PostgreSQL。
+模板包含完整的服务端运行环境：Headscale、Headplane、持久卷、Service 与 Ingress、限定权限的 Kubernetes RBAC，以及条件启用的 PostgreSQL 资源。
 
-### 部署依赖
+- [Headscale 0.29.2](https://github.com/juanfont/headscale/releases/tag/v0.29.2) 提供控制服务器和 API。
+- [Headplane 0.7.0](https://github.com/tale/headplane/releases/tag/v0.7.0) 提供管理界面。
+- 启用 `use_postgresql` 后，KubeBlocks 会提供 PostgreSQL 16.4.0。
+- 每台接入网络的设备需要安装兼容的 [Tailscale 客户端](https://tailscale.com/download)。
 
-- [Headscale 文档](https://headscale.net/stable/) - Headscale 官方文档
-- [Headscale GitHub 仓库](https://github.com/juanfont/headscale) - 源码和版本发布
-- [Headplane GitHub 仓库](https://github.com/tale/headplane) - Web UI 源码和文档
-- [Tailscale 文档](https://tailscale.com/kb/) - 客户端和 tailnet 相关概念
-- [Sealos 文档](https://sealos.io/docs/) - Sealos 平台文档
+## 架构
 
-### 实现细节
+| 组件 | 版本 | 用途 | 实测最低限制 |
+| --- | --- | --- | --- |
+| Headscale | `0.29.2-debug` | 控制服务器、REST API、gRPC API 和指标 | `100m` CPU / `128Mi` 内存 |
+| Headplane | `0.7.0` | Web 管理界面 | `100m` CPU / `256Mi` 内存 |
+| SQLite | 内置 | 位于持久化存储中的默认 Headscale 数据库 | 包含在 Headscale 容器中 |
+| PostgreSQL | `16.4.0` | 可选的 KubeBlocks 托管数据库 | `500m` CPU / `512Mi` 内存 |
+| PostgreSQL 初始化 | `postgres:16-alpine` | 创建并验证 `headscale` 数据库 | `100m` CPU / `128Mi` 内存 |
 
-**架构组件：**
+应用使用三个 `512Mi` 持久卷：
 
-本模板会部署以下服务和资源：
+| 路径 | 内容 |
+| --- | --- |
+| `/var/lib/headscale` | SQLite 数据库、密钥和 Headscale 运行状态 |
+| `/etc/headscale` | 经过校验且不含敏感值的 Headscale 配置 |
+| `/var/lib/headplane` | Headplane 状态 |
 
-- **Headscale**：控制服务器容器，使用 `headscale/headscale:0.29.0-beta.1-debug`。
-- **Headplane**：Web 管理界面，使用 `ghcr.io/tale/headplane:0.6.3`。
-- **SQLite 存储**：默认数据库模式，数据库文件位于持久化卷中的 `/var/lib/headscale/db.sqlite`。
-- **PostgreSQL**：启用 `use_postgresql` 时创建的 KubeBlocks PostgreSQL 16.4.0 集群。
-- **PostgreSQL 初始化 Job**：以幂等方式创建 `headscale` 数据库，然后应用再连接数据库。
-- **ConfigMap**：保存 Headscale、DERP 和 Headplane 配置文件。
-- **持久化卷**：保存 `/var/lib/headscale` 和 `/etc/headscale` 下的数据和生成后的配置。
-- **Ingress 规则**：通过 `/admin` 暴露 Headplane，通过主域名暴露 Headscale HTTP 流量，并通过独立 gRPC 域名暴露 Headscale gRPC。
-
-**配置：**
-
-- `use_postgresql` 控制模板使用 SQLite 还是创建 PostgreSQL。
-- Headscale 数据库设置会在初始化阶段渲染到 `/etc/headscale/config.yaml`。
-- Headplane 读取 `/etc/headscale/headplane.yaml`，并在 Pod 内通过 `http://127.0.0.1:8080` 连接 Headscale。
-- StatefulSet 使用 `shareProcessNamespace: true`，让 Headplane 可以通过 Kubernetes 集成访问 Headscale 进程。
-- Headscale 和 Headplane 都使用适合小规模部署的保守 CPU 与内存限制。
-
-**许可证信息：**
-
-Headscale 使用 BSD-3-Clause 许可证。Headplane 使用 MIT 许可证。这个 Sealos 模板遵循上游项目的许可条款。
+主公网域名提供 Headscale HTTP API，并在 `/admin/` 路径提供 Headplane。独立公网域名提供 Headscale gRPC 端点。指标端口 `9090` 仅在集群内部开放。
 
 ## 为什么在 Sealos 上部署 Headscale？
 
-Sealos 是基于 Kubernetes 构建的 AI 辅助云操作系统，覆盖从云端 IDE 开发到生产部署和运维管理的完整应用生命周期。它适合现代应用、内部工具、SaaS 平台和多服务部署。将 Headscale 部署在 Sealos 上，你可以获得：
+- 从应用商店模板一次部署完整的 Headscale 与 Headplane 服务。
+- 自动获得带托管 TLS 证书的 HTTPS 应用域名和 gRPC 域名。
+- 使用持久卷保存配置、密钥和数据库状态。
+- 部署时可以选择内置 SQLite 或 KubeBlocks 托管 PostgreSQL。
+- 在 Sealos Canvas 中查看资源、日志、事件并使用容器终端。
+- 从实测最低资源起步，并随 tailnet 规模增长调整容量。
 
-- **一键部署**：直接从应用商店部署 Headscale 和 Headplane，不需要手写 Kubernetes YAML。
-- **可选数据库自动创建**：默认使用 SQLite，也可以启用由 KubeBlocks 管理的 PostgreSQL 数据库。
-- **易于自定义**：通过 Sealos UI 配置参数、资源限制、存储和运行时设置。
-- **无需 Kubernetes 专业经验**：使用 Kubernetes 支撑的工作负载、服务、持久化卷和 Ingress，而不必直接管理集群。
-- **内置持久化存储**：Headscale 状态和配置会在 Pod 重启后继续保留。
-- **即时公开访问**：Sealos 会为部署的应用提供公开 URL 和 TLS 证书。
-- **AI 辅助运维**：部署后可以通过 Canvas AI 对话调整应用，也可以打开资源卡片修改具体资源。
-- **按量付费更高效**：从小资源规格开始，按 tailnet 规模增长逐步调整。
-
-在 Sealos 上部署 Headscale，把精力放在管理私有网络上，而不是维护基础设施。
-
-## 部署指南
+## 在 Sealos 上部署
 
 1. 打开 [Headscale 模板](https://sealos.io/products/app-store/headscale)，点击 **Deploy Now**。
-2. 在弹出的配置对话框中设置参数：
-   - 保持 `use_postgresql` 关闭，即使用默认 SQLite 部署。
-   - 启用 `use_postgresql`，则由 Sealos 为 Headscale 创建 PostgreSQL 数据库。
-3. 等待部署完成，通常需要 2-3 分钟。部署后会跳转到 Canvas。后续如需修改，可以在 AI 对话框中描述需求，或点击相关资源卡片调整设置。
-4. 通过系统提供的访问地址打开应用：
-   - **Headplane 管理界面**：打开主应用地址并访问 `/admin`。
-   - **Headscale Server URL**：将主应用域名作为 Headscale 客户端使用的服务器地址。
-   - **Headscale gRPC 端点**：当远程 CLI 访问需要 gRPC 时，使用独立的 gRPC 域名。
+2. 保持 `use_postgresql` 关闭即可使用默认 SQLite；启用该选项会创建独立 PostgreSQL 集群。
+3. 等待全部资源进入就绪状态。SQLite 通常在几分钟内启动，新建 PostgreSQL 集群的首次初始化可能需要数分钟。
+4. 打开应用地址，根路径会跳转到 `/admin/` 下的 Headplane 登录页。
+
+## 登录 Headplane
+
+Headplane 使用 Headscale API key 完成身份验证。在 Sealos 终端中进入 Headscale 容器并执行：
+
+```bash
+headscale apikeys create
+```
+
+命令只显示一次密钥。请妥善保存，并将完整密钥粘贴到 Headplane 登录页的 **API Key** 输入框。Headscale 默认给新密钥设置 90 天有效期，也可以指定有效期：
+
+```bash
+headscale apikeys create --expiration 365d
+```
+
+登录后完成以下操作：
+
+1. 打开 **Users**，点击 **Add user**，创建第一个 Headscale 用户。
+2. 打开 **Settings > Auth Keys**，点击 **Create pre-auth key**，选择用户并设置有效期与密钥选项。
+
+## 连接设备
+
+安装兼容的 Tailscale 客户端，然后使用 Sealos 主应用地址和 Headplane 中创建的预授权密钥：
+
+```bash
+tailscale up \
+  --login-server=https://your-headscale-domain.example.com \
+  --authkey=<pre-auth-key>
+```
+
+注册完成后，设备会出现在 Headplane 的 **Machines** 页面。
+
+## 远程使用 Headscale CLI
+
+模板通过独立 TLS 域名提供 gRPC。使用与服务端 `0.29.2` 版本一致的 `headscale` CLI，并配置端点和 API key：
+
+```bash
+export HEADSCALE_CLI_ADDRESS=your-headscale-grpc-domain.example.com:443
+export HEADSCALE_CLI_API_KEY=<api-key>
+headscale users list
+```
+
+Headplane 已覆盖常用管理流程，远程 gRPC 适合 CLI 自动化场景。
+
+## 数据库选项
+
+### SQLite
+
+SQLite 默认启用，数据库位于 `/var/lib/headscale/db.sqlite`。模板开启 write-ahead logging，持久卷会在 Pod 重建后保留数据。
+
+### PostgreSQL
+
+部署时启用 `use_postgresql` 即可创建 KubeBlocks PostgreSQL 集群。模板会创建 `headscale` 数据库并等待数据库接受认证查询。Headscale 通过官方 `HEADSCALE_DATABASE_POSTGRES_*` 环境变量，直接从 KubeBlocks Secret 获取主机、端口、用户名和密码。
+
+Kubernetes Secret 是凭据来源，`/etc/headscale/config.yaml` 只保存静态且不敏感的数据库设置。PostgreSQL 会增加一个数据库 Pod 和一个 `1Gi` 数据卷。初始化 Job 为数据库冷启动预留最多 6 分钟。
 
 ## 配置
 
-部署后，可以通过以下方式配置 Headscale：
-
-- **Headplane 管理界面**：在 `/admin` 管理用户、机器、路由、DNS 设置、ACL 和预授权密钥。
-- **AI 对话框**：在 Sealos Canvas 中描述你要修改的配置，由 AI 协助应用变更。
-- **资源卡片**：打开 StatefulSet、ConfigMap、Ingress 或数据库资源卡片，进行手动调整。
-- **配置文件**：按需修改 ConfigMap 中的 Headscale 设置，并重启工作负载让配置生效。
-
-## 扩容
-
-Headscale 通常作为单实例控制平面部署，因为它负责保存状态并服务一个 tailnet。如需调整容量：
-
-1. 打开对应部署的 Canvas。
-2. 点击 Headscale StatefulSet 资源卡片。
-3. 根据节点数量和控制平面活动情况调整 CPU 或内存资源。
-4. 在对话框中应用变更。
-
-如果启用了 PostgreSQL，也可以打开 PostgreSQL 集群资源卡片，调整数据库资源和存储。
+- 使用 Headplane 管理用户、设备、路由、DNS、ACL 策略和预授权密钥。
+- Headscale 从持久化存储中的 `/etc/headscale/config.yaml` 读取配置。init 容器会校验数据库模式、占位符和完整 Headscale 配置，再通过同目录原子移动修复不完整文件。
+- Headplane 从模板 ConfigMap 中的 `/etc/headplane/config.yaml` 读取配置。
+- Headplane 通过 `HEADPLANE_SERVER__COOKIE_SECRET` 接收生成的 cookie secret，使该值与 ConfigMap 分离。
+- PostgreSQL 凭据直接从 KubeBlocks 连接 Secret 注入 Headscale 容器，并与持久卷分离。
+- `shareProcessNamespace` 和限定为 Pod 读取权限的 RBAC 支持 Headplane 在配置变更后通知 Headscale。
+- Pod 使用 UID/GID `1000` 运行，启用 `RuntimeDefault` seccomp，并移除全部 Linux capabilities。
 
 ## 故障排查
 
-### 常见问题
+### Headplane 拒绝 API key
 
-**Headplane 无法管理 Headscale**
+在 Headscale 容器中创建新的 API key，并将完整值粘贴到登录表单。API key 只显示一次，并会按照设置的有效期过期。
 
-- 原因：Headplane 需要读取 Headscale 配置，并依赖 Kubernetes 集成设置。
-- 解决方法：确认 Headscale Pod 已就绪，并确认 Headplane 容器可以读取 `/etc/headscale/config.yaml`。
+### 客户端注册失败
 
-**客户端无法注册**
+确认 `--login-server` 使用主 HTTPS 应用地址，预授权密钥也归属于现有用户。可以在 Headplane 的 **Machines** 和 **Auth Keys** 页面检查状态。
 
-- 原因：客户端可能使用了错误的服务器地址，或缺少预授权密钥。
-- 解决方法：使用 Sealos 提供的 Headscale 域名作为服务器地址，并在 Headplane 中创建预授权密钥。
+### PostgreSQL 部署仍在初始化
 
-**PostgreSQL 模式无法启动**
+打开 Sealos Canvas，检查 PostgreSQL Cluster、`*-pg-init` Job 和 Headscale StatefulSet。数据库可以接受认证查询且 `headscale` 数据库创建完成后，应用会自动启动。
 
-- 原因：Headscale 启动前会等待 PostgreSQL 数据库和渲染后的配置就绪。
-- 解决方法：在 Canvas 中检查 PostgreSQL 集群、`headscale-*-pg-init` Job 和 Headscale Pod 事件。
+### 健康检查
 
-### 获取帮助
+使用以下端点检查两个应用容器：
 
-- [Headscale 文档](https://headscale.net/stable/)
-- [Headscale GitHub Issues](https://github.com/juanfont/headscale/issues)
-- [Headplane GitHub Issues](https://github.com/tale/headplane/issues)
-- [Sealos Discord](https://discord.gg/wdUn538zVP)
+```text
+https://your-headscale-domain.example.com/health
+https://your-headscale-domain.example.com/admin/healthz
+```
 
-## 更多资源
+## 相关资源
 
-- [Headscale 稳定版文档](https://headscale.net/stable/)
+- [Headscale 官方文档](https://headscale.net/stable/)
+- [Headscale API 文档](https://headscale.net/stable/ref/api/)
 - [Headscale GitHub 仓库](https://github.com/juanfont/headscale)
+- [Headplane 官方文档](https://headplane.net/)
 - [Headplane GitHub 仓库](https://github.com/tale/headplane)
-- [Tailscale 知识库](https://tailscale.com/kb/)
+- [Tailscale 文档](https://tailscale.com/kb/)
 - [Sealos 文档](https://sealos.io/docs/)
 
 ## 许可证
 
-此 Sealos 模板遵循 Sealos 模板仓库的许可证。Headscale 使用 BSD-3-Clause 许可证，Headplane 使用 MIT 许可证。
+Headscale 使用 BSD-3-Clause 许可证，Headplane 使用 MIT 许可证。本模板遵循 Sealos templates 仓库许可证。

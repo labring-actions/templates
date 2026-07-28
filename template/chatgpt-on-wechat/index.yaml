@@ -3,87 +3,89 @@ kind: Template
 metadata:
   name: chatgpt-on-wechat
 spec:
-  title: 'chatgpt-on-wechat'
+  title: 'CowAgent'
   url: 'https://cowagent.ai/en'
-  gitRepo: 'https://github.com/zhayujie/chatgpt-on-wechat'
+  gitRepo: 'https://github.com/zhayujie/CowAgent'
   author: 'zhayujie'
-  description: '本项目是基于大模型的智能对话机器人，支持企业微信、微信公众号、飞书、钉钉接入，可选择GPT3.5/GPT4.0/Claude/文心一言/讯飞星火/通义千问/Gemini/LinkAI/ZhipuAI，能处理文本、语音和图片，通过插件访问操作系统和互联网等外部资源，支持基于自有知识库定制企业AI应用。'
+  description: 'CowAgent is an open-source AI assistant and agent harness with a web console, persistent memory, extensible skills, and multi-channel integrations.'
   readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/chatgpt-on-wechat/README.md'
   icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/chatgpt-on-wechat/logo.png'
   screenshots:
     - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/chatgpt-on-wechat/website-screenshot.webp'
   templateType: inline
-  locale: zh
+  locale: en
+  i18n:
+    zh:
+      description: 'CowAgent 是一个开源 AI 助手与智能体运行框架，提供 Web 控制台、持久记忆、可扩展技能和多渠道接入能力。'
+      readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/chatgpt-on-wechat/README_zh.md'
   categories:
     - ai
   defaults:
     app_name:
       type: string
-      value: chatgpt-on-wechat-${{ random(8) }}
+      value: cowagent-${{ random(8) }}
     app_host:
       type: string
-      value: ${{ random(8) }}
+      value: cowagent-${{ random(8) }}
   inputs:
-    OPEN_AI_API_KEY:
-      description: 'OpenAI API KEY'
+    WEB_PASSWORD:
+      description: 'Password used to access the CowAgent web console.'
       type: string
-      default: ''
       required: true
-    OPEN_AI_API_BASE:
-      description: 'OpenAI API 基础地址，带v1'
-      type: string
-      default: 'https://api.openai.com/v1'
-      required: true
-    MODEL:
-      description: '模型名称'
-      type: string
-      default: 'gpt-3.5-turbo'
-      required: true
-    CHANNEL_TYPE:
-      description: '渠道类型'
-      type: string
-      default: 'wx'
-      required: true
-    SINGLE_CHAT_PREFIX:
-      description: '单聊前缀'
-      type: string
-      default: '["bot"]'
-      required: false
-    SINGLE_CHAT_REPLY_PREFIX:
-      description: '单聊回复前缀'
-      type: string
-      default: '"[bot] "'
-      required: false
-    GROUP_CHAT_PREFIX:
-      description: '群聊前缀'
-      type: string
-      default: '["@bot"]'
-      required: false
-    GROUP_NAME_WHITE_LIST:
-      description: '群聊白名单'
-      type: string
-      default: '["ALL_GROUP"]'
-      required: false
 
-  i18n:
-    zh:
-      readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/chatgpt-on-wechat/README_zh.md'
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-optvn-cowagentvn-securityvn-sitecustomizevn-py: |
+    import logging
+    import os
+
+    _secret = os.environ.get("WEB_PASSWORD", "")
+    _record_factory = logging.getLogRecordFactory()
+
+    def _redact(value):
+        if not _secret:
+            return value
+        if isinstance(value, str):
+            return value.replace(_secret, "[REDACTED]")
+        if isinstance(value, tuple):
+            return tuple(_redact(item) for item in value)
+        if isinstance(value, list):
+            return [_redact(item) for item in value]
+        if isinstance(value, dict):
+            return {key: _redact(item) for key, item in value.items()}
+        return value
+
+    def _redacting_record_factory(*args, **kwargs):
+        record = _record_factory(*args, **kwargs)
+        record.msg = _redact(record.msg)
+        record.args = _redact(record.args)
+        return record
+
+    logging.setLogRecordFactory(_redacting_record_factory)
 
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: zhayujie/chatgpt-on-wechat:1.6.8
+    originImageName: zhayujie/chatgpt-on-wechat:2.1.3
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   replicas: 1
   revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
   selector:
     matchLabels:
       app: ${{ defaults.app_name }}
@@ -93,73 +95,90 @@ spec:
         app: ${{ defaults.app_name }}
     spec:
       automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: ${{ defaults.app_name }}
-          image: zhayujie/chatgpt-on-wechat:1.6.8
+          image: zhayujie/chatgpt-on-wechat:2.1.3
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           env:
-            - name: OPEN_AI_API_KEY
-              value: ${{ inputs.OPEN_AI_API_KEY }}
-            - name: OPEN_AI_API_BASE
-              value: ${{ inputs.OPEN_AI_API_BASE }}
-            - name: MODEL
-              value: ${{ inputs.MODEL }}
+            - name: COW_LANG
+              value: 'en'
             - name: CHANNEL_TYPE
-              value: ${{ inputs.CHANNEL_TYPE }}
-            - name: DINGTALK_CLIENT_ID
-              value: ''
-            - name: DINGTALK_CLIENT_SECRET
-              value: ''
-            - name: PROXY
-              value: ''
-            - name: HOT_RELOAD
-              value: 'False'
-            - name: SINGLE_CHAT_PREFIX
-              value: ${{ inputs.SINGLE_CHAT_PREFIX }}
-            - name: SINGLE_CHAT_REPLY_PREFIX
-              value: ${{ inputs.SINGLE_CHAT_REPLY_PREFIX }}
-            - name: GROUP_CHAT_PREFIX
-              value: ${{ inputs.GROUP_CHAT_PREFIX }}
-            - name: GROUP_NAME_WHITE_LIST
-              value: ${{ inputs.GROUP_NAME_WHITE_LIST }}
-            - name: IMAGE_CREATE_PREFIX
-              value: '["画", "看", "找"]'
-            - name: CONVERSATION_MAX_TOKENS
-              value: '1000'
-            - name: SPEECH_RECOGNITION
-              value: 'False'
-            - name: CHARACTER_DESC
-              value: '你是ChatGPT, 一个由OpenAI训练的大型语言模型, 你旨在回答并解决人们的任何问题，并且可以使用多种语言与人交流。'
-            - name: SUBSCRIBE_MSG
-              value: |
-                感谢您的关注！
-                这里是ChatGPT，可以自由对话。
-                支持语音对话。
-                支持图片输入。
-                支持图片输出，画字开头的消息将按要求创作图片。
-                支持tool、角色扮演和文字冒险等丰富的插件。
-                输入{trigger_prefix}#help 查看详细指令。
-            - name: EXPIRES_IN_SECONDS
-              value: '3600'
-            - name: USE_GLOBAL_PLUGIN_CONFIG
-              value: 'True'
-            - name: USE_LINKAI
-              value: 'False'
-            - name: LINKAI_API_KEY
-              value: ''
-            - name: LINKAI_APP_CODE
-              value: ''
+              value: 'web'
+            - name: WEB_HOST
+              value: '0.0.0.0'
+            - name: WEB_PASSWORD
+              value: ${{ inputs.WEB_PASSWORD }}
+            - name: COW_DATA_DIR
+              value: '/home/agent/cow'
+            - name: PYTHONPATH
+              value: '/opt/cowagent-security'
+          ports:
+            - name: http
+              containerPort: 9899
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /auth/check
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /auth/check
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /auth/check
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
           resources:
             requests:
-              cpu: 50m
-              memory: 25Mi
+              cpu: 10m
+              memory: 12Mi
             limits:
-              cpu: 500m
-              memory: 256Mi
-          command: []
-          args: []
-          ports:
-            - containerPort: 80
-          imagePullPolicy: IfNotPresent
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: vn-homevn-agentvn-cow
+              mountPath: /home/agent/cow
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /opt/cowagent-security/sitecustomize.py
+              subPath: vn-optvn-cowagentvn-securityvn-sitecustomizevn-py
+              readOnly: true
+      volumes:
+        - name: ${{ defaults.app_name }}-cm
+          configMap:
+            name: ${{ defaults.app_name }}
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /home/agent/cow
+          value: '1'
+        name: vn-homevn-agentvn-cow
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
 
 ---
 apiVersion: v1
@@ -167,9 +186,71 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 80
+    - name: http
+      port: 9899
+      targetPort: 9899
+      protocol: TCP
   selector:
     app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 9899
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/chatgpt-on-wechat/logo.png'
+  name: 'CowAgent'
+  type: link
