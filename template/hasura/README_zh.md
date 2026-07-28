@@ -1,128 +1,145 @@
-# 在 Sealos 上部署并托管 Hasura
+# 在 Sealos 上部署和托管 Hasura
 
-Hasura 是一款面向数据场景的高性能 GraphQL API 引擎。该模板会在 Sealos Cloud 上部署 Hasura GraphQL Engine，并配套 PostgreSQL 元数据存储与 Data Connector Agent。
+Hasura 可以把 PostgreSQL 数据转换成 GraphQL API，并通过浏览器 Console 管理数据库模式、元数据、权限和查询。该模板会在 Sealos Cloud 上部署 Hasura GraphQL Engine 2.49.5、同版本 Data Connector Agent 和托管 PostgreSQL 16.4。
 
-## 关于在 Sealos 上托管 Hasura
+![Sealos 上的 Hasura Console](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/hasura/website-screenshot.webp)
 
-Hasura 可以基于现有数据源快速生成 GraphQL API，支持元数据驱动的模式管理、基于角色的权限控制，以及事件/Webhook 集成能力。这个模板中，Hasura 作为主服务对外提供 API 与 Console，并连接到托管 PostgreSQL 集群存储元数据。
+## 关于托管 Hasura
 
-整套部署包含两个应用工作负载：`hasura/graphql-engine` 与 `hasura/graphql-data-connector`。Data Connector Agent 提供面向外部与联邦数据后端的连接器端点；Hasura 则将元数据与运行时状态写入由 Kubeblocks 提供的 PostgreSQL。
+Hasura 会根据已追踪的数据库对象生成 GraphQL Schema，并将配置保存为元数据。团队可以通过 Console 或 Metadata API 管理数据表、关系、权限、Action、Event 和 Remote Schema。
 
-此外，Sealos 会自动提供 HTTPS Ingress、公网访问域名、持久化数据库存储，以及基于 Kubernetes 的 Canvas 生命周期管理能力。
+该 Sealos 模板为 GraphQL Engine 创建公网 HTTPS 入口，并让 PostgreSQL 与 Data Connector Agent 保持在集群私网。全新部署会自动把托管 PostgreSQL 注册为 `default` 数据源。
 
 ## 常见使用场景
 
-- **内部 API 平台**：为内部工具与数据看板统一提供 GraphQL API。
-- **SaaS 后端提速**：快速对 PostgreSQL 数据暴露 GraphQL 接口，加速产品开发。
-- **组合式数据网关**：借助 Hasura 元数据与连接器整合多数据系统。
-- **事件驱动工作流**：基于数据变化触发 Webhook 与异步业务流程。
-- **从原型到生产**：一键起步，后续通过 Canvas 平滑扩缩容。
+- **应用后端**：为 PostgreSQL 数据表提供类型安全的 GraphQL API。
+- **内部数据 API**：为数据看板和内部工具提供统一的数据访问层。
+- **API 原型开发**：通过 Hasura Console 快速创建并查询 Schema。
+- **事件驱动工作流**：把数据库变更连接到 Webhook 和异步处理流程。
+- **组合式数据访问**：通过 Hasura Data Connector 接入受支持的外部系统。
 
 ## Hasura 托管依赖
 
-该 Sealos 模板已内置完整依赖：Hasura GraphQL Engine、Hasura Data Connector Agent，以及带持久化存储的托管 PostgreSQL 16.4 集群。
+该模板包含全新部署所需的全部运行组件。
 
 ### 部署依赖链接
 
-- [Hasura Documentation](https://hasura.io/docs/latest/) - 官方产品与运维文档
-- [Hasura GraphQL Engine Repository](https://github.com/hasura/graphql-engine) - 源码与版本发布信息
-- [Hasura Data Connectors](https://hasura.io/docs/latest/databases/data-connectors/) - 连接器与集成说明
-- [Hasura Discord Community](https://discord.gg/hasura) - 社区支持与交流
+- [Hasura Documentation](https://hasura.io/docs/latest/) - 产品、API 与运维文档
+- [GraphQL Engine Repository](https://github.com/hasura/graphql-engine) - 源代码与版本发布
+- [Data Connector Documentation](https://hasura.io/docs/latest/databases/data-connectors/) - 连接器概念与支持的数据后端
+- [Metadata API Reference](https://hasura.io/docs/latest/api-reference/metadata-api/index/) - 元数据自动化接口参考
 
 ### 实现细节
 
 **架构组件：**
 
-该模板会部署以下服务：
+- **GraphQL Engine 2.49.5**：单副本，在 `8080` 端口提供 Console 与 GraphQL API。
+- **Data Connector Agent 2.49.5**：单个私网副本，在 `8081` 端口提供连接器端点。
+- **托管 PostgreSQL 16.4**：单个 KubeBlocks 副本，配备 1 GiB 持久卷。
+- **HTTPS Ingress**：由 Sealos 管理的公网域名与 TLS 证书。
 
-- **Hasura GraphQL Engine**：主 API 与 Console 服务，通过 HTTPS Ingress 对外暴露。
-- **Data Connector Agent**：连接器辅助服务，端口为 `8081`。
-- **PostgreSQL（Kubeblocks）**：元数据数据库集群（`postgresql-16.4.0`），带持久化存储。
+GraphQL Engine 会等待 PostgreSQL TCP 端点可用后再启动。两个应用工作负载都配置了启动、就绪与存活探针。PostgreSQL 凭据来自 KubeBlocks 托管的连接 Secret，Kubernetes 环境变量展开会生成元数据数据库和应用数据库连接地址。
 
-**配置说明：**
+经过线上低负载验证的资源限制为：GraphQL Engine `100m/256Mi`、Data Connector Agent `100m/256Mi`、PostgreSQL `500m/512Mi`。`HASURA_GRAPHQL_DATABASE_URL` 会自动注册数据源，`HASURA_GRAPHQL_METADATA_DATABASE_URL` 会把 Hasura 元数据保存在同一个托管集群中。
 
-- Hasura 通过 Kubeblocks 托管 Secret 的字段（`host`、`port`、`username`、`password`）获取数据库连接信息。
-- 启动命令会先拼装完整 PostgreSQL DSN（Data Source Name），再启动 `graphql-engine`。
-- Ingress 默认启用 TLS 与公网域名，两个应用工作负载均为单副本默认配置。
-
-**许可证信息：**
-
-Hasura GraphQL Engine 采用 [Apache License 2.0](https://github.com/hasura/graphql-engine/blob/master/LICENSE) 许可证。
+Hasura GraphQL Engine 使用 Apache License 2.0。
 
 ## 为什么在 Sealos 上部署 Hasura？
 
-Sealos 是构建在 Kubernetes 之上的 AI 辅助云操作系统，覆盖开发、部署与运维全流程。将 Hasura 部署在 Sealos 上，你可以获得：
-
-- **一键部署**：无需手写复杂 YAML，即可同时拉起 Hasura、PostgreSQL 与连接器组件。
-- **托管 Kubernetes 运行时**：兼顾 Kubernetes 的稳定性与更低运维门槛。
-- **易于定制**：通过 Canvas 对话框与资源卡片直接调整环境变量和资源配置。
-- **开箱 HTTPS 访问**：自动获得带 TLS 的公网地址，可直接访问 Hasura Console 与 API。
-- **内置持久化存储**：元数据安全落盘，重启与升级场景更稳妥。
-- **按需扩缩容**：可在 Canvas 中按业务量调整 CPU、内存与副本数。
-- **AI 辅助运维**：在 AI 对话框描述需求，即可快速应用变更。
-
-把 Hasura 放到 Sealos 上，让团队把精力放在 API 交付，而不是基础设施细节。
+- **一键创建完整服务栈**：通过一个模板创建 Hasura、PostgreSQL、网络、存储和健康检查。
+- **自动连接数据源**：打开 Console 即可看到可用的托管 PostgreSQL。
+- **强制管理员认证**：部署时设置 Console 与 API 共用的管理员密钥。
+- **持久化元数据**：Pod 重启后继续保留 Hasura 元数据和应用数据表。
+- **自动 HTTPS**：由 Sealos 提供公网域名和 TLS 证书。
+- **Kubernetes 运维能力**：通过 Sealos Canvas 查看日志、健康状态、资源与存储。
 
 ## 部署指南
 
-1. 打开 [Hasura 模板](https://sealos.io/appstore/hasura)，点击 **Deploy Now**。
-2. 在弹窗中填写并确认部署参数。
-3. 等待部署完成（通常约 2-3 分钟）。部署结束后会自动跳转到 Canvas。
-4. 使用系统生成的域名访问 Hasura：
-   - **Hasura Console**：`https://<your-domain>/console`
-   - **版本/健康检查**：`https://<your-domain>/v1/version` 与 `https://<your-domain>/healthz`
+1. 打开 [Hasura 模板](https://sealos.io/products/app-store/hasura)，点击 **Deploy Now**。
+2. 为 `admin_secret` 输入强度足够且唯一的值，并保存到密码管理器。
+3. 点击 **Deploy**，等待 PostgreSQL、GraphQL Engine 与 Data Connector Agent 进入 Ready 状态。
+4. 打开 Sealos 中显示的 Hasura 应用入口。
+
+PostgreSQL 首次初始化通常需要几分钟。GraphQL Engine 的启动门禁会在这段时间持续等待数据库。
+
+## 登录 Hasura Console
+
+1. 打开系统生成的应用地址，根路径会跳转到 `/console`。
+2. 输入部署弹窗中使用的同一个 `admin_secret`。
+3. 在可信设备上需要持久登录时，勾选 **Remember on the browser**。
+4. 打开 **Data**，确认页面中已经出现 `default` PostgreSQL 数据源。
+
+Hasura 使用共享管理员密钥完成 Console 与管理 API 认证。持有该值的用户拥有完整管理员权限。
+
+调用 API 时，请通过 `x-hasura-admin-secret` 请求头发送该密钥：
+
+```bash
+curl "https://<your-domain>/v1/graphql" \
+  -H "content-type: application/json" \
+  -H "x-hasura-admin-secret: <your-admin-secret>" \
+  --data '{"query":"query { __typename }"}'
+```
+
+## 创建并查询数据表
+
+1. 打开 **Data**，展开 `default`，选择 `public` Schema。
+2. 点击 **Create Table**，定义字段与主键，然后创建数据表。
+3. 打开 **Insert Row** 并新增一条记录。
+4. 打开 **API**，在 GraphiQL 中查询已追踪的数据表。
+
+也可以通过 **SQL** 页面创建数据库对象。需要立即加入 GraphQL Schema 时，请启用 **Track this**。
 
 ## 配置
 
-部署完成后，可通过以下方式配置 Hasura：
+| 名称 | 必填 | 说明 |
+|------|------|------|
+| `admin_secret` | 是 | 用于 Hasura Console 登录和管理 API 请求的共享密钥。 |
 
-- **AI Dialog**：直接描述变更需求（例如启用 admin secret 或调整运行参数）。
-- **资源卡片**：编辑 Deployment 的环境变量、探针与资源限制。
-- **Hasura Console**：管理元数据、权限与已追踪数据源。
+重要访问路径：
 
-建议的生产环境基线：
+| 路径 | 用途 |
+|------|------|
+| `/console` | Hasura Console 登录与管理 |
+| `/v1/graphql` | GraphQL API |
+| `/v1/metadata` | Metadata API |
+| `/healthz` | Kubernetes 探针使用的公开健康检查端点 |
 
-- 设置 `HASURA_GRAPHQL_ADMIN_SECRET`。
-- 根据实际环境配置 CORS 与认证相关参数。
-- 在生产环境关闭开发模式（`HASURA_GRAPHQL_DEV_MODE=false`）。
+初始部署启用了开发模式。生产环境完成初始化后，建议设置 `HASURA_GRAPHQL_DEV_MODE=false`，并根据认证模型配置 CORS、JWT、Webhook 或角色权限。
 
-## 扩缩容
+## 持久化与扩缩容
 
-如需扩缩容：
+PostgreSQL 会把 Hasura 元数据和应用数据表保存到持久卷中。执行数据库迁移或大版本升级前，请先备份该持久卷。
 
-1. 在 Canvas 打开该应用。
-2. 选择 Hasura 与 Data Connector 对应的 Deployment。
-3. 按需调整 CPU/内存与副本数。
-4. 应用变更后，持续观察 Pod 健康状态与响应延迟。
+初始拓扑包含一个 GraphQL Engine 副本、一个 Data Connector Agent 副本和一个 PostgreSQL 副本。查询量增长后，可以在 Sealos Canvas 中增加 CPU 与内存。多副本或高可用架构需要结合 Hasura 与 PostgreSQL 运维文档设计对应的数据库、元数据和工作负载方案。
 
 ## 故障排查
 
-### 常见问题
+### Console 提示管理员密钥错误
 
-**问题：初次部署时 Hasura Pod 反复重启**
-- 原因：PostgreSQL 集群可能仍在初始化。
-- 处理：等待 PostgreSQL 状态变为 `Running`，再查看 Hasura Pod 日志。
+请使用部署时输入的原始 `admin_secret`。密码管理器自动填充和复制内容中的空格可能改变提交值。
 
-**问题：Console 无法访问**
-- 原因：Ingress 生效或 TLS 证书签发尚未完成。
-- 处理：稍等片刻后，在 Canvas 中检查 Ingress 域名与证书状态。
+### GraphQL Engine 长时间停留在初始化状态
 
-**问题：自定义变更后出现元数据数据库连接错误**
-- 原因：数据库相关环境变量被覆盖为不完整值。
-- 处理：保持 DB 字段来自 Kubeblocks Secret，并保留 DSN 拼装逻辑。
+请在 Sealos Canvas 中检查 PostgreSQL Cluster 状态和 `wait-for-postgresql` 初始化容器。托管数据库开始接受 TCP 连接后，GraphQL Engine 会继续启动。
+
+### API 请求返回 401
+
+请添加 `x-hasura-admin-secret` 请求头，并确认其值与部署输入一致。
+
+### 自定义配置后 `default` 数据源消失
+
+编辑 Deployment 环境变量时，请保留 `HASURA_GRAPHQL_DATABASE_URL`、`HASURA_GRAPHQL_METADATA_DATABASE_URL` 与 `PG_DATABASE_URL`。这些值由 KubeBlocks 连接 Secret 生成。
+
+### Data Connector Agent 无法就绪
+
+请在 Sealos Canvas 中检查启动探针与日志。经过验证的初始内存限制为 `256Mi`；`128Mi` 会在启动阶段触发内存溢出。
 
 ### 获取帮助
 
-- [Hasura Docs](https://hasura.io/docs/latest/)
 - [Hasura GitHub Issues](https://github.com/hasura/graphql-engine/issues)
+- [Hasura Documentation](https://hasura.io/docs/latest/)
 - [Sealos Discord](https://discord.gg/wdUn538zVP)
-
-## 更多资源
-
-- [Hasura Deployment Guide](https://hasura.io/docs/latest/deployment/)
-- [Hasura Metadata API](https://hasura.io/docs/latest/api-reference/metadata-api/index/)
-- [Hasura Permissions Guide](https://hasura.io/docs/latest/auth/authorization/permissions/)
 
 ## 许可证
 
-该 Sealos 模板遵循模板仓库自身许可证。Hasura GraphQL Engine 本体采用 Apache License 2.0。
+该 Sealos 模板遵循 templates 仓库的许可条款。Hasura GraphQL Engine 使用 [Apache License 2.0](https://github.com/hasura/graphql-engine/blob/v2.49.5/LICENSE)。

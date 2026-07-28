@@ -7,8 +7,8 @@ spec:
   url: https://hasura.io
   gitRepo: https://github.com/hasura/graphql-engine
   author: hasura
-  description: Hasura GraphQL Engine with PostgreSQL metadata storage and Data Connector
-    Agent.
+  description: Hasura GraphQL Engine with managed PostgreSQL metadata storage and
+    the official Data Connector Agent.
   readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/hasura/README.md'
   icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/hasura/logo.png'
   screenshots:
@@ -17,8 +17,8 @@ spec:
   locale: en
   i18n:
     zh:
-      description: hasura graphql engine 支持 postgresql metadata storage 与 data connector
-        agent。
+      description: Hasura GraphQL Engine，集成托管 PostgreSQL 元数据存储与官方 Data
+        Connector Agent。
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/hasura/README_zh.md'
   categories:
   - backend
@@ -29,6 +29,11 @@ spec:
     app_name:
       type: string
       value: hasura-${{ random(8) }}
+  inputs:
+    admin_secret:
+      description: Admin secret used to open the Hasura Console and authenticate API requests.
+      type: string
+      required: true
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -76,6 +81,7 @@ kind: Cluster
 metadata:
   name: ${{ defaults.app_name }}-pg
   labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
     kb.io/database: postgresql-16.4.0
     clusterdefinition.kubeblocks.io/name: postgresql
     clusterversion.kubeblocks.io/name: postgresql-16.4.0
@@ -118,7 +124,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: hasura/graphql-engine:v2.48.11
+    originImageName: hasura/graphql-engine:v2.49.5
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -136,27 +142,68 @@ spec:
         app: ${{ defaults.app_name }}
     spec:
       automountServiceAccountToken: false
-      containers:
-      - name: ${{ defaults.app_name }}
-        image: hasura/graphql-engine:v2.48.11
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+      - name: wait-for-postgresql
+        image: busybox:1.37.0
         imagePullPolicy: IfNotPresent
         command:
-        - /bin/sh
-        - -ec
+        - sh
+        - -c
         args:
-        - |
-          export HASURA_GRAPHQL_METADATA_DATABASE_URL="postgres://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/postgres"
-          export PG_DATABASE_URL="${HASURA_GRAPHQL_METADATA_DATABASE_URL}"
-          exec graphql-engine serve
+        - until nc -z -w 2 "$PGHOST" "$PGPORT"; do sleep 2; done
+        env:
+        - name: PGHOST
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: host
+        - name: PGPORT
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-pg-conn-credential
+              key: port
         resources:
           limits:
-            cpu: 200m
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 10m
+            memory: 12Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 65532
+          seccompProfile:
+            type: RuntimeDefault
+      containers:
+      - name: ${{ defaults.app_name }}
+        image: hasura/graphql-engine:v2.49.5
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          runAsNonRoot: true
+          runAsUser: 1001
+          runAsGroup: 1001
+        resources:
+          limits:
+            cpu: 100m
             memory: 256Mi
           requests:
-            cpu: 20m
+            cpu: 10m
             memory: 25Mi
         ports:
-        - containerPort: 8080
+        - name: http
+          containerPort: 8080
         env:
         - name: PGHOST
           valueFrom:
@@ -179,19 +226,19 @@ spec:
               name: ${{ defaults.app_name }}-pg-conn-credential
               key: password
         - name: HASURA_GRAPHQL_METADATA_DATABASE_URL
-          valueFrom:
-            secretKeyRef:
-              name: ${{ defaults.app_name }}-pg-conn-credential
-              key: endpoint
+          value: postgres://$(PGUSER):$(PGPASSWORD)@$(PGHOST):$(PGPORT)/postgres
+        - name: HASURA_GRAPHQL_DATABASE_URL
+          value: postgres://$(PGUSER):$(PGPASSWORD)@$(PGHOST):$(PGPORT)/postgres
         - name: PG_DATABASE_URL
-          valueFrom:
-            secretKeyRef:
-              name: ${{ defaults.app_name }}-pg-conn-credential
-              key: endpoint
+          value: postgres://$(PGUSER):$(PGPASSWORD)@$(PGHOST):$(PGPORT)/postgres
+        - name: HASURA_GRAPHQL_ADMIN_SECRET
+          value: ${{ inputs.admin_secret }}
         - name: HASURA_GRAPHQL_ENABLE_CONSOLE
           value: 'true'
         - name: HASURA_GRAPHQL_DEV_MODE
           value: 'true'
+        - name: HASURA_GRAPHQL_ENABLE_TELEMETRY
+          value: 'false'
         - name: HASURA_GRAPHQL_ENABLED_LOG_TYPES
           value: startup, http-log, webhook-log, websocket-log, query-log
         - name: HASURA_GRAPHQL_METADATA_DEFAULTS
@@ -199,20 +246,34 @@ spec:
         livenessProbe:
           httpGet:
             path: /healthz
-            port: 8080
+            port: http
             scheme: HTTP
+          periodSeconds: 20
+          timeoutSeconds: 3
+          failureThreshold: 3
         readinessProbe:
           httpGet:
             path: /healthz
-            port: 8080
+            port: http
             scheme: HTTP
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /healthz
+            port: http
+            scheme: HTTP
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 60
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-data-connector-agent
   annotations:
-    originImageName: hasura/graphql-data-connector:v2.48.11
+    originImageName: hasura/graphql-data-connector:v2.49.5
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -230,19 +291,29 @@ spec:
         app: ${{ defaults.app_name }}-data-connector-agent
     spec:
       automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: ${{ defaults.app_name }}-data-connector-agent
-        image: hasura/graphql-data-connector:v2.48.11
+        image: hasura/graphql-data-connector:v2.49.5
         imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          runAsNonRoot: true
         resources:
           limits:
-            cpu: 200m
+            cpu: 100m
             memory: 256Mi
           requests:
-            cpu: 20m
+            cpu: 10m
             memory: 25Mi
         ports:
-        - containerPort: 8081
+        - name: http
+          containerPort: 8081
         env:
         - name: QUARKUS_LOG_LEVEL
           value: ERROR
@@ -251,7 +322,7 @@ spec:
         livenessProbe:
           httpGet: &id001
             path: /api/v1/athena/health
-            port: 8081
+            port: http
             scheme: HTTP
           initialDelaySeconds: 5
           periodSeconds: 5
@@ -275,11 +346,12 @@ metadata:
   name: ${{ defaults.app_name }}
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
 spec:
   ports:
-  - name: tcp-8080
+  - name: http
     port: 8080
-    targetPort: 8080
+    targetPort: http
     protocol: TCP
   selector:
     app: ${{ defaults.app_name }}
@@ -290,11 +362,12 @@ metadata:
   name: ${{ defaults.app_name }}-data-connector-agent
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-data-connector-agent
+    app: ${{ defaults.app_name }}-data-connector-agent
 spec:
   ports:
-  - name: tcp-8081
+  - name: http
     port: 8081
-    targetPort: 8081
+    targetPort: http
     protocol: TCP
   selector:
     app: ${{ defaults.app_name }}-data-connector-agent

@@ -41,12 +41,6 @@ spec:
     clickhouse_password:
       type: string
       value: ${{ random(32) }}
-    minio_access_key:
-      type: string
-      value: ${{ random(24) }}
-    minio_secret_key:
-      type: string
-      value: ${{ random(48) }}
     init_org_id:
       type: string
       value: langfuse-${{ random(8) }}
@@ -69,13 +63,7 @@ spec:
       type: string
       default: ''
       required: false
-    use_object_storage:
-      description: Use Sealos S3-compatible object storage for Langfuse event and media blobs
-      type: boolean
-      default: 'true'
-      required: false
 ---
-${{ if(inputs.use_object_storage === 'true') }}
 apiVersion: objectstorage.sealos.io/v1
 kind: ObjectStorageBucket
 metadata:
@@ -85,7 +73,6 @@ metadata:
 spec:
   policy: private
 ---
-${{ endif() }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -214,16 +201,16 @@ spec:
               until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; do
                 sleep 2
               done
-              if ! psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='${PG_DATABASE}'" | grep -q 1; then
-                psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -c "CREATE DATABASE ${PG_DATABASE}"
+              if ! psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='langfuse'" | grep -q 1; then
+                psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -c "CREATE DATABASE langfuse"
               fi
           resources:
             limits:
-              cpu: 200m
-              memory: 256Mi
+              cpu: 100m
+              memory: 128Mi
             requests:
-              cpu: 20m
-              memory: 25Mi
+              cpu: 10m
+              memory: 12Mi
       restartPolicy: OnFailure
   backoffLimit: 5
   ttlSecondsAfterFinished: 300
@@ -345,7 +332,6 @@ metadata:
   labels:
     app: ${{ defaults.app_name }}-clickhouse
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-clickhouse
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
 data:
   vn-etcvn-clickhousevn-servervn-configvn-dvn-networkvn-xml: |-
     <clickhouse>
@@ -383,13 +369,12 @@ metadata:
   name: ${{ defaults.app_name }}-clickhouse
   annotations:
     originImageName: clickhouse/clickhouse-server:25.4.2
-    docker-to-sealos.resource-override-source: https://langfuse.com/self-hosting/deployment/infrastructure/clickhouse documents ClickHouse as the analytics store for traces, observations, and scores.
+    docker-to-sealos.resource-override-source: https://langfuse.com/self-hosting/deployment/infrastructure/clickhouse documents ClickHouse as the analytics store; live cold-start testing accepted 100m CPU and 256Mi memory with zero restarts, while 158-229Mi observed usage excludes the adjacent 128Mi tier.
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
     app: ${{ defaults.app_name }}-clickhouse
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-clickhouse
-    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
 spec:
   replicas: 1
   revisionHistoryLimit: 1
@@ -424,11 +409,11 @@ spec:
               protocol: TCP
           resources:
             limits:
-              cpu: 500m
-              memory: 512Mi
+              cpu: 100m
+              memory: 256Mi
             requests:
-              cpu: 50m
-              memory: 51Mi
+              cpu: 10m
+              memory: 25Mi
           startupProbe:
             httpGet:
               path: /ping
@@ -456,7 +441,7 @@ spec:
           volumeMounts:
             - name: vn-varvn-libvn-clickhouse
               mountPath: /var/lib/clickhouse
-            - name: vn-varvn-logvn-clickhouse-server
+            - name: vn-varvn-logvn-clickhousevn-server
               mountPath: /var/log/clickhouse-server
             - name: ${{ defaults.app_name }}-clickhouse-cm
               mountPath: /etc/clickhouse-server/config.d/network.xml
@@ -477,8 +462,6 @@ spec:
         annotations:
           path: /var/lib/clickhouse
           value: '1'
-        labels:
-          cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
       spec:
         accessModes:
           - ReadWriteOnce
@@ -486,12 +469,10 @@ spec:
           requests:
             storage: 1Gi
     - metadata:
-        name: vn-varvn-logvn-clickhouse-server
+        name: vn-varvn-logvn-clickhousevn-server
         annotations:
           path: /var/log/clickhouse-server
           value: '1'
-        labels:
-          cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
       spec:
         accessModes:
           - ReadWriteOnce
@@ -525,8 +506,8 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-worker
   annotations:
-    originImageName: docker.io/langfuse/langfuse-worker:3.180.0
-    docker-to-sealos.resource-override-source: https://langfuse.com/self-hosting/deployment/infrastructure/containers documents NODE_OPTIONS memory settings for Langfuse Web and Worker containers.
+    originImageName: docker.io/langfuse/langfuse-worker:3.224.2
+    docker-to-sealos.resource-override-source: https://langfuse.com/self-hosting/deployment/infrastructure/containers documents worker memory settings; live testing accepted 100m CPU and the adjacent 512Mi memory tier with zero restarts and a complete ingestion, private-media read, and deletion lifecycle.
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -582,11 +563,11 @@ spec:
               done
           resources:
             limits:
-              cpu: 200m
-              memory: 256Mi
+              cpu: 100m
+              memory: 128Mi
             requests:
-              cpu: 20m
-              memory: 25Mi
+              cpu: 10m
+              memory: 12Mi
         - name: wait-for-redis
           image: public.ecr.aws/docker/library/redis:7.2.7-alpine
           imagePullPolicy: IfNotPresent
@@ -612,14 +593,14 @@ spec:
               readOnly: true
           resources:
             limits:
-              cpu: 200m
-              memory: 256Mi
+              cpu: 100m
+              memory: 128Mi
             requests:
-              cpu: 20m
-              memory: 25Mi
+              cpu: 10m
+              memory: 12Mi
       containers:
         - name: ${{ defaults.app_name }}-worker
-          image: docker.io/langfuse/langfuse-worker:3.180.0
+          image: docker.io/langfuse/langfuse-worker:3.224.2
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_HOST
@@ -650,7 +631,7 @@ spec:
             - name: NEXTAUTH_URL
               value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: NODE_OPTIONS
-              value: --max-old-space-size=1024
+              value: --max-old-space-size=384
             - name: DATABASE_URL
               value: postgresql://$(PG_USER):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/langfuse
             - name: SALT
@@ -679,59 +660,25 @@ spec:
               value: $(REDIS_PASSWORD)
             - name: REDIS_TLS_ENABLED
               value: 'false'
+            - name: REDIS_SOCKET_TIMEOUT_MS
+              value: '0'
             - name: LANGFUSE_BULLMQ_SKIP_REDIS_VERSION_CHECK
               value: 'false'
-            ${{ if(inputs.use_object_storage === 'true') }}
-            - name: LANGFUSE_S3_EVENT_UPLOAD_BUCKET
+            - name: LANGFUSE_USE_AZURE_BLOB
+              value: 'false'
+            - name: LANGFUSE_USE_OCI_NATIVE_OBJECT_STORAGE
+              value: 'false'
+            - name: S3_BUCKET
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
                   key: bucket
-            - name: LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID
+            - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: accessKey
-            - name: LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key
-                  key: secretKey
-            - name: BACKEND_STORAGE_MINIO_INTERNAL_ENDPOINT
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key
-                  key: internal
-            - name: LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT
-              value: http://$(BACKEND_STORAGE_MINIO_INTERNAL_ENDPOINT)
-            ${{ else() }}
-            - name: LANGFUSE_S3_EVENT_UPLOAD_BUCKET
-              value: ${{ defaults.app_name }}
-            - name: LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID
-              value: ${{ defaults.minio_access_key }}
-            - name: LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY
-              value: ${{ defaults.minio_secret_key }}
-            - name: LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT
-              value: http://${{ defaults.app_name }}-minio.${{ SEALOS_NAMESPACE }}.svc.cluster.local:9000
-            ${{ endif() }}
-            - name: LANGFUSE_S3_EVENT_UPLOAD_REGION
-              value: auto
-            - name: LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE
-              value: 'true'
-            - name: LANGFUSE_S3_EVENT_UPLOAD_PREFIX
-              value: events/
-            ${{ if(inputs.use_object_storage === 'true') }}
-            - name: LANGFUSE_S3_MEDIA_UPLOAD_BUCKET
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
-                  key: bucket
-            - name: LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key
-                  key: accessKey
-            - name: LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY
+            - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
@@ -741,37 +688,65 @@ spec:
                 secretKeyRef:
                   name: object-storage-key
                   key: external
-            - name: LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT
+            - name: LANGFUSE_S3_EVENT_UPLOAD_BUCKET
+              value: $(S3_BUCKET)
+            - name: LANGFUSE_S3_EVENT_UPLOAD_REGION
+              value: auto
+            - name: LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID
+              value: $(S3_ACCESS_KEY_ID)
+            - name: LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY
+              value: $(S3_SECRET_ACCESS_KEY)
+            - name: LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT
               value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
-            ${{ else() }}
+            - name: LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE
+              value: 'true'
+            - name: LANGFUSE_S3_EVENT_UPLOAD_PREFIX
+              value: events/
             - name: LANGFUSE_S3_MEDIA_UPLOAD_BUCKET
-              value: ${{ defaults.app_name }}
-            - name: LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID
-              value: ${{ defaults.minio_access_key }}
-            - name: LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY
-              value: ${{ defaults.minio_secret_key }}
-            - name: LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT
-              value: http://${{ defaults.app_name }}-minio.${{ SEALOS_NAMESPACE }}.svc.cluster.local:9000
-            ${{ endif() }}
+              value: $(S3_BUCKET)
             - name: LANGFUSE_S3_MEDIA_UPLOAD_REGION
               value: auto
+            - name: LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID
+              value: $(S3_ACCESS_KEY_ID)
+            - name: LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY
+              value: $(S3_SECRET_ACCESS_KEY)
+            - name: LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
             - name: LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE
               value: 'true'
             - name: LANGFUSE_S3_MEDIA_UPLOAD_PREFIX
               value: media/
             - name: LANGFUSE_S3_BATCH_EXPORT_ENABLED
-              value: 'false'
+              value: 'true'
+            - name: LANGFUSE_S3_BATCH_EXPORT_BUCKET
+              value: $(S3_BUCKET)
+            - name: LANGFUSE_S3_BATCH_EXPORT_PREFIX
+              value: exports/
+            - name: LANGFUSE_S3_BATCH_EXPORT_REGION
+              value: auto
+            - name: LANGFUSE_S3_BATCH_EXPORT_ENDPOINT
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+            - name: LANGFUSE_S3_BATCH_EXPORT_EXTERNAL_ENDPOINT
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+            - name: LANGFUSE_S3_BATCH_EXPORT_ACCESS_KEY_ID
+              value: $(S3_ACCESS_KEY_ID)
+            - name: LANGFUSE_S3_BATCH_EXPORT_SECRET_ACCESS_KEY
+              value: $(S3_SECRET_ACCESS_KEY)
+            - name: LANGFUSE_S3_BATCH_EXPORT_FORCE_PATH_STYLE
+              value: 'true'
+            - name: LANGFUSE_S3_DELETE_OBJECTS_CHECKSUM_ALGORITHM
+              value: MD5
           ports:
             - name: http
               containerPort: 3030
               protocol: TCP
           resources:
             requests:
-              cpu: 50m
-              memory: 102Mi
+              cpu: 10m
+              memory: 51Mi
             limits:
-              cpu: 500m
-              memory: 1024Mi
+              cpu: 100m
+              memory: 512Mi
       volumes:
         - name: redis-credentials
           secret:
@@ -783,8 +758,8 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: docker.io/langfuse/langfuse:3.180.0
-    docker-to-sealos.resource-override-source: https://langfuse.com/self-hosting/deployment/infrastructure/containers documents NODE_OPTIONS memory settings for Langfuse Web and Worker containers.
+    originImageName: docker.io/langfuse/langfuse:3.224.2
+    docker-to-sealos.resource-override-source: https://langfuse.com/self-hosting/deployment/infrastructure/containers documents web memory settings; live testing accepted 100m CPU and 2048Mi memory with zero restarts, while the adjacent 1024Mi tier reached 995Mi and was OOMKilled with exit code 137.
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -829,14 +804,14 @@ spec:
               readOnly: true
           resources:
             limits:
-              cpu: 200m
-              memory: 256Mi
+              cpu: 100m
+              memory: 128Mi
             requests:
-              cpu: 20m
-              memory: 25Mi
+              cpu: 10m
+              memory: 12Mi
       containers:
         - name: ${{ defaults.app_name }}
-          image: docker.io/langfuse/langfuse:3.180.0
+          image: docker.io/langfuse/langfuse:3.224.2
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_HOST
@@ -898,59 +873,25 @@ spec:
               value: $(REDIS_PASSWORD)
             - name: REDIS_TLS_ENABLED
               value: 'false'
+            - name: REDIS_SOCKET_TIMEOUT_MS
+              value: '0'
             - name: LANGFUSE_BULLMQ_SKIP_REDIS_VERSION_CHECK
               value: 'false'
-            ${{ if(inputs.use_object_storage === 'true') }}
-            - name: LANGFUSE_S3_EVENT_UPLOAD_BUCKET
+            - name: LANGFUSE_USE_AZURE_BLOB
+              value: 'false'
+            - name: LANGFUSE_USE_OCI_NATIVE_OBJECT_STORAGE
+              value: 'false'
+            - name: S3_BUCKET
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
                   key: bucket
-            - name: LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID
+            - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: accessKey
-            - name: LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key
-                  key: secretKey
-            - name: BACKEND_STORAGE_MINIO_INTERNAL_ENDPOINT
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key
-                  key: internal
-            - name: LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT
-              value: http://$(BACKEND_STORAGE_MINIO_INTERNAL_ENDPOINT)
-            ${{ else() }}
-            - name: LANGFUSE_S3_EVENT_UPLOAD_BUCKET
-              value: ${{ defaults.app_name }}
-            - name: LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID
-              value: ${{ defaults.minio_access_key }}
-            - name: LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY
-              value: ${{ defaults.minio_secret_key }}
-            - name: LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT
-              value: http://${{ defaults.app_name }}-minio.${{ SEALOS_NAMESPACE }}.svc.cluster.local:9000
-            ${{ endif() }}
-            - name: LANGFUSE_S3_EVENT_UPLOAD_REGION
-              value: auto
-            - name: LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE
-              value: 'true'
-            - name: LANGFUSE_S3_EVENT_UPLOAD_PREFIX
-              value: events/
-            ${{ if(inputs.use_object_storage === 'true') }}
-            - name: LANGFUSE_S3_MEDIA_UPLOAD_BUCKET
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
-                  key: bucket
-            - name: LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key
-                  key: accessKey
-            - name: LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY
+            - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
@@ -960,26 +901,54 @@ spec:
                 secretKeyRef:
                   name: object-storage-key
                   key: external
-            - name: LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT
+            - name: LANGFUSE_S3_EVENT_UPLOAD_BUCKET
+              value: $(S3_BUCKET)
+            - name: LANGFUSE_S3_EVENT_UPLOAD_REGION
+              value: auto
+            - name: LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID
+              value: $(S3_ACCESS_KEY_ID)
+            - name: LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY
+              value: $(S3_SECRET_ACCESS_KEY)
+            - name: LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT
               value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
-            ${{ else() }}
+            - name: LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE
+              value: 'true'
+            - name: LANGFUSE_S3_EVENT_UPLOAD_PREFIX
+              value: events/
             - name: LANGFUSE_S3_MEDIA_UPLOAD_BUCKET
-              value: ${{ defaults.app_name }}
-            - name: LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID
-              value: ${{ defaults.minio_access_key }}
-            - name: LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY
-              value: ${{ defaults.minio_secret_key }}
-            - name: LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT
-              value: http://${{ defaults.app_name }}-minio.${{ SEALOS_NAMESPACE }}.svc.cluster.local:9000
-            ${{ endif() }}
+              value: $(S3_BUCKET)
             - name: LANGFUSE_S3_MEDIA_UPLOAD_REGION
               value: auto
+            - name: LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID
+              value: $(S3_ACCESS_KEY_ID)
+            - name: LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY
+              value: $(S3_SECRET_ACCESS_KEY)
+            - name: LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
             - name: LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE
               value: 'true'
             - name: LANGFUSE_S3_MEDIA_UPLOAD_PREFIX
               value: media/
             - name: LANGFUSE_S3_BATCH_EXPORT_ENABLED
-              value: 'false'
+              value: 'true'
+            - name: LANGFUSE_S3_BATCH_EXPORT_BUCKET
+              value: $(S3_BUCKET)
+            - name: LANGFUSE_S3_BATCH_EXPORT_PREFIX
+              value: exports/
+            - name: LANGFUSE_S3_BATCH_EXPORT_REGION
+              value: auto
+            - name: LANGFUSE_S3_BATCH_EXPORT_ENDPOINT
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+            - name: LANGFUSE_S3_BATCH_EXPORT_EXTERNAL_ENDPOINT
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+            - name: LANGFUSE_S3_BATCH_EXPORT_ACCESS_KEY_ID
+              value: $(S3_ACCESS_KEY_ID)
+            - name: LANGFUSE_S3_BATCH_EXPORT_SECRET_ACCESS_KEY
+              value: $(S3_SECRET_ACCESS_KEY)
+            - name: LANGFUSE_S3_BATCH_EXPORT_FORCE_PATH_STYLE
+              value: 'true'
+            - name: LANGFUSE_S3_DELETE_OBJECTS_CHECKSUM_ALGORITHM
+              value: MD5
             ${{ if(inputs.init_user_email !== '' && inputs.init_user_password !== '') }}
             - name: LANGFUSE_INIT_ORG_ID
               value: ${{ defaults.init_org_id }}
@@ -998,10 +967,10 @@ spec:
               protocol: TCP
           resources:
             requests:
-              cpu: 100m
+              cpu: 10m
               memory: 204Mi
             limits:
-              cpu: '1'
+              cpu: 100m
               memory: 2048Mi
           startupProbe:
             httpGet:
@@ -1033,120 +1002,6 @@ spec:
             secretName: ${{ defaults.app_name }}-redis-redis-account-default
             optional: true
 ---
-${{ if(inputs.use_object_storage === 'false') }}
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: ${{ defaults.app_name }}-minio
-  annotations:
-    originImageName: minio/minio:RELEASE.2025-09-07T16-13-09Z
-    docker-to-sealos.resource-override-source: https://langfuse.com/self-hosting/deployment/blobstorage documents S3-compatible blob storage as the fallback when external object storage is disabled.
-    deploy.cloud.sealos.io/minReplicas: '1'
-    deploy.cloud.sealos.io/maxReplicas: '1'
-  labels:
-    app: ${{ defaults.app_name }}-minio
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio
-spec:
-  replicas: 1
-  revisionHistoryLimit: 1
-  serviceName: ${{ defaults.app_name }}-minio
-  selector:
-    matchLabels:
-      app: ${{ defaults.app_name }}-minio
-  template:
-    metadata:
-      labels:
-        app: ${{ defaults.app_name }}-minio
-        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio
-    spec:
-      automountServiceAccountToken: false
-      containers:
-        - name: ${{ defaults.app_name }}-minio
-          image: minio/minio:RELEASE.2025-09-07T16-13-09Z
-          imagePullPolicy: IfNotPresent
-          command:
-            - /bin/sh
-            - -ec
-            - |
-              mkdir -p /data/${{ defaults.app_name }}
-              exec minio server --address ":9000" --console-address ":9001" /data
-          env:
-            - name: MINIO_ROOT_USER
-              value: ${{ defaults.minio_access_key }}
-            - name: MINIO_ROOT_PASSWORD
-              value: ${{ defaults.minio_secret_key }}
-          ports:
-            - name: api
-              containerPort: 9000
-              protocol: TCP
-            - name: console
-              containerPort: 9001
-              protocol: TCP
-          resources:
-            requests:
-              cpu: 50m
-              memory: 128Mi
-            limits:
-              cpu: 500m
-              memory: 512Mi
-          startupProbe:
-            httpGet:
-              path: /minio/health/live
-              port: 9000
-              scheme: HTTP
-            periodSeconds: 5
-            timeoutSeconds: 3
-            failureThreshold: 24
-          livenessProbe:
-            httpGet:
-              path: /minio/health/live
-              port: 9000
-              scheme: HTTP
-            periodSeconds: 30
-            timeoutSeconds: 5
-            failureThreshold: 6
-          readinessProbe:
-            httpGet:
-              path: /minio/health/ready
-              port: 9000
-              scheme: HTTP
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 6
-          volumeMounts:
-            - name: vn-data
-              mountPath: /data
-  volumeClaimTemplates:
-    - metadata:
-        name: vn-data
-        annotations:
-          path: /data
-          value: '1'
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 1Gi
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: ${{ defaults.app_name }}-minio
-  labels:
-    app: ${{ defaults.app_name }}-minio
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-minio
-spec:
-  type: ClusterIP
-  ports:
-    - name: api
-      port: 9000
-      targetPort: 9000
-      protocol: TCP
-  selector:
-    app: ${{ defaults.app_name }}-minio
----
-${{ endif() }}
 apiVersion: v1
 kind: Service
 metadata:
