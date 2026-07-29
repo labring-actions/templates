@@ -41,10 +41,6 @@ spec:
             description: Initial administrator password (minimum 8 characters)
             type: string
             required: true
-        totp_encryption_key:
-            description: Persistent TOTP encryption key; exactly 64 hexadecimal characters (generate with openssl rand -hex 32)
-            type: string
-            required: true
         enable_s3_storage:
             description: Use a private Sealos S3-compatible bucket for asynchronous image task results
             type: boolean
@@ -400,6 +396,64 @@ spec:
     topology: replication
 
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+    name: ${{ defaults.app_name }}
+    labels:
+        app: ${{ defaults.app_name }}
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+    vn-generatevn-totpvn-keyvn-sh: |
+        #!/bin/sh
+        set -eu
+
+        key_file=/app/data/.totp_encryption_key
+        key=
+        if [ -e "$key_file" ]; then
+            if [ ! -f "$key_file" ]; then
+                echo "TOTP key path exists but is not a regular file" >&2
+                exit 1
+            fi
+            key=$(cat "$key_file")
+        else
+            key=$(od -An -N32 -tx1 /dev/urandom | tr -d '[:space:]')
+            if ! printf '%s\n' "$key" | grep -Eq '^[0-9a-f]{64}$'; then
+                echo "failed to generate a 64-character hexadecimal TOTP key" >&2
+                exit 1
+            fi
+            umask 077
+            tmp_file=$(mktemp "${key_file}.tmp.XXXXXX")
+            trap 'rm -f "$tmp_file"' EXIT
+            printf '%s' "$key" > "$tmp_file"
+            chmod 0600 "$tmp_file"
+            mv "$tmp_file" "$key_file"
+            trap - EXIT
+        fi
+
+        if ! printf '%s\n' "$key" | grep -Eq '^[0-9a-f]{64}$'; then
+            echo "TOTP key must contain exactly 64 lowercase hexadecimal characters" >&2
+            exit 1
+        fi
+        chmod 0600 "$key_file"
+    vn-startvn-sub2apivn-sh: |
+        #!/bin/sh
+        set -eu
+
+        key_file=/app/data/.totp_encryption_key
+        if [ ! -f "$key_file" ]; then
+            echo "TOTP key file is missing: $key_file" >&2
+            exit 1
+        fi
+        key=$(cat "$key_file")
+        if ! printf '%s\n' "$key" | grep -Eq '^[0-9a-f]{64}$'; then
+            echo "TOTP key must contain exactly 64 lowercase hexadecimal characters" >&2
+            exit 1
+        fi
+        export TOTP_ENCRYPTION_KEY="$key"
+        exec /app/docker-entrypoint.sh /app/sub2api
+
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -434,6 +488,32 @@ spec:
                 seccompProfile:
                     type: RuntimeDefault
             initContainers:
+                - name: generate-totp-key
+                  image: weishaw/sub2api:0.1.166
+                  imagePullPolicy: IfNotPresent
+                  command:
+                      - /bin/sh
+                      - /opt/sealos/generate-totp-key.sh
+                  volumeMounts:
+                      - name: ${{ defaults.app_name }}-cm
+                        mountPath: /opt/sealos/generate-totp-key.sh
+                        subPath: vn-generatevn-totpvn-keyvn-sh
+                        readOnly: true
+                      - name: vn-appvn-data
+                        mountPath: /app/data
+                  resources:
+                      limits:
+                          cpu: 100m
+                          memory: 128Mi
+                      requests:
+                          cpu: 10m
+                          memory: 12Mi
+                  securityContext:
+                      allowPrivilegeEscalation: false
+                      capabilities:
+                          drop:
+                              - ALL
+                      runAsNonRoot: true
                 - name: wait-for-dependencies
                   image: weishaw/sub2api:0.1.166
                   imagePullPolicy: IfNotPresent
@@ -489,6 +569,11 @@ spec:
                 - name: ${{ defaults.app_name }}
                   image: weishaw/sub2api:0.1.166
                   imagePullPolicy: IfNotPresent
+                  command:
+                      - /bin/sh
+                      - -c
+                  args:
+                      - exec /bin/sh /opt/sealos/start-sub2api.sh
                   securityContext:
                       allowPrivilegeEscalation: false
                       capabilities:
@@ -570,8 +655,6 @@ spec:
                         value: "24"
                       - name: SETUP_MIGRATION_TIMEOUT_SECONDS
                         value: "0"
-                      - name: TOTP_ENCRYPTION_KEY
-                        value: ${{ inputs.totp_encryption_key }}
                       - name: TZ
                         value: ${{ inputs.timezone }}
                       - name: GEMINI_OAUTH_CLIENT_ID
@@ -650,6 +733,10 @@ spec:
                       - name: http
                         containerPort: 8080
                   volumeMounts:
+                      - name: ${{ defaults.app_name }}-cm
+                        mountPath: /opt/sealos/start-sub2api.sh
+                        subPath: vn-startvn-sub2apivn-sh
+                        readOnly: true
                       - name: vn-appvn-data
                         mountPath: /app/data
                   resources:
@@ -685,6 +772,10 @@ spec:
                       periodSeconds: 10
                       timeoutSeconds: 10
                       failureThreshold: 18
+            volumes:
+                - name: ${{ defaults.app_name }}-cm
+                  configMap:
+                      name: ${{ defaults.app_name }}
     volumeClaimTemplates:
         - metadata:
               name: vn-appvn-data

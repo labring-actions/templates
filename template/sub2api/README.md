@@ -8,7 +8,7 @@ Sub2API is a self-hosted AI API gateway for managing upstream accounts, API keys
 
 Sub2API provides one control plane for connecting AI service subscriptions and exposing managed API access to users or internal applications. Administrators can operate upstream accounts, groups, subscriptions, billing policies, API keys, usage records, and service health from the web console.
 
-The template provisions the full runtime stack. PostgreSQL stores application data, Redis provides cache and coordination services, and a persistent volume stores `/app/data`. A dependency gate starts Sub2API after both data services accept connections, while Sealos supplies the public domain and TLS certificate.
+The template provisions the full runtime stack. PostgreSQL stores application data, Redis provides cache and coordination services, and a persistent volume stores `/app/data`. A startup init container generates and persists the Sub2API TOTP encryption key in that volume before the application starts. A dependency gate starts Sub2API after both data services accept connections, while Sealos supplies the public domain and TLS certificate.
 
 Sub2API also documents S3-compatible storage for asynchronous image task results. Enabling the storage option creates a private Sealos object-storage bucket and injects its managed endpoint and credentials directly into the application.
 
@@ -39,6 +39,7 @@ The template includes Sub2API `0.1.166`, PostgreSQL `16.4.0`, Redis `7.2.7`, per
 
 - **Sub2API**: One `StatefulSet` replica running `weishaw/sub2api:0.1.166` on port `8080`.
 - **Dependency gate**: A resource-capped init container waits for the dedicated `sub2api` PostgreSQL database and the Redis endpoint.
+- **TOTP key bootstrap**: A startup init container creates a 64-character lowercase hexadecimal key at `/app/data/.totp_encryption_key` and reuses it for the application process.
 - **Application storage**: A `1Gi` persistent volume mounted at `/app/data`.
 - **PostgreSQL**: One KubeBlocks PostgreSQL `16.4.0` component with `1Gi` persistent storage.
 - **Database initialization**: An idempotent Job creates the `sub2api` database after PostgreSQL becomes available.
@@ -63,7 +64,6 @@ The template includes Sub2API `0.1.166`, PostgreSQL `16.4.0`, Redis `7.2.7`, per
 | --- | --- | --- |
 | `admin_email` | Yes | Initial administrator email |
 | `admin_password` | Yes | Initial administrator password, minimum 8 characters |
-| `totp_encryption_key` | Yes | Persistent 64-character hexadecimal key for TOTP data encryption |
 | `enable_s3_storage` | No | Creates and connects a private Sealos bucket for async image results |
 | `timezone` | No | Application timezone, default `Asia/Shanghai` |
 | `run_mode` | No | `standard` or `simple` |
@@ -71,12 +71,13 @@ The template includes Sub2API `0.1.166`, PostgreSQL `16.4.0`, Redis `7.2.7`, per
 | Security allowlist fields | No | Upstream URL validation policy |
 | `update_proxy_url` | No | Proxy for update checks and GitHub access |
 
-The template generates a fixed per-deployment `JWT_SECRET`. Provide a persistent `TOTP_ENCRYPTION_KEY` generated with `openssl rand -hex 32`. Database and object-storage credentials come from Sealos-managed Secrets.
+The template generates a fixed per-deployment `JWT_SECRET` and a cryptographically random 64-character lowercase hexadecimal `TOTP_ENCRYPTION_KEY` on first startup. The TOTP key is stored at `/app/data/.totp_encryption_key` with restrictive file permissions and reused across Pod restarts. Database and object-storage credentials come from Sealos-managed Secrets.
 
 ### Health and Storage Behavior
 
 - `GET /health` reports application health on port `8080`.
 - `AUTO_SETUP=true` initializes the database and creates the first administrator.
+- The startup key bootstrap persists the TOTP encryption key in `/app/data` before Sub2API starts.
 - The optional S3 branch sets `IMAGE_STORAGE_ENABLED=true`, uses path-style access, and stores image objects under `images/`.
 - The default local branch sets `IMAGE_STORAGE_ENABLED=false`.
 - The bucket policy is private, so application-generated signed URLs control object access.
@@ -93,12 +94,11 @@ The template generates a fixed per-deployment `JWT_SECRET`. Provide a persistent
 ## Deployment Guide
 
 1. Open the [Sub2API template](https://sealos.io/products/app-store/sub2api) and click **Deploy Now**.
-2. Generate a persistent TOTP encryption key with `openssl rand -hex 32`.
-3. Enter `admin_email`, an `admin_password` with at least 8 characters, and the generated value as `totp_encryption_key`.
-4. Choose the timezone and run mode. Enable `enable_s3_storage` when asynchronous image results should use a private Sealos bucket.
-5. Add provider OAuth, URL allowlist, or update proxy values that match your environment.
-6. Start the deployment and wait for PostgreSQL, Redis, the database initialization Job, and Sub2API to become healthy. This usually takes several minutes.
-7. Open the application URL shown in Canvas.
+2. Enter `admin_email` and an `admin_password` with at least 8 characters.
+3. Choose the timezone and run mode. Enable `enable_s3_storage` when asynchronous image results should use a private Sealos bucket.
+4. Add provider OAuth, URL allowlist, or update proxy values that match your environment.
+5. Start the deployment and wait for PostgreSQL, Redis, the database initialization Job, and Sub2API to become healthy. This usually takes several minutes.
+6. Open the application URL shown in Canvas.
 
 ## Login and User Onboarding
 
