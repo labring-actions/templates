@@ -38,7 +38,7 @@ Sub2API 还为异步生图结果提供 S3 兼容存储方案。开启对象存�
 ### 架构组件
 
 - **Sub2API**：1 个 `StatefulSet` 副本，运行 `weishaw/sub2api:0.1.166`，服务端口为 `8080`。
-- **依赖检查**：带资源上限的 init container 会等待可用的 PostgreSQL 与 Redis 端点。
+- **依赖检查**：带资源上限的 init container 会等待专用 `sub2api` PostgreSQL 数据库与 Redis 端点就绪。
 - **应用存储**：挂载到 `/app/data` 的 `1Gi` 持久卷。
 - **PostgreSQL**：1 个 KubeBlocks PostgreSQL `16.4.0` 组件，配有 `1Gi` 持久存储。
 - **数据库初始化**：幂等 Job 会在 PostgreSQL 可用后创建 `sub2api` 数据库。
@@ -63,6 +63,7 @@ Sub2API 还为异步生图结果提供 S3 兼容存储方案。开启对象存�
 | --- | --- | --- |
 | `admin_email` | 是 | 初始管理员邮箱 |
 | `admin_password` | 是 | 初始管理员密码，至少 8 个字符 |
+| `totp_encryption_key` | 是 | 用于加密 TOTP 数据的持久化 64 位十六进制密钥 |
 | `enable_s3_storage` | 否 | 为异步生图结果创建并连接私有 Sealos 存储桶 |
 | `timezone` | 否 | 应用时区，默认 `Asia/Shanghai` |
 | `run_mode` | 否 | 可选 `standard` 或 `simple` |
@@ -70,7 +71,7 @@ Sub2API 还为异步生图结果提供 S3 兼容存储方案。开启对象存�
 | 安全白名单参数 | 否 | 上游 URL 校验策略 |
 | `update_proxy_url` | 否 | 更新检查与 GitHub 访问代理 |
 
-模板会为每次部署生成固定的 `JWT_SECRET` 与 `TOTP_ENCRYPTION_KEY`。数据库与对象存储凭据由 Sealos 托管 Secret 提供。
+模板会为每次部署生成固定的 `JWT_SECRET`。请使用 `openssl rand -hex 32` 生成持久化 `TOTP_ENCRYPTION_KEY`。数据库与对象存储凭据由 Sealos 托管 Secret 提供。
 
 ### 健康检查与存储行为
 
@@ -92,11 +93,12 @@ Sub2API 还为异步生图结果提供 S3 兼容存储方案。开启对象存�
 ## 部署指南
 
 1. 打开 [Sub2API 模板](https://sealos.io/products/app-store/sub2api)，点击 **Deploy Now**。
-2. 填写 `admin_email`，并设置至少 8 个字符的 `admin_password`。
-3. 选择时区与运行模式。异步生图结果需要私有 Sealos 存储桶时，开启 `enable_s3_storage`。
-4. 按实际环境填写厂商 OAuth、URL 白名单或更新代理参数。
-5. 开始部署，等待 PostgreSQL、Redis、数据库初始化 Job 与 Sub2API 全部进入健康状态。这个过程通常需要几分钟。
-6. 打开 Canvas 中显示的应用地址。
+2. 运行 `openssl rand -hex 32`，生成持久化 TOTP 加密密钥。
+3. 填写 `admin_email`、至少 8 个字符的 `admin_password`，并将生成结果填入 `totp_encryption_key`。
+4. 选择时区与运行模式。异步生图结果需要私有 Sealos 存储桶时，开启 `enable_s3_storage`。
+5. 按实际环境填写厂商 OAuth、URL 白名单或更新代理参数。
+6. 开始部署，等待 PostgreSQL、Redis、数据库初始化 Job 与 Sub2API 全部进入健康状态。这个过程通常需要几分钟。
+7. 打开 Canvas 中显示的应用地址。
 
 ## 登录与用户接入
 

@@ -38,7 +38,7 @@ The template includes Sub2API `0.1.166`, PostgreSQL `16.4.0`, Redis `7.2.7`, per
 ### Architecture Components
 
 - **Sub2API**: One `StatefulSet` replica running `weishaw/sub2api:0.1.166` on port `8080`.
-- **Dependency gate**: A resource-capped init container waits for live PostgreSQL and Redis endpoints.
+- **Dependency gate**: A resource-capped init container waits for the dedicated `sub2api` PostgreSQL database and the Redis endpoint.
 - **Application storage**: A `1Gi` persistent volume mounted at `/app/data`.
 - **PostgreSQL**: One KubeBlocks PostgreSQL `16.4.0` component with `1Gi` persistent storage.
 - **Database initialization**: An idempotent Job creates the `sub2api` database after PostgreSQL becomes available.
@@ -63,6 +63,7 @@ The template includes Sub2API `0.1.166`, PostgreSQL `16.4.0`, Redis `7.2.7`, per
 | --- | --- | --- |
 | `admin_email` | Yes | Initial administrator email |
 | `admin_password` | Yes | Initial administrator password, minimum 8 characters |
+| `totp_encryption_key` | Yes | Persistent 64-character hexadecimal key for TOTP data encryption |
 | `enable_s3_storage` | No | Creates and connects a private Sealos bucket for async image results |
 | `timezone` | No | Application timezone, default `Asia/Shanghai` |
 | `run_mode` | No | `standard` or `simple` |
@@ -70,7 +71,7 @@ The template includes Sub2API `0.1.166`, PostgreSQL `16.4.0`, Redis `7.2.7`, per
 | Security allowlist fields | No | Upstream URL validation policy |
 | `update_proxy_url` | No | Proxy for update checks and GitHub access |
 
-The template generates fixed per-deployment values for `JWT_SECRET` and `TOTP_ENCRYPTION_KEY`. Database and object-storage credentials come from Sealos-managed Secrets.
+The template generates a fixed per-deployment `JWT_SECRET`. Provide a persistent `TOTP_ENCRYPTION_KEY` generated with `openssl rand -hex 32`. Database and object-storage credentials come from Sealos-managed Secrets.
 
 ### Health and Storage Behavior
 
@@ -92,11 +93,12 @@ The template generates fixed per-deployment values for `JWT_SECRET` and `TOTP_EN
 ## Deployment Guide
 
 1. Open the [Sub2API template](https://sealos.io/products/app-store/sub2api) and click **Deploy Now**.
-2. Enter `admin_email` and an `admin_password` with at least 8 characters.
-3. Choose the timezone and run mode. Enable `enable_s3_storage` when asynchronous image results should use a private Sealos bucket.
-4. Add provider OAuth, URL allowlist, or update proxy values that match your environment.
-5. Start the deployment and wait for PostgreSQL, Redis, the database initialization Job, and Sub2API to become healthy. This usually takes several minutes.
-6. Open the application URL shown in Canvas.
+2. Generate a persistent TOTP encryption key with `openssl rand -hex 32`.
+3. Enter `admin_email`, an `admin_password` with at least 8 characters, and the generated value as `totp_encryption_key`.
+4. Choose the timezone and run mode. Enable `enable_s3_storage` when asynchronous image results should use a private Sealos bucket.
+5. Add provider OAuth, URL allowlist, or update proxy values that match your environment.
+6. Start the deployment and wait for PostgreSQL, Redis, the database initialization Job, and Sub2API to become healthy. This usually takes several minutes.
+7. Open the application URL shown in Canvas.
 
 ## Login and User Onboarding
 
