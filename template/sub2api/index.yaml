@@ -32,9 +32,6 @@ spec:
         jwt_secret:
             type: string
             value: ${{ random(32) }}
-        totp_encryption_key:
-            type: string
-            value: ${{ random(64).toLowerCase().replace(/[^0-9a-f]/g, 'a') }}
     inputs:
         admin_email:
             description: Initial administrator email address
@@ -42,6 +39,10 @@ spec:
             required: true
         admin_password:
             description: Initial administrator password (minimum 8 characters)
+            type: string
+            required: true
+        totp_encryption_key:
+            description: Persistent TOTP encryption key; exactly 64 hexadecimal characters (generate with openssl rand -hex 32)
             type: string
             required: true
         enable_s3_storage:
@@ -440,12 +441,37 @@ spec:
                       - /bin/sh
                       - -ec
                       - |
-                          until nc -z -w 2 ${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc.cluster.local 5432; do
+                          until psql -d sub2api -tAc 'SELECT 1' >/dev/null 2>&1; do
                             sleep 2
                           done
-                          until nc -z -w 2 ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local 6379; do
+                          until nc -z -w 2 "$REDIS_HOST" "$REDIS_PORT" >/dev/null 2>&1; do
                             sleep 2
                           done
+                  env:
+                      - name: PGHOST
+                        valueFrom:
+                            secretKeyRef:
+                                name: ${{ defaults.app_name }}-pg-conn-credential
+                                key: host
+                      - name: PGPORT
+                        valueFrom:
+                            secretKeyRef:
+                                name: ${{ defaults.app_name }}-pg-conn-credential
+                                key: port
+                      - name: PGUSER
+                        valueFrom:
+                            secretKeyRef:
+                                name: ${{ defaults.app_name }}-pg-conn-credential
+                                key: username
+                      - name: PGPASSWORD
+                        valueFrom:
+                            secretKeyRef:
+                                name: ${{ defaults.app_name }}-pg-conn-credential
+                                key: password
+                      - name: REDIS_HOST
+                        value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+                      - name: REDIS_PORT
+                        value: "6379"
                   resources:
                       limits:
                           cpu: 100m
@@ -545,7 +571,7 @@ spec:
                       - name: SETUP_MIGRATION_TIMEOUT_SECONDS
                         value: "0"
                       - name: TOTP_ENCRYPTION_KEY
-                        value: ${{ defaults.totp_encryption_key }}
+                        value: ${{ inputs.totp_encryption_key }}
                       - name: TZ
                         value: ${{ inputs.timezone }}
                       - name: GEMINI_OAUTH_CLIENT_ID
