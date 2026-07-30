@@ -6,18 +6,18 @@ Postiz 是一款开源社交媒体排程与管理平台，用于规划、发布�
 
 ## 关于 Postiz 托管
 
-Postiz 为社交媒体团队提供自托管工作区，可用于排程内容、管理渠道并协同发布流程。此 Sealos 模板运行 Postiz `v2.21.8`，主应用容器内包含前端、后端 API、orchestrator 和 Nginx 网关。
+Postiz 为社交媒体团队提供自托管工作区，可用于排程内容、管理渠道并协同发布流程。此 Sealos 模板运行 Postiz `v2.22.1`，主应用容器内包含前端、后端 API、orchestrator 和 Nginx 网关。
 
 部署时还会创建 PostgreSQL、Redis、Temporal、Elasticsearch 以及持久化卷。PostgreSQL 用于保存 Postiz 应用数据和 Temporal 元数据；Redis 提供缓存和队列能力；Temporal 负责后台工作流；Elasticsearch 存储 Temporal visibility 数据；持久化卷用于保存上传文件和运行配置。Sealos 会自动创建公网 HTTPS 入口、服务发现、数据库资源和存储资源。
 
-此模板默认采用最简单的首次使用方式：启用本地邮箱和密码注册。创建首个账号不需要 OAuth、Resend、邮件验证码或密码重置邮件服务。
+此模板采用直接的首次使用流程：默认启用本地邮箱和密码注册。首个账号只需邮箱、密码和工作区名称。OAuth、Resend、邮件验证和密码重置服务属于后续可选集成。
 
 ## 常见使用场景
 
 - **社交媒体排程**：在一个自托管仪表盘中规划并发布多个社交渠道的内容。
 - **团队内容运营**：在私有工作区中协同管理内容日历、草稿和发布流程。
 - **代理机构发布流程**：为多个客户管理社交账号，同时将数据保存在自己的 Sealos 工作区。
-- **自托管社交工具**：首次登录不依赖托管版 SaaS 账号或外部身份提供商。
+- **自托管社交工具**：使用本地身份，并将数据保存在自己的 Sealos 工作区。
 
 ## Postiz 托管依赖
 
@@ -36,7 +36,7 @@ Postiz 为社交媒体团队提供自托管工作区，可用于排程内容、�
 
 此模板会部署以下服务：
 
-- **Postiz 应用**：运行 `ghcr.io/gitroomhq/postiz-app:v2.21.8`，通过 `5000` 端口提供 Web UI、API、Nginx 网关和 orchestrator。
+- **Postiz 应用**：运行 `ghcr.io/gitroomhq/postiz-app:v2.22.1`，通过 `5000` 端口提供 Web UI、API、Nginx 网关和 orchestrator。
 - **PostgreSQL 16.4**：存储 Postiz 应用数据和 Temporal 元数据。初始化 Job 会在应用启动前创建 `postiz` 数据库。
 - **Redis 7.2**：为 Postiz 提供缓存和队列支撑。
 - **Temporal 1.28**：运行 Postiz 后台任务所需的工作流处理能力。
@@ -55,9 +55,10 @@ Postiz 为社交媒体团队提供自托管工作区，可用于排程内容、�
 | --- | ---: | ---: | --- |
 | Postiz 应用 | `500m` | `4096Mi` | 一个容器内包含 Nginx、前端、后端和 orchestrator；冷启动生成工作流 bundle 需要 4 GiB 内存。 |
 | PostgreSQL | `500m` | `512Mi` | 使用 Sealos PostgreSQL 数据库基线。 |
-| Redis | `500m` | `512Mi` | 使用 Sealos Redis 与 Sentinel 数据库基线。 |
-| Temporal | `500m` | `512Mi` | 运行 Temporal 服务和默认 namespace 初始化。 |
-| Temporal Elasticsearch | `500m` | `1024Mi` | 以 256 MiB heap 运行 Elasticsearch，供 Temporal visibility 使用。 |
+| Redis 与 Sentinel | 每个 `500m` | 每个 `512Mi` | 两个组件合计使用 `1` CPU 和 `1Gi` 内存。 |
+| Temporal | `100m` | `256Mi` | 已通过默认 namespace 和 Postiz 工作流流量的冷启动测试。 |
+| Temporal Elasticsearch | `100m` | `1024Mi` | 已通过 256 MiB heap 的 Temporal visibility 冷启动测试。 |
+| 初始化任务 | `100m` | `128Mi` | 用于 PostgreSQL 初始化、依赖等待和 Elasticsearch 数据目录权限设置。 |
 
 **许可证信息：**
 
@@ -75,27 +76,27 @@ Sealos 是基于 Kubernetes 的 AI 云操作系统，覆盖从云端 IDE 开发�
 - **按量使用资源**：根据实际负载调整 CPU、内存和存储。
 - **运维可观测**：可在 Sealos 控制台查看日志、工作负载状态和资源使用情况。
 
-在 Sealos 上部署 Postiz，可以把精力放在社交内容发布流程上，而不是底层基础设施管理。
+在 Sealos 上部署 Postiz，可以把精力放在社交内容发布流程上，由 Sealos 管理底层基础设施。
 
 ## 部署指南
 
 1. 打开 [Postiz 模板](https://sealos.io/products/app-store/postiz)，点击 **Deploy Now**。
 2. 在弹窗中配置参数。最简单的部署方式是保持默认值。
-3. 等待部署完成。通常需要 2-3 分钟，但首次启动可能更久，因为 PostgreSQL、Redis、Temporal、Elasticsearch 和 Postiz 都需要初始化。部署开始或完成后会进入 Canvas。后续如果要调整配置，可在 AI 对话中描述需求让 Sealos 应用变更，也可以点击相关资源卡片手动修改。
+3. 等待部署完成。默认资源配置的首次启动通常需要约 8-10 分钟，因为 Elasticsearch 会先完成初始化，Postiz 随后构建工作流 bundle。部署开始或完成后会进入 Canvas。后续调整配置时，可在 AI 对话中描述需求让 Sealos 应用变更，也可以点击相关资源卡片手动修改。
 4. 通过生成的公网地址访问 Postiz，并创建第一个本地账号。
 
 ## 首次登录与注册
 
-Postiz 是 Web 应用，使用前需要用户账号。此模板默认启用本地注册，因此首个账号只需要邮箱和密码即可创建。
+Postiz 是 Web 应用，使用前需要用户账号。此模板默认启用本地注册，首个账号需要填写邮箱、密码和工作区或公司名称。
 
 1. 部署完成后打开生成的 Postiz 地址。
 2. 全新部署会打开本地注册页面 `/auth`。如果进入的是登录页，请手动打开 `/auth`，或使用界面中的注册入口。
-3. 首个账号不需要 OAuth。即使页面显示 OAuth 按钮，也请使用分隔线下方的本地注册表单。
+3. 首个账号请使用 OAuth 按钮下方的本地注册表单。
 4. 输入邮箱、密码和工作区或公司名称，然后点击 **Create Account**。
 5. 默认模板没有配置邮件服务或邮件验证，因此账号会立即激活。
 6. 如果注册后页面要求登录，请打开 `/auth/login`，使用同一个邮箱和密码登录。
 
-用户名请使用邮箱地址。该邮箱在当前部署中尚未注册前，直接登录会返回 `Invalid user name or password`。注册页面是 `/auth`，`/auth/register` 不是 Postiz 路由。GitHub OAuth、Google OAuth、X/Twitter API 凭据、Resend 和邮件验证码都是后续可选集成，不是首次登录的前置条件。
+用户名请使用邮箱地址。请先在当前部署中注册该邮箱，再进行登录。注册页面是 `/auth`，登录页面是 `/auth/login`。GitHub OAuth、Google OAuth、X/Twitter API 凭据、Resend 和邮件验证属于后续可选集成。
 
 ## 配置说明
 
@@ -115,6 +116,10 @@ Postiz 是 Web 应用，使用前需要用户账号。此模板默认启用本�
 | `STORAGE_PROVIDER` | `local` | 将上传文件保存到 `/uploads` 持久化卷。 |
 | `TEMPORAL_NAMESPACE` | `default` | 使用部署时创建的默认 Temporal namespace。 |
 
+### 存储兼容性
+
+默认 `local` provider 会将上传媒体写入 `/uploads` 持久化卷。Postiz `v2.22.1` 的云存储路径围绕 Cloudflare R2 端点构造实现。此模板采用经验证的本地存储默认值，并将配置界面聚焦于兼容参数。需要外部对象存储时，请按照 Postiz 上游文档直接配置 Cloudflare R2。
+
 ## 扩容与资源调整
 
 如需扩容或调优 Postiz：
@@ -130,7 +135,7 @@ Postiz 是 Web 应用，使用前需要用户账号。此模板默认启用本�
 
 ### 部署后页面没有立即就绪
 
-等待所有组件进入 Running 状态。冷启动时，Temporal 和 Elasticsearch 可能比主 Web 容器更慢。
+默认冷启动请预留约 8-10 分钟。Elasticsearch 使用经过测试的最低 CPU 档位，Postiz 会在开放 Web 入口前构建工作流 bundle。
 
 ### 登录提示 `Invalid user name or password`
 

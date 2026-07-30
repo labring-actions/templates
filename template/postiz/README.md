@@ -6,18 +6,18 @@ Postiz is an open source social media scheduling and management platform for pla
 
 ## About Hosting Postiz
 
-Postiz provides a self-hosted workspace for social media teams to schedule posts, manage channels, and coordinate publishing workflows. The Sealos template runs Postiz `v2.21.8` with the bundled frontend, backend API, orchestrator, and Nginx gateway in the main application container.
+Postiz provides a self-hosted workspace for social media teams to schedule posts, manage channels, and coordinate publishing workflows. The Sealos template runs Postiz `v2.22.1` with the bundled frontend, backend API, orchestrator, and Nginx gateway in the main application container.
 
 The deployment also provisions PostgreSQL for application and Temporal metadata, Redis for queue and cache services, Temporal for workflow execution, Elasticsearch for Temporal visibility, and persistent volumes for uploads and runtime configuration. Sealos creates the public HTTPS endpoint, service discovery, database resources, and storage resources automatically.
 
-This template is configured for the simplest first-run setup: local email-and-password registration is enabled by default. OAuth providers, Resend, email verification, and password reset email delivery are not required for creating the first account.
+This template is configured for a direct first-run setup: local email-and-password registration is enabled by default. The first account needs only an email address, password, and workspace name. OAuth providers, Resend, email verification, and password reset delivery remain optional follow-on integrations.
 
 ## Common Use Cases
 
 - **Social media scheduling**: Plan and publish posts across connected social channels from one self-hosted dashboard.
 - **Team content operations**: Coordinate content calendars, drafts, and publishing workflows in a private workspace.
 - **Agency publishing workflows**: Manage multiple client social accounts while keeping data in your own Sealos workspace.
-- **Self-hosted social tooling**: Run Postiz without depending on a hosted SaaS account or external identity provider for first login.
+- **Self-hosted social tooling**: Run Postiz with local identity and data inside your Sealos workspace.
 
 ## Dependencies for Postiz Hosting
 
@@ -36,7 +36,7 @@ The Sealos template includes all required runtime dependencies: the Postiz appli
 
 This template deploys the following services:
 
-- **Postiz application**: Runs `ghcr.io/gitroomhq/postiz-app:v2.21.8` and serves the web UI, API, Nginx gateway, and orchestrator through port `5000`.
+- **Postiz application**: Runs `ghcr.io/gitroomhq/postiz-app:v2.22.1` and serves the web UI, API, Nginx gateway, and orchestrator through port `5000`.
 - **PostgreSQL 16.4**: Stores Postiz application data and the Temporal metadata databases. A setup job creates the `postiz` database before the app starts.
 - **Redis 7.2**: Provides cache and queue backing services for Postiz.
 - **Temporal 1.28**: Runs workflow processing required by Postiz background jobs.
@@ -55,9 +55,10 @@ Default service-to-service connections are configured through Kubernetes DNS and
 | --- | ---: | ---: | --- |
 | Postiz app | `500m` | `4096Mi` | Covers Nginx, frontend, backend, and orchestrator in one container; 4 GiB is required for cold-start workflow bundle generation. |
 | PostgreSQL | `500m` | `512Mi` | Uses the Sealos PostgreSQL database baseline. |
-| Redis | `500m` | `512Mi` | Uses the Sealos Redis and Sentinel database baseline. |
-| Temporal | `500m` | `512Mi` | Runs the Temporal service and default namespace setup. |
-| Temporal Elasticsearch | `500m` | `1024Mi` | Runs Elasticsearch with a 256 MiB heap for Temporal visibility. |
+| Redis and Sentinel | `500m` each | `512Mi` each | Uses `1` CPU and `1Gi` memory across both components. |
+| Temporal | `100m` | `256Mi` | Cold-start tested with the default namespace and Postiz workflow traffic. |
+| Temporal Elasticsearch | `100m` | `1024Mi` | Cold-start tested with a 256 MiB heap for Temporal visibility. |
+| Initialization tasks | `100m` | `128Mi` | Covers PostgreSQL setup, dependency waiting, and Elasticsearch data ownership. |
 
 **License Information:**
 
@@ -75,27 +76,27 @@ Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies
 - **Pay-As-You-Go Resources**: Tune CPU, memory, and storage to match your actual workload.
 - **Operational Visibility**: Inspect logs, workload status, and resource usage from the Sealos dashboard.
 
-Deploy Postiz on Sealos and focus on social publishing workflows instead of managing the underlying infrastructure.
+Deploy Postiz on Sealos and focus on social publishing workflows while Sealos manages the underlying infrastructure.
 
 ## Deployment Guide
 
 1. Open the [Postiz template](https://sealos.io/products/app-store/postiz) and click **Deploy Now**.
 2. Configure the parameters in the popup dialog. For the simplest setup, keep the default values.
-3. Wait for deployment to complete. It typically takes 2-3 minutes, but the first startup can take longer because PostgreSQL, Redis, Temporal, Elasticsearch, and Postiz all need to initialize. After deployment, you will be redirected to the Canvas. For later changes, describe your requirements in the AI dialog to let Sealos apply updates, or click the relevant resource cards to modify settings.
+3. Wait for deployment to complete. The default resource profile typically needs about 8-10 minutes for the first startup because Elasticsearch initializes first and Postiz then builds its workflow bundles. After deployment, you will be redirected to the Canvas. For later changes, describe your requirements in the AI dialog to let Sealos apply updates, or click the relevant resource cards to modify settings.
 4. Access Postiz through the generated public URL and create the first local account.
 
 ## First Login and Registration
 
-Postiz is a web application that requires a user account. This template enables local registration by default, so the first account can be created with only an email address and password.
+Postiz is a web application that requires a user account. This template enables local registration by default, so the first account can be created with an email address, password, and workspace or company name.
 
 1. Open the generated Postiz URL after deployment.
 2. A new deployment opens the local sign-up page at `/auth`. If you land on the login page instead, open `/auth` manually or use the sign-up option in the UI.
-3. Ignore OAuth buttons for the first account and use the local registration form below the separator.
+3. Use the local registration form below the OAuth buttons for the first account.
 4. Enter an email address, a password, and the workspace or company name, then click **Create Account**.
 5. The account is activated immediately because the default template does not configure an email provider or email verification.
 6. If Postiz asks you to sign in after registration, open `/auth/login` and use the same email address and password.
 
-Use an email address as the username. A direct login attempt returns `Invalid user name or password` until that email has been registered in the current deployment. The registration page is `/auth`; `/auth/register` is not a Postiz route. GitHub OAuth, Google OAuth, X/Twitter API credentials, Resend, and email verification are optional later integrations, not requirements for the first login.
+Use an email address as the username. Register that email in the current deployment before signing in. The registration page is `/auth`; the login page is `/auth/login`. GitHub OAuth, Google OAuth, X/Twitter API credentials, Resend, and email verification are optional later integrations.
 
 ## Configuration
 
@@ -115,6 +116,10 @@ Important default environment settings:
 | `STORAGE_PROVIDER` | `local` | Stores uploads on the mounted `/uploads` volume. |
 | `TEMPORAL_NAMESPACE` | `default` | Uses the default Temporal namespace created during deployment. |
 
+### Storage Compatibility
+
+The default `local` provider writes uploaded media to the `/uploads` persistent volume. Postiz `v2.22.1` implements its cloud storage path around Cloudflare R2 endpoint construction. This template keeps local storage as the verified default and exposes only verified local-storage fields. Configure Cloudflare R2 directly from the upstream Postiz documentation when your deployment needs external object storage.
+
 ## Scaling
 
 To scale or tune Postiz:
@@ -130,7 +135,7 @@ For small self-hosted workspaces, keep the default single-replica topology. Incr
 
 ### The page is not ready immediately after deployment
 
-Wait for all components to become Running. Temporal and Elasticsearch may take longer than the main web container during cold start.
+Allow about 8-10 minutes for the default cold start. Elasticsearch runs at its tested minimum CPU tier, and Postiz builds workflow bundles before opening the web endpoint.
 
 ### Login says `Invalid user name or password`
 

@@ -78,6 +78,8 @@ metadata:
     - cluster.kubeblocks.io/finalizer
   labels:
     kb.io/database: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
     clusterdefinition.kubeblocks.io/name: postgresql
     clusterversion.kubeblocks.io/name: postgresql-16.4.0
 spec:
@@ -165,11 +167,11 @@ spec:
               exit 1
           resources:
             limits:
-              cpu: 200m
-              memory: 256Mi
+              cpu: 100m
+              memory: 128Mi
             requests:
-              cpu: 20m
-              memory: 25Mi
+              cpu: 10m
+              memory: 12Mi
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -288,7 +290,7 @@ metadata:
     app: ${{ defaults.app_name }}-temporal
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-temporal
 data:
-  vn-etcvn-temporalvn-configvn-dynamicconfigvn-developme-4da89dc5: |
+  vn-etcvn-temporalvn-configvn-dynamicconfigvn-postizvn-yaml: |
     limit.maxIDLength:
       - value: 255
         constraints: {}
@@ -301,7 +303,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}-temporal-es
   annotations:
-    docker-to-sealos.resource-override-source: 'Empirical Sealos deployment test for Postiz v2.21.8: Elasticsearch 7.17.27 with 256Mi heap requires a 1024Mi memory limit to stay Ready; 512Mi caused unsafe headroom for Temporal visibility storage.'
+    docker-to-sealos.resource-override-source: 'Empirical Sealos cold-start tests for Postiz v2.22.1: Elasticsearch 7.17.27 reached Ready with 100m CPU and 1024Mi memory in about 5 minutes 30 seconds with zero restarts; observed memory around 566Mi excludes the 512Mi tier.'
     originImageName: elasticsearch:7.17.27
     deploy.cloud.sealos.io/minReplicas: "1"
     deploy.cloud.sealos.io/maxReplicas: "1"
@@ -328,11 +330,11 @@ spec:
           command: ["/bin/sh", "-c", "chown -R 1000:0 /usr/share/elasticsearch/data"]
           resources:
             limits:
-              cpu: 200m
-              memory: 256Mi
+              cpu: 100m
+              memory: 128Mi
             requests:
-              cpu: 20m
-              memory: 25Mi
+              cpu: 10m
+              memory: 12Mi
           volumeMounts:
             - name: vn-usrvn-sharevn-elasticsearchvn-data
               mountPath: /usr/share/elasticsearch/data
@@ -341,6 +343,14 @@ spec:
           image: elasticsearch:7.17.27
           imagePullPolicy: IfNotPresent
           env:
+            - name: cluster.routing.allocation.disk.threshold_enabled
+              value: "true"
+            - name: cluster.routing.allocation.disk.watermark.low
+              value: 512mb
+            - name: cluster.routing.allocation.disk.watermark.high
+              value: 256mb
+            - name: cluster.routing.allocation.disk.watermark.flood_stage
+              value: 128mb
             - name: discovery.type
               value: single-node
             - name: ES_JAVA_OPTS
@@ -369,10 +379,10 @@ spec:
             periodSeconds: 20
           resources:
             limits:
-              cpu: 500m
+              cpu: 100m
               memory: 1024Mi
             requests:
-              cpu: 50m
+              cpu: 10m
               memory: 102Mi
           volumeMounts:
             - name: vn-usrvn-sharevn-elasticsearchvn-data
@@ -396,7 +406,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-temporal
   annotations:
-    docker-to-sealos.resource-override-source: 'Empirical Sealos deployment test for Postiz v2.21.8: Temporal 1.28.1 stayed Ready with 500m CPU / 512Mi memory while serving Postiz workflows; SQL connection caps are required so Postiz can start against the 56-connection PostgreSQL baseline.'
+    docker-to-sealos.resource-override-source: 'Empirical Sealos cold-start tests for Postiz v2.22.1: Temporal 1.28.1 reached Ready with 100m CPU and 256Mi memory with zero restarts; observed memory around 178Mi excludes the 128Mi tier. SQL connection caps allow Postiz and Temporal to share the PostgreSQL baseline.'
     originImageName: temporalio/auto-setup:1.28.1
     deploy.cloud.sealos.io/minReplicas: "1"
     deploy.cloud.sealos.io/maxReplicas: "1"
@@ -447,7 +457,7 @@ spec:
             - name: VISIBILITY_DBNAME
               value: temporal_visibility
             - name: DYNAMIC_CONFIG_FILE_PATH
-              value: config/dynamicconfig/development-sql.yaml
+              value: config/dynamicconfig/postiz.yaml
             - name: ENABLE_ES
               value: "true"
             - name: ES_SEEDS
@@ -483,31 +493,77 @@ spec:
             periodSeconds: 20
           resources:
             limits:
-              cpu: 500m
-              memory: 512Mi
+              cpu: 100m
+              memory: 256Mi
             requests:
-              cpu: 50m
-              memory: 51Mi
+              cpu: 10m
+              memory: 25Mi
           volumeMounts:
-            - name: vn-etcvn-temporalvn-configvn-dynamicconfigvn-developme-4da89dc5
-              mountPath: /etc/temporal/config/dynamicconfig/development-sql.yaml
-              subPath: development-sql.yaml
+            - name: ${{ defaults.app_name }}-temporal-cm
+              mountPath: /etc/temporal/config/dynamicconfig/postiz.yaml
+              subPath: vn-etcvn-temporalvn-configvn-dynamicconfigvn-postizvn-yaml
       volumes:
-        - name: vn-etcvn-temporalvn-configvn-dynamicconfigvn-developme-4da89dc5
+        - name: ${{ defaults.app_name }}-temporal-cm
           configMap:
             name: ${{ defaults.app_name }}-temporal
-            defaultMode: 420
-            items:
-              - key: vn-etcvn-temporalvn-configvn-dynamicconfigvn-developme-4da89dc5
-                path: development-sql.yaml
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-optvn-postizvn-startvn-sh: |
+    #!/bin/sh
+    set -eu
+    cd /app
+
+    wait_for_http() {
+      name="$1"
+      port="$2"
+      node - "$port" "$name" <<'NODE'
+    const port = Number(process.argv[2]);
+    const name = process.argv[3];
+    const deadline = Date.now() + 600000;
+    const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+    (async () => {
+      while (Date.now() < deadline) {
+        try {
+          await fetch(`http://127.0.0.1:${port}`);
+          console.log(`${name} is ready on port ${port}`);
+          process.exit(0);
+        } catch {
+          await sleep(2000);
+        }
+      }
+
+      console.error(`${name} failed to listen on port ${port}`);
+      process.exit(1);
+    })();
+    NODE
+    }
+
+    nginx
+    pm2 delete all || true
+    pnpm run prisma-db-push
+    pnpm --filter postiz-orchestrator run pm2
+    wait_for_http Orchestrator 3002
+    pnpm --filter postiz-backend run pm2
+    wait_for_http Backend 3000
+    pnpm --filter postiz-frontend run pm2
+    wait_for_http Frontend 4200
+    exec pm2 logs
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    docker-to-sealos.resource-override-source: 'Empirical Sealos deployment test for Postiz v2.21.8: combined nginx, frontend, backend and orchestrator workload used about 718Mi at idle; 4Gi memory is required for cold start stability after live Sealos redeploy testing; 2G OOMKilled during Postiz workflow bundle generation, and bare G quantities can be misreported by the Sealos Template API quota preview.'
-    originImageName: ghcr.io/gitroomhq/postiz-app:v2.21.8
+    docker-to-sealos.resource-override-source: 'Empirical Sealos cold-start tests for Postiz v2.22.1: 500m CPU and 4096Mi memory reached Ready with zero restarts; 200m CPU missed the bounded backend startup deadline, and 2048Mi memory failed to bind the backend port before the bounded deadline.'
+    originImageName: ghcr.io/gitroomhq/postiz-app:v2.22.1
     deploy.cloud.sealos.io/minReplicas: "1"
     deploy.cloud.sealos.io/maxReplicas: "1"
   labels:
@@ -573,48 +629,18 @@ spec:
               sleep 20
           resources:
             limits:
-              cpu: 200m
-              memory: 256Mi
+              cpu: 100m
+              memory: 128Mi
             requests:
-              cpu: 20m
-              memory: 25Mi
+              cpu: 10m
+              memory: 12Mi
       containers:
         - name: ${{ defaults.app_name }}
-          image: ghcr.io/gitroomhq/postiz-app:v2.21.8
+          image: ghcr.io/gitroomhq/postiz-app:v2.22.1
           imagePullPolicy: IfNotPresent
-          command:
+          args:
             - /bin/sh
-            - -c
-            - |
-              set -eu
-              cd /app
-
-              wait_for_port() {
-                name="$1"
-                port="$2"
-                i=1
-                while [ "$i" -le 180 ]; do
-                  if node -e 'const net = require("net"); const port = Number(process.argv[1]); const socket = net.createConnection({ host: "127.0.0.1", port }); socket.setTimeout(2000); socket.on("connect", () => { socket.destroy(); process.exit(0) }); socket.on("timeout", () => { socket.destroy(); process.exit(1) }); socket.on("error", () => process.exit(1));' "$port"
-                  then
-                    echo "$name is listening on 127.0.0.1:$port"
-                    return 0
-                  fi
-                  echo "waiting for $name on 127.0.0.1:$port"
-                  sleep 2
-                  i=$((i + 1))
-                done
-                echo "$name did not start on 127.0.0.1:$port" >&2
-                pm2 logs --nostream --lines 120 || true
-                exit 1
-              }
-
-              nginx
-              pm2 delete all || true
-              pnpm run prisma-db-push
-              pnpm run --parallel pm2
-              wait_for_port backend 3000
-              wait_for_port frontend 4200
-              pm2 logs
+            - /opt/postiz/start.sh
           env:
             - name: DB_HOSTNAME
               valueFrom:
@@ -626,8 +652,6 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: port
-            - name: POSTIZ_POOLER_SERVICE_PORT
-              value: "6432"
             - name: DB_USERNAME
               valueFrom:
                 secretKeyRef:
@@ -675,7 +699,7 @@ spec:
               value: local
             - name: UPLOAD_DIRECTORY
               value: /uploads
-            - name: NEXT_PUBLIC_UPLOAD_DIRECTORY
+            - name: NEXT_PUBLIC_UPLOAD_STATIC_DIRECTORY
               value: /uploads
             - name: API_LIMIT
               value: "30"
@@ -731,10 +755,17 @@ spec:
               cpu: 50m
               memory: 409Mi
           volumeMounts:
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /opt/postiz/start.sh
+              subPath: vn-optvn-postizvn-startvn-sh
             - name: vn-uploads
               mountPath: /uploads
             - name: vn-config
               mountPath: /config
+      volumes:
+        - name: ${{ defaults.app_name }}-cm
+          configMap:
+            name: ${{ defaults.app_name }}
   volumeClaimTemplates:
     - metadata:
         annotations:

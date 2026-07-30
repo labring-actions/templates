@@ -32,19 +32,19 @@ spec:
         jwt_secret:
             type: string
             value: ${{ random(32) }}
-        totp_encryption_key:
-            type: string
-            value: ${{ random(64).toLowerCase().replace(/[^0-9a-f]/g, 'a') }}
     inputs:
         admin_email:
-            description: Administrator email address
+            description: Initial administrator email address
             type: string
-            default: admin@sub2api.local
-            required: false
+            required: true
         admin_password:
-            description: Administrator password (leave empty to auto-generate on first startup)
+            description: Initial administrator password (minimum 8 characters)
             type: string
-            default: ""
+            required: true
+        enable_s3_storage:
+            description: Use a private Sealos S3-compatible bucket for asynchronous image task results
+            type: boolean
+            default: "false"
             required: false
         timezone:
             description: Timezone used by the application
@@ -89,6 +89,11 @@ spec:
             type: string
             default: ""
             required: false
+        antigravity_user_agent_version:
+            description: Optional Antigravity user agent version
+            type: string
+            default: ""
+            required: false
         security_url_allowlist_enabled:
             description: Enable upstream URL allowlist validation
             type: boolean
@@ -114,6 +119,20 @@ spec:
             type: string
             default: ""
             required: false
+
+---
+${{ if(inputs.enable_s3_storage === 'true') }}
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+    name: ${{ defaults.app_name }}
+    labels:
+        app: ${{ defaults.app_name }}
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+    policy: private
+---
+${{ endif() }}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -165,6 +184,8 @@ metadata:
     name: ${{ defaults.app_name }}-pg
     labels:
         kb.io/database: postgresql-16.4.0
+        sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+        app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
         clusterdefinition.kubeblocks.io/name: postgresql
         clusterversion.kubeblocks.io/name: postgresql-16.4.0
 spec:
@@ -207,6 +228,7 @@ kind: Job
 metadata:
     name: ${{ defaults.app_name }}-pg-init
 spec:
+    completions: 1
     backoffLimit: 3
     ttlSecondsAfterFinished: 300
     template:
@@ -214,37 +236,50 @@ spec:
             automountServiceAccountToken: false
             restartPolicy: OnFailure
             containers:
-                - name: pgsql-init
-                  image: postgres:16-alpine
+                - name: pg-init
+                  image: public.ecr.aws/docker/library/postgres:16.4-alpine
                   imagePullPolicy: IfNotPresent
                   env:
+                      - name: PG_HOST
+                        valueFrom:
+                            secretKeyRef:
+                                name: ${{ defaults.app_name }}-pg-conn-credential
+                                key: host
+                      - name: PG_PORT
+                        valueFrom:
+                            secretKeyRef:
+                                name: ${{ defaults.app_name }}-pg-conn-credential
+                                key: port
+                      - name: PG_USER
+                        valueFrom:
+                            secretKeyRef:
+                                name: ${{ defaults.app_name }}-pg-conn-credential
+                                key: username
                       - name: PG_PASSWORD
                         valueFrom:
                             secretKeyRef:
                                 name: ${{ defaults.app_name }}-pg-conn-credential
                                 key: password
-                      - name: PG_ENDPOINT
-                        valueFrom:
-                            secretKeyRef:
-                                name: ${{ defaults.app_name }}-pg-conn-credential
-                                key: endpoint
                       - name: PG_DATABASE
                         value: sub2api
                   command:
                       - /bin/sh
-                      - -c
+                      - -ec
                       - |
-                          set -eu
-                          for i in $(seq 1 60); do
-                            if pg_isready -h "${PG_ENDPOINT%:*}" -p "${PG_ENDPOINT##*:}" -U postgres -d postgres >/dev/null 2>&1; then
-                              break
-                            fi
+                          export PGPASSWORD="$PG_PASSWORD"
+                          until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; do
                             sleep 2
                           done
-                          pg_isready -h "${PG_ENDPOINT%:*}" -p "${PG_ENDPOINT##*:}" -U postgres -d postgres >/dev/null 2>&1
-                          if ! psql "postgresql://postgres:$(PG_PASSWORD)@$(PG_ENDPOINT)/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='$(PG_DATABASE)'" | grep -q 1; then
-                            psql "postgresql://postgres:$(PG_PASSWORD)@$(PG_ENDPOINT)/postgres" -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"$(PG_DATABASE)\";"
+                          if ! psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$PG_DATABASE'" | grep -q 1; then
+                            createdb -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" "$PG_DATABASE"
                           fi
+                  resources:
+                      limits:
+                          cpu: 100m
+                          memory: 128Mi
+                      requests:
+                          cpu: 10m
+                          memory: 12Mi
 
 ---
 apiVersion: v1
@@ -297,6 +332,7 @@ metadata:
     name: ${{ defaults.app_name }}-redis
     labels:
         kb.io/database: redis-7.2.7
+        sealos-db-provider-cr: ${{ defaults.app_name }}-redis
         app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
         app.kubernetes.io/version: 7.2.7
         clusterversion.kubeblocks.io/name: redis-7.2.7
@@ -360,12 +396,71 @@ spec:
     topology: replication
 
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+    name: ${{ defaults.app_name }}
+    labels:
+        app: ${{ defaults.app_name }}
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+    vn-generatevn-totpvn-keyvn-sh: |
+        #!/bin/sh
+        set -eu
+
+        key_file=/app/data/.totp_encryption_key
+        key=
+        if [ -e "$key_file" ]; then
+            if [ ! -f "$key_file" ]; then
+                echo "TOTP key path exists but is not a regular file" >&2
+                exit 1
+            fi
+            key=$(cat "$key_file")
+        else
+            key=$(od -An -N32 -tx1 /dev/urandom | tr -d '[:space:]')
+            if ! printf '%s\n' "$key" | grep -Eq '^[0-9a-f]{64}$'; then
+                echo "failed to generate a 64-character hexadecimal TOTP key" >&2
+                exit 1
+            fi
+            umask 077
+            tmp_file=$(mktemp "${key_file}.tmp.XXXXXX")
+            trap 'rm -f "$tmp_file"' EXIT
+            printf '%s' "$key" > "$tmp_file"
+            chmod 0600 "$tmp_file"
+            mv "$tmp_file" "$key_file"
+            trap - EXIT
+        fi
+
+        if ! printf '%s\n' "$key" | grep -Eq '^[0-9a-f]{64}$'; then
+            echo "TOTP key must contain exactly 64 lowercase hexadecimal characters" >&2
+            exit 1
+        fi
+        chmod 0600 "$key_file"
+    vn-startvn-sub2apivn-sh: |
+        #!/bin/sh
+        set -eu
+
+        key_file=/app/data/.totp_encryption_key
+        if [ ! -f "$key_file" ]; then
+            echo "TOTP key file is missing: $key_file" >&2
+            exit 1
+        fi
+        key=$(cat "$key_file")
+        if ! printf '%s\n' "$key" | grep -Eq '^[0-9a-f]{64}$'; then
+            echo "TOTP key must contain exactly 64 lowercase hexadecimal characters" >&2
+            exit 1
+        fi
+        export TOTP_ENCRYPTION_KEY="$key"
+        exec /app/docker-entrypoint.sh /app/sub2api
+
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
     name: ${{ defaults.app_name }}
     annotations:
-        originImageName: weishaw/sub2api:0.1.104
+        originImageName: weishaw/sub2api:0.1.166
+        docker-to-sealos.official-compose-source: https://github.com/Wei-Shaw/sub2api/blob/v0.1.166/deploy/docker-compose.yml
         deploy.cloud.sealos.io/minReplicas: "1"
         deploy.cloud.sealos.io/maxReplicas: "1"
     labels:
@@ -392,10 +487,93 @@ spec:
                 runAsNonRoot: true
                 seccompProfile:
                     type: RuntimeDefault
+            initContainers:
+                - name: generate-totp-key
+                  image: weishaw/sub2api:0.1.166
+                  imagePullPolicy: IfNotPresent
+                  command:
+                      - /bin/sh
+                      - /opt/sealos/generate-totp-key.sh
+                  volumeMounts:
+                      - name: ${{ defaults.app_name }}-cm
+                        mountPath: /opt/sealos/generate-totp-key.sh
+                        subPath: vn-generatevn-totpvn-keyvn-sh
+                        readOnly: true
+                      - name: vn-appvn-data
+                        mountPath: /app/data
+                  resources:
+                      limits:
+                          cpu: 100m
+                          memory: 128Mi
+                      requests:
+                          cpu: 10m
+                          memory: 12Mi
+                  securityContext:
+                      allowPrivilegeEscalation: false
+                      capabilities:
+                          drop:
+                              - ALL
+                      runAsNonRoot: true
+                - name: wait-for-dependencies
+                  image: weishaw/sub2api:0.1.166
+                  imagePullPolicy: IfNotPresent
+                  command:
+                      - /bin/sh
+                      - -ec
+                      - |
+                          until psql -d sub2api -tAc 'SELECT 1' >/dev/null 2>&1; do
+                            sleep 2
+                          done
+                          until nc -z -w 2 "$REDIS_HOST" "$REDIS_PORT" >/dev/null 2>&1; do
+                            sleep 2
+                          done
+                  env:
+                      - name: PGHOST
+                        valueFrom:
+                            secretKeyRef:
+                                name: ${{ defaults.app_name }}-pg-conn-credential
+                                key: host
+                      - name: PGPORT
+                        valueFrom:
+                            secretKeyRef:
+                                name: ${{ defaults.app_name }}-pg-conn-credential
+                                key: port
+                      - name: PGUSER
+                        valueFrom:
+                            secretKeyRef:
+                                name: ${{ defaults.app_name }}-pg-conn-credential
+                                key: username
+                      - name: PGPASSWORD
+                        valueFrom:
+                            secretKeyRef:
+                                name: ${{ defaults.app_name }}-pg-conn-credential
+                                key: password
+                      - name: REDIS_HOST
+                        value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+                      - name: REDIS_PORT
+                        value: "6379"
+                  resources:
+                      limits:
+                          cpu: 100m
+                          memory: 128Mi
+                      requests:
+                          cpu: 10m
+                          memory: 12Mi
+                  securityContext:
+                      allowPrivilegeEscalation: false
+                      capabilities:
+                          drop:
+                              - ALL
+                      runAsNonRoot: true
             containers:
                 - name: ${{ defaults.app_name }}
-                  image: weishaw/sub2api:0.1.104
+                  image: weishaw/sub2api:0.1.166
                   imagePullPolicy: IfNotPresent
+                  command:
+                      - /bin/sh
+                      - -c
+                  args:
+                      - exec /bin/sh /opt/sealos/start-sub2api.sh
                   securityContext:
                       allowPrivilegeEscalation: false
                       capabilities:
@@ -410,10 +588,14 @@ spec:
                         value: "8080"
                       - name: SERVER_MODE
                         value: release
+                      - name: ENABLE_SERVER_TIMING
+                        value: "false"
                       - name: DATA_DIR
                         value: /app/data
                       - name: RUN_MODE
                         value: ${{ inputs.run_mode }}
+                      - name: SIMPLE_MODE_CONFIRM
+                        value: "true"
                       - name: DATABASE_HOST
                         valueFrom:
                             secretKeyRef:
@@ -471,8 +653,8 @@ spec:
                         value: ${{ defaults.jwt_secret }}
                       - name: JWT_EXPIRE_HOUR
                         value: "24"
-                      - name: TOTP_ENCRYPTION_KEY
-                        value: ${{ defaults.totp_encryption_key }}
+                      - name: SETUP_MIGRATION_TIMEOUT_SECONDS
+                        value: "0"
                       - name: TZ
                         value: ${{ inputs.timezone }}
                       - name: GEMINI_OAUTH_CLIENT_ID
@@ -487,6 +669,8 @@ spec:
                         value: ${{ inputs.gemini_cli_oauth_client_secret }}
                       - name: ANTIGRAVITY_OAUTH_CLIENT_SECRET
                         value: ${{ inputs.antigravity_oauth_client_secret }}
+                      - name: ANTIGRAVITY_USER_AGENT_VERSION
+                        value: ${{ inputs.antigravity_user_agent_version }}
                       - name: SECURITY_URL_ALLOWLIST_ENABLED
                         value: ${{ inputs.security_url_allowlist_enabled }}
                       - name: SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP
@@ -497,19 +681,71 @@ spec:
                         value: ${{ inputs.security_url_allowlist_upstream_hosts }}
                       - name: UPDATE_PROXY_URL
                         value: ${{ inputs.update_proxy_url }}
+                      ${{ if(inputs.enable_s3_storage === 'true') }}
+                      - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+                        valueFrom:
+                            secretKeyRef:
+                                name: object-storage-key
+                                key: external
+                      - name: S3_ACCESS_KEY_ID
+                        valueFrom:
+                            secretKeyRef:
+                                name: object-storage-key
+                                key: accessKey
+                      - name: S3_SECRET_ACCESS_KEY
+                        valueFrom:
+                            secretKeyRef:
+                                name: object-storage-key
+                                key: secretKey
+                      - name: S3_BUCKET
+                        valueFrom:
+                            secretKeyRef:
+                                name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                                key: bucket
+                      - name: IMAGE_STORAGE_ENABLED
+                        value: "true"
+                      - name: IMAGE_STORAGE_ENDPOINT
+                        value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+                      - name: IMAGE_STORAGE_ACCESS_KEY_ID
+                        value: $(S3_ACCESS_KEY_ID)
+                      - name: IMAGE_STORAGE_SECRET_ACCESS_KEY
+                        value: $(S3_SECRET_ACCESS_KEY)
+                      - name: IMAGE_STORAGE_BUCKET
+                        value: $(S3_BUCKET)
+                      - name: IMAGE_STORAGE_REGION
+                        value: us-east-1
+                      - name: IMAGE_STORAGE_PREFIX
+                        value: images/
+                      - name: IMAGE_STORAGE_FORCE_PATH_STYLE
+                        value: "true"
+                      - name: IMAGE_STORAGE_PUBLIC_BASE_URL
+                        value: ""
+                      - name: IMAGE_STORAGE_PRESIGN_EXPIRY_HOURS
+                        value: "24"
+                      - name: IMAGE_STORAGE_MAX_DOWNLOAD_BYTES
+                        value: "33554432"
+                      ${{ endif() }}
+                      ${{ if(inputs.enable_s3_storage === 'false') }}
+                      - name: IMAGE_STORAGE_ENABLED
+                        value: "false"
+                      ${{ endif() }}
                   ports:
                       - name: http
                         containerPort: 8080
                   volumeMounts:
+                      - name: ${{ defaults.app_name }}-cm
+                        mountPath: /opt/sealos/start-sub2api.sh
+                        subPath: vn-startvn-sub2apivn-sh
+                        readOnly: true
                       - name: vn-appvn-data
                         mountPath: /app/data
                   resources:
                       limits:
-                          cpu: 200m
-                          memory: 256Mi
+                          cpu: 100m
+                          memory: 128Mi
                       requests:
-                          cpu: 20m
-                          memory: 25Mi
+                          cpu: 10m
+                          memory: 12Mi
                   livenessProbe:
                       httpGet:
                           path: /health
@@ -536,18 +772,22 @@ spec:
                       periodSeconds: 10
                       timeoutSeconds: 10
                       failureThreshold: 18
+            volumes:
+                - name: ${{ defaults.app_name }}-cm
+                  configMap:
+                      name: ${{ defaults.app_name }}
     volumeClaimTemplates:
         - metadata:
               name: vn-appvn-data
               annotations:
                   path: /app/data
-                  value: "0.1"
+                  value: "1"
           spec:
               accessModes:
                   - ReadWriteOnce
               resources:
                   requests:
-                      storage: 103Mi
+                      storage: 1Gi
 
 ---
 apiVersion: v1

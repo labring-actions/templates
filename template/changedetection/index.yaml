@@ -3,11 +3,11 @@ kind: Template
 metadata:
   name: changedetection
 spec:
-  title: "Change Detection"
+  title: "changedetection.io"
   url: "https://changedetection.io/"
   gitRepo: "https://github.com/dgtlmoon/changedetection.io"
   author: "Sealos"
-  description: "Self-hosted free open source website change detection, monitor and notification service. Get instant notifications when websites change."
+  description: "Open-source, self-hosted website change monitoring and notification service with visual filters, scheduled checks, and alert integrations."
   readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/changedetection/README.md'
   icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/changedetection/logo.png'
   screenshots:
@@ -16,7 +16,7 @@ spec:
   locale: en
   i18n:
     zh:
-      description: "自托管的免费开源网页变更检测、监控和通知服务。当网站发生变化时获得即时通知。"
+      description: "开源自托管的网站变更监控与通知服务，支持可视化筛选、定时检查和多种告警集成。"
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/changedetection/README_zh.md'
   categories:
     - tool
@@ -40,7 +40,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: ghcr.io/dgtlmoon/changedetection.io:0.50.43
+    originImageName: ghcr.io/dgtlmoon/changedetection.io:0.55.8
     deploy.cloud.sealos.io/minReplicas: "1"
     deploy.cloud.sealos.io/maxReplicas: "1"
   labels:
@@ -61,11 +61,13 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: ghcr.io/dgtlmoon/changedetection.io:0.50.43
+          image: ghcr.io/dgtlmoon/changedetection.io:0.55.8
           imagePullPolicy: IfNotPresent
           env:
             - name: PORT
               value: "5000"
+            - name: LC_ALL
+              value: "C"
             - name: BASE_URL
               value: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
             - name: FETCH_WORKERS
@@ -75,8 +77,30 @@ spec:
             - name: HIDE_REFERER
               value: "true"
           ports:
-            - containerPort: 5000
+            - name: http
+              containerPort: 5000
               protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /worker-health
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 24
+          readinessProbe:
+            httpGet:
+              path: /worker-health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /worker-health
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
           resources:
             requests:
               cpu: 10m
@@ -107,9 +131,11 @@ metadata:
   name: ${{ defaults.app_name }}
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 5000
+    - name: http
+      port: 5000
       targetPort: 5000
       protocol: TCP
   selector:
@@ -169,5 +195,5 @@ spec:
     url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
   displayType: normal
   icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/changedetection/logo.png"
-  name: "Change Detection"
+  name: "changedetection.io"
   type: link
