@@ -3,11 +3,11 @@ kind: Template
 metadata:
   name: perplexica
 spec:
-  title: 'Perplexica'
-  url: 'https://github.com/ItzCrazyKns/Perplexica'
-  gitRepo: 'https://github.com/ItzCrazyKns/Perplexica'
+  title: 'Vane (Perplexica)'
+  url: 'https://github.com/ItzCrazyKns/Vane'
+  gitRepo: 'https://github.com/ItzCrazyKns/Vane'
   author: 'Sealos'
-  description: 'Perplexica is an open-source AI-powered searching tool or an AI-powered search engine that goes deep into the internet to find answers.'
+  description: 'Vane, formerly Perplexica, is a privacy-focused AI answering engine with cited web search, file analysis, and local conversation history.'
   readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/perplexica/README.md'
   icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/perplexica/logo.png'
   screenshots:
@@ -16,8 +16,7 @@ spec:
   locale: en
   i18n:
     zh:
-      title: 'Perplexica'
-      description: 'Perplexica 是一个开源的 AI 驱动搜索引擎，可以作为 Perplexity AI 的替代品。'
+      description: 'Vane（原 Perplexica）是一款注重隐私的 AI 问答引擎，支持带引用的网页搜索、文件分析和本地会话历史。'
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/perplexica/README_zh.md'
   categories:
     - ai
@@ -28,114 +27,82 @@ spec:
     app_host:
       type: string
       value: perplexica-${{ random(8) }}
+    searxng_secret:
+      type: string
+      value: ${{ random(64) }}
   inputs:
     OPENAI_API_KEY:
-      description: 'The API Key of the OpenAI-compatible service'
+      description: 'Optional API key for an OpenAI or OpenAI-compatible provider. Leave empty to configure another provider in the setup wizard.'
       type: string
       default: ''
-      required: true
-    OPENAI_API_URL:
-      description: 'The API URL of the OpenAI-compatible service (e.g. "https://api.openai.com/v1" for official API, or custom endpoint URL that follows OpenAI API format/structure)'
+      required: false
+    OPENAI_BASE_URL:
+      description: 'OpenAI-compatible API base URL. The official OpenAI endpoint is used by default.'
       type: string
       default: 'https://api.openai.com/v1'
-      required: true
-    OPENAI_MODEL_NAME:
-      description: 'The model name of the OpenAI-compatible service'
-      type: string
-      default: ''
-      required: true
+      required: false
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: ${{ defaults.app_name }}-searxng
+  labels:
+    app: ${{ defaults.app_name }}-searxng
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-searxng
 data:
-  vn-etcvn-searxngvn-limitervn-toml: |-
-    [botdetection.ip_limit]
-    # activate link_token method in the ip_limit method
-    link_token = true
   vn-etcvn-searxngvn-settingsvn-yml: |-
-    use_default_settings: true
-    
+    use_default_settings:
+      engines:
+        keep_only:
+          - bing
+          - bing images
+          - bing news
+          - bing videos
+          - wolframalpha
+          - youtube
+
     general:
       instance_name: 'searxng'
-    
+
     search:
-      autocomplete: 'google'
+      autocomplete: ''
       formats:
         - html
         - json
-    
+
     server:
-      secret_key: 'a2fb23f1b02e6ee49875b09826990de2e6bd908b6638e9g10277d415f6ab852b' # Is overwritten by ${SEARXNG_SECRET}
-    
+      secret_key: '${{ defaults.searxng_secret }}'
+      limiter: false
+
     engines:
       - name: bing
         disabled: false
-  vn-etcvn-searxngvn-uwsgivn-ini: |-
-    [uwsgi]
-    # Who will run the code
-    uid = searxng
-    gid = searxng
-    
-    # Number of workers (usually CPU count)
-    # default value: %k (= number of CPU core, see Dockerfile)
-    workers = %k
-    
-    # Number of threads per worker
-    # default value: 4 (see Dockerfile)
-    threads = 4
-    
-    # The right granted on the created socket
-    chmod-socket = 666
-    
-    # Plugin to use and interpreter config
-    single-interpreter = true
-    master = true
-    plugin = python3
-    lazy-apps = true
-    enable-threads = 4
-    
-    # Module to import
-    module = searx.webapp
-    
-    # Virtualenv and python path
-    pythonpath = /usr/local/searxng/
-    chdir = /usr/local/searxng/searx/
-    
-    # automatically set processes name to something meaningful
-    auto-procname = true
-    
-    # Disable request logging for privacy
-    disable-logging = true
-    log-5xx = true
-    
-    # Set the max size of a request (request-body excluded)
-    buffer-size = 8192
-    
-    # No keep alive
-    # See https://github.com/searx/searx-docker/issues/24
-    add-header = Connection: close
-    
-    # uwsgi serves the static files
-    static-map = /static=/usr/local/searxng/searx/static
-    # expires set to one day
-    static-expires = /* 86400
-    static-gzip-all = True
-    offload-threads = 4
-
+      - name: bing images
+        disabled: false
+      - name: bing news
+        disabled: false
+      - name: bing videos
+        disabled: false
+      - name: wolframalpha
+        disabled: false
+      - name: youtube
+        disabled: false
+  vn-etcvn-searxngvn-limitervn-toml: |-
+    [botdetection.ip_limit]
+    link_token = false
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-searxng
   annotations:
-    originImageName: searxng/searxng:2025.2.20-28d1240fc
+    originImageName: searxng/searxng:2026.4.10-7737a0da1
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
+    docker-to-sealos.resource-override-source: 'Live Sealos validation on 2026-07-27: 64Mi was OOMKilled, and 128Mi reached 128032768 of 134217728 bytes during multi-engine search. The final 100m/256Mi tier completed Bing web, Bing Images, Bing News, YouTube, and Bing plus WolframAlpha tests with zero unresponsive engines or restarts; cgroup peak was 172646400 of 268435456 bytes.'
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-searxng
     app: ${{ defaults.app_name }}-searxng
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-searxng
 spec:
   replicas: 1
   revisionHistoryLimit: 1
@@ -153,117 +120,106 @@ spec:
         app: ${{ defaults.app_name }}-searxng
     spec:
       automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 977
+        runAsGroup: 977
+        fsGroup: 977
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: ${{ defaults.app_name }}-searxng
-          image: searxng/searxng:2025.2.20-28d1240fc
+          image: searxng/searxng:2026.4.10-7737a0da1
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: SEARXNG_SETTINGS_PATH
+              value: /opt/vane-searxng/settings.yml
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
           resources:
             requests:
-              cpu: 50m
-              memory: 204Mi
+              cpu: 10m
+              memory: 25Mi
             limits:
-              cpu: 500m
-              memory: 2048Mi
-          command: []
-          args: []
-          ports:
-            - containerPort: 8080
-          imagePullPolicy: IfNotPresent
+              cpu: 100m
+              memory: 256Mi
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+              httpHeaders:
+                - name: X-Forwarded-For
+                  value: 127.0.0.1
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+              httpHeaders:
+                - name: X-Forwarded-For
+                  value: 127.0.0.1
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+              httpHeaders:
+                - name: X-Forwarded-For
+                  value: 127.0.0.1
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           volumeMounts:
-            - name: vn-etcvn-searxngvn-limitervn-toml
-              mountPath: /etc/searxng/limiter.toml
-              subPath: ./etc/searxng/limiter.toml
-            - name: vn-etcvn-searxngvn-settingsvn-yml
-              mountPath: /etc/searxng/settings.yml
-              subPath: ./etc/searxng/settings.yml
-            - name: vn-etcvn-searxngvn-uwsgivn-ini
-              mountPath: /etc/searxng/uwsgi.ini
-              subPath: ./etc/searxng/uwsgi.ini
+            - name: ${{ defaults.app_name }}-searxng-cm
+              mountPath: /opt/vane-searxng/settings.yml
+              subPath: vn-etcvn-searxngvn-settingsvn-yml
+            - name: ${{ defaults.app_name }}-searxng-cm
+              mountPath: /opt/vane-searxng/limiter.toml
+              subPath: vn-etcvn-searxngvn-limitervn-toml
       volumes:
-        - name: vn-etcvn-searxngvn-limitervn-toml
+        - name: ${{ defaults.app_name }}-searxng-cm
           configMap:
             name: ${{ defaults.app_name }}-searxng
-            items:
-              - key: vn-etcvn-searxngvn-limitervn-toml
-                path: ./etc/searxng/limiter.toml
-        - name: vn-etcvn-searxngvn-settingsvn-yml
-          configMap:
-            name: ${{ defaults.app_name }}-searxng
-            items:
-              - key: vn-etcvn-searxngvn-settingsvn-yml
-                path: ./etc/searxng/settings.yml
-        - name: vn-etcvn-searxngvn-uwsgivn-ini
-          configMap:
-            name: ${{ defaults.app_name }}-searxng
-            items:
-              - key: vn-etcvn-searxngvn-uwsgivn-ini
-                path: ./etc/searxng/uwsgi.ini
-
-
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: ${{ defaults.app_name }}-searxng
   labels:
+    app: ${{ defaults.app_name }}-searxng
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-searxng
 spec:
   ports:
-    - port: 8080
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
   selector:
     app: ${{ defaults.app_name }}-searxng
-
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: ${{ defaults.app_name }}
-data:
-  vn-homevn-perplexicavn-configvn-toml: |-
-    [GENERAL]
-    SIMILARITY_MEASURE = "cosine" # "cosine" or "dot"
-    KEEP_ALIVE = "5m" # How long to keep Ollama models loaded into memory. (Instead of using -1 use "-1m")
-    
-    [MODELS.OPENAI]
-    API_KEY = ""
-    
-    [MODELS.GROQ]
-    API_KEY = ""
-    
-    [MODELS.ANTHROPIC]
-    API_KEY = ""
-    
-    [MODELS.GEMINI]
-    API_KEY = ""
-    
-    [MODELS.CUSTOM_OPENAI]
-    API_KEY = "${{ inputs.OPENAI_API_KEY }}"
-    API_URL = "${{ inputs.OPENAI_API_URL }}"
-    MODEL_NAME = "${{ inputs.OPENAI_MODEL_NAME }}"
-    
-    [MODELS.OLLAMA]
-    API_URL = "" # Ollama API URL - http://host.docker.internal:11434
-    
-    [MODELS.DEEPSEEK]
-    API_KEY = ""
-    
-    [MODELS.LM_STUDIO]
-    API_URL = "" # LM Studio API URL - http://host.docker.internal:1234
-    
-    [API_ENDPOINTS]
-    SEARXNG = "http://${{ defaults.app_name }}-searxng:8080" # SearxNG API URL
-
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: itzcrazykns1337/perplexica:v1.10.2
+    originImageName: itzcrazykns1337/vane:slim-v1.12.2
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
+    docker-to-sealos.resource-override-source: 'Live Sealos validation on 2026-07-27: 128Mi, 256Mi, and 512Mi were OOMKilled during cold start or first-run search, while 100m, 200m, and 500m CPU tiers caused probe timeouts under search load. The final 1 CPU/1024Mi tier completed provider setup, cited web search, WolframAlpha calculation, and image/video search with zero restarts or business-period probe failures; cgroup peak was 853098496 of 1073741824 bytes.'
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   replicas: 1
   revisionHistoryLimit: 1
@@ -272,89 +228,115 @@ spec:
   selector:
     matchLabels:
       app: ${{ defaults.app_name }}
+  updateStrategy:
+    type: RollingUpdate
   template:
     metadata:
       labels:
         app: ${{ defaults.app_name }}
     spec:
-      terminationGracePeriodSeconds: 10
       automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: ${{ defaults.app_name }}
-          image: itzcrazykns1337/perplexica:v1.10.2
+          image: itzcrazykns1337/vane:slim-v1.12.2
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           env:
+            - name: OPENAI_API_KEY
+              value: ${{ inputs.OPENAI_API_KEY }}
+            - name: OPENAI_BASE_URL
+              value: ${{ inputs.OPENAI_BASE_URL }}
             - name: SEARXNG_API_URL
-              value: http://${{ defaults.app_name }}-searxng:8080
-          resources:
-            requests:
-              cpu: 50m
-              memory: 25Mi
-            limits:
-              cpu: 500m
-              memory: 256Mi
+              value: http://${{ defaults.app_name }}-searxng.${{ SEALOS_NAMESPACE }}.svc.cluster.local:8080
           ports:
             - name: http
-              protocol: TCP
               containerPort: 3000
-          imagePullPolicy: IfNotPresent
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 100m
+              memory: 102Mi
+            limits:
+              cpu: '1'
+              memory: 1024Mi
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           volumeMounts:
-            - name: vn-homevn-perplexicavn-data
-              mountPath: /home/perplexica/data
-            - name: vn-homevn-perplexicavn-uploads
-              mountPath: /home/perplexica/uploads
-            - name: vn-homevn-perplexicavn-configvn-toml
-              mountPath: /home/perplexica/config.toml
-              subPath: ./home/perplexica/config.toml
-      volumes:
-        - name: vn-homevn-perplexicavn-configvn-toml
-          configMap:
-            name: ${{ defaults.app_name }}
-            items:
-              - key: vn-homevn-perplexicavn-configvn-toml
-                path: ./home/perplexica/config.toml
+            - name: vn-homevn-vanevn-data
+              mountPath: /home/vane/data
+            - name: vn-homevn-vanevn-data
+              mountPath: /home/vane/node_modules/@huggingface/transformers/.cache
+              subPath: transformers-cache
   volumeClaimTemplates:
     - metadata:
         annotations:
-          path: /home/perplexica/data
+          path: /home/vane/data
           value: '1'
-        name: vn-homevn-perplexicavn-data
+        labels:
+          app: ${{ defaults.app_name }}
+          cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+        name: vn-homevn-vanevn-data
       spec:
         accessModes:
           - ReadWriteOnce
         resources:
           requests:
             storage: 1Gi
-    - metadata:
-        annotations:
-          path: /home/perplexica/uploads
-          value: '1'
-        name: vn-homevn-perplexicavn-uploads
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 1Gi
-
+        storageClassName: openebs-backup
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 3000
+    - name: http
+      port: 3000
+      targetPort: http
+      protocol: TCP
   selector:
     app: ${{ defaults.app_name }}
-
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
@@ -390,7 +372,6 @@ spec:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
-
 ---
 apiVersion: app.sealos.io/v1
 kind: App
@@ -402,6 +383,6 @@ spec:
   data:
     url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
   displayType: normal
-  icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/perplexica/logo.png"
-  name: "Perplexica"
+  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/perplexica/logo.png'
+  name: 'Vane (Perplexica)'
   type: link

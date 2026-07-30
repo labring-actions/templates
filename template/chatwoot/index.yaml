@@ -3,23 +3,24 @@ kind: Template
 metadata:
   name: chatwoot
 spec:
-  title: "Chatwoot"
-  description: "Open-source customer engagement platform with live chat, email, and social media integrations"
-  url: "https://www.chatwoot.com/help-center"
-  gitRepo: "https://github.com/chatwoot/chatwoot"
-  author: "Sealos"
-  readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/chatwoot/README.md'
-  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/chatwoot/logo.png'
+  title: Chatwoot
+  description: Open-source customer support platform with live chat, shared inboxes, contacts, automation, and omnichannel integrations.
+  url: https://www.chatwoot.com/
+  gitRepo: https://github.com/chatwoot/chatwoot
+  author: Sealos
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/chatwoot/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/chatwoot/logo.png
   screenshots:
-    - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/chatwoot/website-screenshot.webp'
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/chatwoot/website-screenshot.webp
   templateType: inline
   locale: en
   i18n:
     zh:
-      description: "开源客户互动平台，支持实时聊天、邮件和社交媒体集成"
-      readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/chatwoot/README_zh.md'
+      description: 开源客户支持平台，提供实时聊天、共享收件箱、联系人、自动化和全渠道集成。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/chatwoot/README_zh.md
   categories:
     - tool
+    - backend
   defaults:
     app_name:
       type: string
@@ -29,9 +30,31 @@ spec:
       value: chatwoot-${{ random(8) }}
     secret_key_base:
       type: string
-      value: ${{ random(64) }}
+      value: ${{ random(96) }}
+  inputs:
+    enable_account_signup:
+      description: Allow account registration from the Chatwoot login page. Disable it after creating the required accounts.
+      type: boolean
+      default: 'true'
+      required: false
+    enable_s3_storage:
+      description: Store attachments in a private Sealos ObjectStorageBucket. Clear stores attachments on shared persistent local storage.
+      type: boolean
+      default: 'false'
+      required: false
 ---
-# PostgreSQL ServiceAccount
+${{ if(inputs.enable_s3_storage === 'true') }}
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  policy: private
+---
+${{ endif() }}
+---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -40,9 +63,7 @@ metadata:
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
     app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
     app.kubernetes.io/managed-by: kbcli
-
 ---
-# PostgreSQL Role
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -53,14 +74,12 @@ metadata:
     app.kubernetes.io/managed-by: kbcli
 rules:
   - apiGroups:
-      - "*"
+      - '*'
     resources:
-      - "*"
+      - '*'
     verbs:
-      - "*"
-
+      - '*'
 ---
-# PostgreSQL RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
@@ -76,39 +95,31 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: ${{ defaults.app_name }}-pg
-
 ---
-# PostgreSQL Cluster
 apiVersion: apps.kubeblocks.io/v1alpha1
 kind: Cluster
 metadata:
   name: ${{ defaults.app_name }}-pg
-  labels:
-    clusterdefinition.kubeblocks.io/name: postgresql
-    clusterversion.kubeblocks.io/name: postgresql-14.8.0
-    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
   annotations:
     kubeblocks.io/extra-env: '{"KB_EMBEDDED_PGVECTOR":"on"}'
+  labels:
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
 spec:
-  clusterDefinitionRef: postgresql
-  clusterVersionRef: postgresql-14.8.0
-  terminationPolicy: Delete
   affinity:
     podAntiAffinity: Preferred
-    topologyKeys:
-      - kubernetes.io/hostname
-  tolerations:
-    - key: kb-data
-      operator: Equal
-      value: "true"
-      effect: NoSchedule
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
   componentSpecs:
-    - name: postgresql
-      componentDefRef: postgresql
+    - componentDefRef: postgresql
+      disableExporter: true
       enabledLogs:
         - running
-      disableExporter: true
-      serviceAccountName: ${{ defaults.app_name }}-pg
+      name: postgresql
       replicas: 1
       resources:
         limits:
@@ -117,6 +128,9 @@ spec:
         requests:
           cpu: 50m
           memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
       volumeClaimTemplates:
         - name: data
           spec:
@@ -125,125 +139,9 @@ spec:
             resources:
               requests:
                 storage: 1Gi
-
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
 ---
-# Chatwoot Database Initialization Job
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: ${{ defaults.app_name }}-init
-spec:
-  completions: 1
-  template:
-    spec:
-      containers:
-        - name: pgsql-init
-          image: postgres:14-alpine
-          env:
-            - name: PG_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: password
-            - name: PG_HOST
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: host
-            - name: PG_PORT
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: port
-            - name: PG_USERNAME
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: username
-            - name: DATABASE_URL
-              value: postgresql://$(PG_USERNAME):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)
-          command:
-            - /bin/sh
-            - -c
-            - |
-              until psql ${DATABASE_URL} -c 'CREATE DATABASE chatwoot;' &>/dev/null; do sleep 1; done
-        - name: chatwoot-init
-          image: chatwoot/chatwoot:v4.7.0
-          imagePullPolicy: IfNotPresent
-          env:
-            # PostgreSQL Connection
-            - name: POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: password
-            - name: POSTGRES_HOST
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: host
-            - name: POSTGRES_PORT
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-pg-conn-credential
-                  key: port
-            - name: POSTGRES_USERNAME
-              value: postgres
-            - name: POSTGRES_DATABASE
-              value: chatwoot
-            # Redis Connection
-            - name: REDIS_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}-redis-redis-account-default
-                  key: password
-            - name: REDIS_URL
-              value: redis://:$(REDIS_PASSWORD)@${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc:6379
-            # Application Configuration
-            - name: SECRET_KEY_BASE
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}
-                  key: SECRET_KEY_BASE
-            - name: FRONTEND_URL
-              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
-            - name: RAILS_ENV
-              value: production
-            - name: NODE_ENV
-              value: production
-            - name: INSTALLATION_ENV
-              value: docker
-            - name: RAILS_LOG_TO_STDOUT
-              value: "true"
-            - name: LOG_LEVEL
-              value: info
-            - name: RAILS_MAX_THREADS
-              value: "5"
-          command:
-            - /bin/sh
-            - -c
-            - |
-              set -e
-              echo "Running Chatwoot database preparation..."
-              until bundle exec rails db:chatwoot_prepare; do
-                echo "PostgreSQL not ready, waiting..."
-                sleep 2
-              done
-
-              echo "Database initialization completed successfully!"
-          resources:
-            limits:
-              cpu: 500m
-              memory: 512Mi
-            requests:
-              cpu: 50m
-              memory: 51Mi
-      restartPolicy: Never
-  backoffLimit: 3
-  ttlSecondsAfterFinished: 300
-
----
-# Redis ServiceAccount
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -252,9 +150,7 @@ metadata:
     sealos-db-provider-cr: ${{ defaults.app_name }}-redis
     app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
     app.kubernetes.io/managed-by: kbcli
-
 ---
-# Redis Role
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -265,14 +161,12 @@ metadata:
     app.kubernetes.io/managed-by: kbcli
 rules:
   - apiGroups:
-      - "*"
+      - '*'
     resources:
-      - "*"
+      - '*'
     verbs:
-      - "*"
-
+      - '*'
 ---
-# Redis RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
@@ -288,42 +182,55 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: ${{ defaults.app_name }}-redis
-
 ---
-# Redis Cluster
 apiVersion: apps.kubeblocks.io/v1alpha1
 kind: Cluster
 metadata:
-  finalizers:
-    - cluster.kubeblocks.io/finalizer
   name: ${{ defaults.app_name }}-redis
   labels:
-    clusterdefinition.kubeblocks.io/name: redis
     kb.io/database: redis-7.2.7
-    app.kubernetes.io/instance: ${{ defaults.app_name }}
-    app.kubernetes.io/version: 7.2.7
-    helm.sh/chart: redis-cluster-0.9.0
+    clusterdefinition.kubeblocks.io/name: redis
+    clusterversion.kubeblocks.io/name: redis-7.2.7
     sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/version: 7.2.7
 spec:
-  clusterDefinitionRef: redis
   affinity:
     podAntiAffinity: Preferred
+    tenancy: SharedNode
     topologyKeys:
       - kubernetes.io/hostname
-  tolerations:
-    - key: kb-data
-      operator: Equal
-      value: "true"
-      effect: NoSchedule
+  clusterDefinitionRef: redis
   componentSpecs:
-    - name: redis
-      componentDef: redis-7
+    - componentDef: redis-7
+      name: redis
+      replicas: 1
       enabledLogs:
         - running
       env:
         - name: CUSTOM_SENTINEL_MASTER_NAME
-      serviceVersion: 7.2.7
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
       serviceAccountName: ${{ defaults.app_name }}-redis
+      serviceVersion: 7.2.7
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+    - componentDef: redis-sentinel-7
+      name: redis-sentinel
       replicas: 1
       resources:
         limits:
@@ -332,24 +239,7 @@ spec:
         requests:
           cpu: 50m
           memory: 51Mi
-      volumeClaimTemplates:
-        - name: data
-          spec:
-            accessModes:
-              - ReadWriteOnce
-            resources:
-              requests:
-                storage: 1Gi
-    - componentDef: redis-sentinel-7
-      name: redis-sentinel
-      replicas: 1
-      resources:
-        limits:
-          cpu: 100m
-          memory: 100Mi
-        requests:
-          cpu: 10m
-          memory: 10Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
       serviceVersion: 7.2.7
       volumeClaimTemplates:
         - name: data
@@ -359,36 +249,242 @@ spec:
             resources:
               requests:
                 storage: 1Gi
+            storageClassName: openebs-backup
   terminationPolicy: Delete
   topology: replication
 ---
-# Application Secret
-apiVersion: v1
-kind: Secret
+apiVersion: batch/v1
+kind: Job
 metadata:
-  name: ${{ defaults.app_name }}
+  name: ${{ defaults.app_name }}-pg-init
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
-type: Opaque
-stringData:
-  SECRET_KEY_BASE: ${{ defaults.secret_key_base }}
-
+    app: ${{ defaults.app_name }}-pg-init
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-pg-init
+spec:
+  backoffLimit: 12
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: OnFailure
+      containers:
+        - name: pg-init
+          image: postgres:16.4-alpine3.20
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export PGPASSWORD="$PG_PASSWORD"
+              for i in $(seq 1 120); do
+                if pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 2
+              done
+              pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1
+              if ! psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$PG_DATABASE'" | grep -qx 1; then
+                createdb -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" "$PG_DATABASE"
+              fi
+              psql -v ON_ERROR_STOP=1 -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DATABASE" -c 'CREATE EXTENSION IF NOT EXISTS vector;'
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_DATABASE
+              value: chatwoot
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
 ---
-# Rails Application StatefulSet
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-migrate
+  annotations:
+    docker-to-sealos.resource-override-source: 'Live Sealos validation: Chatwoot v4.16.1 established the lower resource boundary (100m/128Mi OOMKilled; 100m/256Mi reached 268312576/268435456 bytes). Chatwoot v4.16.2 completed a clean idempotent db:chatwoot_prepare run at 100m/512Mi, peaking at 324952064/536870912 bytes with zero OOM events.'
+  labels:
+    app: ${{ defaults.app_name }}-migrate
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-migrate
+spec:
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: OnFailure
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:16.4-alpine3.20
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export PGPASSWORD="$PG_PASSWORD"
+              for i in $(seq 1 180); do
+                if psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DATABASE" -tAc "SELECT 1 FROM pg_extension WHERE extname='vector'" | grep -qx 1; then
+                  exit 0
+                fi
+                sleep 2
+              done
+              exit 1
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_DATABASE
+              value: chatwoot
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+        - name: wait-for-redis
+          image: redis:7.2.7-alpine
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              for i in $(seq 1 180); do
+                if redis-cli -h "$REDIS_HOST" -p 6379 ping 2>&1 | grep -Eq 'PONG|NOAUTH|Authentication required'; then
+                  exit 0
+                fi
+                sleep 2
+              done
+              exit 1
+          env:
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+      containers:
+        - name: migrate
+          image: chatwoot/chatwoot:v4.16.2
+          imagePullPolicy: IfNotPresent
+          args:
+            - bundle
+            - exec
+            - rails
+            - db:chatwoot_prepare
+          env:
+            - name: POSTGRES_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: POSTGRES_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: POSTGRES_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: POSTGRES_DATABASE
+              value: chatwoot
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
+            - name: REDIS_URL
+              value: redis://:$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)
+            - name: SECRET_KEY_BASE
+              value: ${{ defaults.secret_key_base }}
+            - name: FRONTEND_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: RAILS_ENV
+              value: production
+            - name: NODE_ENV
+              value: production
+            - name: INSTALLATION_ENV
+              value: docker
+            - name: RAILS_LOG_TO_STDOUT
+              value: 'true'
+            - name: LOG_LEVEL
+              value: info
+          resources:
+            limits:
+              cpu: 100m
+              memory: 512Mi
+            requests:
+              cpu: 10m
+              memory: 51Mi
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: chatwoot/chatwoot:v4.7.0
-    deploy.cloud.sealos.io/minReplicas: "1"
-    deploy.cloud.sealos.io/maxReplicas: "1"
+    originImageName: chatwoot/chatwoot:v4.16.2
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+    docker-to-sealos.runtime-source: https://raw.githubusercontent.com/chatwoot/chatwoot/v4.16.2/docker-compose.production.yaml
+    docker-to-sealos.resource-override-source: 'Live Sealos validation: Chatwoot v4.16.1 established the lower Web boundary (100m/256Mi OOMKilled; 100m/512Mi reached 513216512/536870912 bytes). Chatwoot v4.16.2 processed first registration, explicit login, a conversation reply, and a private S3 attachment workflow at 100m/1024Mi, peaking at 487964672/1073741824 bytes with zero OOM events.'
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
-  revisionHistoryLimit: 1
   replicas: 1
+  revisionHistoryLimit: 1
   serviceName: ${{ defaults.app_name }}
   selector:
     matchLabels:
@@ -399,17 +495,98 @@ spec:
         app: ${{ defaults.app_name }}
     spec:
       automountServiceAccountToken: false
-      containers:
-        - name: ${{ defaults.app_name }}
-          image: chatwoot/chatwoot:v4.7.0
+      initContainers:
+        - name: wait-for-schema
+          image: postgres:16.4-alpine3.20
           imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export PGPASSWORD="$PG_PASSWORD"
+              for i in $(seq 1 240); do
+                if psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DATABASE" -tAc "SELECT CASE WHEN to_regclass('public.schema_migrations') IS NOT NULL AND EXISTS (SELECT 1 FROM schema_migrations WHERE version='20260718000000') AND EXISTS (SELECT 1 FROM pg_extension WHERE extname='vector') THEN 1 ELSE 0 END" | grep -qx 1; then
+                  exit 0
+                fi
+                sleep 2
+              done
+              exit 1
           env:
-            # PostgreSQL Connection
-            - name: POSTGRES_PASSWORD
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
+            - name: PG_DATABASE
+              value: chatwoot
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+        - name: wait-for-redis
+          image: redis:7.2.7-alpine
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export REDISCLI_AUTH="$REDIS_PASSWORD"
+              for i in $(seq 1 180); do
+                if redis-cli -h "$REDIS_HOST" -p 6379 ping 2>/dev/null | grep -qx PONG; then
+                  exit 0
+                fi
+                sleep 2
+              done
+              exit 1
+          env:
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: chatwoot/chatwoot:v4.16.2
+          imagePullPolicy: IfNotPresent
+          command:
+            - docker/entrypoints/rails.sh
+          args:
+            - bundle
+            - exec
+            - rails
+            - s
+            - -p
+            - '3000'
+            - -b
+            - 0.0.0.0
+          env:
             - name: POSTGRES_HOST
               valueFrom:
                 secretKeyRef:
@@ -421,23 +598,30 @@ spec:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: port
             - name: POSTGRES_USERNAME
-              value: postgres
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
             - name: POSTGRES_DATABASE
               value: chatwoot
-            # Redis Connection
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
             - name: REDIS_URL
-              value: redis://:$(REDIS_PASSWORD)@${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc:6379
-            # Application Configuration
+              value: redis://:$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)
             - name: SECRET_KEY_BASE
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}
-                  key: SECRET_KEY_BASE
+              value: ${{ defaults.secret_key_base }}
             - name: FRONTEND_URL
               value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: RAILS_ENV
@@ -447,72 +631,137 @@ spec:
             - name: INSTALLATION_ENV
               value: docker
             - name: RAILS_LOG_TO_STDOUT
-              value: "true"
+              value: 'true'
             - name: LOG_LEVEL
               value: info
             - name: FORCE_SSL
-              value: "false"
+              value: 'false'
             - name: ENABLE_ACCOUNT_SIGNUP
-              value: "true"
+              value: ${{ inputs.enable_account_signup }}
             - name: RAILS_MAX_THREADS
-              value: "5"
+              value: '5'
             - name: MAILER_SENDER_EMAIL
-              value: "Chatwoot <accounts@chatwoot.com>"
+              value: Chatwoot <accounts@chatwoot.com>
+            ${{ if(inputs.enable_s3_storage === 'true') }}
+            - name: ACTIVE_STORAGE_SERVICE
+              value: s3_compatible
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            - name: STORAGE_ACCESS_KEY_ID
+              value: $(S3_ACCESS_KEY_ID)
+            - name: STORAGE_SECRET_ACCESS_KEY
+              value: $(S3_SECRET_ACCESS_KEY)
+            - name: STORAGE_BUCKET_NAME
+              value: $(S3_BUCKET)
+            - name: STORAGE_ENDPOINT
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+            - name: STORAGE_REGION
+              value: us-east-1
+            - name: STORAGE_FORCE_PATH_STYLE
+              value: 'true'
+            - name: DIRECT_UPLOADS_ENABLED
+              value: 'false'
+            ${{ else() }}
             - name: ACTIVE_STORAGE_SERVICE
               value: local
+            ${{ endif() }}
           ports:
-            - containerPort: 3000
+            - name: http
+              containerPort: 3000
               protocol: TCP
-          command:
-            - docker/entrypoints/rails.sh
-          args:
-            - bundle
-            - exec
-            - rails
-            - s
-            - -p
-            - "3000"
-            - -b
-            - 0.0.0.0
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - ruby
+                - -rjson
+                - -rnet/http
+                - -e
+                - 'status = JSON.parse(Net::HTTP.get(URI("http://127.0.0.1:3000/api"))); exit(status["queue_services"] == "ok" && status["data_services"] == "ok" ? 0 : 1)'
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           resources:
             limits:
-              cpu: 500m
-              memory: 512Mi
+              cpu: 100m
+              memory: 1024Mi
             requests:
-              cpu: 50m
-              memory: 51Mi
+              cpu: 10m
+              memory: 102Mi
+          ${{ if(inputs.enable_s3_storage === 'false') }}
           volumeMounts:
             - name: vn-appvn-storage
               mountPath: /app/storage
+          ${{ endif() }}
+  ${{ if(inputs.enable_s3_storage === 'false') }}
   volumeClaimTemplates:
     - metadata:
+        name: vn-appvn-storage
         annotations:
           path: /app/storage
-          value: "1"
-        name: vn-appvn-storage
+          value: '1'
+        labels:
+          app: ${{ defaults.app_name }}
+          cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
       spec:
         accessModes:
           - ReadWriteOnce
         resources:
           requests:
             storage: 1Gi
-
+        storageClassName: openebs-backup
+  ${{ endif() }}
 ---
-# Sidekiq Worker StatefulSet (shares storage with Rails)
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}-sidekiq
   annotations:
-    originImageName: chatwoot/chatwoot:v4.7.0
-    deploy.cloud.sealos.io/minReplicas: "1"
-    deploy.cloud.sealos.io/maxReplicas: "1"
+    originImageName: chatwoot/chatwoot:v4.16.2
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+    docker-to-sealos.runtime-source: https://raw.githubusercontent.com/chatwoot/chatwoot/v4.16.2/docker-compose.production.yaml
+    docker-to-sealos.resource-override-source: 'Live Sealos validation: Chatwoot v4.16.1 established the lower Sidekiq boundary (100m/256Mi OOMKilled after an incoming message; 100m/512Mi reached 536653824/536870912 bytes). Chatwoot v4.16.2 processed conversation and private S3 attachment jobs at 100m/1024Mi, peaking at 594132992/1073741824 bytes with zero OOM events.'
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-sidekiq
     app: ${{ defaults.app_name }}-sidekiq
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-sidekiq
 spec:
-  revisionHistoryLimit: 1
   replicas: 1
+  revisionHistoryLimit: 1
   serviceName: ${{ defaults.app_name }}-sidekiq
   selector:
     matchLabels:
@@ -523,17 +772,103 @@ spec:
         app: ${{ defaults.app_name }}-sidekiq
     spec:
       automountServiceAccountToken: false
-      containers:
-        - name: ${{ defaults.app_name }}-sidekiq
-          image: chatwoot/chatwoot:v4.7.0
+      ${{ if(inputs.enable_s3_storage === 'false') }}
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: ${{ defaults.app_name }}
+              topologyKey: kubernetes.io/hostname
+      ${{ endif() }}
+      initContainers:
+        - name: wait-for-schema
+          image: postgres:16.4-alpine3.20
           imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export PGPASSWORD="$PG_PASSWORD"
+              for i in $(seq 1 240); do
+                if psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DATABASE" -tAc "SELECT CASE WHEN to_regclass('public.schema_migrations') IS NOT NULL AND EXISTS (SELECT 1 FROM schema_migrations WHERE version='20260718000000') AND EXISTS (SELECT 1 FROM pg_extension WHERE extname='vector') THEN 1 ELSE 0 END" | grep -qx 1; then
+                  exit 0
+                fi
+                sleep 2
+              done
+              exit 1
           env:
-            # PostgreSQL Connection
-            - name: POSTGRES_PASSWORD
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
+            - name: PG_DATABASE
+              value: chatwoot
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+        - name: wait-for-redis
+          image: redis:7.2.7-alpine
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export REDISCLI_AUTH="$REDIS_PASSWORD"
+              for i in $(seq 1 180); do
+                if redis-cli -h "$REDIS_HOST" -p 6379 ping 2>/dev/null | grep -qx PONG; then
+                  exit 0
+                fi
+                sleep 2
+              done
+              exit 1
+          env:
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+      containers:
+        - name: ${{ defaults.app_name }}-sidekiq
+          image: chatwoot/chatwoot:v4.16.2
+          imagePullPolicy: IfNotPresent
+          command:
+            - bundle
+          args:
+            - exec
+            - sidekiq
+            - -C
+            - config/sidekiq.yml
+          env:
             - name: POSTGRES_HOST
               valueFrom:
                 secretKeyRef:
@@ -545,23 +880,30 @@ spec:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: port
             - name: POSTGRES_USERNAME
-              value: postgres
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
             - name: POSTGRES_DATABASE
               value: chatwoot
-            # Redis Connection
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
             - name: REDIS_URL
-              value: redis://:$(REDIS_PASSWORD)@${{ defaults.app_name }}-redis-redis.${{ SEALOS_NAMESPACE }}.svc:6379
-            # Application Configuration
+              value: redis://:$(REDIS_PASSWORD)@$(REDIS_HOST):$(REDIS_PORT)
             - name: SECRET_KEY_BASE
-              valueFrom:
-                secretKeyRef:
-                  name: ${{ defaults.app_name }}
-                  key: SECRET_KEY_BASE
+              value: ${{ defaults.secret_key_base }}
             - name: FRONTEND_URL
               value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: RAILS_ENV
@@ -571,62 +913,122 @@ spec:
             - name: INSTALLATION_ENV
               value: docker
             - name: RAILS_LOG_TO_STDOUT
-              value: "true"
+              value: 'true'
             - name: LOG_LEVEL
               value: info
             - name: RAILS_MAX_THREADS
-              value: "5"
-          command:
-            - bundle
-            - exec
-            - sidekiq
-            - -C
-            - config/sidekiq.yml
+              value: '5'
+            ${{ if(inputs.enable_s3_storage === 'true') }}
+            - name: ACTIVE_STORAGE_SERVICE
+              value: s3_compatible
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            - name: STORAGE_ACCESS_KEY_ID
+              value: $(S3_ACCESS_KEY_ID)
+            - name: STORAGE_SECRET_ACCESS_KEY
+              value: $(S3_SECRET_ACCESS_KEY)
+            - name: STORAGE_BUCKET_NAME
+              value: $(S3_BUCKET)
+            - name: STORAGE_ENDPOINT
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+            - name: STORAGE_REGION
+              value: us-east-1
+            - name: STORAGE_FORCE_PATH_STYLE
+              value: 'true'
+            - name: DIRECT_UPLOADS_ENABLED
+              value: 'false'
+            ${{ else() }}
+            - name: ACTIVE_STORAGE_SERVICE
+              value: local
+            ${{ endif() }}
+          startupProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -ec
+                - kill -0 1
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -ec
+                - kill -0 1
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -ec
+                - kill -0 1
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 6
           resources:
             limits:
-              cpu: 500m
-              memory: 512Mi
+              cpu: 100m
+              memory: 1024Mi
             requests:
-              cpu: 50m
-              memory: 51Mi
+              cpu: 10m
+              memory: 102Mi
+          ${{ if(inputs.enable_s3_storage === 'false') }}
           volumeMounts:
-            - name: vn-appvn-storage
+            - name: chatwoot-storage
               mountPath: /app/storage
-  volumeClaimTemplates:
-    - metadata:
-        annotations:
-          path: /app/storage
-          value: "1"
-        name: vn-appvn-storage
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 1Gi
-
+          ${{ endif() }}
+      ${{ if(inputs.enable_s3_storage === 'false') }}
+      volumes:
+        - name: chatwoot-storage
+          persistentVolumeClaim:
+            claimName: vn-appvn-storage-${{ defaults.app_name }}-0
+      ${{ endif() }}
 ---
-# Rails Service
 apiVersion: v1
 kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 3000
+    - name: http
+      port: 3000
       targetPort: 3000
+      protocol: TCP
   selector:
     app: ${{ defaults.app_name }}
-
 ---
-# Rails Ingress
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
@@ -635,12 +1037,12 @@ metadata:
     nginx.ingress.kubernetes.io/server-snippet: |
       client_header_buffer_size 64k;
       large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
     nginx.ingress.kubernetes.io/configuration-snippet: |
       if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
         expires 30d;
@@ -662,7 +1064,6 @@ spec:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
-
 ---
 apiVersion: app.sealos.io/v1
 kind: App
@@ -674,6 +1075,6 @@ spec:
   data:
     url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
   displayType: normal
-  icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/chatwoot/logo.png"
-  name: "Chatwoot"
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/chatwoot/logo.png
+  name: Chatwoot
   type: link
