@@ -54,7 +54,15 @@ Before upgrading:
 
 ## Backup and deletion
 
-Application state is stored in the managed MySQL database. Back up the database before deleting the application or its database cluster. Removing the template resources deletes the managed MySQL cluster and its persistent data according to the template's deletion policy.
+Application state is stored in the managed MySQL database. Back up the database before deleting the installation.
+
+In the Sealos console, verify that all three resources created by this template are removed:
+
+1. the main BailingHub application;
+2. the internal demo-business application;
+3. the managed MySQL database cluster.
+
+Deleting only the main application does not guarantee that the separately managed database has been removed. Confirm the database deletion explicitly to avoid retaining persistent data and incurring continued resource charges.
 
 ## Links
 
