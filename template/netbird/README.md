@@ -44,10 +44,10 @@ The Sealos template includes the required runtime components for a self-hosted N
 
 This template deploys four NetBird services:
 
-- **Dashboard (`netbirdio/dashboard:v2.38.1`)**: Web UI for administration, onboarding, and day-to-day operations.
-- **Management (`netbirdio/management:0.71.4`)**: Core HTTP/gRPC API, embedded IdP, policy engine, and account state.
-- **Signal (`netbirdio/signal:0.71.4`)**: Signaling service used by peers to coordinate connectivity.
-- **Relay (`netbirdio/relay:0.71.4`)**: Relay endpoint for constrained network paths.
+- **Dashboard (`netbirdio/dashboard:v2.90.8`)**: Web UI for administration, onboarding, and day-to-day operations.
+- **Management (`netbirdio/management:0.76.0`)**: Core HTTP/gRPC API, embedded IdP, policy engine, and account state.
+- **Signal (`netbirdio/signal:0.76.0`)**: Signaling service used by peers to coordinate connectivity.
+- **Relay (`netbirdio/relay:0.76.0`)**: Relay endpoint for constrained network paths.
 
 **Ingress and Domain Routing:**
 
@@ -62,10 +62,14 @@ This template deploys four NetBird services:
 
 **Configuration:**
 
-- Management stores control-plane and embedded IdP data in SQLite under `/var/lib/netbird`.
-- Management and Signal use `100Mi` persistent volumes.
+- The default mode stores Management control-plane data in SQLite under `/var/lib/netbird`.
+- The optional PostgreSQL mode provisions a managed PostgreSQL 16.4 cluster for Management control-plane data.
+- The embedded IdP and activity event store keep their SQLite databases on the Management persistent volume in both database modes.
+- Management and Signal each use a `1Gi` persistent volume.
 - Relay is exposed through the primary HTTPS ingress path as `rels://<app-host>:443/relay`.
 - Optional external TURN settings can be passed through `external_turn_host`, `external_turn_username`, and `external_turn_password`.
+- Dashboard, Signal, and Relay use verified personal low-load limits of `100m` CPU and `128Mi` memory, with requests of `10m` CPU and `12Mi` memory.
+- Management uses a verified cold-start limit of `100m` CPU and `256Mi` memory, with requests of `10m` CPU and `25Mi` memory.
 
 **License Information:**
 
@@ -88,6 +92,7 @@ Deploy NetBird on Sealos and focus on secure private networking instead of infra
 
 1. Open the [NetBird template](https://sealos.io/products/app-store/netbird) and click **Deploy Now**.
 2. Configure the parameters in the popup dialog:
+   - `use_postgresql`: select managed PostgreSQL for the Management store, or keep the default SQLite mode.
    - `disable_default_policy`: choose whether to disable NetBird's default all-to-all policy.
    - `external_turn_host`: optional external TURN endpoint such as `turn.example.com:3478`.
    - `external_turn_username` and `external_turn_password`: required only when an external TURN endpoint is configured.
@@ -109,6 +114,7 @@ After deployment, you can configure NetBird through:
 
 ### Input Parameters
 
+- **`use_postgresql`**: Provision managed PostgreSQL 16.4 for the Management store (`true` or `false`; default `false`).
 - **`disable_default_policy`**: Disable the default all-to-all policy (`true` or `false`).
 - **`external_turn_host`**: Optional external TURN host and port.
 - **`external_turn_username`**: TURN username, required when `external_turn_host` is set.
@@ -116,7 +122,7 @@ After deployment, you can configure NetBird through:
 
 ### First-Run Login and Registration
 
-NetBird uses embedded IdP local users in this template. There is no preconfigured default administrator. On the first visit, open the application URL and complete the `/setup` wizard to create the initial owner account. The setup wizard is available only while `GET /api/instance` reports `setup_required: true`.
+NetBird uses embedded IdP local users in this template. The first visit opens the `/setup` wizard, where you create the initial owner with an email address, name, and password. The wizard is available while `GET /api/instance` reports `setup_required: true`. Later visits open the regular sign-in page.
 
 For automated setup, call the setup API once after deployment:
 
@@ -135,7 +141,7 @@ To scale the deployment:
 3. Adjust CPU limits, memory, storage, or replica settings.
 4. Apply the changes and monitor rollout status.
 
-For small teams, keep one replica per component unless you have reviewed NetBird's state and ingress requirements for your target topology.
+This template preserves the existing split-service topology with one Dashboard, Management, Signal, and Relay replica. Review NetBird's state-store and ingress requirements before changing replica counts.
 
 ## Troubleshooting
 
@@ -150,6 +156,12 @@ For small teams, keep one replica per component unless you have reviewed NetBird
 - Verify that the Management pod is running.
 - Confirm `https://<your-netbird-url>/oauth2/.well-known/openid-configuration` returns the embedded IdP metadata.
 - Make sure the owner password has not been changed or lost.
+
+### PostgreSQL mode does not become ready
+
+- Check the managed PostgreSQL Cluster and the `<app-name>-pg-init` Job in Canvas.
+- Confirm the Management init container can connect to the generated `netbird` database.
+- Keep the Management persistent volume in backups because the embedded IdP and activity event store keep their databases there.
 
 ### Peers cannot connect reliably
 

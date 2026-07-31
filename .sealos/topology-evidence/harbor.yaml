@@ -1,0 +1,89 @@
+apiVersion: docker-to-sealos/v1
+kind: TopologyEvidence
+metadata:
+  name: harbor-topology
+spec:
+  appName: harbor
+  source: template/harbor/index.yaml@b4e7ded8c206221cdac48892a8221960695d4d39
+  resources:
+    - kind: ObjectStorageBucket
+      name: ${{ defaults.app_name }}
+      when: inputs.enable_s3_storage === 'true'
+    - kind: Cluster
+      name: ${{ defaults.app_name }}-pg
+      when: always
+      components:
+        - name: postgresql
+          replicas: 1
+    - kind: Cluster
+      name: ${{ defaults.app_name }}-redis
+      when: always
+      components:
+        - name: redis
+          replicas: 1
+        - name: redis-sentinel
+          replicas: 1
+    - kind: Deployment
+      name: ${{ defaults.app_name }}-core
+      when: always
+      replicas: 1
+    - kind: StatefulSet
+      name: ${{ defaults.app_name }}-jobservice
+      when: always
+      replicas: 1
+    - kind: Deployment
+      name: ${{ defaults.app_name }}-portal
+      when: always
+      replicas: 1
+    - kind: StatefulSet
+      name: ${{ defaults.app_name }}-registry
+      when: always
+      replicas: 1
+    - kind: Deployment
+      name: ${{ defaults.app_name }}-registryctl
+      when: always
+      replicas: 1
+    - kind: StatefulSet
+      name: ${{ defaults.app_name }}-trivy
+      when: always
+      replicas: 1
+---
+apiVersion: docker-to-sealos/v1
+kind: RuntimeBundleEvidence
+metadata:
+  name: harbor-runtime-bundle
+spec:
+  appName: harbor
+  source: https://github.com/goharbor/harbor/releases/tag/v2.15.2
+  images:
+    - goharbor/harbor-core:v2.15.2
+    - goharbor/harbor-jobservice:v2.15.2
+    - goharbor/harbor-portal:v2.15.2
+    - goharbor/registry-photon:v2.15.2
+    - goharbor/harbor-registryctl:v2.15.2
+    - goharbor/trivy-adapter-photon:v2.15.2
+  components:
+    - ${{ defaults.app_name }}-core
+    - ${{ defaults.app_name }}-jobservice
+    - ${{ defaults.app_name }}-portal
+    - ${{ defaults.app_name }}-registry
+    - ${{ defaults.app_name }}-registryctl
+    - ${{ defaults.app_name }}-trivy
+  routes:
+    - path: /
+      service: ${{ defaults.app_name }}-portal
+    - path: /api/
+      service: ${{ defaults.app_name }}-core
+    - path: /service/
+      service: ${{ defaults.app_name }}-core
+    - path: /v2/
+      service: ${{ defaults.app_name }}-core
+    - path: /c/
+      service: ${{ defaults.app_name }}-core
+  env:
+    - CORE_SECRET
+    - JOBSERVICE_SECRET
+    - REDIS_HOST
+    - REDIS_PASSWORD
+    - REGISTRY_HTTP_SECRET
+    - SCANNER_API_SERVER_ADDR

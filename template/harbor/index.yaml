@@ -46,11 +46,16 @@ spec:
       value: ${{ random(32) }}
   inputs:
     harbor_admin_password:
-      description: Harbor admin password for initial login.
+      description: Initial password for the Harbor admin account. Use at least 8 characters.
       type: string
-      default: ''
       required: true
+    enable_s3_storage:
+      description: Store OCI artifacts in a private Sealos ObjectStorageBucket. Disable this option to use the Registry persistent volume.
+      type: boolean
+      default: 'true'
+      required: false
 ---
+${{ if(inputs.enable_s3_storage === 'true') }}
 apiVersion: objectstorage.sealos.io/v1
 kind: ObjectStorageBucket
 metadata:
@@ -59,6 +64,10 @@ metadata:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   policy: private
+${{ else() }}
+# Local filesystem storage is provided by the registry PVC branch.
+---
+${{ endif() }}
 
 ---
 apiVersion: v1
@@ -111,6 +120,8 @@ metadata:
   name: ${{ defaults.app_name }}-pg
   labels:
     kb.io/database: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
     clusterdefinition.kubeblocks.io/name: postgresql
     clusterversion.kubeblocks.io/name: postgresql-16.4.0
 spec:
@@ -252,6 +263,7 @@ metadata:
   name: ${{ defaults.app_name }}-redis
   labels:
     kb.io/database: redis-7.2.7
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
     app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
     app.kubernetes.io/version: 7.2.7
     clusterversion.kubeblocks.io/name: redis-7.2.7
@@ -318,18 +330,11 @@ spec:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: ${{ defaults.app_name }}-core
+  name: ${{ defaults.app_name }}-core-env
   labels:
-    app: ${{ defaults.app_name }}-core
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-core
+    app: ${{ defaults.app_name }}-core-env
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-core-env
 data:
-  app.conf: |
-    appname = Harbor
-    runmode = prod
-    enablegzip = true
-
-    [prod]
-    httpport = 8080
   PORT: '8080'
   DATABASE_TYPE: postgresql
   POSTGRESQL_DATABASE: registry
@@ -344,7 +349,6 @@ data:
   CORE_LOCAL_URL: http://127.0.0.1:8080
   WITH_TRIVY: 'true'
   TRIVY_ADAPTER_URL: http://${{ defaults.app_name }}-trivy.${{ SEALOS_NAMESPACE }}.svc.cluster.local:8080
-  REGISTRY_STORAGE_PROVIDER_NAME: s3
   LOG_LEVEL: info
   CONFIG_PATH: /etc/core/app.conf
   CHART_CACHE_DRIVER: redis
@@ -367,41 +371,47 @@ data:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: ${{ defaults.app_name }}-core-keys
+  name: ${{ defaults.app_name }}-core
   labels:
-    app: ${{ defaults.app_name }}-core-keys
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-core-keys
+    app: ${{ defaults.app_name }}-core
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-core
 data:
-  key: ${{ defaults.secret_key }}
-  tls.key: |
-    -----BEGIN PRIVATE KEY-----
-    MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDHbOXQ3EMsr/Kx
-    lB154FRthyCCWI3RT5LQPbmhJpyL/1Qzy3lioPA05Iy6N1N7KV4HKPXUBGA/0IwP
-    KvFUsBv0/7x2ayTlSixkivOfEdIK6tt4cYMh6AzIbE3J9EIHMZdt+KV10V2kIhnJ
-    +Cv05I93l08pezQZLXBhfa2lkVsS2jINj53kGqud83EwnyhenOgKTaEfOmaaBYJh
-    yd5ACZkdKgghYMOEBKyq3yTnl1AltcuDs/XysFw1uJKSEF1CKpXk8iuCwVpSwTdx
-    asP9oZsnE2XPvse3ZpLXECz6f5iKK6hqedyxLy0n/BjyuxuhCoDdtkCfo0FU/8fW
-    oSFeWkoPAgMBAAECggEASlOyC/gsKTmisMDNg6Eylmfom+w5XyvTQj3fM8raSetu
-    DKfno/Tr0irksHryaFLwsqZ3iP/gh6hIq1aL/85rfRLbwR8J71OH3ClVx5GywVLr
-    XaahA0Ajk4eaLo0VFu1KzTgBIzpXNldnWTlf2LRfLGl+na1Hq6Kd4hgfYjgcw5da
-    eZNiSUI64SCbAo9Ul5YZgnOM3xnRSvLFi8MhMw0rHGr8EbFb1h8GZ9i5SdMBdwL9
-    BppRVhGrYl2oQsQoJrNE3GOkiJiATRgHmLz368woEnWLbQk2PHuQEnZ6gzYJyo0+
-    MzXWA1/newofp3ejfgtUMTDjfcKpGR+LwUokOVKdsQKBgQDyoU4Zjh5fYt0jQ4nO
-    tGgxLP8fPvTjNygyiswviNYvbdXxHI83s9WjW3rGsg5x+GFDMM1m//G4gJR025K0
-    yE5eyrBv/8Ng/EowoJq5jJSo/fI8IT9vmSGqrA3u/cNwNldzYHxPPB+TotiktncY
-    LZDkVBpnuINcmLtafAkL6muXiwKBgQDSah6OE32wtHVSBbWWS9S9/Ewal9J5QP2L
-    jYkbVcTcg9qSg/nBOl1QNoUpFmdxLaPOwgtN3AMazySiLwOHM5VJcn+ZuDkN7QwY
-    j9OpAW5VV8sY1/kdqROpvrzvF59eAMpeU/Ze+TOfhqw9cmqCX/jy3x6TWLZNdc9J
-    UA04cV3IDQKBgQCY/xpuhu2kHIVxrS8DB0QEbmlZ3KszdB6G8HsdJl5ZfhtAdU/i
-    QiZfYlojXTg6qfM7GVUMtCxKudnjbmouUXkJ0So9FbywNabazwuCIaHEho3vWM/V
-    oWxXYTNQFvjck4fFm3wHwtPuluuhweWLe4A4Wshjyzgadbz+q+RQfTvnTQKBgDGr
-    6YCiq0Y+o390Z5SOXC9pUtHoS0BijjgWdmpkie+AlOWHkDsEOykHZdH4Pv0hyAy0
-    FBUSPg1jHwPGU2/kRnarN+Ii8h0Oe4+EzHOWKeStr/0yZtWQp1qn81QB4JZBW4R/
-    D6cF7yDWmux6iRgz7cHv1/jytT599CwbYLOVV401AoGAZe5Xv+YZD5KZfqKgG8m9
-    u4dpMijHx3bsdVQ9ZxVChX8DZwbkgPyayE/uOmljbd5nXi/8cOO7JTV5EqOnqckU
-    ktDx8LvCIKjmi/6XzNRAb7FG0443H7E0dcxVon9cD2phyeq7OOoxF5gZHVofeMfL
-    aGyiV2izp/lA4vK7/VCBlKA=
-    -----END PRIVATE KEY-----
+  vn-etcvn-corevn-appvn-conf: |
+    appname = Harbor
+    runmode = prod
+    enablegzip = true
+
+    [prod]
+    httpport = 8080
+  vn-etcvn-corevn-key: ${{ defaults.secret_key }}
+  vn-etcvn-corevn-privatevn-keyvn-pem: |
+    -----BEGIN RSA PRIVATE KEY-----
+    MIIEowIBAAKCAQEAx2zl0NxDLK/ysZQdeeBUbYcggliN0U+S0D25oSaci/9UM8t5
+    YqDwNOSMujdTeyleByj11ARgP9CMDyrxVLAb9P+8dmsk5UosZIrznxHSCurbeHGD
+    IegMyGxNyfRCBzGXbfilddFdpCIZyfgr9OSPd5dPKXs0GS1wYX2tpZFbEtoyDY+d
+    5BqrnfNxMJ8oXpzoCk2hHzpmmgWCYcneQAmZHSoIIWDDhASsqt8k55dQJbXLg7P1
+    8rBcNbiSkhBdQiqV5PIrgsFaUsE3cWrD/aGbJxNlz77Ht2aS1xAs+n+Yiiuoannc
+    sS8tJ/wY8rsboQqA3bZAn6NBVP/H1qEhXlpKDwIDAQABAoIBAEpTsgv4LCk5orDA
+    zYOhMpZn6JvsOV8r00I93zPK2knrbgyn56P069Iq5LB68mhS8LKmd4j/4IeoSKtW
+    i//Oa30S28EfCe9Th9wpVceRssFS612moQNAI5OHmi6NFRbtSs04ASM6VzZXZ1k5
+    X9i0Xyxpfp2tR6uineIYH2I4HMOXWnmTYklCOuEgmwKPVJeWGYJzjN8Z0UryxYvD
+    ITMNKxxq/BGxW9YfBmfYuUnTAXcC/QaaUVYRq2JdqELEKCazRNxjpIiYgE0YB5i8
+    9+vMKBJ1i20JNjx7kBJ2eoM2CcqNPjM11gNf53sKH6d3o34LVDEw433CqRkfi8FK
+    JDlSnbECgYEA8qFOGY4eX2LdI0OJzrRoMSz/Hz704zcoMorML4jWL23V8RyPN7PV
+    o1t6xrIOcfhhQzDNZv/xuICUdNuStMhOXsqwb//DYPxKMKCauYyUqP3yPCE/b5kh
+    qqwN7v3DcDZXc2B8Tzwfk6LYpLZ3GC2Q5FQaZ7iDXJi7WnwJC+prl4sCgYEA0moe
+    jhN9sLR1UgW1lkvUvfxMGpfSeUD9i42JG1XE3IPakoP5wTpdUDaFKRZncS2jzsIL
+    TdwDGs8koi8DhzOVSXJ/mbg5De0MGI/TqQFuVVfLGNf5HakTqb687xefXgDKXlP2
+    Xvkzn4asPXJqgl/48t8ek1i2TXXPSVANOHFdyA0CgYEAmP8abobtpByFca0vAwdE
+    BG5pWdyrM3QehvB7HSZeWX4bQHVP4kImX2JaI104OqnzOxlVDLQsSrnZ425qLlF5
+    CdEqPRW8sDWm2s8LgiGhxIaN71jP1aFsV2EzUBb43JOHxZt8B8LT7pbrocHli3uA
+    OFrIY8s4GnW8/qvkUH07500CgYAxq+mAoqtGPqN/dGeUjlwvaVLR6EtAYo44FnZq
+    ZInvgJTlh5A7BDspB2XR+D79IcgMtBQVEj4NYx8DxlNv5EZ2qzfiIvIdDnuPhMxz
+    linkra/9MmbVkKdap/NUAeCWQVuEfw+nBe8g1prseokYM+3B79f48rU+ffQsG2Cz
+    lVeNNQKBgGXuV7/mGQ+SmX6ioBvJvbuHaTIox8d27HVUPWcVQoV/A2cG5ID8mshP
+    7jppY23eZ14v/HDjuyU1eRKjp6nJFJLQ8fC7wiCo5ov+l8zUQG+xRtOONx+xNHXM
+    VaJ/XA9qYcnquzjqMReYGR1aH3jHy2hsoldos6f5QOLyu/1QgZSg
+    -----END RSA PRIVATE KEY-----
 
 ---
 apiVersion: v1
@@ -417,6 +427,7 @@ data:
   REGISTRY_URL: http://${{ defaults.app_name }}-registry.${{ SEALOS_NAMESPACE }}.svc.cluster.local:5000
   REGISTRY_CONTROLLER_URL: http://${{ defaults.app_name }}-registryctl.${{ SEALOS_NAMESPACE }}.svc.cluster.local:8080
   REGISTRY_CREDENTIAL_USERNAME: harbor_registry_user
+  REGISTRY_HTTP_CLIENT_TIMEOUT: '30'
   JOBSERVICE_WEBHOOK_JOB_MAX_RETRY: '3'
   JOBSERVICE_WEBHOOK_JOB_HTTP_CLIENT_TIMEOUT: '3'
   LOG_LEVEL: info
@@ -435,7 +446,7 @@ metadata:
     app: ${{ defaults.app_name }}-jobservice
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-jobservice
 data:
-  config.yml: |
+  vn-etcvn-jobservicevn-configvn-yml: |
     protocol: "http"
     port: 8080
     worker_pool:
@@ -474,7 +485,7 @@ metadata:
     app: ${{ defaults.app_name }}-portal
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-portal
 data:
-  nginx.conf: |
+  vn-etcvn-nginxvn-nginxvn-conf: |
     worker_processes auto;
     pid /tmp/nginx.pid;
     events {
@@ -518,18 +529,13 @@ metadata:
     app: ${{ defaults.app_name }}-registry
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-registry
 data:
-  config.yml: |
+  vn-etcvn-registryvn-configvn-yml: |
     version: 0.1
     log:
       level: info
       fields:
         service: registry
     storage:
-      s3:
-        region: us-west-1
-        bucket: placeholder
-        regionendpoint: http://127.0.0.1:9000
-        v4auth: true
       cache:
         layerinfo: redis
       maintenance:
@@ -569,6 +575,8 @@ data:
     compatibility:
       schema1:
         enabled: true
+  vn-etcvn-registryvn-passwd: |
+    harbor_registry_user:$2a$10$E/ql1tWtk7mXJdoeI/2QcOspqNLdO10mrOtpTf.MdccH3Na.6Rja6
 
 ---
 apiVersion: v1
@@ -579,22 +587,58 @@ metadata:
     app: ${{ defaults.app_name }}-registryctl
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-registryctl
 data:
-  config.yml: |
+  vn-etcvn-registryvn-configvn-yml: |
+    version: 0.1
+    log:
+      level: info
+      fields:
+        service: registry
+    storage:
+      cache:
+        layerinfo: redis
+      maintenance:
+        uploadpurging:
+          enabled: true
+          age: 168h
+          interval: 24h
+          dryrun: false
+      delete:
+        enabled: true
+      redirect:
+        disable: false
+    redis:
+      addr: localhost:6379
+      db: 2
+      password: placeholder
+      readtimeout: 10s
+      writetimeout: 10s
+      dialtimeout: 10s
+      enableTLS: false
+      pool:
+        maxidle: 100
+        maxactive: 500
+        idletimeout: 60s
+    http:
+      addr: :5000
+      relativeurls: false
+      secret: placeholder
+      debug:
+        addr: localhost:5001
+    auth:
+      htpasswd:
+        realm: harbor-registry-basic-realm
+        path: /etc/registry/passwd
+    validation:
+      disabled: true
+    compatibility:
+      schema1:
+        enabled: true
+  vn-etcvn-registryctlvn-configvn-yml: |
     protocol: "http"
     port: 8080
     log_level: info
     registry_config: "/etc/registry/config.yml"
-
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: ${{ defaults.app_name }}-registry-htpasswd
-  labels:
-    app: ${{ defaults.app_name }}-registry-htpasswd
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-registry-htpasswd
-data:
-  passwd: |
+  vn-etcvn-registryvn-passwd: |
     harbor_registry_user:$2a$10$E/ql1tWtk7mXJdoeI/2QcOspqNLdO10mrOtpTf.MdccH3Na.6Rja6
 
 ---
@@ -603,7 +647,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-core
   annotations:
-    originImageName: goharbor/harbor-core:v2.14.4
+    originImageName: goharbor/harbor-core:v2.15.2
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -621,15 +665,26 @@ spec:
         app: ${{ defaults.app_name }}-core
     spec:
       automountServiceAccountToken: false
-      imagePullSecrets:
-        - name: ${{ defaults.app_name }}
+      terminationGracePeriodSeconds: 120
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10000
+        runAsGroup: 10000
+        fsGroup: 10000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: ${{ defaults.app_name }}-core
-          image: goharbor/harbor-core:v2.14.4
+          image: goharbor/harbor-core:v2.15.2
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           envFrom:
             - configMapRef:
-                name: ${{ defaults.app_name }}-core
+                name: ${{ defaults.app_name }}-core-env
           env:
             - name: POSTGRESQL_HOST
               valueFrom:
@@ -668,6 +723,13 @@ spec:
               value: ${{ defaults.core_secret }}
             - name: JOBSERVICE_SECRET
               value: ${{ defaults.jobservice_secret }}
+            ${{ if(inputs.enable_s3_storage === 'true') }}
+            - name: REGISTRY_STORAGE_PROVIDER_NAME
+              value: s3
+            ${{ else() }}
+            - name: REGISTRY_STORAGE_PROVIDER_NAME
+              value: filesystem
+            ${{ endif() }}
           ports:
             - name: http
               containerPort: 8080
@@ -695,40 +757,28 @@ spec:
             periodSeconds: 10
           resources:
             limits:
-              cpu: 200m
-              memory: 256Mi
+              cpu: 100m
+              memory: 128Mi
             requests:
-              cpu: 20m
-              memory: 25Mi
+              cpu: 10m
+              memory: 12Mi
           volumeMounts:
-            - name: core-config
+            - name: ${{ defaults.app_name }}-core-cm
               mountPath: /etc/core/app.conf
-              subPath: app.conf
-            - name: core-secret-key
+              subPath: vn-etcvn-corevn-appvn-conf
+              readOnly: true
+            - name: ${{ defaults.app_name }}-core-cm
               mountPath: /etc/core/key
-              subPath: key
-            - name: core-token-private-key
+              subPath: vn-etcvn-corevn-key
+              readOnly: true
+            - name: ${{ defaults.app_name }}-core-cm
               mountPath: /etc/core/private_key.pem
-              subPath: tls.key
+              subPath: vn-etcvn-corevn-privatevn-keyvn-pem
+              readOnly: true
       volumes:
-        - name: core-config
+        - name: ${{ defaults.app_name }}-core-cm
           configMap:
             name: ${{ defaults.app_name }}-core
-            items:
-              - key: app.conf
-                path: app.conf
-        - name: core-secret-key
-          configMap:
-            name: ${{ defaults.app_name }}-core-keys
-            items:
-              - key: key
-                path: key
-        - name: core-token-private-key
-          configMap:
-            name: ${{ defaults.app_name }}-core-keys
-            items:
-              - key: tls.key
-                path: tls.key
 
 ---
 apiVersion: apps/v1
@@ -736,7 +786,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}-jobservice
   annotations:
-    originImageName: goharbor/harbor-jobservice:v2.14.4
+    originImageName: goharbor/harbor-jobservice:v2.15.2
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -755,12 +805,50 @@ spec:
         app: ${{ defaults.app_name }}-jobservice
     spec:
       automountServiceAccountToken: false
-      imagePullSecrets:
-        - name: ${{ defaults.app_name }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10000
+        runAsGroup: 10000
+        fsGroup: 10000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: wait-for-core
+          image: busybox:1.37.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              for i in $(seq 1 300); do
+                if wget -q -O /dev/null "http://${{ defaults.app_name }}-core.${{ SEALOS_NAMESPACE }}.svc.cluster.local/api/v2.0/ping"; then
+                  exit 0
+                fi
+                sleep 2
+              done
+              exit 1
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
       containers:
         - name: ${{ defaults.app_name }}-jobservice
-          image: goharbor/harbor-jobservice:v2.14.4
+          image: goharbor/harbor-jobservice:v2.15.2
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           envFrom:
             - configMapRef:
                 name: ${{ defaults.app_name }}-jobservice-env
@@ -805,24 +893,28 @@ spec:
             periodSeconds: 10
           resources:
             limits:
-              cpu: 200m
-              memory: 256Mi
+              cpu: 100m
+              memory: 128Mi
             requests:
-              cpu: 20m
-              memory: 25Mi
+              cpu: 10m
+              memory: 12Mi
           volumeMounts:
-            - name: jobservice-config
+            - name: ${{ defaults.app_name }}-jobservice-cm
               mountPath: /etc/jobservice/config.yml
-              subPath: config.yml
-            - name: job-logs
+              subPath: vn-etcvn-jobservicevn-configvn-yml
+              readOnly: true
+            - name: vn-varvn-logvn-jobs
               mountPath: /var/log/jobs
       volumes:
-        - name: jobservice-config
+        - name: ${{ defaults.app_name }}-jobservice-cm
           configMap:
             name: ${{ defaults.app_name }}-jobservice
   volumeClaimTemplates:
     - metadata:
-        name: job-logs
+        name: vn-varvn-logvn-jobs
+        annotations:
+          path: /var/log/jobs
+          value: '1'
       spec:
         accessModes:
           - ReadWriteOnce
@@ -837,7 +929,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-portal
   annotations:
-    originImageName: goharbor/harbor-portal:v2.14.4
+    originImageName: goharbor/harbor-portal:v2.15.2
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -855,12 +947,21 @@ spec:
         app: ${{ defaults.app_name }}-portal
     spec:
       automountServiceAccountToken: false
-      imagePullSecrets:
-        - name: ${{ defaults.app_name }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10000
+        runAsGroup: 10000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: ${{ defaults.app_name }}-portal
-          image: goharbor/harbor-portal:v2.14.4
+          image: goharbor/harbor-portal:v2.15.2
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           ports:
             - name: http
               containerPort: 8080
@@ -880,17 +981,18 @@ spec:
             periodSeconds: 10
           resources:
             limits:
-              cpu: 200m
-              memory: 256Mi
+              cpu: 100m
+              memory: 128Mi
             requests:
-              cpu: 20m
-              memory: 25Mi
+              cpu: 10m
+              memory: 12Mi
           volumeMounts:
-            - name: portal-config
+            - name: ${{ defaults.app_name }}-portal-cm
               mountPath: /etc/nginx/nginx.conf
-              subPath: nginx.conf
+              subPath: vn-etcvn-nginxvn-nginxvn-conf
+              readOnly: true
       volumes:
-        - name: portal-config
+        - name: ${{ defaults.app_name }}-portal-cm
           configMap:
             name: ${{ defaults.app_name }}-portal
 
@@ -900,7 +1002,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}-registry
   annotations:
-    originImageName: goharbor/registry-photon:v2.14.4
+    originImageName: goharbor/registry-photon:v2.15.2
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -919,12 +1021,23 @@ spec:
         app: ${{ defaults.app_name }}-registry
     spec:
       automountServiceAccountToken: false
-      imagePullSecrets:
-        - name: ${{ defaults.app_name }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10000
+        runAsGroup: 10000
+        fsGroup: 10000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: ${{ defaults.app_name }}-registry
-          image: goharbor/registry-photon:v2.14.4
+          image: goharbor/registry-photon:v2.15.2
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           env:
             - name: REDIS_HOST
               value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
@@ -935,6 +1048,9 @@ spec:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-redis-redis-account-default
                   key: password
+            - name: REGISTRY_HTTP_SECRET
+              value: ${{ defaults.registry_http_secret }}
+            ${{ if(inputs.enable_s3_storage === 'true') }}
             - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
@@ -955,18 +1071,25 @@ spec:
                 secretKeyRef:
                   name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
                   key: bucket
-            - name: REGISTRY_HTTP_SECRET
-              value: ${{ defaults.registry_http_secret }}
             - name: REGISTRY_STORAGE_S3_ACCESSKEY
               value: $(S3_ACCESS_KEY_ID)
             - name: REGISTRY_STORAGE_S3_SECRETKEY
               value: $(S3_SECRET_ACCESS_KEY)
             - name: REGISTRY_STORAGE_S3_BUCKET
               value: $(S3_BUCKET)
+            - name: REGISTRY_STORAGE_S3_REGION
+              value: us-east-1
             - name: REGISTRY_STORAGE_S3_REGIONENDPOINT
-              value: http://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
             - name: REGISTRY_STORAGE_S3_V4AUTH
               value: 'true'
+            - name: REGISTRY_STORAGE_S3_FORCEPATHSTYLE
+              value: 'true'
+            ${{ else() }}
+            # Local filesystem storage.
+            - name: REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY
+              value: /storage
+            ${{ endif() }}
             - name: REGISTRY_REDIS_ADDR
               value: $(REDIS_HOST):$(REDIS_PORT)
             - name: REGISTRY_REDIS_PASSWORD
@@ -994,36 +1117,35 @@ spec:
             periodSeconds: 10
           resources:
             limits:
-              cpu: 200m
-              memory: 256Mi
+              cpu: 100m
+              memory: 128Mi
             requests:
-              cpu: 20m
-              memory: 25Mi
+              cpu: 10m
+              memory: 12Mi
           volumeMounts:
-            - name: registry-data
+            ${{ if(inputs.enable_s3_storage === 'false') }}
+            - name: vn-storage
               mountPath: /storage
-            - name: registry-htpasswd
+            ${{ endif() }}
+            - name: ${{ defaults.app_name }}-registry-cm
               mountPath: /etc/registry/passwd
-              subPath: passwd
-            - name: registry-config
+              subPath: vn-etcvn-registryvn-passwd
+              readOnly: true
+            - name: ${{ defaults.app_name }}-registry-cm
               mountPath: /etc/registry/config.yml
-              subPath: config.yml
+              subPath: vn-etcvn-registryvn-configvn-yml
+              readOnly: true
       volumes:
-        - name: registry-htpasswd
-          configMap:
-            name: ${{ defaults.app_name }}-registry-htpasswd
-            items:
-              - key: passwd
-                path: passwd
-        - name: registry-config
+        - name: ${{ defaults.app_name }}-registry-cm
           configMap:
             name: ${{ defaults.app_name }}-registry
-            items:
-              - key: config.yml
-                path: config.yml
+  ${{ if(inputs.enable_s3_storage === 'false') }}
   volumeClaimTemplates:
     - metadata:
-        name: registry-data
+        name: vn-storage
+        annotations:
+          path: /storage
+          value: '1'
       spec:
         accessModes:
           - ReadWriteOnce
@@ -1031,6 +1153,7 @@ spec:
           requests:
             storage: 1Gi
         storageClassName: openebs-backup
+  ${{ endif() }}
 
 ---
 apiVersion: apps/v1
@@ -1038,7 +1161,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-registryctl
   annotations:
-    originImageName: goharbor/harbor-registryctl:v2.14.4
+    originImageName: goharbor/harbor-registryctl:v2.15.2
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -1056,17 +1179,92 @@ spec:
         app: ${{ defaults.app_name }}-registryctl
     spec:
       automountServiceAccountToken: false
-      imagePullSecrets:
-        - name: ${{ defaults.app_name }}
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: ${{ defaults.app_name }}-registry
+              topologyKey: kubernetes.io/hostname
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10000
+        runAsGroup: 10000
+        fsGroup: 10000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: ${{ defaults.app_name }}-registryctl
-          image: goharbor/harbor-registryctl:v2.14.4
+          image: goharbor/harbor-registryctl:v2.15.2
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           env:
             - name: CORE_SECRET
               value: ${{ defaults.core_secret }}
             - name: JOBSERVICE_SECRET
               value: ${{ defaults.jobservice_secret }}
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
+            - name: REGISTRY_HTTP_SECRET
+              value: ${{ defaults.registry_http_secret }}
+            ${{ if(inputs.enable_s3_storage === 'true') }}
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: REGISTRY_STORAGE_S3_ACCESSKEY
+              value: $(S3_ACCESS_KEY_ID)
+            - name: REGISTRY_STORAGE_S3_SECRETKEY
+              value: $(S3_SECRET_ACCESS_KEY)
+            - name: REGISTRY_STORAGE_S3_BUCKET
+              value: $(S3_BUCKET)
+            - name: REGISTRY_STORAGE_S3_REGION
+              value: us-east-1
+            - name: REGISTRY_STORAGE_S3_REGIONENDPOINT
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+            - name: REGISTRY_STORAGE_S3_V4AUTH
+              value: 'true'
+            - name: REGISTRY_STORAGE_S3_FORCEPATHSTYLE
+              value: 'true'
+            ${{ else() }}
+            # Local filesystem storage.
+            - name: REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY
+              value: /storage
+            ${{ endif() }}
+            - name: REGISTRY_REDIS_ADDR
+              value: $(REDIS_HOST):$(REDIS_PORT)
+            - name: REGISTRY_REDIS_PASSWORD
+              value: $(REDIS_PASSWORD)
+            - name: REGISTRY_REDIS_DB
+              value: '2'
           ports:
             - name: http
               containerPort: 8080
@@ -1086,31 +1284,37 @@ spec:
             periodSeconds: 10
           resources:
             limits:
-              cpu: 200m
-              memory: 256Mi
+              cpu: 100m
+              memory: 128Mi
             requests:
-              cpu: 20m
-              memory: 25Mi
+              cpu: 10m
+              memory: 12Mi
           volumeMounts:
-            - name: registry-config
+            ${{ if(inputs.enable_s3_storage === 'false') }}
+            - name: vn-storage
+              mountPath: /storage
+            ${{ endif() }}
+            - name: ${{ defaults.app_name }}-registryctl-cm
               mountPath: /etc/registry/config.yml
-              subPath: config.yml
-            - name: registryctl-config
+              subPath: vn-etcvn-registryvn-configvn-yml
+              readOnly: true
+            - name: ${{ defaults.app_name }}-registryctl-cm
+              mountPath: /etc/registry/passwd
+              subPath: vn-etcvn-registryvn-passwd
+              readOnly: true
+            - name: ${{ defaults.app_name }}-registryctl-cm
               mountPath: /etc/registryctl/config.yml
-              subPath: config.yml
+              subPath: vn-etcvn-registryctlvn-configvn-yml
+              readOnly: true
       volumes:
-        - name: registry-config
-          configMap:
-            name: ${{ defaults.app_name }}-registry
-            items:
-              - key: config.yml
-                path: config.yml
-        - name: registryctl-config
+        ${{ if(inputs.enable_s3_storage === 'false') }}
+        - name: vn-storage
+          persistentVolumeClaim:
+            claimName: vn-storage-${{ defaults.app_name }}-registry-0
+        ${{ endif() }}
+        - name: ${{ defaults.app_name }}-registryctl-cm
           configMap:
             name: ${{ defaults.app_name }}-registryctl
-            items:
-              - key: config.yml
-                path: config.yml
 
 ---
 apiVersion: apps/v1
@@ -1118,7 +1322,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}-trivy
   annotations:
-    originImageName: goharbor/trivy-adapter-photon:v2.14.4
+    originImageName: goharbor/trivy-adapter-photon:v2.15.2
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -1137,14 +1341,23 @@ spec:
         app: ${{ defaults.app_name }}-trivy
     spec:
       securityContext:
+        runAsNonRoot: true
+        runAsUser: 10000
+        runAsGroup: 10000
         fsGroup: 10000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
       automountServiceAccountToken: false
-      imagePullSecrets:
-        - name: ${{ defaults.app_name }}
       containers:
         - name: ${{ defaults.app_name }}-trivy
-          image: goharbor/trivy-adapter-photon:v2.14.4
+          image: goharbor/trivy-adapter-photon:v2.15.2
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           env:
             - name: REDIS_HOST
               value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
@@ -1164,7 +1377,7 @@ spec:
             - name: SCANNER_LOG_LEVEL
               value: info
             - name: SCANNER_TRIVY_CACHE_DIR
-              value: /home/scanner/.cache/trivy
+              value: /tmp/trivy
             - name: SCANNER_TRIVY_REPORTS_DIR
               value: /home/scanner/.cache/reports
             - name: SCANNER_TRIVY_DEBUG_MODE
@@ -1224,17 +1437,22 @@ spec:
             failureThreshold: 3
           resources:
             limits:
-              cpu: 500m
-              memory: 512Mi
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 2048Mi
             requests:
-              cpu: 50m
-              memory: 51Mi
+              cpu: 10m
+              memory: 12Mi
+              ephemeral-storage: 2048Mi
           volumeMounts:
-            - name: data
+            - name: vn-homevn-scannervn-cache
               mountPath: /home/scanner/.cache
   volumeClaimTemplates:
     - metadata:
-        name: data
+        name: vn-homevn-scannervn-cache
+        annotations:
+          path: /home/scanner/.cache
+          value: '1'
       spec:
         accessModes:
           - ReadWriteOnce

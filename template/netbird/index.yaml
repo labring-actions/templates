@@ -2,12 +2,14 @@ apiVersion: app.sealos.io/v1
 kind: Template
 metadata:
   name: netbird
+  annotations:
+    docker-to-sealos.database-mode: optional-managed
 spec:
   title: 'NetBird'
   url: 'https://netbird.io/'
   gitRepo: 'https://github.com/netbirdio/netbird'
   author: 'Sealos'
-  description: '基于 WireGuard 的零信任网络平台，支持自托管管理、信令与中继。'
+  description: 'A self-hosted WireGuard-based zero-trust networking platform with management, signaling, relay, and an embedded identity provider.'
   readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/netbird/README.md'
   icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/netbird/logo.png'
   screenshots:
@@ -41,6 +43,11 @@ spec:
       type: string
       value: ${{ base64(random(32)) }}
   inputs:
+    use_postgresql:
+      description: 'Use a managed PostgreSQL database instead of the default embedded SQLite database.'
+      type: boolean
+      default: 'false'
+      required: false
     disable_default_policy:
       description: 'Disable default all-to-all policy'
       type: choice
@@ -64,6 +71,164 @@ spec:
       type: string
       default: ''
       required: false
+---
+${{ if(inputs.use_postgresql === 'true') }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    kb.io/database: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys:
+      - kubernetes.io/hostname
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  terminationPolicy: Delete
+  componentSpecs:
+    - name: postgresql
+      componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
+      replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+  labels:
+    app: ${{ defaults.app_name }}-pg-init
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-pg-init
+spec:
+  backoffLimit: 5
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: OnFailure
+      containers:
+        - name: pg-init
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_DATABASE
+              value: netbird
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export PGPASSWORD="$PG_PASSWORD"
+              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; do
+                sleep 2
+              done
+              if ! psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$PG_DATABASE'" | grep -q 1; then
+                createdb -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" "$PG_DATABASE"
+              fi
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+
+---
+${{ else() }}
+# storageMode: sqlite
+${{ endif() }}
+
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -128,7 +293,11 @@ data:
       "Datadir": "/var/lib/netbird",
       "DataStoreEncryptionKey": "${{ defaults.datastore_encryption_key }}",
       "StoreConfig": {
+        ${{ if(inputs.use_postgresql === 'true') }}
+        "Engine": "postgres"
+        ${{ else() }}
         "Engine": "sqlite"
+        ${{ endif() }}
       },
       "EmbeddedIdP": {
         "Enabled": true,
@@ -147,7 +316,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-dashboard
   annotations:
-    originImageName: netbirdio/dashboard:v2.38.1
+    originImageName: netbirdio/dashboard:v2.90.8
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -167,7 +336,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}-dashboard
-          image: netbirdio/dashboard:v2.38.1
+          image: netbirdio/dashboard:v2.90.8
           imagePullPolicy: IfNotPresent
           env:
             - name: NETBIRD_MGMT_API_ENDPOINT
@@ -200,13 +369,31 @@ spec:
             - name: http
               containerPort: 80
               protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            failureThreshold: 60
+            periodSeconds: 2
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
           resources:
             requests:
-              cpu: 20m
-              memory: 25Mi
+              cpu: 10m
+              memory: 12Mi
             limits:
-              cpu: 200m
-              memory: 256Mi
+              cpu: 100m
+              memory: 128Mi
 
 ---
 apiVersion: apps/v1
@@ -214,7 +401,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}-management
   annotations:
-    originImageName: netbirdio/management:0.71.4
+    originImageName: netbirdio/management:0.76.0
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -233,9 +420,56 @@ spec:
         app: ${{ defaults.app_name }}-management
     spec:
       automountServiceAccountToken: false
+      initContainers:
+        ${{ if(inputs.use_postgresql === 'true') }}
+        - name: verify-postgres-database
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              for attempt in $(seq 1 180); do
+                if PGPASSWORD="$PG_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d netbird -tAc "SELECT current_database()" | grep -qx netbird; then
+                  exit 0
+                fi
+                sleep 2
+              done
+              exit 1
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+        ${{ else() }}
+        # storageMode: sqlite
+        ${{ endif() }}
       containers:
         - name: ${{ defaults.app_name }}-management
-          image: netbirdio/management:0.71.4
+          image: netbirdio/management:0.76.0
           imagePullPolicy: IfNotPresent
           args:
             - --config
@@ -248,43 +482,84 @@ spec:
             - info
             - --datadir
             - /var/lib/netbird
+          env:
+            ${{ if(inputs.use_postgresql === 'true') }}
+            - name: POSTGRES_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: POSTGRES_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: POSTGRES_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: NETBIRD_STORE_ENGINE_POSTGRES_DSN
+              value: "host=$(POSTGRES_HOST) port=$(POSTGRES_PORT) user=$(POSTGRES_USERNAME) password=$(POSTGRES_PASSWORD) dbname=netbird sslmode=disable"
+            ${{ else() }}
+            # storageMode: sqlite
+            ${{ endif() }}
           ports:
             - name: http
               containerPort: 33073
               protocol: TCP
+          startupProbe:
+            tcpSocket:
+              port: http
+            failureThreshold: 90
+            periodSeconds: 2
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
           resources:
             requests:
-              cpu: 20m
+              cpu: 10m
               memory: 25Mi
             limits:
-              cpu: 200m
+              cpu: 100m
               memory: 256Mi
           volumeMounts:
-            - name: vn-etcvn-netbirdvn-managementvn-json
+            - name: ${{ defaults.app_name }}-management-cm
               mountPath: /etc/netbird/management.json
-              subPath: ./etc/netbird/management.json
+              subPath: vn-etcvn-netbirdvn-managementvn-json
             - name: vn-varvn-libvn-netbird
               mountPath: /var/lib/netbird
       volumes:
-        - name: vn-etcvn-netbirdvn-managementvn-json
+        - name: ${{ defaults.app_name }}-management-cm
           configMap:
             name: ${{ defaults.app_name }}-management
             items:
               - key: vn-etcvn-netbirdvn-managementvn-json
-                path: ./etc/netbird/management.json
-            defaultMode: 420
+                path: vn-etcvn-netbirdvn-managementvn-json
   volumeClaimTemplates:
     - metadata:
         annotations:
           path: /var/lib/netbird
-          value: '0.1'
+          value: '1'
         name: vn-varvn-libvn-netbird
       spec:
         accessModes:
           - ReadWriteOnce
         resources:
           requests:
-            storage: 100Mi
+            storage: 1Gi
 
 ---
 apiVersion: apps/v1
@@ -292,7 +567,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}-signal
   annotations:
-    originImageName: netbirdio/signal:0.71.4
+    originImageName: netbirdio/signal:0.76.0
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -313,7 +588,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}-signal
-          image: netbirdio/signal:0.71.4
+          image: netbirdio/signal:0.76.0
           imagePullPolicy: IfNotPresent
           args:
             - --log-file
@@ -324,13 +599,28 @@ spec:
             - name: http
               containerPort: 80
               protocol: TCP
+          startupProbe:
+            tcpSocket:
+              port: http
+            failureThreshold: 60
+            periodSeconds: 2
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
           resources:
             requests:
-              cpu: 20m
-              memory: 25Mi
+              cpu: 10m
+              memory: 12Mi
             limits:
-              cpu: 200m
-              memory: 256Mi
+              cpu: 100m
+              memory: 128Mi
           volumeMounts:
             - name: vn-varvn-libvn-netbird
               mountPath: /var/lib/netbird
@@ -338,14 +628,14 @@ spec:
     - metadata:
         annotations:
           path: /var/lib/netbird
-          value: '0.1'
+          value: '1'
         name: vn-varvn-libvn-netbird
       spec:
         accessModes:
           - ReadWriteOnce
         resources:
           requests:
-            storage: 100Mi
+            storage: 1Gi
 
 ---
 apiVersion: apps/v1
@@ -353,7 +643,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}-relay
   annotations:
-    originImageName: netbirdio/relay:0.71.4
+    originImageName: netbirdio/relay:0.76.0
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -373,7 +663,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}-relay
-          image: netbirdio/relay:0.71.4
+          image: netbirdio/relay:0.76.0
           imagePullPolicy: IfNotPresent
           env:
             - name: NB_LOG_LEVEL
@@ -390,13 +680,28 @@ spec:
             - name: http
               containerPort: 33080
               protocol: TCP
+          startupProbe:
+            tcpSocket:
+              port: http
+            failureThreshold: 60
+            periodSeconds: 2
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
           resources:
             requests:
-              cpu: 20m
-              memory: 25Mi
+              cpu: 10m
+              memory: 12Mi
             limits:
-              cpu: 200m
-              memory: 256Mi
+              cpu: 100m
+              memory: 128Mi
 
 ---
 apiVersion: v1
@@ -579,6 +884,30 @@ spec:
                 name: ${{ defaults.app_name }}-management
                 port:
                   number: 33073
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-management-ws
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-management
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/backend-protocol: WS
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '3600'
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '3600'
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
           - pathType: Prefix
             path: /ws-proxy/management
             backend:
@@ -600,7 +929,7 @@ metadata:
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
     kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/backend-protocol: WS
     nginx.ingress.kubernetes.io/ssl-redirect: 'true'
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
@@ -612,8 +941,8 @@ metadata:
     nginx.ingress.kubernetes.io/server-snippet: |
       client_header_buffer_size 64k;
       large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
-    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '3600'
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '3600'
     nginx.ingress.kubernetes.io/proxy-body-size: 32m
 spec:
   rules:
@@ -641,7 +970,7 @@ metadata:
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
     kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/backend-protocol: WS
     nginx.ingress.kubernetes.io/ssl-redirect: 'true'
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
@@ -653,8 +982,8 @@ metadata:
     nginx.ingress.kubernetes.io/server-snippet: |
       client_header_buffer_size 64k;
       large_client_header_buffers 4 128k;
-    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
-    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '3600'
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '3600'
     nginx.ingress.kubernetes.io/proxy-body-size: 32m
 spec:
   rules:
