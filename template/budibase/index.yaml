@@ -238,6 +238,19 @@ data:
 apiVersion: v1
 kind: ConfigMap
 metadata:
+  name: ${{ defaults.app_name }}-couchdb
+  labels:
+    app: ${{ defaults.app_name }}-couchdb
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-couchdb
+data:
+  vn-etcvn-budibasevn-sealosvn-ini: |
+    [cluster]
+    n = 1
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
   name: ${{ defaults.app_name }}-env
   labels:
     app: ${{ defaults.app_name }}-env
@@ -250,7 +263,7 @@ data:
   COUCHDB_UPSTREAM_URL: http://${{ defaults.app_name }}-couchdb.${{ SEALOS_NAMESPACE }}.svc.cluster.local:5984
   REDIS_HOST: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
   REDIS_PORT: '6379'
-  REDIS_URL: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local:6379
+  REDIS_URL: redis://${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local:6379
 
 ---
 apiVersion: apps/v1
@@ -296,6 +309,17 @@ spec:
           env:
             - name: DATA_DIR
               value: /data
+            - name: NODENAME
+              value: 127.0.0.1
+            - name: COUCHDB_INI_FILES
+              value: /opt/couchdb/etc/default.ini /opt/couchdb/etc/default.d /opt/couchdb/etc/local.ini /opt/couchdb/etc/local.d /etc/budibase/sealos.ini
+          startupProbe:
+            httpGet:
+              path: /_up
+              port: 5984
+            failureThreshold: 24
+            periodSeconds: 5
+            timeoutSeconds: 5
           livenessProbe:
             httpGet:
               path: /_up
@@ -324,6 +348,16 @@ spec:
           volumeMounts:
             - name: vn-data
               mountPath: /data
+            - name: ${{ defaults.app_name }}-couchdb-cm
+              mountPath: /etc/budibase/sealos.ini
+              subPath: vn-etcvn-budibasevn-sealosvn-ini
+      volumes:
+        - name: ${{ defaults.app_name }}-couchdb-cm
+          configMap:
+            name: ${{ defaults.app_name }}-couchdb
+            items:
+              - key: vn-etcvn-budibasevn-sealosvn-ini
+                path: vn-etcvn-budibasevn-sealosvn-ini
   volumeClaimTemplates:
     - metadata:
         annotations:
@@ -359,6 +393,40 @@ spec:
       targetPort: 4984
   selector:
     app: ${{ defaults.app_name }}-couchdb
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-proxy
+  labels:
+    app: ${{ defaults.app_name }}-proxy
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-proxy
+data:
+  vn-dockervn-entrypointvn-dvn-s3vn-sh: |
+    #!/bin/sh
+    set -eu
+
+    config=/etc/nginx/templates/nginx.conf.template
+    sni_name=${BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT#http://}
+    sni_name=${sni_name#https://}
+    sni_name=${sni_name%%/*}
+    sni_name=${sni_name%%:*}
+
+    awk -v sni="$sni_name" '
+      $0 ~ /proxy_set_header Host \$http_host;/ ||
+      $0 ~ /proxy_set_header Host minio-service;/ {
+        sub(/Host [^;]+;/, "Host " sni ";")
+      }
+      { print }
+      $0 ~ /proxy_pass[[:space:]]+\$minio;/ {
+        print "      proxy_ssl_server_name on;"
+        print "      proxy_ssl_name " sni ";"
+      }
+    ' "$config" > "$config.tmp"
+    mv "$config.tmp" "$config"
+
+    exec /docker-entrypoint.sh nginx -g 'daemon off;'
 
 ---
 apiVersion: apps/v1
@@ -433,6 +501,8 @@ spec:
               value: info
             - name: ENABLE_ANALYTICS
               value: ${{ inputs.enable_analytics }}
+            - name: REDIS_URL
+              value: redis://${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local:6379
             - name: REDIS_USERNAME
               valueFrom:
                 secretKeyRef:
@@ -634,6 +704,8 @@ spec:
               value: info
             - name: ENABLE_ANALYTICS
               value: ${{ inputs.enable_analytics }}
+            - name: REDIS_URL
+              value: redis://${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local:6379
             - name: REDIS_USERNAME
               valueFrom:
                 secretKeyRef:
@@ -787,6 +859,10 @@ spec:
         - name: ${{ defaults.app_name }}-proxy
           image: budibase/proxy:3.41.1
           imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - exec /bin/sh /docker-entrypoint.d/s3.sh
           envFrom:
             - configMapRef:
                 name: ${{ defaults.app_name }}-env
@@ -804,6 +880,11 @@ spec:
               value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
             - name: RESOLVER
               value: kube-dns.kube-system.svc.cluster.local
+          volumeMounts:
+            - name: ${{ defaults.app_name }}-proxy-cm
+              mountPath: /docker-entrypoint.d/s3.sh
+              subPath: vn-dockervn-entrypointvn-dvn-s3vn-sh
+              readOnly: true
           ports:
             - containerPort: 10000
           resources:
@@ -834,6 +915,13 @@ spec:
               port: 10000
               scheme: HTTP
             periodSeconds: 3
+      volumes:
+        - name: ${{ defaults.app_name }}-proxy-cm
+          configMap:
+            name: ${{ defaults.app_name }}-proxy
+            items:
+              - key: vn-dockervn-entrypointvn-dvn-s3vn-sh
+                path: vn-dockervn-entrypointvn-dvn-s3vn-sh
 
 ---
 apiVersion: v1
