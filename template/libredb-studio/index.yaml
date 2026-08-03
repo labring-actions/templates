@@ -1,0 +1,219 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: libredb-studio
+spec:
+  title: 'LibreDB Studio'
+  url: 'https://libredb.org'
+  gitRepo: 'https://github.com/libredb/libredb-studio'
+  author: 'LibreDB'
+  description: 'Open-source, self-hosted SQL IDE. A web-based client to browse, query, and manage your SQL databases.'
+  readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/libredb-studio/README.md'
+  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/libredb-studio/logo.svg'
+  screenshots:
+    - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/libredb-studio/website-screenshot.webp'
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: '开源、自托管的 SQL IDE。基于 Web 的客户端，用于浏览、查询和管理您的 SQL 数据库。'
+      readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/libredb-studio/README_zh.md'
+  categories:
+    - database
+    - tool
+  defaults:
+    app_name:
+      type: string
+      value: libredb-studio-${{ random(8) }}
+    app_host:
+      type: string
+      value: libredb-studio-${{ random(8) }}
+  inputs:
+    admin_email:
+      description: 'Admin user email for the first login'
+      type: string
+      default: ''
+      required: true
+    admin_password:
+      description: 'Admin user password (minimum 8 characters)'
+      type: string
+      default: ''
+      required: true
+    jwt_secret:
+      description: 'Secret used to sign session tokens (minimum 32 characters). A secure value is generated automatically.'
+      type: string
+      default: '${{ random(48) }}'
+      required: false
+    volume_size:
+      description: 'Persistent storage size for the database (GiB)'
+      type: string
+      default: '1'
+      required: false
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/libredb/libredb-studio:0.9.66
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  serviceName: ${{ defaults.app_name }}
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: init-chown-data
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - chown -R 1001:65534 /app/data
+          volumeMounts:
+            - name: vn-data
+              mountPath: /app/data
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: ghcr.io/libredb/libredb-studio:0.9.66
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: ADMIN_EMAIL
+              value: ${{ inputs.admin_email }}
+            - name: ADMIN_PASSWORD
+              value: ${{ inputs.admin_password }}
+            - name: JWT_SECRET
+              value: ${{ inputs.jwt_secret }}
+            - name: STORAGE_PROVIDER
+              value: sqlite
+            - name: STORAGE_SQLITE_PATH
+              value: /app/data/libredb-storage.db
+            - name: AUTH_COOKIE_SECURE
+              value: 'false'
+          ports:
+            - containerPort: 3000
+              name: http
+          volumeMounts:
+            - name: vn-data
+              mountPath: /app/data
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 1000m
+              memory: 1024Mi
+          startupProbe:
+            httpGet:
+              path: /api/db/health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /api/db/health
+              port: 3000
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/db/health
+              port: 3000
+            periodSeconds: 10
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /app/data
+          value: '${{ inputs.volume_size }}'
+        name: vn-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: ${{ inputs.volume_size }}Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3000
+      targetPort: 3000
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 3000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/libredb-studio/logo.svg'
+  name: ${{ defaults.app_name }}
+  type: link
