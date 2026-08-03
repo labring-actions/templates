@@ -30,7 +30,35 @@ spec:
         secret_key_base:
             type: string
             value: ${{ random(128) }}
+    inputs:
+        enable_external_files:
+            description: Create a private Sealos bucket for uploaded attachments
+            type: boolean
+            default: 'false'
+            required: false
 ---
+${{ if(inputs.enable_external_files === 'true') }}
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+    name: ${{ defaults.app_name }}
+    labels:
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+    policy: private
+---
+${{ else() }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+    name: ${{ defaults.app_name }}-storage-mode
+    labels:
+        app: ${{ defaults.app_name }}-storage-mode
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-storage-mode
+data:
+    mode: local
+---
+${{ endif() }}
 # PostgreSQL ServiceAccount
 apiVersion: v1
 kind: ServiceAccount
@@ -181,7 +209,7 @@ kind: StatefulSet
 metadata:
     name: ${{ defaults.app_name }}
     annotations:
-        originImageName: docuseal/docuseal:3.0.1
+        originImageName: docuseal/docuseal:3.1.1
         deploy.cloud.sealos.io/minReplicas: "1"
         deploy.cloud.sealos.io/maxReplicas: "1"
     labels:
@@ -200,11 +228,39 @@ spec:
                 app: ${{ defaults.app_name }}
         spec:
             automountServiceAccountToken: false
-            imagePullSecrets:
-                - name: ${{ defaults.app_name }}
+            initContainers:
+                - name: wait-for-postgresql
+                  image: postgres:16-alpine
+                  imagePullPolicy: IfNotPresent
+                  resources:
+                      requests:
+                          cpu: 10m
+                          memory: 12Mi
+                      limits:
+                          cpu: 100m
+                          memory: 128Mi
+                  env:
+                      - name: PG_HOST
+                        valueFrom:
+                            secretKeyRef:
+                                name: ${{ defaults.app_name }}-pg-conn-credential
+                                key: host
+                      - name: PG_PORT
+                        valueFrom:
+                            secretKeyRef:
+                                name: ${{ defaults.app_name }}-pg-conn-credential
+                                key: port
+                  command:
+                      - /bin/sh
+                      - -c
+                      - |
+                          set -eu
+                          until pg_isready -h "${PG_HOST}" -p "${PG_PORT}" -U postgres -d docuseal; do
+                            sleep 2
+                          done
             containers:
                 - name: ${{ defaults.app_name }}
-                  image: docuseal/docuseal:3.0.1
+                  image: docuseal/docuseal:3.1.1
                   imagePullPolicy: IfNotPresent
                   env:
                       - name: FORCE_SSL
@@ -237,6 +293,41 @@ spec:
                                 key: password
                       - name: DATABASE_URL
                         value: postgresql://$(PG_USERNAME):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/docuseal
+                      ${{ if(inputs.enable_external_files === 'true') }}
+                      - name: S3_ACCESS_KEY_ID
+                        valueFrom:
+                            secretKeyRef:
+                                name: object-storage-key
+                                key: accessKey
+                      - name: S3_SECRET_ACCESS_KEY
+                        valueFrom:
+                            secretKeyRef:
+                                name: object-storage-key
+                                key: secretKey
+                      - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+                        valueFrom:
+                            secretKeyRef:
+                                name: object-storage-key
+                                key: external
+                      - name: S3_BUCKET
+                        valueFrom:
+                            secretKeyRef:
+                                name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                                key: bucket
+                      - name: AWS_ACCESS_KEY_ID
+                        value: $(S3_ACCESS_KEY_ID)
+                      - name: AWS_SECRET_ACCESS_KEY
+                        value: $(S3_SECRET_ACCESS_KEY)
+                      - name: AWS_REGION
+                        value: us-east-1
+                      - name: S3_ATTACHMENTS_BUCKET
+                        value: $(S3_BUCKET)
+                      - name: S3_ENDPOINT
+                        value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+                      ${{ else() }}
+                      - name: SEALOS_FILE_STORAGE_MODE
+                        value: local
+                      ${{ endif() }}
                   ports:
                       - containerPort: 3000
                         name: http

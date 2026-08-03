@@ -37,10 +37,12 @@ The Sealos template includes the required runtime components: the DocuSeal conta
 
 This template deploys the following services:
 
-- **DocuSeal Web Service**: Runs `docuseal/docuseal:3.0.1` on port `3000` and serves the web UI, API, embedded signing pages, and background jobs.
+- **DocuSeal Web Service**: Runs `docuseal/docuseal:3.1.1` on port `3000` and serves the web UI, API, embedded signing pages, and background jobs.
 - **PostgreSQL**: Kubeblocks-managed PostgreSQL `postgresql-16.4.0` stores users, accounts, templates, submissions, and application metadata.
 - **PostgreSQL Init Job**: Creates the `docuseal` database idempotently after PostgreSQL is ready.
+- **PostgreSQL readiness gate**: Holds the DocuSeal container until the `docuseal` database accepts connections, preventing cold-start restart loops.
 - **Persistent Storage**: A `1Gi` volume mounted at `/data/docuseal` stores DocuSeal runtime files and uploaded attachments.
+- **Optional Sealos Object Storage**: When `enable_external_files` is enabled, a private S3-compatible bucket is wired through DocuSeal's documented `AWS_*` and `S3_*` settings for attachments.
 - **Ingress and App Entry**: Sealos exposes the web service through an HTTPS domain and creates a dashboard entry for direct access.
 
 **Configuration:**
@@ -52,8 +54,9 @@ The template automatically configures:
 - `FORCE_SSL=true` so DocuSeal treats the public route as HTTPS.
 - `SECRET_KEY_BASE` as a generated secret value.
 - `DATABASE_URL` from the Kubeblocks PostgreSQL connection Secret.
+- `enable_external_files` as an optional boolean. The default `false` stores attachments on the `/data/docuseal` volume; `true` provisions a Sealos bucket and injects S3 credentials and endpoint settings.
 
-No required user inputs are needed during deployment. Optional SMTP, object storage, SSO, or license-related settings can be configured after deployment from the DocuSeal UI or by editing the workload environment variables in the Sealos Canvas.
+No required user inputs are needed during deployment. SMTP, SSO, and license-related settings can be configured after deployment from the DocuSeal UI or the Sealos Canvas.
 
 **License Information:**
 
@@ -75,7 +78,7 @@ Deploy DocuSeal on Sealos and focus on document workflows instead of managing in
 ## Deployment Guide
 
 1. Open the [DocuSeal template](https://sealos.io/products/app-store/docuseal) and click **Deploy Now**.
-2. Keep the default parameters unless you need a custom generated name or host.
+2. Keep the default parameters unless you need a custom generated name or host. Enable **Enable External Files** when attachment files should use the Sealos S3-compatible bucket.
 3. Wait for deployment to complete, typically 2-3 minutes. After deployment, you will be redirected to the Canvas. For later changes, describe your requirements in the AI dialog or click the relevant resource cards to modify settings.
 4. Open the generated DocuSeal URL from the App entry.
 5. Complete the first-run setup form:
@@ -85,7 +88,7 @@ Deploy DocuSeal on Sealos and focus on document workflows instead of managing in
    - Set the administrator password.
    - Keep the App URL field as the generated Sealos HTTPS URL unless you have configured a custom domain.
    - Select the preferred interface language and submit the form.
-6. After setup, use the same email and password on the sign-in page for future logins.
+6. After setup, use the same email and password at `/sign_in` for future logins. The first-run setup creates the initial administrator; invite additional team members later from **Settings > Users** after SMTP is configured.
 
 ## Configuration
 
@@ -97,6 +100,8 @@ After deployment, you can configure DocuSeal through:
 - **Resource Cards**: Click the StatefulSet, PostgreSQL, Ingress, or storage cards in Canvas to inspect and adjust settings.
 
 If you enable outbound email, configure SMTP-related environment variables before sending user invitations or signing emails. If you change the public domain later, update DocuSeal's App URL in account settings so generated signing links continue to use the right hostname.
+
+When `enable_external_files` is enabled, the template provisions a private Sealos bucket and maps it to `S3_ATTACHMENTS_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, and `S3_ENDPOINT`. Keep the bucket private and verify attachment upload after deployment.
 
 ## Scaling
 
@@ -122,6 +127,10 @@ Open DocuSeal account settings and update the App URL to the current Sealos HTTP
 ### Invitation or signing emails are not sent
 
 DocuSeal needs SMTP configuration for outbound email. Add the required SMTP environment variables in the StatefulSet resource card, restart the workload, and test email delivery from DocuSeal settings.
+
+### Attachments fail with object storage enabled
+
+Check that the ObjectStorageBucket is Ready, the generated bucket Secret exists, and the workload has restarted after enabling `enable_external_files`. Review the DocuSeal logs for S3 endpoint or permission errors.
 
 ### Getting Help
 

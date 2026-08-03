@@ -1,6 +1,6 @@
 # 在 Sealos 上部署和托管 Overleaf
 
-Overleaf 是一个开源的在线实时协作 LaTeX 编辑器。此模板会在 Sealos Cloud 上部署 Overleaf Community Edition 6.1.2，并配置 KubeBlocks MongoDB、KubeBlocks Redis、持久化项目存储和 HTTPS 公网入口。
+Overleaf 是一个开源的在线实时协作 LaTeX 编辑器。此模板会在 Sealos Cloud 上部署 Overleaf Community Edition 6.2.0，并配置 KubeBlocks MongoDB、KubeBlocks Redis、持久化项目存储和 HTTPS 公网入口。
 
 ## 关于托管 Overleaf
 
@@ -29,15 +29,16 @@ Overleaf 为论文、技术报告、书籍和教学材料提供浏览器内 LaTe
 
 **架构组件：**
 
-- **Overleaf Web 服务**：运行 `sharelatex/sharelatex:6.1.2`，通过 80 端口提供 Web UI。
+- **Overleaf Web 服务**：运行 `sharelatex/sharelatex:6.2.0`，通过 80 端口提供 Web UI。
 - **MongoDB**：通过 KubeBlocks MongoDB 8.0.4 存储用户、项目和 Overleaf 应用元数据。
 - **Redis**：通过 KubeBlocks Redis 7.2.7 提供缓存和实时协作协调能力。
 - **持久化项目存储**：将 Overleaf 数据保存在 `/var/lib/overleaf`，容量为 1 GiB。
+- **可选 Sealos 对象存储**：启用 `enable_external_files` 后创建四个私有 S3 兼容 bucket，分别保存用户文件、模板、项目历史 blob 和历史分块。
 - **Ingress 和 App 入口**：发布 HTTPS 访问地址，并集成到 Sealos 应用启动器中。
 
 **配置说明：**
 
-模板会根据生成的 Sealos 域名设置 `OVERLEAF_SITE_URL`，启用反向代理模式，并默认关闭邮箱确认，便于 Community Edition 首次初始化。Overleaf Community Edition 适合可信用户环境；隔离编译是 Server Pro 功能，不包含在此模板中。
+模板会根据生成的 Sealos 域名设置 `OVERLEAF_SITE_URL`，启用反向代理模式，并默认关闭邮箱确认，便于 Community Edition 首次初始化。`enable_external_files` 用于选择可选的 Sealos S3 兼容项目文件和历史存储，默认使用挂载到 `/var/lib/overleaf` 的数据卷。Overleaf Community Edition 适合可信用户环境；隔离编译是 Server Pro 功能，不包含在此模板中。
 
 **许可证信息：**
 
@@ -57,11 +58,11 @@ Sealos 是基于 Kubernetes 的 AI 云操作系统，统一了从部署到运维
 ## 部署指南
 
 1. 打开 [Overleaf 模板](https://sealos.io/products/app-store/overleaf)，点击 **Deploy Now**。
-2. 在弹窗中配置参数。首次测试部署可直接使用默认值。
+2. 在弹窗中配置参数。首次测试部署可直接使用默认值；需要让项目文件和历史记录使用 Sealos S3 兼容存储时，启用 **Enable External Files**。
 3. 等待部署完成。首次冷启动可能需要数分钟，因为 Overleaf 会初始化 MongoDB 索引并执行迁移。
 4. 从 Sealos App 入口打开生成的 Overleaf URL。
-5. 打开 `/register` 确认公开自助注册状态。Overleaf Community Edition 通常会显示 **Please contact to create an account**，表示需要管理员创建用户。
-6. 通过 Overleaf 容器控制台创建首个管理员或用户，然后从 `/login` 登录，再访问 `/project` 开始使用 Overleaf。
+5. 打开 `/register` 查看 Community Edition 的账号策略。页面会显示 **Please contact to create an account** 和运行实例提供的管理员联系邮箱。
+6. 通过 Overleaf 容器控制台或批准的邀请流程创建首个用户，然后从 `/login` 登录，再访问 `/project` 开始使用 Overleaf。
 
 ## 配置说明
 
@@ -74,12 +75,15 @@ Sealos 是基于 Kubernetes 的 AI 云操作系统，统一了从部署到运维
 | `ENABLED_LINKED_FILE_TYPES` | 启用的项目关联文件类型，使用逗号分隔。 | `project_file,project_output_file` |
 | `ENABLE_CONVERSIONS` | 启用基于 ImageMagick 的缩略图生成。 | `true` |
 | `EMAIL_CONFIRMATION_DISABLED` | 关闭邮箱确认，便于首次本地账号初始化。 | `true` |
+| `enable_external_files` | 创建四个私有 Sealos S3 兼容 bucket 保存项目文件和历史记录。 | `false` |
 
-部署后，请通过 Overleaf 容器控制台创建初始账号，或导入已有数据集，然后从 `/login` 登录。此模板的线上验证确认 `/login` 可访问，且 `/register` 在未启用公开自助注册时会返回 Community Edition 预期提示 **Please contact to create an account**。
+部署后，请通过 Overleaf 容器控制台创建初始账号，或导入已有数据集，然后从 `/login` 登录。Community Edition 的 `/register` 保持管理员联系页面，请使用实例显示的联系邮箱，并通过控制台或邀请流程创建账号。
+
+启用 `enable_external_files=true` 后，模板会注入官方文档中的 `OVERLEAF_FILESTORE_*` 与 `OVERLEAF_HISTORY_*` S3 变量，并为 Sealos endpoint 启用 path-style 访问。四个 bucket 都保持私有，MongoDB 与 Redis 拓扑继续承担 Overleaf 所需的元数据和会话能力。
 
 ## 扩容
 
-此模板面向小型 Community Edition 部署调优。已验证的最低应用资源为 Overleaf 容器 1 vCPU 和 2 GiB 内存，MongoDB 与 Redis 的 KubeBlocks 数据库组件各使用 500 mCPU 和 512 MiB 内存。如果冷启动、迁移或 PDF 编译负载变慢，应优先增加 Overleaf 内存。
+此模板面向小型 Community Edition 部署调优。默认应用资源为 Overleaf 容器 1 vCPU 和 2 GiB 内存，MongoDB 与 Redis 的 KubeBlocks 数据库组件各使用 500 mCPU 和 512 MiB 内存。如果冷启动、迁移或 PDF 编译负载变慢，应优先增加 Overleaf 内存。
 
 如需调整资源，请打开部署 Canvas，点击对应资源卡片，修改 CPU、内存、存储或副本数，然后在对话框中应用变更。
 
@@ -96,6 +100,10 @@ Overleaf 会在空 MongoDB 数据库上执行迁移。请等待 Overleaf Pod 进
 ### 登录成功但项目打开较慢
 
 在 Sealos 中检查 Overleaf Pod 内存和数据库健康状态。如果实例用于较大文档或较重的编译任务，请提高 Overleaf 内存限制。
+
+### S3 项目文件不可用
+
+检查四个 ObjectStorageBucket 是否 Ready、生成的 Secret 是否存在，并确认启用 `enable_external_files` 后 Overleaf Pod 已重启。再查看 Pod 日志中的 endpoint、凭据或 bucket 权限错误。
 
 ### 获取帮助
 

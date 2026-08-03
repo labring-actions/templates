@@ -24,6 +24,9 @@ spec:
     app_name:
       type: string
       value: overleaf-${{ random(8) }}
+    invite_token_secret:
+      type: string
+      value: ${{ random(64) }}
   inputs:
     OVERLEAF_SITE_LANGUAGE:
       description: "Set the Overleaf interface language"
@@ -50,11 +53,65 @@ spec:
       type: string
       default: "true"
       required: false
+    enable_external_files:
+      description: Create private Sealos buckets for project files and project history
+      type: boolean
+      default: 'false'
+      required: false
 
   i18n:
     zh:
       description: 'Overleaf 是一个开源的在线实时协作 LaTeX 编辑器。'
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/overleaf/README_zh.md'
+---
+${{ if(inputs.enable_external_files === 'true') }}
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}-user-files
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  policy: private
+---
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}-template-files
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  policy: private
+---
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}-project-blobs
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  policy: private
+---
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}-chunks
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  policy: private
+---
+${{ else() }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-storage-mode
+  labels:
+    app: ${{ defaults.app_name }}-storage-mode
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-storage-mode
+data:
+  mode: local
+${{ endif() }}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -105,6 +162,7 @@ metadata:
     kb.io/database: mongodb-8.0.4
     app.kubernetes.io/instance: ${{ defaults.app_name }}-mongodb
     helm.sh/chart: mongodb-cluster-0.9.1
+    clusterdefinition.kubeblocks.io/name: mongodb
     sealos-db-provider-cr: ${{ defaults.app_name }}-mongodb
   name: ${{ defaults.app_name }}-mongodb
 spec:
@@ -257,8 +315,8 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: sharelatex/sharelatex:6.1.2
-    docker-to-sealos.resource-override-source: "Live Sealos validation on 2026-05-31: Overleaf 6.1.2 cold start and Mongo migrations required a 1 vCPU / 2 GiB app limit; observed steady memory was about 765 MiB."
+    originImageName: sharelatex/sharelatex:6.2.0
+    docker-to-sealos.resource-override-source: "Live Sealos cold-start validation: Mongo migrations required a 1 vCPU / 2 GiB app limit; observed steady memory was about 765 MiB."
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -281,7 +339,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: sharelatex/sharelatex:6.1.2
+          image: sharelatex/sharelatex:6.2.0
           env:
             - name: OVERLEAF_MONGO_PASS
               valueFrom:
@@ -310,6 +368,8 @@ spec:
               value: ${{ inputs.OVERLEAF_SITE_LANGUAGE }}
             - name: OVERLEAF_APP_NAME
               value: ${{ inputs.OVERLEAF_APP_NAME }}
+            - name: OVERLEAF_INVITE_TOKEN_SECRET
+              value: ${{ defaults.invite_token_secret }}
             - name: ENABLED_LINKED_FILE_TYPES
               value: ${{ inputs.ENABLED_LINKED_FILE_TYPES }}
             - name: ENABLE_CONVERSIONS
@@ -322,12 +382,88 @@ spec:
               value: "true"
             - name: OVERLEAF_SITE_URL
               value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            ${{ if(inputs.enable_external_files === 'true') }}
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            - name: S3_USER_FILES_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-user-files
+                  key: bucket
+            - name: S3_TEMPLATE_FILES_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-template-files
+                  key: bucket
+            - name: S3_PROJECT_BLOBS_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-project-blobs
+                  key: bucket
+            - name: S3_CHUNKS_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-chunks
+                  key: bucket
+            - name: OVERLEAF_FILESTORE_BACKEND
+              value: s3
+            - name: OVERLEAF_FILESTORE_USER_FILES_BUCKET_NAME
+              value: $(S3_USER_FILES_BUCKET)
+            - name: OVERLEAF_FILESTORE_TEMPLATE_FILES_BUCKET_NAME
+              value: $(S3_TEMPLATE_FILES_BUCKET)
+            - name: OVERLEAF_FILESTORE_S3_ACCESS_KEY_ID
+              value: $(S3_ACCESS_KEY_ID)
+            - name: OVERLEAF_FILESTORE_S3_SECRET_ACCESS_KEY
+              value: $(S3_SECRET_ACCESS_KEY)
+            - name: OVERLEAF_FILESTORE_S3_ENDPOINT
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+            - name: OVERLEAF_FILESTORE_S3_PATH_STYLE
+              value: 'true'
+            - name: OVERLEAF_FILESTORE_S3_REGION
+              value: us-east-1
+            - name: OVERLEAF_HISTORY_BACKEND
+              value: s3
+            - name: OVERLEAF_HISTORY_PROJECT_BLOBS_BUCKET
+              value: $(S3_PROJECT_BLOBS_BUCKET)
+            - name: OVERLEAF_HISTORY_CHUNKS_BUCKET
+              value: $(S3_CHUNKS_BUCKET)
+            - name: OVERLEAF_HISTORY_S3_ACCESS_KEY_ID
+              value: $(S3_ACCESS_KEY_ID)
+            - name: OVERLEAF_HISTORY_S3_SECRET_ACCESS_KEY
+              value: $(S3_SECRET_ACCESS_KEY)
+            - name: OVERLEAF_HISTORY_S3_ENDPOINT
+              value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+            - name: OVERLEAF_HISTORY_S3_PATH_STYLE
+              value: 'true'
+            - name: OVERLEAF_HISTORY_S3_REGION
+              value: us-east-1
+            ${{ else() }}
+            - name: OVERLEAF_FILESTORE_BACKEND
+              value: fs
+            - name: OVERLEAF_HISTORY_BACKEND
+              value: fs
+            - name: SEALOS_FILE_STORAGE_MODE
+              value: local
+            ${{ endif() }}
           resources:
             requests:
               cpu: 100m
-              memory: 1024Mi
+              memory: 204Mi
             limits:
-              cpu: 1000m
+              cpu: 1
               memory: 2048Mi
           ports:
             - name: http
@@ -447,4 +583,4 @@ spec:
   displayType: normal
   icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/overleaf/logo.svg"
   name: Overleaf
-  type: iframe
+  type: link

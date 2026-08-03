@@ -23,8 +23,8 @@ Pangolin 本质上是一个控制服务器，负责身份、策略与资源访�
 
 - [Pangolin Documentation](https://docs.pangolin.net/) - 官方安装与运维文档。
 - [Pangolin GitHub Repository](https://github.com/fosrl/pangolin) - 源码与版本发布信息。
-- [Sealos Platform](https://sealos.run) - Sealos 平台入口。
-- [Sealos Documentation](https://sealos.run/docs) - Sealos 使用与运维文档。
+- [Sealos Platform](https://sealos.io) - Sealos 平台入口。
+- [Sealos Documentation](https://sealos.io/docs) - Sealos 使用与运维文档。
 
 ### 实现细节
 
@@ -73,7 +73,7 @@ Sealos 是构建在 Kubernetes 之上的 AI 辅助云操作系统，覆盖应用
 
 ## 部署指南
 
-1. 打开 [Pangolin template](https://sealos.run/appstore/pangolin)，点击 **Deploy Now**。
+1. 打开 [Pangolin template](https://sealos.io/appstore/pangolin)，点击 **Deploy Now**。
 2. 在弹窗中填写部署参数：
    - `gerbil_base_endpoint`（必填）
    - 以及可选默认值，如 `app_name`、`app_host`、`server_secret`
@@ -130,7 +130,7 @@ Sealos 是构建在 Kubernetes 之上的 AI 辅助云操作系统，覆盖应用
 
 - [Pangolin Website](https://pangolin.net)
 - [Pangolin Self-Host Docs](https://docs.pangolin.net/self-host)
-- [Sealos Documentation](https://sealos.run/docs)
+- [Sealos Documentation](https://sealos.io/docs)
 
 ## 许可证
 

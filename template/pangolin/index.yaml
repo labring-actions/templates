@@ -40,11 +40,12 @@ spec:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: ${{ defaults.app_name }}-config
+  name: ${{ defaults.app_name }}-pangolin
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-config
+    app: ${{ defaults.app_name }}-pangolin
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-pangolin
 data:
-  config.yml: |
+  vn-configvn-yml: |
     gerbil:
       start_port: 51820
       base_endpoint: "${{ inputs.gerbil_base_endpoint }}"
@@ -124,7 +125,7 @@ spec:
         resources:
           limits:
             cpu: 500m
-            memory: 1Gi
+            memory: 1024Mi
           requests:
             cpu: 50m
             memory: 102Mi
@@ -140,9 +141,9 @@ spec:
         volumeMounts:
         - name: shared-config
           mountPath: /app/config
-        - name: pangolin-config
+        - name: ${{ defaults.app_name }}-pangolin-cm
           mountPath: /app/config/config.yml
-          subPath: config.yml
+          subPath: vn-configvn-yml
         livenessProbe:
           httpGet: &pangolin_health
             path: /api/v1/
@@ -167,18 +168,19 @@ spec:
       - name: shared-config
         persistentVolumeClaim:
           claimName: ${{ defaults.app_name }}-config
-      - name: pangolin-config
+      - name: ${{ defaults.app_name }}-pangolin-cm
         configMap:
-          name: ${{ defaults.app_name }}-config
+          name: ${{ defaults.app_name }}-pangolin
           items:
-          - key: config.yml
-            path: config.yml
+          - key: vn-configvn-yml
+            path: vn-configvn-yml
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: ${{ defaults.app_name }}-pangolin
   labels:
+    app: ${{ defaults.app_name }}-pangolin
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-pangolin
 spec:
   ports:
@@ -231,19 +233,19 @@ spec:
     http:
       paths:
       - pathType: Prefix
-        path: /api/v1
-        backend:
-          service:
-            name: ${{ defaults.app_name }}-pangolin
-            port:
-              number: 3000
-      - pathType: Prefix
         path: /
         backend:
           service:
             name: ${{ defaults.app_name }}-pangolin
             port:
               number: 3002
+      - pathType: Prefix
+        path: /api/v1
+        backend:
+          service:
+            name: ${{ defaults.app_name }}-pangolin
+            port:
+              number: 3000
   tls:
   - hosts:
     - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
