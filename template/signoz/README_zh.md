@@ -8,7 +8,7 @@ SigNoz 是一款基于 OpenTelemetry 的可观测平台，可统一管理日志�
 
 SigNoz 为应用团队提供分布式追踪、应用性能监控、日志检索、基础设施指标、仪表盘和告警功能。应用将 OpenTelemetry 数据发送到模板内置的 Collector，Collector 处理后写入 ClickHouse，用户可通过 SigNoz Web 控制台统一查询。
 
-Sealos 会自动配置公网 HTTPS 入口、持久卷、服务发现、健康检查和有序迁移门。部署时必须填写管理员邮箱和密码，首次启动会据此创建根管理员账户。
+Sealos 会自动配置公网 HTTPS 入口、持久卷、服务发现、健康检查和有序迁移门。部署完成后，由 SigNoz 的首位用户注册流程创建初始管理员账户。
 
 ## 常见使用场景
 
@@ -64,17 +64,16 @@ Sealos 是基于 Kubernetes 的云操作系统，可在同一界面中管理应�
 ## 部署指南
 
 1. 打开 [SigNoz 模板](https://sealos.io/products/app-store/signoz)，点击 **Deploy Now**。
-2. 填写管理员邮箱和高强度管理员密码。
-3. 启动部署，等待 ClickHouse 迁移 Job 与四项服务全部就绪。全新部署通常需要数分钟。
-4. 从部署完成后的 Canvas 打开 SigNoz 地址。
+2. 启动部署，等待 ClickHouse 迁移 Job 与四项服务全部就绪。全新部署通常需要数分钟。
+3. 从部署完成后的 Canvas 打开 SigNoz 地址。
 
 ## 首次登录
 
-1. 输入部署时填写的管理员邮箱，点击 **Next**。
-2. 输入管理员密码，点击 **Sign in with Password**。
-3. 登录后会进入 SigNoz 工作区首页，可从 **Services**、**Logs**、**Traces** 或 **Dashboards** 开始查看遥测数据。
+1. 全新部署首次打开时，填写 SigNoz 注册表单并创建首个管理员账户。
+2. 密码至少包含 12 个字符，并同时包含大写字母、小写字母、数字和符号。
+3. 使用注册邮箱和密码登录。进入 SigNoz 工作区首页后，可从 **Services**、**Logs**、**Traces** 或 **Dashboards** 开始查看遥测数据。
 
-SigNoz 会在启动时同步所配置的根管理员。请使用安全的密码管理器保存部署参数。
+请使用安全的密码管理器保存注册凭据。后续用户可通过同一应用地址登录。
 
 ## 发送遥测数据
 
@@ -100,7 +99,7 @@ SigNoz 会在启动时同步所配置的根管理员。请使用安全的密码�
 
 ### 登录失败
 
-请使用部署对话框中填写的管理员邮箱和密码。SigNoz Pod 日志中的 `root user reconciliation completed successfully` 表示根管理员已同步完成。
+请使用首次访问时注册的邮箱和密码，确认密码符合 12 位复杂度要求，并在 SigNoz Pod 日志中检查身份认证错误。
 
 ### 查询变慢或写入量增长
 

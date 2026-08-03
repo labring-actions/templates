@@ -8,7 +8,7 @@ SigNoz is an OpenTelemetry-native observability platform for logs, traces, metri
 
 SigNoz gives application teams one interface for distributed tracing, application performance monitoring, log exploration, infrastructure metrics, dashboards, and alerting. Applications send OpenTelemetry data to the bundled collector, which writes telemetry into ClickHouse for querying through the SigNoz web console.
 
-Sealos provisions the public HTTPS endpoint, persistent volumes, service discovery, health checks, and ordered migration gates. A required administrator email and password create the initial root account during the first startup.
+Sealos provisions the public HTTPS endpoint, persistent volumes, service discovery, health checks, and ordered migration gates. After deployment, SigNoz's first-user signup creates the initial administrator account.
 
 ## Common Use Cases
 
@@ -64,17 +64,16 @@ Sealos is a Kubernetes-based cloud operating system that manages the application
 ## Deployment Guide
 
 1. Open the [SigNoz template](https://sealos.io/products/app-store/signoz) and click **Deploy Now**.
-2. Enter the administrator email and a strong administrator password.
-3. Start the deployment and wait for the ClickHouse migration Job and all four services to become ready. A fresh deployment usually takes several minutes.
-4. Open the SigNoz URL from the completed Canvas.
+2. Start the deployment and wait for the ClickHouse migration Job and all four services to become ready. A fresh deployment usually takes several minutes.
+3. Open the SigNoz URL from the completed Canvas.
 
 ## First Login
 
-1. Enter the administrator email configured during deployment and click **Next**.
-2. Enter the administrator password and click **Sign in with Password**.
-3. The first authenticated page is the SigNoz workspace home. Use **Services**, **Logs**, **Traces**, or **Dashboards** to begin exploring telemetry.
+1. On a new deployment, complete the SigNoz signup form to create the first administrator account.
+2. Use a password with at least 12 characters, including an uppercase letter, a lowercase letter, a number, and a symbol.
+3. Sign in with the registered email and password. The first authenticated page is the SigNoz workspace home. Use **Services**, **Logs**, **Traces**, or **Dashboards** to begin exploring telemetry.
 
-SigNoz reconciles the configured root administrator during startup. Store the deployment inputs in a secure password manager.
+Store the registered credentials in a secure password manager. Later users can sign in through the same application URL.
 
 ## Sending Telemetry
 
@@ -100,7 +99,7 @@ The first telemetry-store migration creates many ClickHouse tables. Check the Te
 
 ### Login fails
 
-Use the administrator email and password entered in the deployment dialog. Check the SigNoz Pod logs for `root user reconciliation completed successfully`.
+Use the email and password registered on the first visit. Confirm that the password satisfies the 12-character complexity policy and check the SigNoz Pod logs for authentication errors.
 
 ### Queries are slow or ingestion grows
 
