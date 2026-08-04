@@ -44,10 +44,10 @@ NetBird 提供私有网络、节点注册、访问策略、信令和中继辅助
 
 此模板部署四个 NetBird 服务：
 
-- **Dashboard (`netbirdio/dashboard:v2.38.1`)**：用于管理、引导和日常操作的 Web UI。
-- **Management (`netbirdio/management:0.71.4`)**：核心 HTTP/gRPC API、嵌入式 IdP、策略引擎和账号状态。
-- **Signal (`netbirdio/signal:0.71.4`)**：用于节点协调连接的信令服务。
-- **Relay (`netbirdio/relay:0.71.4`)**：用于受限网络路径的中继端点。
+- **Dashboard (`netbirdio/dashboard:v2.90.8`)**：用于管理、引导和日常操作的 Web UI。
+- **Management (`netbirdio/management:0.76.0`)**：核心 HTTP/gRPC API、嵌入式 IdP、策略引擎和账号状态。
+- **Signal (`netbirdio/signal:0.76.0`)**：用于节点协调连接的信令服务。
+- **Relay (`netbirdio/relay:0.76.0`)**：用于受限网络路径的中继端点。
 
 **Ingress 与域名路由：**
 
@@ -62,10 +62,14 @@ NetBird 提供私有网络、节点注册、访问策略、信令和中继辅助
 
 **配置：**
 
-- Management 使用 SQLite 将控制平面和嵌入式 IdP 数据存储在 `/var/lib/netbird`。
-- Management 和 Signal 使用 `100Mi` 持久化卷。
+- 默认模式使用 SQLite，将 Management 控制平面数据存储在 `/var/lib/netbird`。
+- 可选 PostgreSQL 模式为 Management 控制平面数据创建托管 PostgreSQL 16.4 集群。
+- 两种数据库模式下，嵌入式 IdP 与活动事件存储使用的 SQLite 数据库均保存在 Management 持久化卷中。
+- Management 和 Signal 分别使用 `1Gi` 持久化卷。
 - Relay 通过主 HTTPS ingress 路径暴露为 `rels://<app-host>:443/relay`。
 - 可通过 `external_turn_host`、`external_turn_username` 和 `external_turn_password` 配置可选外部 TURN。
+- Dashboard、Signal 和 Relay 均采用实测的个人低负载配置：`100m` CPU、`128Mi` 内存上限，以及 `10m` CPU、`12Mi` 内存请求。
+- Management 采用实测的冷启动配置：`100m` CPU、`256Mi` 内存上限，以及 `10m` CPU、`25Mi` 内存请求。
 
 **许可证信息：**
 
@@ -88,6 +92,7 @@ Sealos 是基于 Kubernetes 的 AI 辅助云操作系统，统一应用部署、
 
 1. 打开 [NetBird 模板](https://sealos.io/products/app-store/netbird)，点击 **Deploy Now**。
 2. 在弹窗中配置参数：
+   - `use_postgresql`：为 Management 存储选择托管 PostgreSQL，或保留默认 SQLite 模式。
    - `disable_default_policy`：选择是否禁用 NetBird 默认的全互通策略。
    - `external_turn_host`：可选外部 TURN 端点，例如 `turn.example.com:3478`。
    - `external_turn_username` 和 `external_turn_password`：仅在配置外部 TURN 端点时需要。
@@ -109,6 +114,7 @@ Sealos 是基于 Kubernetes 的 AI 辅助云操作系统，统一应用部署、
 
 ### 输入参数
 
+- **`use_postgresql`**：为 Management 存储创建托管 PostgreSQL 16.4（`true` 或 `false`，默认 `false`）。
 - **`disable_default_policy`**：禁用默认全互通策略（`true` 或 `false`）。
 - **`external_turn_host`**：可选外部 TURN 主机和端口。
 - **`external_turn_username`**：TURN 用户名；设置 `external_turn_host` 时需要。
@@ -116,7 +122,7 @@ Sealos 是基于 Kubernetes 的 AI 辅助云操作系统，统一应用部署、
 
 ### 首次登录与注册
 
-此模板使用 NetBird 嵌入式 IdP 本地用户。模板没有预置默认管理员。首次访问时，打开应用 URL 并完成 `/setup` 向导来创建初始 owner 账号。只有当 `GET /api/instance` 返回 `setup_required: true` 时，setup 向导才可使用。
+此模板使用 NetBird 嵌入式 IdP 本地用户。首次访问会打开 `/setup` 向导，你需要填写邮箱、姓名和密码来创建初始 owner。`GET /api/instance` 返回 `setup_required: true` 时可使用该向导，后续访问会进入常规登录页。
 
 如需自动初始化，可在部署后调用一次 setup API：
 
@@ -135,7 +141,7 @@ curl -X POST "https://<your-netbird-url>/api/setup"   -H "Content-Type: applicat
 3. 调整 CPU limit、内存、存储或副本设置。
 4. 应用变更并观察滚动更新状态。
 
-对于小团队，建议每个组件保持 1 个副本，除非你已评估 NetBird 在目标拓扑下的状态和 ingress 要求。
+此模板保留原有的拆分服务拓扑，分别运行一个 Dashboard、Management、Signal 和 Relay 副本。调整副本数前，请评估 NetBird 的状态存储与 ingress 要求。
 
 ## 故障排查
 
@@ -150,6 +156,12 @@ curl -X POST "https://<your-netbird-url>/api/setup"   -H "Content-Type: applicat
 - 确认 Management Pod 正在运行。
 - 确认 `https://<your-netbird-url>/oauth2/.well-known/openid-configuration` 能返回嵌入式 IdP 元数据。
 - 确认 owner 密码没有被修改或遗失。
+
+### PostgreSQL 模式未就绪
+
+- 在 Canvas 中检查托管 PostgreSQL Cluster 和 `<app-name>-pg-init` Job。
+- 确认 Management init container 可以连接生成的 `netbird` 数据库。
+- 将 Management 持久化卷纳入备份，因为嵌入式 IdP 与活动事件存储的数据库保存在该卷中。
 
 ### 节点连接不稳定
 

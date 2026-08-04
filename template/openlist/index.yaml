@@ -3,42 +3,256 @@ kind: Template
 metadata:
   name: openlist
 spec:
-  title: 'OpenList'
-  url: 'https://doc.oplist.org'
-  gitRepo: 'https://github.com/OpenListTeam/OpenList'
-  author: 'Sealos'
-  description: 'OpenList 是一个有韧性、长期治理、社区驱动的 AList 分支，旨在防御基于信任的开源攻击。'
-  readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/openlist/README.md'
-  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/openlist/logo.svg'
+  title: OpenList
+  url: https://oplist.org/
+  gitRepo: https://github.com/OpenListTeam/OpenList
+  author: Sealos
+  description: A community-driven file list and storage aggregation platform with WebDAV, offline downloads, and optional S3-compatible storage.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/openlist/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/openlist/logo.svg
   screenshots:
-    - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/openlist/website-screenshot.webp'
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/openlist/website-screenshot.webp
   templateType: inline
-  locale: zh
+  locale: en
+  i18n:
+    zh:
+      description: 社区驱动的文件列表与存储聚合平台，支持 WebDAV、离线下载和可选的 S3 兼容存储。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/openlist/README_zh.md
   categories:
+    - storage
     - tool
   defaults:
-    app_host:
-      type: string
-      value: ${{ random(8) }}
     app_name:
       type: string
       value: openlist-${{ random(8) }}
+    app_host:
+      type: string
+      value: openlist-${{ random(8) }}
   inputs:
-    USERNAME:
-      description: '默认用户名'
-      type: choice
-      options:
-        - admin
+    admin_password:
+      description: Initial password for the built-in admin account.
+      type: string
       required: true
-    PASSWORD:
-        description: "默认密码"
-        type: string
-        default: ""
-        required: true
+    enable_postgresql:
+      description: Use a dedicated PostgreSQL database instead of the built-in SQLite database.
+      type: boolean
+      default: 'false'
+      required: false
+    enable_s3_storage:
+      description: Create and mount a private Sealos S3 bucket at /sealos-s3.
+      type: boolean
+      default: 'false'
+      required: false
 
-  i18n:
-    zh:
-      readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/openlist/README_zh.md'
+---
+${{ if(inputs.enable_s3_storage === 'true') }}
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  policy: private
+
+${{ else() }}
+storageMode: local
+${{ endif() }}
+---
+
+${{ if(inputs.enable_postgresql === 'true') }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    kb.io/database: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys:
+      - kubernetes.io/hostname
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  terminationPolicy: Delete
+  componentSpecs:
+    - name: postgresql
+      componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
+      replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  backoffLimit: 5
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: pg-init
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_DATABASE
+              value: openlist
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export PGPASSWORD="$PG_PASSWORD"
+              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; do
+                sleep 2
+              done
+              if ! psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$PG_DATABASE'" | grep -q 1; then
+                createdb -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" "$PG_DATABASE"
+              fi
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+
+---
+${{ endif() }}
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-optvn-openlistvn-sealosvn-entrypointvn-sh: |
+    #!/bin/sh
+    set -eu
+
+    mkdir -p /opt/openlist/data/storage
+    log_pipe=/tmp/openlist-log
+    rm -f "$log_pipe"
+    mkfifo "$log_pipe"
+    while IFS= read -r line; do
+      case "$line" in
+        'Successfully created the admin user and the initial password is: '*)
+          printf '%s\n' 'Successfully created the admin user and the initial password is: [redacted]'
+          ;;
+        *)
+          printf '%s\n' "$line"
+          ;;
+      esac
+    done < "$log_pipe" &
+    exec /entrypoint.sh > "$log_pipe" 2>&1
 
 ---
 apiVersion: apps/v1
@@ -46,12 +260,12 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: openlistteam/openlist:v4.0.9-aria2
+    originImageName: openlistteam/openlist:v4.2.2-aria2
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   replicas: 1
   revisionHistoryLimit: 1
@@ -64,47 +278,177 @@ spec:
     metadata:
       labels:
         app: ${{ defaults.app_name }}
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     spec:
-      terminationGracePeriodSeconds: 10
       automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        ${{ if(inputs.enable_postgresql === 'true') }}
+        - name: wait-for-postgres
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_DATABASE
+              value: openlist
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export PGPASSWORD="$PG_PASSWORD"
+              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DATABASE" >/dev/null 2>&1; do
+                sleep 2
+              done
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+        ${{ endif() }}
       containers:
         - name: ${{ defaults.app_name }}
-          image: openlistteam/openlist:v4.0.9-aria2
+          image: openlistteam/openlist:v4.2.2-aria2
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+          args:
+            - exec /bin/sh /opt/openlist/sealos-entrypoint.sh
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: http
+              containerPort: 5244
+              protocol: TCP
           env:
             - name: TZ
               value: Asia/Shanghai
-            - name: PUID
-              value: '0'
-            - name: PGID
-              value: '0'
             - name: UMASK
               value: '022'
+            - name: SITE_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: OPENLIST_ADMIN_PASSWORD
-              value: '${{ inputs.PASSWORD }}'
+              value: ${{ inputs.admin_password }}
+            ${{ if(inputs.enable_postgresql === 'true') }}
+            - name: DB_TYPE
+              value: postgres
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: DB_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DB_NAME
+              value: openlist
+            - name: DB_SSL_MODE
+              value: disable
+            ${{ else() }}
+            - name: DB_TYPE
+              value: sqlite3
+            - name: DB_FILE
+              value: /opt/openlist/data/data.db
+            ${{ endif() }}
+          startupProbe:
+            httpGet:
+              path: /ping
+              port: http
+              scheme: HTTP
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: http
+              scheme: HTTP
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: http
+              scheme: HTTP
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 6
           resources:
-            requests:
-              cpu: 20m
-              memory: 12Mi
-              ephemeral-storage: 200Mi
             limits:
-              cpu: 200m
+              cpu: 100m
               memory: 128Mi
               ephemeral-storage: 200Mi
-          command: []
-          args: []
-          ports:
-            - containerPort: 5244
-          imagePullPolicy: IfNotPresent
+            requests:
+              cpu: 10m
+              memory: 12Mi
+              ephemeral-storage: 50Mi
           volumeMounts:
             - name: vn-optvn-openlistvn-data
               mountPath: /opt/openlist/data
-      volumes: []
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /opt/openlist/sealos-entrypoint.sh
+              subPath: vn-optvn-openlistvn-sealosvn-entrypointvn-sh
+              readOnly: true
+      volumes:
+        - name: ${{ defaults.app_name }}-cm
+          configMap:
+            name: ${{ defaults.app_name }}
   volumeClaimTemplates:
     - metadata:
+        name: vn-optvn-openlistvn-data
         annotations:
           path: /opt/openlist/data
           value: '1'
-        name: vn-optvn-openlistvn-data
       spec:
         accessModes:
           - ReadWriteOnce
@@ -118,12 +462,17 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
-  ports:
-    - port: 5244
   selector:
     app: ${{ defaults.app_name }}
+  ports:
+    - name: http
+      port: 5244
+      targetPort: http
+      protocol: TCP
+      appProtocol: http
 
 ---
 apiVersion: networking.k8s.io/v1
@@ -131,6 +480,7 @@ kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
@@ -155,8 +505,8 @@ spec:
     - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       http:
         paths:
-          - pathType: Prefix
-            path: /
+          - path: /
+            pathType: Prefix
             backend:
               service:
                 name: ${{ defaults.app_name }}
@@ -168,6 +518,199 @@ spec:
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
 
 ---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-storage-init
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  activeDeadlineSeconds: 600
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: storage-init
+          image: public.ecr.aws/docker/library/python:3.13.5-alpine3.22
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: OPENLIST_URL
+              value: http://${{ defaults.app_name }}:5244
+            - name: OPENLIST_ADMIN_PASSWORD
+              value: ${{ inputs.admin_password }}
+            ${{ if(inputs.enable_s3_storage === 'true') }}
+            - name: STORAGE_MODE
+              value: s3
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            ${{ else() }}
+            - name: STORAGE_MODE
+              value: local
+            ${{ endif() }}
+          command:
+            - python
+            - -c
+            - |
+              import json
+              import os
+              import time
+              import urllib.error
+              import urllib.request
+
+              base_url = os.environ["OPENLIST_URL"]
+              storage_mode = os.environ["STORAGE_MODE"]
+              mount_path = "/sealos-s3" if storage_mode == "s3" else "/local"
+              driver = "S3" if storage_mode == "s3" else "Local"
+
+              def call(path, method="GET", payload=None, token=None):
+                  body = None if payload is None else json.dumps(payload).encode()
+                  headers = {"Content-Type": "application/json"}
+                  if token:
+                      headers["Authorization"] = token
+                  request = urllib.request.Request(
+                      base_url + path,
+                      data=body,
+                      headers=headers,
+                      method=method,
+                  )
+                  with urllib.request.urlopen(request, timeout=15) as response:
+                      result = json.load(response)
+                  if result.get("code") != 200:
+                      raise RuntimeError(f"{path}: {result.get('message')}")
+                  return result.get("data")
+
+              token = None
+              for attempt in range(180):
+                  try:
+                      token = call(
+                          "/api/auth/login",
+                          method="POST",
+                          payload={
+                              "username": "admin",
+                              "password": os.environ["OPENLIST_ADMIN_PASSWORD"],
+                          },
+                      )["token"]
+                      break
+                  except Exception as error:
+                      if attempt == 179:
+                          raise
+                      print(f"Waiting for OpenList: {error}", flush=True)
+                      time.sleep(2)
+
+              page = call(
+                  "/api/admin/storage/list?page=1&per_page=100",
+                  token=token,
+              )
+              existing = next(
+                  (
+                      item
+                      for item in page["content"]
+                      if item["mount_path"] == mount_path
+                  ),
+                  None,
+              )
+              if existing and existing.get("status") == "work":
+                  print(f"{driver} storage at {mount_path} is already active", flush=True)
+                  raise SystemExit(0)
+              if existing:
+                  call(
+                      f"/api/admin/storage/delete?id={existing['id']}",
+                      method="POST",
+                      payload={},
+                      token=token,
+                  )
+
+              if storage_mode == "s3":
+                  addition = {
+                      "root_folder_path": "/",
+                      "bucket": os.environ["S3_BUCKET"],
+                      "endpoint": "https://" + os.environ["BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT"],
+                      "region": "us-east-1",
+                      "access_key_id": os.environ["S3_ACCESS_KEY_ID"],
+                      "secret_access_key": os.environ["S3_SECRET_ACCESS_KEY"],
+                      "sign_url_expire": 4,
+                      "force_path_style": True,
+                      "list_object_version": "v2",
+                  }
+              else:
+                  addition = {
+                      "root_folder_path": "/opt/openlist/data/storage",
+                      "directory_size": False,
+                      "thumbnail": False,
+                      "thumb_cache_folder": "",
+                      "thumb_concurrency": "16",
+                      "video_thumb_pos": "20%",
+                      "show_hidden": True,
+                      "mkdir_perm": "777",
+                      "recycle_bin_path": "delete permanently",
+                  }
+              call(
+                  "/api/admin/storage/create",
+                  method="POST",
+                  payload={
+                      "mount_path": mount_path,
+                      "order": 0,
+                      "driver": driver,
+                      "cache_expiration": 30,
+                      "addition": json.dumps(addition),
+                      "remark": f"Provisioned by the Sealos template ({storage_mode})",
+                      "disabled": False,
+                      "disable_index": False,
+                      "enable_sign": False,
+                      "order_by": "name",
+                      "order_direction": "asc",
+                      "extract_folder": "front",
+                      "web_proxy": True,
+                      "webdav_policy": "native_proxy",
+                      "proxy_range": True,
+                      "down_proxy_url": "",
+                      "disable_proxy_sign": False,
+                  },
+                  token=token,
+              )
+              print(f"{driver} storage mounted at {mount_path}", flush=True)
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+---
+
 apiVersion: app.sealos.io/v1
 kind: App
 metadata:
@@ -178,6 +721,6 @@ spec:
   data:
     url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
   displayType: normal
-  icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/openlist/logo.svg"
-  name: openlist
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/openlist/logo.svg
+  name: OpenList
   type: link
