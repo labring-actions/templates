@@ -37,7 +37,7 @@ PostgreSQL 选项保存 LibreDB Studio 的连接配置、收藏查询等应用�
 
 **架构组件：**
 
-- **LibreDB Studio StatefulSet**：运行一个应用副本，并将持久卷挂载到 `/app/data`。
+- **LibreDB Studio StatefulSet**：运行一个应用副本；SQLite 模式将持久卷挂载到 `/app/data`。
 - **SQLite 模式**：默认选择，将服务端应用状态持久化到应用 PVC。
 - **PostgreSQL 模式**：创建 PostgreSQL 集群、数据库访问资源、`libredb_storage` 初始化 Job 和数据库就绪检查容器。
 - **Service + Ingress + App**：将生成的 HTTPS 域名路由到应用，并打开 `/login` 页面。

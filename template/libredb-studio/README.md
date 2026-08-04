@@ -37,7 +37,7 @@ The template includes the runtime components required for a working deployment:
 
 **Architecture components:**
 
-- **LibreDB Studio StatefulSet**: Runs one application replica and mounts `/app/data` from persistent storage.
+- **LibreDB Studio StatefulSet**: Runs one application replica; SQLite mode mounts persistent storage at `/app/data`.
 - **SQLite mode**: Persists server-side application state in the application PVC and is selected by default.
 - **PostgreSQL mode**: Creates a PostgreSQL cluster, database access resources, a `libredb_storage` initialization Job, and a database readiness init container.
 - **Service + Ingress + App**: Routes the generated HTTPS domain to the application and opens the `/login` page.
