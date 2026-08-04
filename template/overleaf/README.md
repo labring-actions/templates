@@ -60,9 +60,9 @@ Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies
 1. Open the [Overleaf template](https://sealos.io/products/app-store/overleaf) and click **Deploy Now**.
 2. Configure the parameters in the popup dialog. The defaults are enough for a first test deployment; enable **Enable External Files** when project files and history should use Sealos S3-compatible storage.
 3. Wait for deployment to complete. The first cold start can take several minutes because Overleaf initializes MongoDB indexes and runs migrations.
-4. Open the generated Overleaf URL from the Sealos App entry.
-5. Open `/register` to see the Community Edition account policy. The page shows **Please contact to create an account** and the administrator contact email exposed by the running instance.
-6. Create the first user from the Overleaf container console or your approved invitation workflow, then sign in from `/login` and continue to `/project` to start using Overleaf.
+4. Open the generated Overleaf URL from the Sealos App entry. The ingress redirects the root path `/` to `/launchpad`.
+5. On `/launchpad`, enter an email address and password, then click **Register** to create the first administrator account.
+6. Sign in from `/login`, then open `/project` to start using Overleaf. Administrators can create additional users from `/admin/register`.
 
 ## Configuration
 
@@ -77,7 +77,7 @@ Deployment parameters:
 | `EMAIL_CONFIRMATION_DISABLED` | Disable email confirmation for first-run local account setup. | `true` |
 | `enable_external_files` | Provision four private Sealos S3-compatible buckets for project files and history. | `false` |
 
-After deployment, create the initial account from the Overleaf container console or import an existing data set, then sign in from `/login`. Community Edition keeps `/register` as an administrator-contact page, so use the contact email shown by the instance and the console or invitation workflow for account creation.
+After deployment, open the root URL to continue to `/launchpad` and create the first administrator account. Sign in from `/login` after setup. Administrators can create additional users from `/admin/register`, while `/register` remains the Community Edition administrator-contact page.
 
 With `enable_external_files=true`, the template injects the documented `OVERLEAF_FILESTORE_*` and `OVERLEAF_HISTORY_*` S3 variables, including path-style access for the Sealos endpoint. The four buckets are private and retain the MongoDB and Redis topology required by Overleaf.
 
@@ -95,7 +95,11 @@ Overleaf runs database migrations on an empty MongoDB database. Wait until the O
 
 ### `/register` says “Please contact to create an account”
 
-This is the expected Community Edition behavior when public self-signup is not enabled. Create or invite users from the administrator context, then sign in from `/login`.
+This is the expected Community Edition account policy. Use `/launchpad` to create the first administrator, then sign in from `/login`. Administrators can create additional users from `/admin/register`.
+
+### `/launchpad` reports that setup is complete
+
+The first administrator account already exists. Sign in from `/login`, then use `/admin/register` to create additional users.
 
 ### Login succeeds but projects are slow to open
 

@@ -60,9 +60,9 @@ Sealos 是基于 Kubernetes 的 AI 云操作系统，统一了从部署到运维
 1. 打开 [Overleaf 模板](https://sealos.io/products/app-store/overleaf)，点击 **Deploy Now**。
 2. 在弹窗中配置参数。首次测试部署可直接使用默认值；需要让项目文件和历史记录使用 Sealos S3 兼容存储时，启用 **Enable External Files**。
 3. 等待部署完成。首次冷启动可能需要数分钟，因为 Overleaf 会初始化 MongoDB 索引并执行迁移。
-4. 从 Sealos App 入口打开生成的 Overleaf URL。
-5. 打开 `/register` 查看 Community Edition 的账号策略。页面会显示 **Please contact to create an account** 和运行实例提供的管理员联系邮箱。
-6. 通过 Overleaf 容器控制台或批准的邀请流程创建首个用户，然后从 `/login` 登录，再访问 `/project` 开始使用 Overleaf。
+4. 从 Sealos App 入口打开生成的 Overleaf URL。Ingress 会将根路径 `/` 重定向到 `/launchpad`。
+5. 在 `/launchpad` 填写邮箱和密码，点击 **Register** 创建首个管理员账号。
+6. 从 `/login` 登录，再访问 `/project` 开始使用 Overleaf。管理员可在 `/admin/register` 创建其他用户。
 
 ## 配置说明
 
@@ -77,7 +77,7 @@ Sealos 是基于 Kubernetes 的 AI 云操作系统，统一了从部署到运维
 | `EMAIL_CONFIRMATION_DISABLED` | 关闭邮箱确认，便于首次本地账号初始化。 | `true` |
 | `enable_external_files` | 创建四个私有 Sealos S3 兼容 bucket 保存项目文件和历史记录。 | `false` |
 
-部署后，请通过 Overleaf 容器控制台创建初始账号，或导入已有数据集，然后从 `/login` 登录。Community Edition 的 `/register` 保持管理员联系页面，请使用实例显示的联系邮箱，并通过控制台或邀请流程创建账号。
+部署后，打开根地址即可进入 `/launchpad`，并创建首个管理员账号。完成设置后，从 `/login` 登录。管理员可在 `/admin/register` 创建其他用户，`/register` 会继续显示 Community Edition 的管理员联系页面。
 
 启用 `enable_external_files=true` 后，模板会注入官方文档中的 `OVERLEAF_FILESTORE_*` 与 `OVERLEAF_HISTORY_*` S3 变量，并为 Sealos endpoint 启用 path-style 访问。四个 bucket 都保持私有，MongoDB 与 Redis 拓扑继续承担 Overleaf 所需的元数据和会话能力。
 
@@ -95,7 +95,11 @@ Overleaf 会在空 MongoDB 数据库上执行迁移。请等待 Overleaf Pod 进
 
 ### `/register` 显示 “Please contact to create an account”
 
-这是未启用公开自助注册时的 Community Edition 预期行为。请由管理员创建或邀请用户，然后从 `/login` 登录。
+这是 Community Edition 的预期账号策略。请通过 `/launchpad` 创建首个管理员，再从 `/login` 登录。管理员可在 `/admin/register` 创建其他用户。
+
+### `/launchpad` 显示初始化已经完成
+
+实例中已经存在首个管理员账号。请从 `/login` 登录，再通过 `/admin/register` 创建其他用户。
 
 ### 登录成功但项目打开较慢
 
