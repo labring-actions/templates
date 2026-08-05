@@ -32,12 +32,10 @@ spec:
     admin_username:
       description: Initial BillionMail administrator username
       type: string
-      default: billion
       required: true
     admin_password:
       description: Initial BillionMail administrator password
       type: string
-      default: ''
       required: true
     mail_hostname:
       description: Mail server hostname used by Postfix and DNS guidance
@@ -150,7 +148,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: pg-init
-          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine@sha256:5660c2cbfea50c7a9127d17dc4e48543eedd3d7a41a595a2dfa572471e37e64c
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_HOST
@@ -299,11 +297,11 @@ spec:
               SQL
           resources:
             limits:
-              cpu: 200m
-              memory: 256Mi
+              cpu: 100m
+              memory: 128Mi
             requests:
-              cpu: 20m
-              memory: 25Mi
+              cpu: 10m
+              memory: 12Mi
       restartPolicy: OnFailure
   backoffLimit: 5
   ttlSecondsAfterFinished: 300
@@ -422,336 +420,33 @@ spec:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: ${{ defaults.app_name }}-config
+  name: ${{ defaults.app_name }}
   labels:
-    app: ${{ defaults.app_name }}-config
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-config
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 data:
-  prepare-data.sh: |
+  vn-configvn-preparevn-datavn-sh: |
     #!/bin/sh
     set -eu
 
-    copy_config() {
-      key="$1"
-      dest="$2"
-      mkdir -p "$(dirname "$dest")"
-      if [ -f "/config/$key" ]; then
-        cp "/config/$key" "$dest"
-      fi
-    }
+    mkdir -p /config /data
 
-    mkdir -p \
-      /data/conf/core/fail2ban_init/filter.d \
-      /data/conf/core/fail2ban_init/jail.d \
-      /data/conf/askai \
-      /data/conf/dovecot/conf.d \
-      /data/conf/php/php-fpm.d \
-      /data/conf/php/php/conf.d \
-      /data/conf/postfix/conf \
-      /data/conf/postfix/sql \
-      /data/conf/rspamd/local.d \
-      /data/conf/supplier/template \
-      /data/conf/webmail \
-      /data/core-data \
-      /data/core-logs \
-      /data/logs/postfix \
-      /data/logs/dovecot \
-      /data/logs/rspamd \
-      /data/postfix-spool \
-      /data/rspamd-data \
-      /data/rspamd-data/dkim \
-      /data/vmail-data \
-      /data/webmail-data \
-      /data/ssl \
-      /data/ssl-self-signed \
-      /data/postgresql-socket \
-      /data/php-sock \
-      /data/docker-sock
-
-    : > /data/dockerenv
-
-    while IFS= read -r mapping; do
-      key="${mapping%%|*}"
-      dest="${mapping#*|}"
-      copy_config "$key" "$dest"
-    done <<'MAPPINGS'
-    conf__core__fail2ban_init__filter.d__core-limit-filter.conf|/data/conf/core/fail2ban_init/filter.d/core-limit-filter.conf
-    conf__core__fail2ban_init__filter.d__roundcube-limit-filter.conf|/data/conf/core/fail2ban_init/filter.d/roundcube-limit-filter.conf
-    conf__core__fail2ban_init__jail.d__core-accesslimit.conf|/data/conf/core/fail2ban_init/jail.d/core-accesslimit.conf
-    conf__core__fail2ban_init__jail.d__roundcube-accesslimit.conf|/data/conf/core/fail2ban_init/jail.d/roundcube-accesslimit.conf
-    conf__dovecot__dovecot.conf|/data/conf/dovecot/dovecot.conf
-    conf__dovecot__rsyslog.conf|/data/conf/dovecot/rsyslog.conf
-    conf__php__pear.conf|/data/conf/php/pear.conf
-    conf__php__php-fpm.conf|/data/conf/php/php-fpm.conf
-    conf__php__php-fpm.conf.default|/data/conf/php/php-fpm.conf.default
-    conf__postfix__main.cf|/data/conf/postfix/main.cf
-    conf__postfix__master.cf|/data/conf/postfix/master.cf
-    conf__postfix__rsyslog.conf|/data/conf/postfix/rsyslog.conf
-    conf__rspamd__rspamd.conf|/data/conf/rspamd/rspamd.conf
-    conf__rspamd__statistic.conf|/data/conf/rspamd/statistic.conf
-    conf__webmail__custom.inc.php|/data/conf/webmail/custom.inc.php
-    conf__webmail__mime.types|/data/conf/webmail/mime.types
-    ssl-self-signed__dh.pem|/data/ssl/dh.pem
-    ssl-self-signed__dh.pem|/data/ssl-self-signed/dh.pem
-    MAPPINGS
-
-    find /config -maxdepth 1 -name 'conf__dovecot__conf.d__*' | while read -r f; do
-      copy_config "$(basename "$f")" "/data/conf/dovecot/conf.d/${f##*conf.d__}"
-    done
-    find /config -maxdepth 1 -name 'conf__php__php-fpm.d__*' | while read -r f; do
-      copy_config "$(basename "$f")" "/data/conf/php/php-fpm.d/${f##*php-fpm.d__}"
-    done
-    find /config -maxdepth 1 -name 'conf__php__php__conf.d__*' | while read -r f; do
-      copy_config "$(basename "$f")" "/data/conf/php/php/conf.d/${f##*conf.d__}"
-    done
-    find /config -maxdepth 1 -name 'conf__rspamd__local.d__*' | while read -r f; do
-      copy_config "$(basename "$f")" "/data/conf/rspamd/local.d/${f##*local.d__}"
-    done
-    find /config -maxdepth 1 -name 'conf__supplier__template__*' | while read -r f; do
-      rel="${f##*/conf__supplier__template__}"
-      rel="$(printf '%s' "$rel" | sed 's#__#/#g')"
-      copy_config "$(basename "$f")" "/data/conf/supplier/template/$rel"
-    done
-
-    : > /data/conf/postfix/conf/header_checks
-    : > /data/conf/postfix/conf/vmail_ssl.map
-    mkdir -p /data/postfix-spool/public /data/postfix-spool/maildrop /data/postfix-spool/dev /data/postfix-spool/pid
-    touch /data/logs/postfix/postfix.log /data/logs/dovecot/dovecot.log /data/logs/rspamd/rspamd.log
-    touch /data/core-logs/access-$(date -u +%Y%m%d).log
-    if [ ! -s /data/ssl/key.pem ] || [ ! -s /data/ssl/cert.pem ]; then
-      openssl req -x509 -nodes -newkey rsa:2048 -days 3650 \
-        -subj "/CN=${BILLIONMAIL_HOSTNAME}" \
-        -keyout /data/ssl/key.pem \
-        -out /data/ssl/cert.pem
-      cp /data/ssl/key.pem /data/ssl-self-signed/key.pem
-      cp /data/ssl/cert.pem /data/ssl-self-signed/cert.pem
-    fi
-
-    cat > /data/.env <<EOF
-    ADMIN_USERNAME=${ADMIN_USERNAME}
-    ADMIN_PASSWORD=${ADMIN_PASSWORD}
-    SafePath=${SAFE_PATH}
-    BILLIONMAIL_HOSTNAME=${BILLIONMAIL_HOSTNAME}
-    DBNAME=billionmail
-    DBUSER=billionmail
-    DBPASS=${DBPASS}
-    REDISPASS=${REDISPASS}
-    REDIS_PORT=6379
-    REDISDB=1
-    SMTP_PORT=25
-    SMTPS_PORT=465
-    SUBMISSION_PORT=587
-    IMAP_PORT=143
-    IMAPS_PORT=993
-    POP_PORT=110
-    POPS_PORT=995
-    HTTP_PORT=80
-    HTTPS_PORT=443
-    TZ=${TZ}
-    FAIL2BAN_INIT=n
-    IP_WHITELIST_ENABLE=false
-    RETENTION_DAYS=${RETENTION_DAYS}
-    APP_ENV=production
-    EOF
-
-    chmod 600 /data/.env
-    chmod 600 /data/ssl/key.pem /data/ssl-self-signed/key.pem
-    chmod -R a+rX /data/conf /data/ssl /data/ssl-self-signed
-    chmod -R 777 /data/webmail-data /data/postfix-spool /data/vmail-data /data/rspamd-data /data/logs /data/core-logs /data/core-data /data/postgresql-socket /data/php-sock /data/docker-sock
-  docker-api-stub.py: |
-    #!/usr/bin/env python3
-    import json
-    import os
-    import socket
-    import urllib.parse
-
-    SOCKET_PATH = "/var/run/docker.sock"
-    CONTAINERS = [
-        ("core-id", "core-billionmail", "billionmail/core:4.9.3@sha256:b97c71b463e99368f0fb50a4f3088139c2f04a37171d3b660b92f946a3076692"),
-        ("rspamd-id", "rspamd-billionmail", "billionmail/rspamd:1.2@sha256:bed48c106e8b8fcbf0a133c86e90900e7e17d4dec14cc30a9ddf989ada74f058"),
-        ("dovecot-id", "dovecot-billionmail", "billionmail/dovecot:1.6@sha256:bbf5c304f248141768d1dbdf26b190fd28b69de6969b90e994ee81f54b942fab"),
-        ("postfix-id", "postfix-billionmail", "billionmail/postfix:1.6@sha256:870656c055c83f4e4b83fcd4c2f9cecfbcd0d8e3a963ab7d0c9c88bd6b348342"),
-        ("webmail-id", "webmail-billionmail", "roundcube/roundcubemail:1.6.11-fpm-alpine"),
-    ]
-    EXECS = {}
-    EXEC_COUNTER = 0
-
-
-    def summary(cid, name, image):
-        labels = {}
-        if name == "core-billionmail":
-            labels["com.docker.compose.project.working_dir"] = "/opt/billionmail"
-        return {
-            "Id": cid,
-            "Names": ["/" + name],
-            "Image": image,
-            "ImageID": image,
-            "Command": "",
-            "Created": 0,
-            "Ports": [],
-            "Labels": labels,
-            "State": "running",
-            "Status": "Up",
-            "HostConfig": {"NetworkMode": "billionmail-network"},
-            "NetworkSettings": {"Networks": {}},
-            "Mounts": [],
-        }
-
-
-    def write_response(conn, status, body=b"", content_type="application/json"):
-        if isinstance(body, str):
-            body = body.encode()
-        headers = [
-            f"HTTP/1.1 {status}",
-            f"Content-Length: {len(body)}",
-            f"Content-Type: {content_type}",
-            "Connection: close",
-            "",
-            "",
-        ]
-        conn.sendall("\r\n".join(headers).encode() + body)
-
-
-    def write_hijacked_response(conn, body=b""):
-        headers = [
-            "HTTP/1.1 101 UPGRADED",
-            "Content-Type: application/vnd.docker.raw-stream",
-            "Connection: Upgrade",
-            "Upgrade: tcp",
-            "",
-            "",
-        ]
-        conn.sendall("\r\n".join(headers).encode() + body)
-
-
-    def raw_stream(stdout=""):
-        if not stdout:
-            return b""
-        data = stdout.encode()
-        return b"\x01\x00\x00\x00" + len(data).to_bytes(4, "big") + data
-
-
-    def exec_output(cmd):
-        text = " ".join(cmd)
-        if "rspamadm pw" in text:
-            return "$2$sealos-billonmail-rspamd-placeholder\n"
-        if "rspamadm dkim_keygen" in text:
-            return "v=DKIM1; k=rsa; p=placeholder\n"
-        return ""
-
-
-    def create_exec(request):
-        global EXEC_COUNTER
-        body = b""
-        if b"\r\n\r\n" in request:
-            body = request.split(b"\r\n\r\n", 1)[1]
-        try:
-            payload = json.loads(body.decode() or "{}")
-        except json.JSONDecodeError:
-            payload = {}
-        cmd = payload.get("Cmd")
-        if not isinstance(cmd, list):
-            cmd = []
-        EXEC_COUNTER += 1
-        exec_id = f"exec-{EXEC_COUNTER}"
-        EXECS[exec_id] = {
-            "cmd": [str(item) for item in cmd],
-            "output": exec_output([str(item) for item in cmd]),
-        }
-        return exec_id
-
-
-    def stats_body():
-        return {
-            "cpu_stats": {
-                "cpu_usage": {"total_usage": 100, "percpu_usage": [100], "usage_in_kernelmode": 0, "usage_in_usermode": 0},
-                "system_usage": 1000,
-                "online_cpus": 1,
-                "throttling_data": {"periods": 0, "throttled_periods": 0, "throttled_time": 0},
-            },
-            "precpu_stats": {
-                "cpu_usage": {"total_usage": 80, "percpu_usage": [80], "usage_in_kernelmode": 0, "usage_in_usermode": 0},
-                "system_usage": 900,
-                "online_cpus": 1,
-                "throttling_data": {"periods": 0, "throttled_periods": 0, "throttled_time": 0},
-            },
-            "memory_stats": {"usage": 67108864, "max_usage": 67108864, "limit": 536870912},
-            "networks": {"eth0": {"rx_bytes": 0, "rx_packets": 0, "rx_errors": 0, "rx_dropped": 0, "tx_bytes": 0, "tx_packets": 0, "tx_errors": 0, "tx_dropped": 0}},
-            "blkio_stats": {"io_service_bytes_recursive": []},
-        }
-
-
-    def handle(conn, request):
-        first = request.split(b"\r\n", 1)[0].decode(errors="ignore")
-        parts = first.split()
-        if len(parts) < 2:
-            write_response(conn, "400 Bad Request", "{}")
-            return
-        method, raw_path = parts[0], parts[1]
-        path = urllib.parse.urlparse(raw_path).path
-        compact = path.lstrip("/")
-        if compact.startswith("v") and "/" in compact:
-            version, rest = compact.split("/", 1)
-            if version[1:].replace(".", "").isdigit():
-                compact = rest
-        if compact == "_ping":
-            write_response(conn, "200 OK", "OK", "text/plain")
-        elif compact == "version":
-            write_response(conn, "200 OK", json.dumps({"Version": "25.0.0", "ApiVersion": "1.43"}))
-        elif compact.startswith("containers/json"):
-            write_response(conn, "200 OK", json.dumps([summary(*c) for c in CONTAINERS]))
-        elif method == "GET" and compact.startswith("containers/") and compact.endswith("/json"):
-            wanted = compact.split("/", 2)[1]
-            for cid, name, image in CONTAINERS:
-                if wanted in {cid, name}:
-                    write_response(conn, "200 OK", json.dumps(summary(cid, name, image)))
-                    return
-            write_response(conn, "404 Not Found", "{}")
-        elif "/stats" in compact:
-            write_response(conn, "200 OK", json.dumps(stats_body()))
-        elif method == "POST" and compact.endswith("/restart"):
-            write_response(conn, "204 No Content", b"")
-        elif method == "POST" and compact.endswith("/exec"):
-            exec_id = create_exec(request)
-            write_response(conn, "200 OK", json.dumps({"Id": exec_id}))
-        elif method == "POST" and compact.startswith("exec/") and compact.endswith("/start"):
-            exec_id = compact.split("/", 2)[1]
-            write_hijacked_response(conn, raw_stream(EXECS.get(exec_id, {}).get("output", "")))
-        elif method == "GET" and compact.startswith("exec/") and compact.endswith("/json"):
-            exec_id = compact.split("/", 2)[1]
-            write_response(conn, "200 OK", json.dumps({"ID": exec_id, "Running": False, "ExitCode": 0}))
-        else:
-            write_response(conn, "404 Not Found", "{}")
-
-
-    os.makedirs(os.path.dirname(SOCKET_PATH), exist_ok=True)
-    try:
-        os.unlink(SOCKET_PATH)
-    except FileNotFoundError:
-        pass
-
-    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    server.bind(SOCKET_PATH)
-    os.chmod(SOCKET_PATH, 0o666)
-    server.listen(16)
-
-    while True:
-        conn, _ = server.accept()
-        with conn:
-            request = conn.recv(65536)
-            handle(conn, request)
-  conf__core__fail2ban_init__filter.d__core-limit-filter.conf: |
+    cat > '/config/conf__core__fail2ban_init__filter.d__core-limit-filter.conf' <<'BILLIONMAIL_CONFIG_001_EOF'
     [Definition]
     failregex = ^.*? \d+ "(GET|POST|HEAD|PUT|DELETE|PATCH|OPTIONS|CONNECT|TRACE) (http|https) [^ ]+ \S+ HTTP.*" .*, <HOST>, ".*?", ".*?"$
 
     ignoreregex = .*/roundcube.*
-  conf__core__fail2ban_init__filter.d__roundcube-limit-filter.conf: |
+    BILLIONMAIL_CONFIG_001_EOF
+
+    cat > '/config/conf__core__fail2ban_init__filter.d__roundcube-limit-filter.conf' <<'BILLIONMAIL_CONFIG_002_EOF'
     [Definition]
     # Only match roundcube logs
     failregex = ^.*? \d+ "(GET|POST|HEAD|PUT|DELETE|PATCH|OPTIONS|CONNECT|TRACE) (http|https) [^ ]+ /roundcube(?:[/?][^ \"]*)? HTTP.*" .*, <HOST>, ".*?", ".*?"$
     # Exclude static resource interference
     ignoreregex = ^.* /roundcube/(?:skins|plugins|assets|images)/
-  conf__core__fail2ban_init__jail.d__core-accesslimit.conf: |
+    BILLIONMAIL_CONFIG_002_EOF
+
+    cat > '/config/conf__core__fail2ban_init__jail.d__core-accesslimit.conf' <<'BILLIONMAIL_CONFIG_003_EOF'
     [core-accesslimit]
     ignoreip = 127.0.0.1/8
     enabled = true
@@ -762,7 +457,9 @@ data:
     findtime = 60
     bantime = 60
     action = %(action_)s
-  conf__core__fail2ban_init__jail.d__roundcube-accesslimit.conf: |
+    BILLIONMAIL_CONFIG_003_EOF
+
+    cat > '/config/conf__core__fail2ban_init__jail.d__roundcube-accesslimit.conf' <<'BILLIONMAIL_CONFIG_004_EOF'
     [roundcube-accesslimit]
     ignoreip = 127.0.0.1/8
     enabled = true
@@ -773,7 +470,9 @@ data:
     findtime = 60
     bantime = 60
     action = %(action_)s
-  conf__dovecot__dovecot.conf: |
+    BILLIONMAIL_CONFIG_004_EOF
+
+    cat > '/config/conf__dovecot__dovecot.conf' <<'BILLIONMAIL_CONFIG_005_EOF'
     ## Dovecot configuration file
 
     # If you're in a hurry, see http://wiki2.dovecot.org/QuickConfiguration
@@ -898,7 +597,9 @@ data:
     # A config file can also tried to be included without giving an error if
     # it's not found:
     !include_try local.conf
-  conf__dovecot__rsyslog.conf: |
+    BILLIONMAIL_CONFIG_005_EOF
+
+    cat > '/config/conf__dovecot__rsyslog.conf' <<'BILLIONMAIL_CONFIG_006_EOF'
     # /etc/rsyslog.conf configuration file for rsyslog
     #
     # For more information install rsyslog-doc and see
@@ -968,7 +669,9 @@ data:
     # Emergencies are sent to everybody logged in.
     #
     *.emerg				:omusrmsg:*
-  conf__dovecot__conf.d__10-auth.conf: |
+    BILLIONMAIL_CONFIG_006_EOF
+
+    cat > '/config/conf__dovecot__conf.d__10-auth.conf' <<'BILLIONMAIL_CONFIG_007_EOF'
     ##
     ## Authentication processes
     ##
@@ -1097,7 +800,9 @@ data:
     #!include auth-checkpassword.conf.ext
     #!include auth-vpopmail.conf.ext
     #!include auth-static.conf.ext
-  conf__dovecot__conf.d__10-director.conf: |
+    BILLIONMAIL_CONFIG_007_EOF
+
+    cat > '/config/conf__dovecot__conf.d__10-director.conf' <<'BILLIONMAIL_CONFIG_008_EOF'
     ##
     ## Director-specific settings.
     ##
@@ -1158,7 +863,9 @@ data:
     protocol lmtp {
       #auth_socket_path = director-userdb
     }
-  conf__dovecot__conf.d__10-logging.conf: |
+    BILLIONMAIL_CONFIG_008_EOF
+
+    cat > '/config/conf__dovecot__conf.d__10-logging.conf' <<'BILLIONMAIL_CONFIG_009_EOF'
     ##
     ## Log destination.
     ##
@@ -1264,7 +971,9 @@ data:
     #  %{session_time} - How long LMTP session took, not including delivery_time
     #  %{storage_id} - Backend-specific ID for mail, e.g. Maildir filename
     #deliver_log_format = msgid=%m: %$
-  conf__dovecot__conf.d__10-mail.conf: |
+    BILLIONMAIL_CONFIG_009_EOF
+
+    cat > '/config/conf__dovecot__conf.d__10-mail.conf' <<'BILLIONMAIL_CONFIG_010_EOF'
     ##
     ## Mailbox locations and namespaces
     ##
@@ -1678,7 +1387,9 @@ data:
     #     negate an exclusion (e.g. content-type=!foo/* content-type=foo/bar).
     #   exclude-inlined - Exclude any Content-Disposition=inline MIME part.
     #mail_attachment_detection_options =
-  conf__dovecot__conf.d__10-master.conf: |
+    BILLIONMAIL_CONFIG_010_EOF
+
+    cat > '/config/conf__dovecot__conf.d__10-master.conf' <<'BILLIONMAIL_CONFIG_011_EOF'
     #default_process_limit = 100
     #default_client_limit = 1000
 
@@ -1824,7 +1535,9 @@ data:
         #group =
       }
     }
-  conf__dovecot__conf.d__10-ssl.conf: |
+    BILLIONMAIL_CONFIG_011_EOF
+
+    cat > '/config/conf__dovecot__conf.d__10-ssl.conf' <<'BILLIONMAIL_CONFIG_012_EOF'
     ##
     ## SSL settings
     ##
@@ -1890,7 +1603,9 @@ data:
     #   no_compression - Disable compression.
     #   no_ticket - Disable SSL session tickets.
     #ssl_options =
-  conf__dovecot__conf.d__10-tcpwrapper.conf: |
+    BILLIONMAIL_CONFIG_012_EOF
+
+    cat > '/config/conf__dovecot__conf.d__10-tcpwrapper.conf' <<'BILLIONMAIL_CONFIG_013_EOF'
     # 10-tcpwrapper.conf
     #
     # service name for hosts.{allow|deny} are those defined as
@@ -1905,7 +1620,9 @@ data:
     #    user = $default_login_user
     #  }
     #}
-  conf__dovecot__conf.d__15-lda.conf: |
+    BILLIONMAIL_CONFIG_013_EOF
+
+    cat > '/config/conf__dovecot__conf.d__15-lda.conf' <<'BILLIONMAIL_CONFIG_014_EOF'
     ##
     ## LDA specific settings (also used by LMTP)
     ##
@@ -1955,7 +1672,9 @@ data:
       #mail_plugins = $mail_plugins
       mail_plugins = $mail_plugins sieve
     }
-  conf__dovecot__conf.d__15-mailboxes.conf: |
+    BILLIONMAIL_CONFIG_014_EOF
+
+    cat > '/config/conf__dovecot__conf.d__15-mailboxes.conf' <<'BILLIONMAIL_CONFIG_015_EOF'
     ##
     ## Mailbox definitions
     ##
@@ -2038,7 +1757,9 @@ data:
       #  comment = All my flagged messages
       #}
     }
-  conf__dovecot__conf.d__20-imap.conf: |
+    BILLIONMAIL_CONFIG_015_EOF
+
+    cat > '/config/conf__dovecot__conf.d__20-imap.conf' <<'BILLIONMAIL_CONFIG_016_EOF'
     ##
     ## IMAP specific settings
     ##
@@ -2139,7 +1860,9 @@ data:
       mail_plugins = imap_sieve
 
     }
-  conf__dovecot__conf.d__20-lmtp.conf: |
+    BILLIONMAIL_CONFIG_016_EOF
+
+    cat > '/config/conf__dovecot__conf.d__20-lmtp.conf' <<'BILLIONMAIL_CONFIG_017_EOF'
     ##
     ## LMTP specific settings
     ##
@@ -2181,7 +1904,9 @@ data:
       #mail_plugins = $mail_plugins
       mail_plugins = $mail_plugins sieve
     }
-  conf__dovecot__conf.d__20-pop3.conf: |
+    BILLIONMAIL_CONFIG_017_EOF
+
+    cat > '/config/conf__dovecot__conf.d__20-pop3.conf' <<'BILLIONMAIL_CONFIG_018_EOF'
     ##
     ## POP3 specific settings
     ##
@@ -2281,7 +2006,9 @@ data:
       # NOTE: The username is compared case-sensitively.
       #mail_max_userip_connections = 10
     }
-  conf__dovecot__conf.d__90-acl.conf: |
+    BILLIONMAIL_CONFIG_018_EOF
+
+    cat > '/config/conf__dovecot__conf.d__90-acl.conf' <<'BILLIONMAIL_CONFIG_019_EOF'
     ##
     ## Mailbox access control lists.
     ##
@@ -2301,7 +2028,9 @@ data:
     plugin {
       #acl_shared_dict = file:/var/lib/dovecot/shared-mailboxes
     }
-  conf__dovecot__conf.d__90-plugin.conf: |
+    BILLIONMAIL_CONFIG_019_EOF
+
+    cat > '/config/conf__dovecot__conf.d__90-plugin.conf' <<'BILLIONMAIL_CONFIG_020_EOF'
     ##
     ## Plugin settings
     ##
@@ -2314,7 +2043,9 @@ data:
       #setting_name = value
       sieve = /etc/dovecot/sieve/default.sieve
     }
-  conf__dovecot__conf.d__90-quota.conf: |
+    BILLIONMAIL_CONFIG_020_EOF
+
+    cat > '/config/conf__dovecot__conf.d__90-quota.conf' <<'BILLIONMAIL_CONFIG_021_EOF'
     ##
     ## Quota configuration.
     ##
@@ -2398,7 +2129,9 @@ data:
       #quota_rule = *:storage=102400
       #quota2_rule = *:storage=1048576
     }
-  conf__dovecot__conf.d__90-sieve-extprograms.conf: |
+    BILLIONMAIL_CONFIG_021_EOF
+
+    cat > '/config/conf__dovecot__conf.d__90-sieve-extprograms.conf' <<'BILLIONMAIL_CONFIG_022_EOF'
     # Sieve Extprograms plugin configuration
 
     # Don't forget to add the sieve_extprograms plugin to the sieve_plugins setting.
@@ -2442,8 +2175,9 @@ data:
       #  mode = 0600
       #}
     #}
+    BILLIONMAIL_CONFIG_022_EOF
 
-  conf__dovecot__conf.d__90-sieve.conf: |
+    cat > '/config/conf__dovecot__conf.d__90-sieve.conf' <<'BILLIONMAIL_CONFIG_023_EOF'
     ##
     ## Settings for the Sieve interpreter
     ##
@@ -2665,7 +2399,9 @@ data:
       # the source line numbers.
       #sieve_trace_addresses = no
     }
-  conf__dovecot__conf.d__90-sieve_rspamd.conf: |
+    BILLIONMAIL_CONFIG_023_EOF
+
+    cat > '/config/conf__dovecot__conf.d__90-sieve_rspamd.conf' <<'BILLIONMAIL_CONFIG_024_EOF'
     ##
     ## Settings for the Sieve interpreter
     ##
@@ -2887,7 +2623,9 @@ data:
       # the source line numbers.
       #sieve_trace_addresses = no
     }
-  conf__dovecot__conf.d__auth-checkpassword.conf.ext: |
+    BILLIONMAIL_CONFIG_024_EOF
+
+    cat > '/config/conf__dovecot__conf.d__auth-checkpassword.conf.ext' <<'BILLIONMAIL_CONFIG_025_EOF'
     # Authentication for checkpassword users. Included from 10-auth.conf.
     #
     # <doc/wiki/AuthDatabase.CheckPassword.txt>
@@ -2909,7 +2647,9 @@ data:
     #  driver = checkpassword
     #  args = /usr/bin/checkpassword
     #}
-  conf__dovecot__conf.d__auth-deny.conf.ext: |
+    BILLIONMAIL_CONFIG_025_EOF
+
+    cat > '/config/conf__dovecot__conf.d__auth-deny.conf.ext' <<'BILLIONMAIL_CONFIG_026_EOF'
     # Deny access for users. Included from 10-auth.conf.
 
     # Users can be (temporarily) disabled by adding a passdb with deny=yes.
@@ -2925,7 +2665,9 @@ data:
       # File contains a list of usernames, one per line
       args = /etc/dovecot/deny-users
     }
-  conf__dovecot__conf.d__auth-dict.conf.ext: |
+    BILLIONMAIL_CONFIG_026_EOF
+
+    cat > '/config/conf__dovecot__conf.d__auth-dict.conf.ext' <<'BILLIONMAIL_CONFIG_027_EOF'
     # Authentication via dict backend. Included from 10-auth.conf.
     #
     # <doc/wiki/AuthDatabase.Dict.txt>
@@ -2942,7 +2684,9 @@ data:
       driver = dict
       args = /etc/dovecot/dovecot-dict-auth.conf.ext
     }
-  conf__dovecot__conf.d__auth-ldap.conf.ext: |
+    BILLIONMAIL_CONFIG_027_EOF
+
+    cat > '/config/conf__dovecot__conf.d__auth-ldap.conf.ext' <<'BILLIONMAIL_CONFIG_028_EOF'
     # Authentication for LDAP users. Included from 10-auth.conf.
     #
     # <doc/wiki/AuthDatabase.LDAP.txt>
@@ -2976,7 +2720,9 @@ data:
       #driver = static
       #args = uid=vmail gid=vmail home=/var/vmail/%u
     #}
-  conf__dovecot__conf.d__auth-master.conf.ext: |
+    BILLIONMAIL_CONFIG_028_EOF
+
+    cat > '/config/conf__dovecot__conf.d__auth-master.conf.ext' <<'BILLIONMAIL_CONFIG_029_EOF'
     # Authentication for master users. Included from 10-auth.conf.
 
     # By adding master=yes setting inside a passdb you make the passdb a list
@@ -2993,7 +2739,9 @@ data:
       # be looked up from passdb that it really exists. pass=yes does that.
       pass = yes
     }
-  conf__dovecot__conf.d__auth-passwdfile.conf.ext: |
+    BILLIONMAIL_CONFIG_029_EOF
+
+    cat > '/config/conf__dovecot__conf.d__auth-passwdfile.conf.ext' <<'BILLIONMAIL_CONFIG_030_EOF'
     # Authentication for passwd-file users. Included from 10-auth.conf.
     #
     # passwd-like file with specified location.
@@ -3014,7 +2762,9 @@ data:
       # Override fields from passwd-file
       #override_fields = home=/home/virtual/%u
     }
-  conf__dovecot__conf.d__auth-sql.conf.ext: |
+    BILLIONMAIL_CONFIG_030_EOF
+
+    cat > '/config/conf__dovecot__conf.d__auth-sql.conf.ext' <<'BILLIONMAIL_CONFIG_031_EOF'
     # Authentication for SQL users. Included from 10-auth.conf.
     #
     # <doc/wiki/AuthDatabase.SQL.txt>
@@ -3045,7 +2795,9 @@ data:
       #driver = static
       #args = uid=vmail gid=vmail home=/var/vmail/%u
     #}
-  conf__dovecot__conf.d__auth-static.conf.ext: |
+    BILLIONMAIL_CONFIG_031_EOF
+
+    cat > '/config/conf__dovecot__conf.d__auth-static.conf.ext' <<'BILLIONMAIL_CONFIG_032_EOF'
     # Static passdb. Included from 10-auth.conf.
 
     # This can be used for situations where Dovecot doesn't need to verify the
@@ -3070,7 +2822,9 @@ data:
     #  driver = static
     #  args = uid=vmail gid=vmail home=/home/%u
     #}
-  conf__dovecot__conf.d__auth-system.conf.ext: |
+    BILLIONMAIL_CONFIG_032_EOF
+
+    cat > '/config/conf__dovecot__conf.d__auth-system.conf.ext' <<'BILLIONMAIL_CONFIG_033_EOF'
     # Authentication for system users. Included from 10-auth.conf.
     #
     # <doc/wiki/PasswordDatabase.txt>
@@ -3145,10 +2899,14 @@ data:
       #
       #args =
     #}
-  conf__php__pear.conf: |
+    BILLIONMAIL_CONFIG_033_EOF
+
+    cat > '/config/conf__php__pear.conf' <<'BILLIONMAIL_CONFIG_034_EOF'
     #PEAR_Config 0.9
     a:33:{s:9:"cache_dir";s:15:"/tmp/pear/cache";s:15:"default_channel";s:12:"pear.php.net";s:16:"preferred_mirror";s:12:"pear.php.net";s:13:"remote_config";s:0:"";s:13:"auto_discover";i:0;s:13:"master_server";s:12:"pear.php.net";s:10:"http_proxy";s:0:"";s:7:"php_dir";s:18:"/usr/local/lib/php";s:7:"ext_dir";s:55:"/usr/local/lib/php/extensions/no-debug-non-zts-20210902";s:7:"doc_dir";s:22:"/usr/local/lib/php/doc";s:7:"bin_dir";s:14:"/usr/local/bin";s:8:"data_dir";s:23:"/usr/local/lib/php/data";s:7:"cfg_dir";s:22:"/usr/local/lib/php/cfg";s:7:"www_dir";s:25:"/usr/local/lib/php/htdocs";s:7:"man_dir";s:28:"/usr/local/lib/php/local/man";s:8:"test_dir";s:23:"/usr/local/lib/php/test";s:8:"temp_dir";s:14:"/tmp/pear/temp";s:12:"download_dir";s:18:"/tmp/pear/download";s:7:"php_bin";s:18:"/usr/local/bin/php";s:10:"php_prefix";s:0:"";s:10:"php_suffix";s:0:"";s:7:"php_ini";s:0:"";s:12:"metadata_dir";s:0:"";s:8:"username";s:0:"";s:8:"password";s:0:"";s:7:"verbose";i:1;s:15:"preferred_state";s:6:"stable";s:5:"umask";i:18;s:9:"cache_ttl";i:3600;s:8:"sig_type";s:3:"gpg";s:7:"sig_bin";s:18:"/usr/local/bin/gpg";s:9:"sig_keyid";s:0:"";s:10:"sig_keydir";s:23:"/usr/local/etc/pearkeys";}
-  conf__php__php-fpm.conf: |
+    BILLIONMAIL_CONFIG_034_EOF
+
+    cat > '/config/conf__php__php-fpm.conf' <<'BILLIONMAIL_CONFIG_035_EOF'
     ;;;;;;;;;;;;;;;;;;;;;
     ; FPM Configuration ;
     ;;;;;;;;;;;;;;;;;;;;;
@@ -3292,7 +3050,9 @@ data:
     ;  - the global prefix if it's been set (-p argument)
     ;  - /usr/local otherwise
     include=etc/php-fpm.d/*.conf
-  conf__php__php-fpm.conf.default: |
+    BILLIONMAIL_CONFIG_035_EOF
+
+    cat > '/config/conf__php__php-fpm.conf.default' <<'BILLIONMAIL_CONFIG_036_EOF'
     ;;;;;;;;;;;;;;;;;;;;;
     ; FPM Configuration ;
     ;;;;;;;;;;;;;;;;;;;;;
@@ -3436,7 +3196,9 @@ data:
     ;  - the global prefix if it's been set (-p argument)
     ;  - /usr/local otherwise
     include=NONE/etc/php-fpm.d/*.conf
-  conf__php__php-fpm.d__docker.conf: |
+    BILLIONMAIL_CONFIG_036_EOF
+
+    cat > '/config/conf__php__php-fpm.d__docker.conf' <<'BILLIONMAIL_CONFIG_037_EOF'
     [global]
     error_log = /proc/self/fd/2
 
@@ -3453,7 +3215,9 @@ data:
     ; Ensure worker stdout and stderr are sent to the main error log.
     catch_workers_output = yes
     decorate_workers_output = no
-  conf__php__php-fpm.d__www.conf: |
+    BILLIONMAIL_CONFIG_037_EOF
+
+    cat > '/config/conf__php__php-fpm.d__www.conf' <<'BILLIONMAIL_CONFIG_038_EOF'
     [global]
     daemonize = no
 
@@ -3473,8 +3237,9 @@ data:
 
     php_admin_value[memory_limit] = 512M
     php_admin_value[disable_functions] = passthru,system,putenv,chroot,chgrp,chown,shell_exec,popen,proc_open,pcntl_exec,ini_alter,ini_restore,dl,openlog,syslog,readlink,symlink,popepassthru,pcntl_alarm,pcntl_fork,pcntl_waitpid,pcntl_wait,pcntl_wifexited,pcntl_wifstopped,pcntl_wifsignaled,pcntl_wifcontinued,pcntl_wexitstatus,pcntl_wtermsig,pcntl_wstopsig,pcntl_signal,pcntl_signal_dispatch,pcntl_get_last_error,pcntl_strerror,pcntl_sigprocmask,pcntl_sigwaitinfo,pcntl_sigtimedwait,pcntl_exec,pcntl_getpriority,pcntl_setpriority,imap_open,apache_setenv
+    BILLIONMAIL_CONFIG_038_EOF
 
-  conf__php__php-fpm.d__www.conf.default: |
+    cat > '/config/conf__php__php-fpm.d__www.conf.default' <<'BILLIONMAIL_CONFIG_039_EOF'
     ; Start a new pool named 'www'.
     ; the variable $pool can be used in any directive and will be replaced by the
     ; pool name ('www' here)
@@ -3944,20 +3709,34 @@ data:
     ;php_admin_value[error_log] = /var/log/fpm-php.www.log
     ;php_admin_flag[log_errors] = on
     ;php_admin_value[memory_limit] = 32M
-  conf__php__php__conf.d__docker-fpm.ini: |
+    BILLIONMAIL_CONFIG_039_EOF
+
+    cat > '/config/conf__php__php__conf.d__docker-fpm.ini' <<'BILLIONMAIL_CONFIG_040_EOF'
     ; https://github.com/docker-library/php/issues/878#issuecomment-938595965
     fastcgi.logging = Off
-  conf__php__php__conf.d__docker-php-ext-exif.ini: |
+    BILLIONMAIL_CONFIG_040_EOF
+
+    cat > '/config/conf__php__php__conf.d__docker-php-ext-exif.ini' <<'BILLIONMAIL_CONFIG_041_EOF'
     extension=exif.so
-  conf__php__php__conf.d__docker-php-ext-gd.ini: |
+    BILLIONMAIL_CONFIG_041_EOF
+
+    cat > '/config/conf__php__php__conf.d__docker-php-ext-gd.ini' <<'BILLIONMAIL_CONFIG_042_EOF'
     extension=gd.so
-  conf__php__php__conf.d__docker-php-ext-imagick.ini: |
+    BILLIONMAIL_CONFIG_042_EOF
+
+    cat > '/config/conf__php__php__conf.d__docker-php-ext-imagick.ini' <<'BILLIONMAIL_CONFIG_043_EOF'
     extension=imagick.so
-  conf__php__php__conf.d__docker-php-ext-intl.ini: |
+    BILLIONMAIL_CONFIG_043_EOF
+
+    cat > '/config/conf__php__php__conf.d__docker-php-ext-intl.ini' <<'BILLIONMAIL_CONFIG_044_EOF'
     extension=intl.so
-  conf__php__php__conf.d__docker-php-ext-ldap.ini: |
+    BILLIONMAIL_CONFIG_044_EOF
+
+    cat > '/config/conf__php__php__conf.d__docker-php-ext-ldap.ini' <<'BILLIONMAIL_CONFIG_045_EOF'
     extension=ldap.so
-  conf__php__php__conf.d__docker-php-ext-opcache.ini: |
+    BILLIONMAIL_CONFIG_045_EOF
+
+    cat > '/config/conf__php__php__conf.d__docker-php-ext-opcache.ini' <<'BILLIONMAIL_CONFIG_046_EOF'
     zend_extension=opcache
     opcache.enable = 1
     opcache.memory_consumption=128
@@ -3966,19 +3745,33 @@ data:
     opcache.revalidate_freq=3
     opcache.fast_shutdown=1
     opcache.enable_cli=1
-  conf__php__php__conf.d__docker-php-ext-pdo_mysql.ini: |
+    BILLIONMAIL_CONFIG_046_EOF
+
+    cat > '/config/conf__php__php__conf.d__docker-php-ext-pdo_mysql.ini' <<'BILLIONMAIL_CONFIG_047_EOF'
     extension=pdo_mysql.so
-  conf__php__php__conf.d__docker-php-ext-pdo_pgsql.ini: |
+    BILLIONMAIL_CONFIG_047_EOF
+
+    cat > '/config/conf__php__php__conf.d__docker-php-ext-pdo_pgsql.ini' <<'BILLIONMAIL_CONFIG_048_EOF'
     extension=pdo_pgsql.so
-  conf__php__php__conf.d__docker-php-ext-pspell.ini: |
+    BILLIONMAIL_CONFIG_048_EOF
+
+    cat > '/config/conf__php__php__conf.d__docker-php-ext-pspell.ini' <<'BILLIONMAIL_CONFIG_049_EOF'
     extension=pspell.so
-  conf__php__php__conf.d__docker-php-ext-redis.ini: |
+    BILLIONMAIL_CONFIG_049_EOF
+
+    cat > '/config/conf__php__php__conf.d__docker-php-ext-redis.ini' <<'BILLIONMAIL_CONFIG_050_EOF'
     extension=redis.so
-  conf__php__php__conf.d__docker-php-ext-sodium.ini: |
+    BILLIONMAIL_CONFIG_050_EOF
+
+    cat > '/config/conf__php__php__conf.d__docker-php-ext-sodium.ini' <<'BILLIONMAIL_CONFIG_051_EOF'
     extension=sodium
-  conf__php__php__conf.d__docker-php-ext-zip.ini: |
+    BILLIONMAIL_CONFIG_051_EOF
+
+    cat > '/config/conf__php__php__conf.d__docker-php-ext-zip.ini' <<'BILLIONMAIL_CONFIG_052_EOF'
     extension=zip.so
-  conf__php__php__conf.d__roundcube-defaults.ini: |
+    BILLIONMAIL_CONFIG_052_EOF
+
+    cat > '/config/conf__php__php__conf.d__roundcube-defaults.ini' <<'BILLIONMAIL_CONFIG_053_EOF'
     memory_limit=128M
     display_errors=Off
     log_errors=On
@@ -3989,7 +3782,9 @@ data:
     session.gc_maxlifetime=21600
     session.gc_divisor=500
     session.gc_probability=1
-  conf__postfix__main.cf: |
+    BILLIONMAIL_CONFIG_053_EOF
+
+    cat > '/config/conf__postfix__main.cf' <<'BILLIONMAIL_CONFIG_054_EOF'
     # See /usr/share/postfix/main.cf.dist for a commented, more complete version
 
 
@@ -4068,9 +3863,9 @@ data:
     ## Do not add configurations to the following configurations and will be deleted
     ## Do not delete the following identification configuration
     # Overrides-configuration #
+    BILLIONMAIL_CONFIG_054_EOF
 
-
-  conf__postfix__master.cf: |
+    cat > '/config/conf__postfix__master.cf' <<'BILLIONMAIL_CONFIG_055_EOF'
     #
     # Postfix master process configuration file.  For details on the format
     # of the file, see the master(5) manual page (command: "man 5 master" or
@@ -4214,7 +4009,9 @@ data:
     #mailman   unix  -       n       n       -       -       pipe
     #  flags=FR user=list argv=/usr/lib/mailman/bin/postfix-to-mailman.py
     #  ${nexthop} ${user}
-  conf__postfix__rsyslog.conf: |
+    BILLIONMAIL_CONFIG_055_EOF
+
+    cat > '/config/conf__postfix__rsyslog.conf' <<'BILLIONMAIL_CONFIG_056_EOF'
     # /etc/rsyslog.conf configuration file for rsyslog
     #
     # For more information install rsyslog-doc and see
@@ -4284,7 +4081,9 @@ data:
     # Emergencies are sent to everybody logged in.
     #
     *.emerg				:omusrmsg:*
-  conf__rspamd__rspamd.conf: |
+    BILLIONMAIL_CONFIG_056_EOF
+
+    cat > '/config/conf__rspamd__rspamd.conf' <<'BILLIONMAIL_CONFIG_057_EOF'
     # System V init adopted top level configuration
 
     # Please don't modify this file as your changes might be overwritten with
@@ -4358,7 +4157,9 @@ data:
         .include(try=true; priority=1,duplicate=merge) "$LOCAL_CONFDIR/local.d/worker-fuzzy.inc"
         .include(try=true; priority=10) "$LOCAL_CONFDIR/override.d/worker-fuzzy.inc"
     }
-  conf__rspamd__statistic.conf: |
+    BILLIONMAIL_CONFIG_057_EOF
+
+    cat > '/config/conf__rspamd__statistic.conf' <<'BILLIONMAIL_CONFIG_058_EOF'
     # Statistics setup
     # Please don't modify this file as your changes might be overwritten with
     # the next update.
@@ -4418,7 +4219,9 @@ data:
 
     .include(try=true; priority=1) "$LOCAL_CONFDIR/local.d/statistic.conf"
     .include(try=true; priority=10) "$LOCAL_CONFDIR/override.d/statistic.conf"
-  conf__rspamd__local.d__dkim_signing.conf: |
+    BILLIONMAIL_CONFIG_058_EOF
+
+    cat > '/config/conf__rspamd__local.d__dkim_signing.conf' <<'BILLIONMAIL_CONFIG_059_EOF'
     sign_headers = "from:sender:reply-to:subject:date:message-id:to:cc:mime-version:content-type:content-transfer-encoding:content-language:resent-to:resent-cc:resent-from:resent-sender:resent-message-id:in-reply-to:references:list-id:list-help:list-owner:list-unsubscribe:list-subscribe:list-post:list-unsubscribe-post:disposition-notification-to:disposition-notification-options:original-recipient:openpgp:autocrypt";
 
     use_esld = false;
@@ -4429,9 +4232,13 @@ data:
 
     #BT_DOMAIN_DKIM_END
     }
-  conf__rspamd__local.d__milter_headers.conf: |
+    BILLIONMAIL_CONFIG_059_EOF
+
+    cat > '/config/conf__rspamd__local.d__milter_headers.conf' <<'BILLIONMAIL_CONFIG_060_EOF'
     extended_spam_headers = true;
-  conf__supplier__template__Anthropic__config.json: |
+    BILLIONMAIL_CONFIG_060_EOF
+
+    cat > '/config/conf__supplier__template__Anthropic__config.json' <<'BILLIONMAIL_CONFIG_061_EOF'
     {
         "supplierTitle": "Anthropic",
         "supplierName": "Anthropic",
@@ -4445,11 +4252,17 @@ data:
         "sort": 3,
         "icon":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAMAAABEpIrGAAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JgAAgIQAAPoAAACA6AAAdTAAAOpgAAA6mAAAF3CculE8AAAB3VBMVEX6+vf6+vf6+vf6+vf6+vf6+vf6+vf6+vf6+vf6+vf6+vf6+vf6+vf6+vf6+vf6+vf6+vf6+vf6+vf6+vf6+vf6+vf6+vf6+vf6+vf5+fb7+/j4+PXp6ebm5uTm5uPu7uvx8e78/PnPz8xISEc9PTw7OzpnZ2bv7+z9/frAwL5CQkE8PDyGhoUUFBQWFhYVFRUiIiL+/vvk5OI/Pz4YGBh3d3aGhoStrasdHR0ZGRkXFxc3Nzfd3dvMzMkpKSn19fJjY2JOTk01NTWfn5309PFfX17Pz80rKyuwsK54eHdVVVXw8O2pqaccHBuKiolCQkLq6ue+vrshISElJSXDw8Hj4+Ho6OVFRUSFhYTt7epNTUwVFRZ7e3qCgoCxsa8eHh4qKirOzsz///2WlpU6Ojng4N3JycYoKCf29vM2NjaZmZegoJ6ioqAgICAaGhqjo6Hz8/BbW1vS0tAuLi1ZWVjy8u+lpaQbGxuOjo0mJibHx8Th4d48PDtQUE+BgYB/f36AgH58fHs0NDR+fny1tbMfHx+/v73///yFhYPi4t/FxcNoaGcSEhITExNOTk7KysekpKJXV1bi4uBdXVxzc3JERENDQ0OEhIL39/SsrKpGRkXs7Ors7Onu7uz///+QUuYeAAAAGHRSTlMAD3XY+/zaeRGW+pv5fNfe/f7Z34CgE+HQwITTAAAAAWJLR0Sen7KjCwAAAAd0SU1FB+cBBBE2Mim4Ns8AAAHoSURBVDjLhZJpUxNBEIYHDBKDqAjizACBIRiXSHpYGSXbHqAoeGK8WKMCiteqeIFR4hVUUBTwAG/ifzWVZEkMYfN8marut57ummpCSkrXuGhBytaWuwkpWeehq+KqcJPS9dQBTyXZQB3ZSFzOgU2EFiEbYJRzbj+sQIDW1Td4Gylt8jbU1xUwMNHsa9nm3661Bnb4mgVbaeBtQZDtrfrOjmCwja80cG8AlJK7GN8NEPDy/ADTOkPKMHDPXn3ffgx1aizf0NUt8cBBNHq0Q4el7O7KMzDR24ehI0elPHZcP3ES+3rtNW2D6Ec4FT59Bs+e0893APaL/w18wAS4ICIX4dJlygcBzAGeG2Da0DBeuToyck3B9Rv6zVs4PJRZM2Ow/BJv37k7OnhP3X+gPXwkpd/KMTAxNo7KUEkMJR9HtSdPcXwsvWbaICZQgUyBKvZMf/4CcEJkDTzsA3z5Kh6PT75+gxDn9C2AL8ztANOmprH93XuRRJsBaPmgf4zh9FRqzZTBmp2b/9SYHvY5FlRftKav83Ozlm3gC4umOZr5uui37z9+/hK//5iLC3zZEFlasuy7iiYSf1mylIgsG1imlUO2VPxoi5x9FdnsHKgm5R6nvquGuCschpRtqSXEXVldtcr8rTW15B8LiprxbD6EzwAAACV0RVh0ZGF0ZTpjcmVhdGUAMjAyMy0wMS0wNFQxNzo1NDo1MCswMDowMOYX4h8AAAAldEVYdGRhdGU6bW9kaWZ5ADIwMjMtMDEtMDRUMTc6NTQ6NTArMDA6MDCXSlqjAAAAV3pUWHRSYXcgcHJvZmlsZSB0eXBlIGlwdGMAAHic4/IMCHFWKCjKT8vMSeVSAAMjCy5jCxMjE0uTFAMTIESANMNkAyOzVCDL2NTIxMzEHMQHy4BIoEouAOoXEXTyQjWVAAAAAElFTkSuQmCC"
     }
-  conf__supplier__template__Anthropic__embedding.json: |
+    BILLIONMAIL_CONFIG_061_EOF
+
+    cat > '/config/conf__supplier__template__Anthropic__embedding.json' <<'BILLIONMAIL_CONFIG_062_EOF'
     []
-  conf__supplier__template__Anthropic__models.json: |
+    BILLIONMAIL_CONFIG_062_EOF
+
+    cat > '/config/conf__supplier__template__Anthropic__models.json' <<'BILLIONMAIL_CONFIG_063_EOF'
     []
-  conf__supplier__template__DeepSeek__config.json: |
+    BILLIONMAIL_CONFIG_063_EOF
+
+    cat > '/config/conf__supplier__template__DeepSeek__config.json' <<'BILLIONMAIL_CONFIG_064_EOF'
     {
         "supplierTitle": "DeepSeek",
         "supplierName": "DeepSeek",
@@ -4463,11 +4276,17 @@ data:
         "sort": 4,
         "icon":"data:image/gif;base64,R0lGODlhGAAYAPe6AE1s/k1q/kxr/k5r/v39/01u/kts/kxq/k1t/k5t/lZw/ktq/kxu/t/k/09q/vv8/09o/vn5/3qQ/mWA/kxt/k9s/k5s/k5u/rzC/09u/vP1/1Bj/tPW/1Nk/aOx/rvC/qa0/sjS/4qc/mN+/lF0/qa1/oaZ/0Zj/lNz/tDS/lBw/k5q/uPr/5ur/k1p/rPA/oOb/k9w/v7+/1Fs/tXc/1Bv/lNt/bzH/9nf/ufo/+br/nyU/vn6/3WU/tre/3mJ/mJp/nmQ/lx4/qy2/rTC/1Vy/vT4/2+G/lFe/lp3/ba//1Z6/rrJ/7G9/9HZ/6q5/01y/mpz/qKl/nWO/mV9/k9t/1Zj/qnU/01s/0xs/oaX/k9n/k1r/1tq/n2s/mp4/lFp/pqr/nWP/0pp/ll5/lJo/lNo/oyd/GJ8/k5v/mN8/tvn/lFn/unt/1+F/qe3/lBo/lVw/sTU/6Cz/5Sh/mCT/tnf/19+/myC/ufv/97i/09v/qKr/pGk/tLU/3+J/u/0//b4//v9/7/K/8fQ/k5s/+3z/+7x/5yu/uzw/1Jq/tTh/8nQ/05n/tPX/0po/nqT/lJp/m6K/2N9/qq5/U1v/m2F/ktu/kxn/k9l/lp1/k9t/n6V/m6H/p+r/rPI/6Cv/qO9/8/c/+zt/2N//lt1/k5p/nqR/r7E/7DB/ktp/vb6/+Tm/26I/ou4/oGR/k1x/k1w/tbb/1Fq/lhy/k9j/tje/mqJ/Yqe/E1r/v///wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACH/C1hNUCBEYXRhWE1QPD94cGFja2V0IGJlZ2luPSLvu78iIGlkPSJXNU0wTXBDZWhpSHpyZVN6TlRjemtjOWQiPz4gPHg6eG1wbWV0YSB4bWxuczp4PSJhZG9iZTpuczptZXRhLyIgeDp4bXB0az0iQWRvYmUgWE1QIENvcmUgNS41LWMwMTQgNzkuMTUxNDgxLCAyMDEzLzAzLzEzLTEyOjA5OjE1ICAgICAgICAiPiA8cmRmOlJERiB4bWxuczpyZGY9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkvMDIvMjItcmRmLXN5bnRheC1ucyMiPiA8cmRmOkRlc2NyaXB0aW9uIHJkZjphYm91dD0iIiB4bWxuczp4bXBNTT0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL21tLyIgeG1sbnM6c3RSZWY9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZVJlZiMiIHhtbG5zOnhtcD0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wLyIgeG1wTU06T3JpZ2luYWxEb2N1bWVudElEPSJ4bXAuZGlkOjc2ZjM0YWZmLWUyOTctYjQ0Yi1hNDc4LTU3MWJmMmM2NjY5MCIgeG1wTU06RG9jdW1lbnRJRD0ieG1wLmRpZDpBM0E5ODFENUZFNTgxMUVGOTM5OEE5NTBFNkREQ0I5NiIgeG1wTU06SW5zdGFuY2VJRD0ieG1wLmlpZDpBM0E5ODFENEZFNTgxMUVGOTM5OEE5NTBFNkREQ0I5NiIgeG1wOkNyZWF0b3JUb29sPSJBZG9iZSBQaG90b3Nob3AgQ0MgKFdpbmRvd3MpIj4gPHhtcE1NOkRlcml2ZWRGcm9tIHN0UmVmOmluc3RhbmNlSUQ9InhtcC5paWQ6NzZmMzRhZmYtZTI5Ny1iNDRiLWE0NzgtNTcxYmYyYzY2NjkwIiBzdFJlZjpkb2N1bWVudElEPSJ4bXAuZGlkOjc2ZjM0YWZmLWUyOTctYjQ0Yi1hNDc4LTU3MWJmMmM2NjY5MCIvPiA8L3JkZjpEZXNjcmlwdGlvbj4gPC9yZGY6UkRGPiA8L3g6eG1wbWV0YT4gPD94cGFja2V0IGVuZD0iciI/PgH//v38+/r5+Pf29fTz8vHw7+7t7Ovq6ejn5uXk4+Lh4N/e3dzb2tnY19bV1NPS0dDPzs3My8rJyMfGxcTDwsHAv769vLu6ubi3trW0s7KxsK+urayrqqmop6alpKOioaCfnp2cm5qZmJeWlZSTkpGQj46NjIuKiYiHhoWEg4KBgH9+fXx7enl4d3Z1dHNycXBvbm1sa2ppaGdmZWRjYmFgX15dXFtaWVhXVlVUU1JRUE9OTUxLSklIR0ZFRENCQUA/Pj08Ozo5ODc2NTQzMjEwLy4tLCsqKSgnJiUkIyIhIB8eHRwbGhkYFxYVFBMSERAPDg0MCwoJCAcGBQQDAgEAACH5BAEAALoALAAAAAAYABgAAAj/AHUJHEiwoMGDCBMqXMiQIA9RhAaiMqLQx4swLZr00aQKg8AHW1wVNCSQFYwsAgbkEpALgIKBGhDUkiDQFqUiunLcoWAhl8+fASTp0CUDSKUDkDpVwURK160EAX5KzXXABg5dV6xEBTDgEaNBKrAUmiqVS4c1uvhkyGWAxBNdRxScwWUpQYyoPxHACTCLg649B4YkEgjAxMAGdAyk9KlFjhsIm0rlSkNgYIUpBe18aUQh1w8WgbogAABASGWBFxKcHriqzoZcBf7oymMm1xgRBFstkGUQEAoHuSKF+lQm1wwmBEFA6HHQERIGAhSBMRBgwgOCowAsUXLQC5ufFaDcYjCIKNYJPwIXiUkhMIoLnw6IIDzFgMwHgXEKvBE4wWeSQwhFsEMBl7wixSQAZMJJAzTQsoIFsOARAUIe1GDKAgD4NIAAVITgRAmepCJIQm3MIYEaaIwQBCh6NOTiizDGeFBAADs="
     }
-  conf__supplier__template__DeepSeek__embedding.json: |
+    BILLIONMAIL_CONFIG_064_EOF
+
+    cat > '/config/conf__supplier__template__DeepSeek__embedding.json' <<'BILLIONMAIL_CONFIG_065_EOF'
     []
-  conf__supplier__template__DeepSeek__models.json: |
+    BILLIONMAIL_CONFIG_065_EOF
+
+    cat > '/config/conf__supplier__template__DeepSeek__models.json' <<'BILLIONMAIL_CONFIG_066_EOF'
     []
-  conf__supplier__template__Gemini__config.json: |
+    BILLIONMAIL_CONFIG_066_EOF
+
+    cat > '/config/conf__supplier__template__Gemini__config.json' <<'BILLIONMAIL_CONFIG_067_EOF'
     {
         "supplierTitle": "Gemini",
         "supplierName": "Gemini",
@@ -4481,12 +4300,18 @@ data:
         "sort": 2,
         "icon":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAMAAABg3Am1AAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAyFpVFh0WE1MOmNvbS5hZG9iZS54bXAAAAAAADw/eHBhY2tldCBiZWdpbj0i77u/IiBpZD0iVzVNME1wQ2VoaUh6cmVTek5UY3prYzlkIj8+IDx4OnhtcG1ldGEgeG1sbnM6eD0iYWRvYmU6bnM6bWV0YS8iIHg6eG1wdGs9IkFkb2JlIFhNUCBDb3JlIDUuNS1jMDE0IDc5LjE1MTQ4MSwgMjAxMy8wMy8xMy0xMjowOToxNSAgICAgICAgIj4gPHJkZjpSREYgeG1sbnM6cmRmPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5LzAyLzIyLXJkZi1zeW50YXgtbnMjIj4gPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9IiIgeG1sbnM6eG1wPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvIiB4bWxuczp4bXBNTT0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL21tLyIgeG1sbnM6c3RSZWY9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZVJlZiMiIHhtcDpDcmVhdG9yVG9vbD0iQWRvYmUgUGhvdG9zaG9wIENDIChXaW5kb3dzKSIgeG1wTU06SW5zdGFuY2VJRD0ieG1wLmlpZDpDODNGQUNBOTYxMjgxMUYwQTZBRkIwNDE2MTZERUU1MiIgeG1wTU06RG9jdW1lbnRJRD0ieG1wLmRpZDpDODNGQUNBQTYxMjgxMUYwQTZBRkIwNDE2MTZERUU1MiI+IDx4bXBNTTpEZXJpdmVkRnJvbSBzdFJlZjppbnN0YW5jZUlEPSJ4bXAuaWlkOkM4M0ZBQ0E3NjEyODExRjBBNkFGQjA0MTYxNkRFRTUyIiBzdFJlZjpkb2N1bWVudElEPSJ4bXAuZGlkOkM4M0ZBQ0E4NjEyODExRjBBNkFGQjA0MTYxNkRFRTUyIi8+IDwvcmRmOkRlc2NyaXB0aW9uPiA8L3JkZjpSREY+IDwveDp4bXBtZXRhPiA8P3hwYWNrZXQgZW5kPSJyIj8+WEOEmwAAAwBQTFRFZ7x8xWiLe4TVSZXoOoj7psv95agshsxi92ho++KN+8p9851aR6qpQon6xsY46MYkVprV+/r8Mob/+MpHQrWH16k3KK2X9MEa0WR8vdj/+LkVO472Kbh63Fxv6mlY6XhHt5lyiLn/iIfH3Mgst3eaOpLrFrhqNof+NYj9qHer5FZjOpXlPp3MU4j0WIjvl5yVnqGBMYb/+qWm2/PquNFEx6dJs8lELsR5N7p2uKdZPIf9o8NOTbt8xXeI9UlKPZrUZpzIN5/Ies90OqmmQqHINon7R5rZSLGWmHu7mNJZh6qE/eXjJbGG/urRO5nb+/LH2odXzolobIzewYt6aqSu/Pbdkctad6eZG7V3V5z/868d0uP/6PXXptVTSIj5+tzeRZH/Naax3HVnaqj/0Xh37VFW08syS5/MNbKLRIv2N431YYno+o2NNq2atISVmMP/hLdupYWnQ6a0XLuDRq6flOG5KLtrlrtcWKqnxt3/a8F1TYr0QqO9WcNtzeL/l4a4/bOyUbOSiX/JO6K9M6K+3mZsbMZt61Bad67/csRvP5HvZIfpeslqLamoDrpk+URDV7aMOpfe90ZGOJzU8ktPboXfPaW1y/DfgJ6r7/PFfNWb9+3x4pU4Q8Z+X7eExtpbsuKgvc363uz/w5W9os1QpbLvMKa1HbKAk5Cw//TnWqHAytM7/eKdd5LN2JdFhdWUhNuwT6+crqJsvb0+QIj8+b16Vbu74e3/4/fsPr9p4o+iwGmS43ZVw+vdc5u/3vPdc7SA5d/wVZDpcITihJO+kZinxrY897qZ37gpQJfkwOPr+s+/6Lkj8aAjV8WoftiwrLtMpLJctbVL8boeeLrqZ62WYLCR5og+X5Pf7pIsXMF01LcyOY/xYI3m+snHNIf+0+aRN4v4j8NbYL96pXWxtm+czJdV3e62fcxl7/rxkbBvfb5pT6W5511g701U0u3A7llUopCesZCKfsJnecZq+sgyapLX/+3tU7iHSpDvnqlvXrSKRr9x5uBzkInU////CgYMBAAAAQB0Uk5T////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////AFP3ByUAAALdSURBVHjaYvhPImDAId5gRKIGDg7SNHzv748nSUNDv50RSRo4Jk3hIEWD9yS7d1rxJGjIsZvSrrWLeA2CIPWyjLOJ1pAzJVVLVmL3YmI1eEPUP31ykEgNHCD1jE+fePwjToMRTH0T01JiNNz78BakXhOo/nD3QsIavD+8bYWr19ONJqTBW06uVcJWBaZeNy4avwag+qQUiPqpQPVxcbxbovFpOC2/B6g+r7BeiWlqtl41UPkWKytW3BqOy+8JCAwGqw+CqLeyslK3UsShwZf7+nWg+k8fVxxZG3T3UHUmULk6i7q6+v3ISiwaVm69eXPOumcKCvpHj6z9BlLPawVWfV9IyFCoYzuaBl+us2fPsq0ztdxkoD9jn8ONQz8zeVnA6oXAwNBQsQ6hIXSNcBQQsIneNrX85RUe4iAgwPwzk4VFQ10Irt7QUCiSdRFYwxphKSC4fPnMidvHLl18BdSwSsCNuUuaxVXjPlw1FESyAjVwfhUHAX7+E3ybL5QXHLha8Sbd7WSX9EOwBkMUkJAPdpI/pzA/P79yGp8ZSMO1ijcubie172BoSAB7A+pp/7/Kaav5zKwfvWb4vZGnRsdPWzXrIdhJUNX3kyXRgjX072oTkyWPPlfNa+QpcrE/qXonC+oJkPrkOiwRN3O+yZKwz50ME+BWwHQkSOJIGg9iPcO+VBWDrZiofQemo0MQZ+J7Hhv2AmzFNB17bVWwDg2NfHzJO8aTvQdoRUlRM8hRIB2ukvgzEFBH5+Mf7jzTmidPBOqQlpYklEVjIFY4NzuCdHRVEi4E3r9ou/XD3TmxxXGy30lWYoqZBW23bERynZcBdVwhriBzqrURycjtXdbiIkichv21fywyxMR6l50itjBe/8dCxkdMbBvRpffLnUANPmLGxFcos8rKIpafI6EGMi5Ti4jYS0qlOFdNTYakWrRUre88SRp29PVNJ63pYG5OYlujdAOJGnACgAADAA2AKFD5t3eSAAAAAElFTkSuQmCC"
     }
-  conf__supplier__template__Gemini__embedding.json: |
+    BILLIONMAIL_CONFIG_067_EOF
+
+    cat > '/config/conf__supplier__template__Gemini__embedding.json' <<'BILLIONMAIL_CONFIG_068_EOF'
     []
-  conf__supplier__template__Gemini__models.json: |
+    BILLIONMAIL_CONFIG_068_EOF
+
+    cat > '/config/conf__supplier__template__Gemini__models.json' <<'BILLIONMAIL_CONFIG_069_EOF'
     [
     ]
-  conf__supplier__template__Grok__config.json: |
+    BILLIONMAIL_CONFIG_069_EOF
+
+    cat > '/config/conf__supplier__template__Grok__config.json' <<'BILLIONMAIL_CONFIG_070_EOF'
     {
         "supplierTitle": "Grok",
         "supplierName": "Grok",
@@ -4500,11 +4325,17 @@ data:
         "sort": 6,
         "icon":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAMAAABEpIrGAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAw9pVFh0WE1MOmNvbS5hZG9iZS54bXAAAAAAADw/eHBhY2tldCBiZWdpbj0i77u/IiBpZD0iVzVNME1wQ2VoaUh6cmVTek5UY3prYzlkIj8+IDx4OnhtcG1ldGEgeG1sbnM6eD0iYWRvYmU6bnM6bWV0YS8iIHg6eG1wdGs9IkFkb2JlIFhNUCBDb3JlIDUuNS1jMDE0IDc5LjE1MTQ4MSwgMjAxMy8wMy8xMy0xMjowOToxNSAgICAgICAgIj4gPHJkZjpSREYgeG1sbnM6cmRmPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5LzAyLzIyLXJkZi1zeW50YXgtbnMjIj4gPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9IiIgeG1sbnM6eG1wTU09Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9tbS8iIHhtbG5zOnN0UmVmPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvc1R5cGUvUmVzb3VyY2VSZWYjIiB4bWxuczp4bXA9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC8iIHhtcE1NOkRvY3VtZW50SUQ9InhtcC5kaWQ6QkY0RjYxODM2MTJGMTFGMDkzMjdEQjI3REJDRUY2MjUiIHhtcE1NOkluc3RhbmNlSUQ9InhtcC5paWQ6QkY0RjYxODI2MTJGMTFGMDkzMjdEQjI3REJDRUY2MjUiIHhtcDpDcmVhdG9yVG9vbD0iQWRvYmUgUGhvdG9zaG9wIENDIFdpbmRvd3MiPiA8eG1wTU06RGVyaXZlZEZyb20gc3RSZWY6aW5zdGFuY2VJRD0iQTM1NTg4RjJFNDkwNUI4NUFDMzVDRjI3RjZEOTk4MzMiIHN0UmVmOmRvY3VtZW50SUQ9IkEzNTU4OEYyRTQ5MDVCODVBQzM1Q0YyN0Y2RDk5ODMzIi8+IDwvcmRmOkRlc2NyaXB0aW9uPiA8L3JkZjpSREY+IDwveDp4bXBtZXRhPiA8P3hwYWNrZXQgZW5kPSJyIj8+w3t+gAAAAwBQTFRFCQ0QDg8RERISLi4vOTk7JicpDQ4QTU1NAAACNjc5CgoMDAwOBgcJLC4uCAgLBAUGDg4PFhYWMjM0GRkbMTEyHx8eCgwMExQWCgsOJSYnHR4gAwQFGRobCAoLAQIDBQYIBwgJBwgKP0BACQ0OGRocGhsdCAkLCwwPSEhKCQoNLi4wSklLCg4Q+/v74+PkPj4/CQsN9/f38/Pz5+fn/Pz80NDQDA0QSEhIQEBAQEBBBwkLsLCwIiMlqqus+fn5MTEwLS0vLC0vRUVF9fX1pqamXmBf4uPj8fHxBAQFdHV3goKDysvMdnZ2S0tLubm5ra+x1dXVkZKSvLy8+vr6W1tcz8/OMjIzwsLD6Ojp5ubmeHl7lZaXCQwN5OTk0dDRtre3OTo7UVFRUVJS0tPSmJmZdHV1SEhLf4CBUVJUoKGjCgsK4N/gdHV0FBUWSEhJSUlJFRUVBQgJLCwrSkpLLCwuPT0+iYmJKS0sKywuBwcIIyEiBAUHtra1CAoMPz9ABwgLBwkKCg0QCw0OS0xPeXp6GBgX0dLSg4SFPj49SktMIyQmVlhXu7u619fYLS0txsbGaWttZmdpLi0tTU5Qvb6+xcXFxMTGYWFib29w7e3uvL2+eHp88vLyGhocCw0Pq6ysT09PrKys6enpOzs5lZWVSEdKlJSW8fL08/P0vb7Aw8TEubu6ycrL6urq/P39tra2c3R2t7a3cHFzOjo6tri3UFNRUlJToaOlQ0VE4ODg4eHh3N7c1NTUFhcZqKioHyIeBQgGSUlLbGxt8PHy2NnZ2dnaqamplJOUTE1PCwsLP0BDQEBCrq+ysrKydXV0jY6QQEJEWlpaJCUo6ejoy8vMKi4rFxYW8/T2KysrBgoLSkpK8O/vLC4wiIqMGRgZjI2OX2BhPz8/PDw+PT0/iImJ4uHhGhscw8TD3d3d6urpBAYH/P3/ISIhIiIjAwYJm5ydmZqcMjM2Pj5AtbW1Pj9BZGRkZGVkXV5gmpqaDA0PCQoMCwwOCgsN////AAAA/////A4SlwAAAQB0Uk5T////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////AFP3ByUAAAMySURBVHjaXJN3lBRFEMZ7Dm4Z7lYO7+BYb3GO8bxe11vOJSM5GDArJgQFFRU9wZxgRMnBnBMoKIg5AQIGgoIBAyrqqSjmiBFUdKamvqV6Zp9/+L153TNVv6nqrupWBdEH496s2ru+3jyi+nozV5368p+dxacKhU9PA3BhsjaZdEXxqPUnYryohwEebkaf/OR8IApF8Ujhyfm6EPYrAryLbBuxFgGtw6LKyrHaruiuTkFFqGNAiyRTHx0FSaDy1gB91bfIiJPIBHcRi4j8BK4459dhOEKdjjBOGmqg5Yw1Tx1w+EBA/Nc89DoSTmu1XwwEGRvXjuFInW982kL79cuRIW+QujQGUrCPibxDzbAS37/Aa9GTkpcUIwSes0Acjx6yo903XyzZA7tv4OObXPJrW8RAkMdW5icPLC4Szc8xP2NTBFwVAfZf8v8qrKMy7WYx4Xn5ehthz4S3r9oLIZGL/szjMaVJtprBzEazjtsntqGERDBA4HQ4ib9LOzobBCl8/hPftawb/9hckfU73WCA0MV05n/hSjUIVTxgEfAqdxlo5+/bdksEBLiJeSe0JEMpn9gWG7GYeYvE9qIUgcZS5veggwwqP5oNJDTeYV6ILMWLFOAf5k0IQrR8ay5cXxL9wdwbexYB2eVnXfg6uMM231wKXxrn4jA++Bd78n/A1fY9fGw7lG22YMlCCMcx/+BMSZleGEA6cSjziJp0ujYVhOSj5H3mZzGNyBus9pfuyzbuZO5aagNaS1vvHcv8GJrIjwDbHBaM48c7AK1bSCM6nnk387kdnWryU95uao7pieP8fEcS827j+Uf2vbKb1Hn0JFhip20fqq8gPcNRj9go6c9FDTjjAlgp8n2quFytAGln5O+wEyG2j+rR+MBBs147AU6J7FYAp1Jdhur0lyORtoLQkuNa069GJssUwxxdtFKNcL4+G54xEZUlPSedDCOvAVK4XxXeQD/PbSvhqDykcjIn3I+8RAlM7K4KXdvjNyuXq6urm5rLqanyEn2oXK4auN5c3ieGAI6D/8mWqn38YnS7C4WjN7XqffGDLzU0NJzXq9c+Rmc1DDn/7+Hm+u8SYABKi5wgnR135gAAAABJRU5ErkJggg=="
     }
-  conf__supplier__template__Grok__embedding.json: |
+    BILLIONMAIL_CONFIG_070_EOF
+
+    cat > '/config/conf__supplier__template__Grok__embedding.json' <<'BILLIONMAIL_CONFIG_071_EOF'
     []
-  conf__supplier__template__Grok__models.json: |
+    BILLIONMAIL_CONFIG_071_EOF
+
+    cat > '/config/conf__supplier__template__Grok__models.json' <<'BILLIONMAIL_CONFIG_072_EOF'
     []
-  conf__supplier__template__Kimi__config.json: |
+    BILLIONMAIL_CONFIG_072_EOF
+
+    cat > '/config/conf__supplier__template__Kimi__config.json' <<'BILLIONMAIL_CONFIG_073_EOF'
     {
         "supplierTitle": "Kimi",
         "supplierName": "Kimi",
@@ -4518,11 +4349,17 @@ data:
         "sort": 5,
         "icon":"data:image/gif;base64,R0lGODlhGAAYAOZvAIuLi3Z2dk1NTU9PT42NjQwMDEtLSxoaGs7OzhgYGLi4uJCQkA4ODhwcHKGhoZ2dndHR0SoqKnNzcwAjSh0dHXl5eXh4eDMzMzAwMKSkpObm5iwsLOrq6r29vYyMjEBAQABTrLm5udfX17CwsAAkTGtra/Ly8oODgwDE/62trWRiX6+vr46Oju7u7igoKFhYWAB71H9/f7y8vMzMzE5OTt/Y0D8/PxMTExISEhcXF11dXS4uLgBgyENDQxEREVtbW7e3t2pqallZWQACAyMjI1xcXNra2uLi4pWVlUJCQi8vLwA2ejs7O3x8fLS0tD06NwB+3FpaWmdnZ/f39z09PT4+PgBx+b6+vl5eXpiYmPv7+xQUFJeXl1ZWVgUDATw8PBYWFtTU1CYmJrq6ugcEAqqqqmlpafX19Zqamunp6bu7u+Dg4A0NDf///wAAAP///wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACH/C1hNUCBEYXRhWE1QPD94cGFja2V0IGJlZ2luPSLvu78iIGlkPSJXNU0wTXBDZWhpSHpyZVN6TlRjemtjOWQiPz4gPHg6eG1wbWV0YSB4bWxuczp4PSJhZG9iZTpuczptZXRhLyIgeDp4bXB0az0iQWRvYmUgWE1QIENvcmUgNS41LWMwMTQgNzkuMTUxNDgxLCAyMDEzLzAzLzEzLTEyOjA5OjE1ICAgICAgICAiPiA8cmRmOlJERiB4bWxuczpyZGY9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkvMDIvMjItcmRmLXN5bnRheC1ucyMiPiA8cmRmOkRlc2NyaXB0aW9uIHJkZjphYm91dD0iIiB4bWxuczp4bXBNTT0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL21tLyIgeG1sbnM6c3RSZWY9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZVJlZiMiIHhtbG5zOnhtcD0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wLyIgeG1wTU06T3JpZ2luYWxEb2N1bWVudElEPSJ4bXAuZGlkOjU2OWMwNWI1LTM3ZTQtZTI0ZS1hOWQ0LTYwZGM2M2MwNTg1YyIgeG1wTU06RG9jdW1lbnRJRD0ieG1wLmRpZDpCQkU1NzRGNEZFNTgxMUVGOTUzQkM1MDUxRUJDRTM5MCIgeG1wTU06SW5zdGFuY2VJRD0ieG1wLmlpZDpCQkU1NzRGM0ZFNTgxMUVGOTUzQkM1MDUxRUJDRTM5MCIgeG1wOkNyZWF0b3JUb29sPSJBZG9iZSBQaG90b3Nob3AgQ0MgKFdpbmRvd3MpIj4gPHhtcE1NOkRlcml2ZWRGcm9tIHN0UmVmOmluc3RhbmNlSUQ9InhtcC5paWQ6NTY5YzA1YjUtMzdlNC1lMjRlLWE5ZDQtNjBkYzYzYzA1ODVjIiBzdFJlZjpkb2N1bWVudElEPSJ4bXAuZGlkOjU2OWMwNWI1LTM3ZTQtZTI0ZS1hOWQ0LTYwZGM2M2MwNTg1YyIvPiA8L3JkZjpEZXNjcmlwdGlvbj4gPC9yZGY6UkRGPiA8L3g6eG1wbWV0YT4gPD94cGFja2V0IGVuZD0iciI/PgH//v38+/r5+Pf29fTz8vHw7+7t7Ovq6ejn5uXk4+Lh4N/e3dzb2tnY19bV1NPS0dDPzs3My8rJyMfGxcTDwsHAv769vLu6ubi3trW0s7KxsK+urayrqqmop6alpKOioaCfnp2cm5qZmJeWlZSTkpGQj46NjIuKiYiHhoWEg4KBgH9+fXx7enl4d3Z1dHNycXBvbm1sa2ppaGdmZWRjYmFgX15dXFtaWVhXVlVUU1JRUE9OTUxLSklIR0ZFRENCQUA/Pj08Ozo5ODc2NTQzMjEwLy4tLCsqKSgnJiUkIyIhIB8eHRwbGhkYFxYVFBMSERAPDg0MCwoJCAcGBQQDAgEAACH5BAEAAG8ALAAAAAAYABgAAAf/gG+Cb2ELZlEDBgKLAgYDL1IECIODUz9umJmam240HINnEZyjmwcagjakqpkubwqrsG4PQrGrSReaSjpVmg1FKmRLMCSaYg2aD20QmghtNV5WKDyaCTiaBG0ymTttbU9uIFATmj5smgBtQJllbTOYQ5xsBedtTphbbWk5qmzmmegtrqhZ08aEgiCk+tHrxrCNljZdRin818aIBAtNKmw40caBxHkUU2xC0gbNqAIM6IXYxKINl1EMwGjy0GbMJmxZRt0goslBGxGbMrRZMYoCFU1MAgzY9CXAh1EYAtRSheXIVFIQ3iy4uinAoBhcMZWg9KaDgQP90qpNm6DHiEGBAQAAOw=="
     }
-  conf__supplier__template__Kimi__embedding.json: |
+    BILLIONMAIL_CONFIG_073_EOF
+
+    cat > '/config/conf__supplier__template__Kimi__embedding.json' <<'BILLIONMAIL_CONFIG_074_EOF'
     []
-  conf__supplier__template__Kimi__models.json: |
+    BILLIONMAIL_CONFIG_074_EOF
+
+    cat > '/config/conf__supplier__template__Kimi__models.json' <<'BILLIONMAIL_CONFIG_075_EOF'
     []
-  conf__supplier__template__OpenAI__config.json: |
+    BILLIONMAIL_CONFIG_075_EOF
+
+    cat > '/config/conf__supplier__template__OpenAI__config.json' <<'BILLIONMAIL_CONFIG_076_EOF'
     {
         "supplierTitle": "OpenAI",
         "supplierName": "OpenAI",
@@ -4536,11 +4373,17 @@ data:
         "sort": 1,
         "icon":"data:image/gif;base64,R0lGODlhGAAYAPecALq6us/PzwcHBzExMVZWVjQ0NDc3NyoqKvf397u7uwwMDPz8/M7OzlFRUUlJSevr6/b29k5OToSEhA8PD01NTTw8PDU1NeTk5BwcHAYGBnt7eykpKV1dXVhYWCMjI+Hh4efn5wsLC6Ojo0VFRbKysqKiom5ubu/v73h4eJmZmcXFxcLCwnNzc66urrGxsXJycre3t/r6+mFhYZiYmOXl5UhISAEBAVRUVHBwcKioqEJCQmVlZaurq1tbW+zs7NXV1d3d3ePj42xsbGlpac3NzWZmZkBAQJ2dnZubm1lZWX5+fj8/P/39/Ts7Oz4+PoGBgYaGhiQkJHR0dBkZGby8vCwsLHd3d4uLiw0NDRgYGBcXF46OjicnJ09PT319ffHx8aSkpK2trbCwsCsrKwkJCczMzMjIyLi4uNzc3FNTUwgICAoKCsnJyZycnKenpwQEBHl5eVVVVWRkZIqKiuDg4FpaWiIiInZ2dkxMTHx8fB4eHjY2NkRERJOTk5GRkcTExKmpqdTU1OLi4gMDAxMTE2hoaEpKSurq6pWVlRYWFvPz8z09PQICAvDw8MPDw7m5ucbGxoeHhyAgINPT05eXl3V1db+/vygoKKamppaWlqCgoAAAAP///wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACH/C1hNUCBEYXRhWE1QPD94cGFja2V0IGJlZ2luPSLvu78iIGlkPSJXNU0wTXBDZWhpSHpyZVN6TlRjemtjOWQiPz4gPHg6eG1wbWV0YSB4bWxuczp4PSJhZG9iZTpuczptZXRhLyIgeDp4bXB0az0iQWRvYmUgWE1QIENvcmUgNS41LWMwMTQgNzkuMTUxNDgxLCAyMDEzLzAzLzEzLTEyOjA5OjE1ICAgICAgICAiPiA8cmRmOlJERiB4bWxuczpyZGY9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkvMDIvMjItcmRmLXN5bnRheC1ucyMiPiA8cmRmOkRlc2NyaXB0aW9uIHJkZjphYm91dD0iIiB4bWxuczp4bXBNTT0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL21tLyIgeG1sbnM6c3RSZWY9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZVJlZiMiIHhtbG5zOnhtcD0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wLyIgeG1wTU06T3JpZ2luYWxEb2N1bWVudElEPSJ4bXAuZGlkOjVjYzU4ZjlkLTU5MTctYWU0Ny05ZDM2LTJlZmVhNDE0M2FmOSIgeG1wTU06RG9jdW1lbnRJRD0ieG1wLmRpZDpFNUU5RDExMUZFNTgxMUVGQTY5NkFDNUQwMjVCNUVFNSIgeG1wTU06SW5zdGFuY2VJRD0ieG1wLmlpZDpFNUU5RDExMEZFNTgxMUVGQTY5NkFDNUQwMjVCNUVFNSIgeG1wOkNyZWF0b3JUb29sPSJBZG9iZSBQaG90b3Nob3AgQ0MgKFdpbmRvd3MpIj4gPHhtcE1NOkRlcml2ZWRGcm9tIHN0UmVmOmluc3RhbmNlSUQ9InhtcC5paWQ6NWNjNThmOWQtNTkxNy1hZTQ3LTlkMzYtMmVmZWE0MTQzYWY5IiBzdFJlZjpkb2N1bWVudElEPSJ4bXAuZGlkOjVjYzU4ZjlkLTU5MTctYWU0Ny05ZDM2LTJlZmVhNDE0M2FmOSIvPiA8L3JkZjpEZXNjcmlwdGlvbj4gPC9yZGY6UkRGPiA8L3g6eG1wbWV0YT4gPD94cGFja2V0IGVuZD0iciI/PgH//v38+/r5+Pf29fTz8vHw7+7t7Ovq6ejn5uXk4+Lh4N/e3dzb2tnY19bV1NPS0dDPzs3My8rJyMfGxcTDwsHAv769vLu6ubi3trW0s7KxsK+urayrqqmop6alpKOioaCfnp2cm5qZmJeWlZSTkpGQj46NjIuKiYiHhoWEg4KBgH9+fXx7enl4d3Z1dHNycXBvbm1sa2ppaGdmZWRjYmFgX15dXFtaWVhXVlVUU1JRUE9OTUxLSklIR0ZFRENCQUA/Pj08Ozo5ODc2NTQzMjEwLy4tLCsqKSgnJiUkIyIhIB8eHRwbGhkYFxYVFBMSERAPDg0MCwoJCAcGBQQDAgEAACH5BAEAAJwALAAAAAAYABgAAAj/ADkJHMgphgYymzYdSECwoUNODARsStRhSUICnBRBeEjwQ0IqBI0kTIgBBkdOeDaVGXgozSYFHTQQYLRpiEMiETZxGMgioYwFBAls8kLQxMgcnFRIHHBBIJovAxdtoiPwxSYWLTYB4NRg0yOBIDZsIrRCIIBNczhN2mSIUwKtnAbc4MQEzqYGM9RsaoKA0yYHnAptCsSJBFwDOxwlHCFwgZyEVhtwshNCoOGtMhIiMpNhAgOBggok3MIpixaBLuDqmECwi0IaAsFsMsAp5wNOMDZl4mRh7sBIGGpsUiLQz6Y2YTZBEYhiU48NOwhKOcBJxKYSBWdzqrAJKScgHjZRwyBYYQynAJtmCLSwiVOJhE5uc/qjYNAPSBLHo08hcIANTs31kBAOAyWR0BVWFHDeJvydsAljQmyCAAIDbBKCGBLY4ABslXCx4BGc3LGJC5wgsQkPAp2hwCYZMMRJEG/ssSAgmGxSg0A+bKKgQI2ssBEnHCSkSVIj6UCQBJvU0VAfCfEh3xObeOCGQ0VssoYJlORxySZRsDFQjpKcxAMWI21SBVACXaDHJpacBBYDJwglQBw4iLaJCG461MIUIznwwUMBAQA7"
     }
-  conf__supplier__template__OpenAI__embedding.json: |
+    BILLIONMAIL_CONFIG_076_EOF
+
+    cat > '/config/conf__supplier__template__OpenAI__embedding.json' <<'BILLIONMAIL_CONFIG_077_EOF'
     []
-  conf__supplier__template__OpenAI__models.json: |
+    BILLIONMAIL_CONFIG_077_EOF
+
+    cat > '/config/conf__supplier__template__OpenAI__models.json' <<'BILLIONMAIL_CONFIG_078_EOF'
     []
-  conf__webmail__custom.inc.php: |
+    BILLIONMAIL_CONFIG_078_EOF
+
+    cat > '/config/conf__webmail__custom.inc.php' <<'BILLIONMAIL_CONFIG_079_EOF'
     <?php
         # Product name
         $config['product_name'] = 'BillionMail';
@@ -4556,7 +4399,9 @@ data:
 
 
     # Please create an extra file: extra.php. Used to persist overrides Configuration
-  conf__webmail__mime.types: |
+    BILLIONMAIL_CONFIG_079_EOF
+
+    cat > '/config/conf__webmail__mime.types' <<'BILLIONMAIL_CONFIG_080_EOF'
     # This file maps Internet media types to unique file extension(s).
     # Although created for httpd, this file is used by many software systems
     # and has been placed in the public domain for unlimited redistribution.
@@ -6416,7 +6261,9 @@ data:
     video/x-sgi-movie				movie
     video/x-smv					smv
     x-conference/x-cooltalk				ice
-  ssl-self-signed__dh.pem: |
+    BILLIONMAIL_CONFIG_080_EOF
+
+    cat > '/config/ssl-self-signed__dh.pem' <<'BILLIONMAIL_CONFIG_081_EOF'
     -----BEGIN DH PARAMETERS-----
     MIIBCAKCAQEA//////////+t+FRYortKmq/cViAnPTzx2LnFg84tNpWp4TZBFGQz
     +8yTnc4kmz75fS/jY2MMddj2gbICrsRhetPfHtXV/WVhJDP1H18GbtCFY2VVPe0a
@@ -6425,6 +6272,320 @@ data:
     7MA0BM0oNC9hkXL+nOmFg/+OTxIy7vKBg8P+OxtMb61zO7X8vC7CIAXFjvGDfRaD
     ssbzSibBsu/6iGtCOGEoXJf//////////wIBAg==
     -----END DH PARAMETERS-----
+    BILLIONMAIL_CONFIG_081_EOF
+
+    cat > /data/docker-api-stub.py <<'BILLIONMAIL_DOCKER_API_EOF'
+    #!/usr/bin/env python3
+    import json
+    import os
+    import socket
+    import urllib.parse
+
+    SOCKET_PATH = "/var/run/docker.sock"
+    CONTAINERS = [
+        ("core-id", "core-billionmail", "billionmail/core:4.9.3@sha256:b97c71b463e99368f0fb50a4f3088139c2f04a37171d3b660b92f946a3076692"),
+        ("rspamd-id", "rspamd-billionmail", "billionmail/rspamd:1.2@sha256:bed48c106e8b8fcbf0a133c86e90900e7e17d4dec14cc30a9ddf989ada74f058"),
+        ("dovecot-id", "dovecot-billionmail", "billionmail/dovecot:1.6@sha256:bbf5c304f248141768d1dbdf26b190fd28b69de6969b90e994ee81f54b942fab"),
+        ("postfix-id", "postfix-billionmail", "billionmail/postfix:1.6@sha256:870656c055c83f4e4b83fcd4c2f9cecfbcd0d8e3a963ab7d0c9c88bd6b348342"),
+        ("webmail-id", "webmail-billionmail", "roundcube/roundcubemail:1.6.11-fpm-alpine"),
+    ]
+    EXECS = {}
+    EXEC_COUNTER = 0
+
+
+    def summary(cid, name, image):
+        labels = {}
+        if name == "core-billionmail":
+            labels["com.docker.compose.project.working_dir"] = "/opt/billionmail"
+        return {
+            "Id": cid,
+            "Names": ["/" + name],
+            "Image": image,
+            "ImageID": image,
+            "Command": "",
+            "Created": 0,
+            "Ports": [],
+            "Labels": labels,
+            "State": "running",
+            "Status": "Up",
+            "HostConfig": {"NetworkMode": "billionmail-network"},
+            "NetworkSettings": {"Networks": {}},
+            "Mounts": [],
+        }
+
+
+    def write_response(conn, status, body=b"", content_type="application/json"):
+        if isinstance(body, str):
+            body = body.encode()
+        headers = [
+            f"HTTP/1.1 {status}",
+            f"Content-Length: {len(body)}",
+            f"Content-Type: {content_type}",
+            "Connection: close",
+            "",
+            "",
+        ]
+        conn.sendall("\r\n".join(headers).encode() + body)
+
+
+    def write_hijacked_response(conn, body=b""):
+        headers = [
+            "HTTP/1.1 101 UPGRADED",
+            "Content-Type: application/vnd.docker.raw-stream",
+            "Connection: Upgrade",
+            "Upgrade: tcp",
+            "",
+            "",
+        ]
+        conn.sendall("\r\n".join(headers).encode() + body)
+
+
+    def raw_stream(stdout=""):
+        if not stdout:
+            return b""
+        data = stdout.encode()
+        return b"\x01\x00\x00\x00" + len(data).to_bytes(4, "big") + data
+
+
+    def exec_output(cmd):
+        text = " ".join(cmd)
+        if "rspamadm pw" in text:
+            return "$2$sealos-billonmail-rspamd-placeholder\n"
+        if "rspamadm dkim_keygen" in text:
+            return "v=DKIM1; k=rsa; p=placeholder\n"
+        return ""
+
+
+    def create_exec(request):
+        global EXEC_COUNTER
+        body = b""
+        if b"\r\n\r\n" in request:
+            body = request.split(b"\r\n\r\n", 1)[1]
+        try:
+            payload = json.loads(body.decode() or "{}")
+        except json.JSONDecodeError:
+            payload = {}
+        cmd = payload.get("Cmd")
+        if not isinstance(cmd, list):
+            cmd = []
+        EXEC_COUNTER += 1
+        exec_id = f"exec-{EXEC_COUNTER}"
+        EXECS[exec_id] = {
+            "cmd": [str(item) for item in cmd],
+            "output": exec_output([str(item) for item in cmd]),
+        }
+        return exec_id
+
+
+    def stats_body():
+        return {
+            "cpu_stats": {
+                "cpu_usage": {"total_usage": 100, "percpu_usage": [100], "usage_in_kernelmode": 0, "usage_in_usermode": 0},
+                "system_usage": 1000,
+                "online_cpus": 1,
+                "throttling_data": {"periods": 0, "throttled_periods": 0, "throttled_time": 0},
+            },
+            "precpu_stats": {
+                "cpu_usage": {"total_usage": 80, "percpu_usage": [80], "usage_in_kernelmode": 0, "usage_in_usermode": 0},
+                "system_usage": 900,
+                "online_cpus": 1,
+                "throttling_data": {"periods": 0, "throttled_periods": 0, "throttled_time": 0},
+            },
+            "memory_stats": {"usage": 67108864, "max_usage": 67108864, "limit": 536870912},
+            "networks": {"eth0": {"rx_bytes": 0, "rx_packets": 0, "rx_errors": 0, "rx_dropped": 0, "tx_bytes": 0, "tx_packets": 0, "tx_errors": 0, "tx_dropped": 0}},
+            "blkio_stats": {"io_service_bytes_recursive": []},
+        }
+
+
+    def handle(conn, request):
+        first = request.split(b"\r\n", 1)[0].decode(errors="ignore")
+        parts = first.split()
+        if len(parts) < 2:
+            write_response(conn, "400 Bad Request", "{}")
+            return
+        method, raw_path = parts[0], parts[1]
+        path = urllib.parse.urlparse(raw_path).path
+        compact = path.lstrip("/")
+        if compact.startswith("v") and "/" in compact:
+            version, rest = compact.split("/", 1)
+            if version[1:].replace(".", "").isdigit():
+                compact = rest
+        if compact == "_ping":
+            write_response(conn, "200 OK", "OK", "text/plain")
+        elif compact == "version":
+            write_response(conn, "200 OK", json.dumps({"Version": "25.0.0", "ApiVersion": "1.43"}))
+        elif compact.startswith("containers/json"):
+            write_response(conn, "200 OK", json.dumps([summary(*c) for c in CONTAINERS]))
+        elif method == "GET" and compact.startswith("containers/") and compact.endswith("/json"):
+            wanted = compact.split("/", 2)[1]
+            for cid, name, image in CONTAINERS:
+                if wanted in {cid, name}:
+                    write_response(conn, "200 OK", json.dumps(summary(cid, name, image)))
+                    return
+            write_response(conn, "404 Not Found", "{}")
+        elif "/stats" in compact:
+            write_response(conn, "200 OK", json.dumps(stats_body()))
+        elif method == "POST" and compact.endswith("/restart"):
+            write_response(conn, "204 No Content", b"")
+        elif method == "POST" and compact.endswith("/exec"):
+            exec_id = create_exec(request)
+            write_response(conn, "200 OK", json.dumps({"Id": exec_id}))
+        elif method == "POST" and compact.startswith("exec/") and compact.endswith("/start"):
+            exec_id = compact.split("/", 2)[1]
+            write_hijacked_response(conn, raw_stream(EXECS.get(exec_id, {}).get("output", "")))
+        elif method == "GET" and compact.startswith("exec/") and compact.endswith("/json"):
+            exec_id = compact.split("/", 2)[1]
+            write_response(conn, "200 OK", json.dumps({"ID": exec_id, "Running": False, "ExitCode": 0}))
+        else:
+            write_response(conn, "404 Not Found", "{}")
+
+
+    os.makedirs(os.path.dirname(SOCKET_PATH), exist_ok=True)
+    try:
+        os.unlink(SOCKET_PATH)
+    except FileNotFoundError:
+        pass
+
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(SOCKET_PATH)
+    os.chmod(SOCKET_PATH, 0o666)
+    server.listen(16)
+
+    while True:
+        conn, _ = server.accept()
+        with conn:
+            request = conn.recv(65536)
+            handle(conn, request)
+    BILLIONMAIL_DOCKER_API_EOF
+    chmod 600 /data/docker-api-stub.py
+
+    copy_config() {
+      key="$1"
+      dest="$2"
+      mkdir -p "$(dirname "$dest")"
+      if [ -f "/config/$key" ]; then
+        cp "/config/$key" "$dest"
+      fi
+    }
+
+    mkdir -p \
+      /data/conf/core/fail2ban_init/filter.d \
+      /data/conf/core/fail2ban_init/jail.d \
+      /data/conf/askai \
+      /data/conf/dovecot/conf.d \
+      /data/conf/php/php-fpm.d \
+      /data/conf/php/php/conf.d \
+      /data/conf/postfix/conf \
+      /data/conf/postfix/sql \
+      /data/conf/rspamd/local.d \
+      /data/conf/supplier/template \
+      /data/conf/webmail \
+      /data/core-data \
+      /data/core-logs \
+      /data/logs/postfix \
+      /data/logs/dovecot \
+      /data/logs/rspamd \
+      /data/postfix-spool \
+      /data/rspamd-data \
+      /data/rspamd-data/dkim \
+      /data/vmail-data \
+      /data/webmail-data \
+      /data/ssl \
+      /data/ssl-self-signed \
+      /data/postgresql-socket \
+      /data/php-sock \
+      /data/docker-sock
+
+    : > /data/dockerenv
+
+    while IFS= read -r mapping; do
+      key="${mapping%%|*}"
+      dest="${mapping#*|}"
+      copy_config "$key" "$dest"
+    done <<'MAPPINGS'
+    conf__core__fail2ban_init__filter.d__core-limit-filter.conf|/data/conf/core/fail2ban_init/filter.d/core-limit-filter.conf
+    conf__core__fail2ban_init__filter.d__roundcube-limit-filter.conf|/data/conf/core/fail2ban_init/filter.d/roundcube-limit-filter.conf
+    conf__core__fail2ban_init__jail.d__core-accesslimit.conf|/data/conf/core/fail2ban_init/jail.d/core-accesslimit.conf
+    conf__core__fail2ban_init__jail.d__roundcube-accesslimit.conf|/data/conf/core/fail2ban_init/jail.d/roundcube-accesslimit.conf
+    conf__dovecot__dovecot.conf|/data/conf/dovecot/dovecot.conf
+    conf__dovecot__rsyslog.conf|/data/conf/dovecot/rsyslog.conf
+    conf__php__pear.conf|/data/conf/php/pear.conf
+    conf__php__php-fpm.conf|/data/conf/php/php-fpm.conf
+    conf__php__php-fpm.conf.default|/data/conf/php/php-fpm.conf.default
+    conf__postfix__main.cf|/data/conf/postfix/main.cf
+    conf__postfix__master.cf|/data/conf/postfix/master.cf
+    conf__postfix__rsyslog.conf|/data/conf/postfix/rsyslog.conf
+    conf__rspamd__rspamd.conf|/data/conf/rspamd/rspamd.conf
+    conf__rspamd__statistic.conf|/data/conf/rspamd/statistic.conf
+    conf__webmail__custom.inc.php|/data/conf/webmail/custom.inc.php
+    conf__webmail__mime.types|/data/conf/webmail/mime.types
+    ssl-self-signed__dh.pem|/data/ssl/dh.pem
+    ssl-self-signed__dh.pem|/data/ssl-self-signed/dh.pem
+    MAPPINGS
+
+    find /config -maxdepth 1 -name 'conf__dovecot__conf.d__*' | while read -r f; do
+      copy_config "$(basename "$f")" "/data/conf/dovecot/conf.d/${f##*conf.d__}"
+    done
+    find /config -maxdepth 1 -name 'conf__php__php-fpm.d__*' | while read -r f; do
+      copy_config "$(basename "$f")" "/data/conf/php/php-fpm.d/${f##*php-fpm.d__}"
+    done
+    find /config -maxdepth 1 -name 'conf__php__php__conf.d__*' | while read -r f; do
+      copy_config "$(basename "$f")" "/data/conf/php/php/conf.d/${f##*conf.d__}"
+    done
+    find /config -maxdepth 1 -name 'conf__rspamd__local.d__*' | while read -r f; do
+      copy_config "$(basename "$f")" "/data/conf/rspamd/local.d/${f##*local.d__}"
+    done
+    find /config -maxdepth 1 -name 'conf__supplier__template__*' | while read -r f; do
+      rel="${f##*/conf__supplier__template__}"
+      rel="$(printf '%s' "$rel" | sed 's#__#/#g')"
+      copy_config "$(basename "$f")" "/data/conf/supplier/template/$rel"
+    done
+
+    : > /data/conf/postfix/conf/header_checks
+    : > /data/conf/postfix/conf/vmail_ssl.map
+    mkdir -p /data/postfix-spool/public /data/postfix-spool/maildrop /data/postfix-spool/dev /data/postfix-spool/pid
+    touch /data/logs/postfix/postfix.log /data/logs/dovecot/dovecot.log /data/logs/rspamd/rspamd.log
+    touch /data/core-logs/access-$(date -u +%Y%m%d).log
+    if [ ! -s /data/ssl/key.pem ] || [ ! -s /data/ssl/cert.pem ]; then
+      openssl req -x509 -nodes -newkey rsa:2048 -days 3650 \
+        -subj "/CN=${BILLIONMAIL_HOSTNAME}" \
+        -keyout /data/ssl/key.pem \
+        -out /data/ssl/cert.pem
+      cp /data/ssl/key.pem /data/ssl-self-signed/key.pem
+      cp /data/ssl/cert.pem /data/ssl-self-signed/cert.pem
+    fi
+
+    cat > /data/.env <<EOF
+    ADMIN_USERNAME=${ADMIN_USERNAME}
+    ADMIN_PASSWORD=${ADMIN_PASSWORD}
+    SafePath=${SAFE_PATH}
+    BILLIONMAIL_HOSTNAME=${BILLIONMAIL_HOSTNAME}
+    DBNAME=billionmail
+    DBUSER=billionmail
+    DBPASS=${DBPASS}
+    REDISPASS=${REDISPASS}
+    REDIS_PORT=6379
+    REDISDB=1
+    SMTP_PORT=25
+    SMTPS_PORT=465
+    SUBMISSION_PORT=587
+    IMAP_PORT=143
+    IMAPS_PORT=993
+    POP_PORT=110
+    POPS_PORT=995
+    HTTP_PORT=80
+    HTTPS_PORT=443
+    TZ=${TZ}
+    FAIL2BAN_INIT=n
+    IP_WHITELIST_ENABLE=false
+    RETENTION_DAYS=${RETENTION_DAYS}
+    APP_ENV=production
+    EOF
+
+    chmod 600 /data/.env
+    chmod 600 /data/ssl/key.pem /data/ssl-self-signed/key.pem
+    chmod -R a+rX /data/conf /data/ssl /data/ssl-self-signed
+    chmod -R 777 /data/webmail-data /data/postfix-spool /data/vmail-data /data/rspamd-data /data/logs /data/core-logs /data/core-data /data/postgresql-socket /data/php-sock /data/docker-sock
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -6434,7 +6595,7 @@ metadata:
     originImageName: billionmail/core:4.9.3@sha256:b97c71b463e99368f0fb50a4f3088139c2f04a37171d3b660b92f946a3076692
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
-    docker-to-sealos.resource-override-source: BillionMail official quick start and live cold-start evidence for a full mail stack with Core, Postfix, Dovecot, Rspamd, and Roundcube.
+    docker-to-sealos.official-compose-source: https://github.com/Billionmail/BillionMail/blob/fc36c76c050c3775c5e899faf7403cf0262d2744/docker-compose.yml
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
@@ -6449,10 +6610,9 @@ spec:
     metadata:
       labels:
         app: ${{ defaults.app_name }}
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     spec:
       automountServiceAccountToken: false
-      imagePullSecrets:
-        - name: ${{ defaults.app_name }}
       hostAliases:
         - ip: 127.0.0.1
           hostnames:
@@ -6465,7 +6625,7 @@ spec:
             - core-manage
       initContainers:
         - name: prepare-billionmail-data
-          image: alpine/openssl:3.5.4
+          image: alpine/openssl:3.5.4@sha256:42c7389ef077aed0eb4e96d0abbd094083d701bbaff1313073b061c0c9cd8278
           imagePullPolicy: IfNotPresent
           env:
             - name: ADMIN_USERNAME
@@ -6492,21 +6652,23 @@ spec:
                   key: password
           command:
             - /bin/sh
-            - /config/prepare-data.sh
+            - -ec
+            - cp /config/prepare-data.sh /tmp/prepare-data.sh && exec /bin/sh /tmp/prepare-data.sh
           resources:
             limits:
               cpu: 100m
               memory: 128Mi
             requests:
               cpu: 10m
-              memory: 16Mi
+              memory: 12Mi
           volumeMounts:
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /data
-            - name: vn-config
-              mountPath: /config
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /config/prepare-data.sh
+              subPath: vn-configvn-preparevn-datavn-sh
         - name: wait-billionmail-db-init
-          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine@sha256:5660c2cbfea50c7a9127d17dc4e48543eedd3d7a41a595a2dfa572471e37e64c
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_HOST
@@ -6667,25 +6829,25 @@ spec:
               memory: 128Mi
             requests:
               cpu: 10m
-              memory: 16Mi
+              memory: 12Mi
         - name: docker-api
-          image: python:3.12.12-alpine
+          image: python:3.12.12-alpine@sha256:2d91681153dd4b8cdb52d4fd34a17b9edbafa4dd3086143cfd4b6c3a84c1acb0
           imagePullPolicy: IfNotPresent
           restartPolicy: Always
           command:
             - python
-            - /config/docker-api-stub.py
+            - /data/docker-api-stub.py
           resources:
             limits:
               cpu: 100m
-              memory: 96Mi
+              memory: 128Mi
             requests:
               cpu: 10m
-              memory: 16Mi
+              memory: 12Mi
           volumeMounts:
-            - name: vn-config
-              mountPath: /config
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
+              mountPath: /data
+            - name: vn-data
               mountPath: /var/run
               subPath: docker-sock
         - name: pgsql-tcp-proxy
@@ -6715,7 +6877,7 @@ spec:
           resources:
             limits:
               cpu: 100m
-              memory: 64Mi
+              memory: 128Mi
             requests:
               cpu: 10m
               memory: 12Mi
@@ -6743,12 +6905,12 @@ spec:
           resources:
             limits:
               cpu: 100m
-              memory: 64Mi
+              memory: 128Mi
             requests:
               cpu: 10m
               memory: 12Mi
           volumeMounts:
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /socket
               subPath: postgresql-socket
         - name: redis-tcp-proxy
@@ -6767,7 +6929,7 @@ spec:
           resources:
             limits:
               cpu: 100m
-              memory: 64Mi
+              memory: 128Mi
             requests:
               cpu: 10m
               memory: 12Mi
@@ -6797,25 +6959,25 @@ spec:
               protocol: TCP
           resources:
             limits:
-              cpu: 400m
-              memory: 384Mi
+              cpu: 100m
+              memory: 512Mi
             requests:
-              cpu: 20m
-              memory: 64Mi
+              cpu: 10m
+              memory: 51Mi
           volumeMounts:
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /etc/rspamd/rspamd.conf
               subPath: conf/rspamd/rspamd.conf
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /etc/rspamd/statistic.conf
               subPath: conf/rspamd/statistic.conf
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /etc/rspamd/local.d
               subPath: conf/rspamd/local.d
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /var/lib/rspamd
               subPath: rspamd-data
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /var/log/rspamd
               subPath: logs/rspamd
         - name: dovecot-billionmail
@@ -6864,37 +7026,37 @@ spec:
               protocol: TCP
           resources:
             limits:
-              cpu: 300m
-              memory: 384Mi
+              cpu: 100m
+              memory: 128Mi
             requests:
-              cpu: 20m
-              memory: 64Mi
+              cpu: 10m
+              memory: 12Mi
           volumeMounts:
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /etc/dovecot/dovecot.conf
               subPath: conf/dovecot/dovecot.conf
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /etc/dovecot/conf.d
               subPath: conf/dovecot/conf.d
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /etc/rsyslog.conf
               subPath: conf/dovecot/rsyslog.conf
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /etc/ssl/mail
               subPath: ssl
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /etc/ssl/ssl-self-signed
               subPath: ssl-self-signed
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /var/vmail
               subPath: vmail-data
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /var/lib/rspamd
               subPath: rspamd-data
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /var/log/mail
               subPath: logs/dovecot
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /opt/billionmail/postgresql-socket
               subPath: postgresql-socket
         - name: postfix-billionmail
@@ -6934,44 +7096,44 @@ spec:
               protocol: TCP
           resources:
             limits:
-              cpu: 300m
-              memory: 384Mi
+              cpu: 100m
+              memory: 128Mi
             requests:
-              cpu: 20m
-              memory: 64Mi
+              cpu: 10m
+              memory: 12Mi
           volumeMounts:
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /etc/postfix/main.cf
               subPath: conf/postfix/main.cf
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /etc/postfix/master.cf
               subPath: conf/postfix/master.cf
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /etc/postfix/conf
               subPath: conf/postfix/conf
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /etc/postfix/sql
               subPath: conf/postfix/sql
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /etc/rsyslog.conf
               subPath: conf/postfix/rsyslog.conf
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /etc/ssl/mail
               subPath: ssl
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /var/spool/postfix
               subPath: postfix-spool
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /var/lib/rspamd
               subPath: rspamd-data
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /var/log/mail
               subPath: logs/postfix
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /opt/billionmail/postgresql-socket
               subPath: postgresql-socket
         - name: webmail-billionmail
-          image: roundcube/roundcubemail:1.6.11-fpm-alpine
+          image: roundcube/roundcubemail:1.6.11-fpm-alpine@sha256:bc86e4b7ce9dfb0104cafc9fe17974dbcfb8dd976e6af11b385bf9de350212cd
           imagePullPolicy: IfNotPresent
           restartPolicy: Always
           env:
@@ -7013,19 +7175,19 @@ spec:
               value: /roundcube
           resources:
             limits:
-              cpu: 300m
-              memory: 384Mi
+              cpu: 100m
+              memory: 128Mi
             requests:
-              cpu: 20m
-              memory: 64Mi
+              cpu: 10m
+              memory: 12Mi
           volumeMounts:
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /var/roundcube
               subPath: webmail-data
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /etc/roundcube
               subPath: conf/webmail
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /var/run
               subPath: php-sock
       containers:
@@ -7069,65 +7231,67 @@ spec:
             failureThreshold: 6
           resources:
             limits:
-              cpu: 500m
-              memory: 512Mi
-            requests:
-              cpu: 50m
+              cpu: 100m
               memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
           volumeMounts:
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /opt/billionmail/.env
               subPath: .env
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /opt/billionmail/conf
               subPath: conf
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /opt/billionmail/core/data
               subPath: core-data
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /opt/billionmail/core/logs
               subPath: core-logs
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /opt/billionmail/vmail-data
               subPath: vmail-data
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /opt/billionmail/rspamd-data
               subPath: rspamd-data
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /opt/billionmail/webmail-data
               subPath: webmail-data
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /etc/ssl/mail
               subPath: ssl
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /etc/ssl/ssl-self-signed
               subPath: ssl-self-signed
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /var/log/mail
               subPath: logs
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /opt/billionmail/logs
               subPath: logs
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /opt/billionmail/postgresql-socket
               subPath: postgresql-socket
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /opt/billionmail/php-sock
               subPath: php-sock
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /var/run
               subPath: docker-sock
-            - name: vn-optvn-billionmailvn-data
+            - name: vn-data
               mountPath: /.dockerenv
               subPath: dockerenv
       volumes:
-        - name: vn-config
+        - name: ${{ defaults.app_name }}-cm
           configMap:
-            name: ${{ defaults.app_name }}-config
-            defaultMode: 493
+            name: ${{ defaults.app_name }}
   volumeClaimTemplates:
     - metadata:
-        name: vn-optvn-billionmailvn-data
+        name: vn-data
+        annotations:
+          path: /data
+          value: '1'
       spec:
         accessModes:
           - ReadWriteOnce

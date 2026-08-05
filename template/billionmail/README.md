@@ -1,6 +1,6 @@
 # Deploy and Host BillionMail on Sealos
 
-BillionMail is an open-source mail server, newsletter, and email marketing platform. This template deploys the BillionMail web console, mail services, PostgreSQL, Redis, and persistent storage on Sealos Cloud.
+BillionMail is an open-source mail server, newsletter, and email marketing platform. This template deploys the pinned BillionMail 4.9 service bundle, PostgreSQL, Redis, and persistent storage on Sealos Cloud.
 
 ![BillionMail Screenshot](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/billionmail/website-screenshot.webp)
 
@@ -20,7 +20,7 @@ The deployment includes the BillionMail core web/API service, Postfix for SMTP, 
 
 ## Dependencies for BillionMail Hosting
 
-The Sealos template includes all required runtime dependencies: BillionMail Core, Postfix, Dovecot, Rspamd, Roundcube, PostgreSQL 16.4, Redis 7.2, and a persistent data volume.
+The Sealos template includes all required runtime dependencies: BillionMail Core 4.9.3, Postfix 1.6, Dovecot 1.6, Rspamd 1.2, Roundcube 1.6.11, PostgreSQL 16.4, Redis 7.2, and a persistent data volume. Application data uses local persistent storage, following the official compose topology. PostgreSQL and Redis are required backends for this bundle.
 
 ### Deployment Dependencies
 
@@ -43,6 +43,8 @@ This template deploys the following services:
 - **PostgreSQL**: KubeBlocks PostgreSQL 16.4 cluster for BillionMail and webmail data.
 - **Redis**: KubeBlocks Redis 7.2 cluster for cache, sessions, and coordination.
 - **Persistent Volume**: Stores mail data, mutable configuration, TLS files, logs, webmail data, and mail service state.
+
+The workload keeps one StatefulSet replica because the mail services share one ReadWriteOnce data volume. PostgreSQL runs one replica, while Redis runs one Redis replica and one Sentinel replica. The application images are pinned to immutable digests from the official compose bundle at commit `fc36c76c050c3775c5e899faf7403cf0262d2744`.
 
 **Configuration:**
 
@@ -69,14 +71,14 @@ Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies
 
 1. Open the [BillionMail template](https://sealos.io/products/app-store/billionmail) and click **Deploy Now**.
 2. Configure the deployment parameters in the popup dialog:
-   - **Admin Username**: Initial BillionMail administrator username. The default is `billion`.
-   - **Admin Password**: Initial BillionMail administrator password. Set a strong value before deployment.
+   - **Admin Username**: Required initial BillionMail administrator username.
+   - **Admin Password**: Required initial BillionMail administrator password. Set a strong, unique value.
    - **Mail Hostname**: Hostname used for mail service and DNS guidance, such as `mail.example.com`.
    - **Timezone**: Container timezone, such as `Etc/UTC`.
    - **Retention Days**: Number of days to keep BillionMail log backups.
 3. Wait for deployment to complete, typically 2-3 minutes. After deployment, Sealos redirects you to the Canvas. For later changes, describe your requirements in the AI dialog or click the relevant resource cards.
 4. Open the provided BillionMail App URL. The console is served at the root path, for example `https://<app-host>.<sealos-domain>`.
-5. Log in with the administrator username and password configured in step 2. The initial administrator account is created during deployment, and first access uses these deployment credentials directly.
+5. Log in with the exact administrator username and password configured in step 2. The initial administrator account is created during deployment, and first access uses these deployment credentials directly.
 6. After logging in, create mail domains and mailboxes before using mail delivery or Roundcube webmail.
 
 ## First Login and Webmail
@@ -93,16 +95,16 @@ Create a domain and mailbox in the BillionMail console before signing in to Roun
 
 ## Mail DNS and Ports
 
-BillionMail exposes mail services inside Kubernetes for SMTP, SMTPS, Submission, IMAP, IMAPS, POP3, and POP3S. Public mail delivery also requires DNS and network planning:
+BillionMail exposes SMTP, SMTPS, Submission, IMAP, IMAPS, POP3, and POP3S through its Kubernetes ClusterIP Service. The template publishes only the HTTPS web console through the Sealos App URL. Internet mail delivery requires a separately configured public L4 route plus DNS and network planning:
 
 - Point MX records to the configured `mail_hostname`.
 - Configure SPF, DKIM, and DMARC records for each sending domain.
-- Confirm that the required SMTP and IMAP/POP ports are reachable from the networks where you send or receive mail.
+- Publish the required SMTP and IMAP/POP ports through an approved public network path.
 - Use Submission port `587` for authenticated sending when port `25` is restricted by your environment.
 
 ## Scaling
 
-For resource tuning, open the deployment Canvas and adjust CPU, memory, and storage on the relevant workload, database, or volume resource cards. Treat mail storage and delivery services as stateful components and validate mail flow after changing replicas or storage settings.
+For resource tuning, open the deployment Canvas and adjust CPU, memory, and storage on the relevant workload, database, or volume resource cards. Keep the shared mail StatefulSet at one replica with the default ReadWriteOnce volume. Validate mail flow after every storage or networking change.
 
 ## Troubleshooting
 

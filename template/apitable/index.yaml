@@ -2,6 +2,8 @@ apiVersion: app.sealos.io/v1
 kind: Template
 metadata:
   name: apitable
+  annotations:
+    docker-to-sealos.object-storage-compatibility-proxy-source: https://github.com/apitable/apitable/blob/v1.13.0-beta.1/docker-compose.yaml
 spec:
   title: APITable
   url: https://aitable.ai
@@ -32,13 +34,13 @@ spec:
       type: string
       value: ${{ random(32) }}
   inputs:
-    use_sealos_objectstorage:
-      description: Use the Sealos ObjectStorage bucket for APITable attachments, images, and uploads.
+    enable_s3_storage:
+      description: Enable the managed Sealos S3 bucket for APITable attachments, images, and uploads.
       type: boolean
       default: 'true'
       required: false
 ---
-${{ if(inputs.use_sealos_objectstorage === 'true') }}
+${{ if(inputs.enable_s3_storage === 'true') }}
 apiVersion: objectstorage.sealos.io/v1
 kind: ObjectStorageBucket
 metadata:
@@ -47,6 +49,18 @@ metadata:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   policy: private
+---
+${{ else() }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-storage-mode
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-storage-mode
+    app: ${{ defaults.app_name }}-storage-mode
+data:
+  OSS_ENABLED: 'false'
+  STORAGE_MODE: disabled
 ---
 ${{ endif() }}
 ---
@@ -289,7 +303,7 @@ data:
   OSS_CACHE_TYPE: minio
   OSS_TYPE: QNY1
   OSS_CLIENT_TYPE: aws
-  OSS_ENABLED: 'true'
+  OSS_ENABLED: '${{ inputs.enable_s3_storage }}'
   OSS_SIGNATURE_ENABLED: 'false'
   API_MAX_MODIFY_RECORD_COUNTS: '30'
   ENABLE_SOCKET: 'true'
@@ -1159,7 +1173,7 @@ spec:
               value: ${{ defaults.rabbitmq_password }}
             - name: RABBITMQ_VHOST
               value: /
-${{ if(inputs.use_sealos_objectstorage === 'true') }}
+${{ if(inputs.enable_s3_storage === 'true') }}
             - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
@@ -1192,6 +1206,11 @@ ${{ if(inputs.use_sealos_objectstorage === 'true') }}
               value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
             - name: AWS_REGION
               value: us-east-1
+${{ else() }}
+            - name: OSS_ENABLED
+              value: 'false'
+            - name: STORAGE_MODE
+              value: disabled
 ${{ endif() }}
           ports:
             - containerPort: 8081
@@ -1392,7 +1411,7 @@ spec:
               value: ${{ defaults.rabbitmq_password }}
             - name: RABBITMQ_VHOST
               value: /
-${{ if(inputs.use_sealos_objectstorage === 'true') }}
+${{ if(inputs.enable_s3_storage === 'true') }}
             - name: OSS_BUCKET
               valueFrom:
                 secretKeyRef:
@@ -1405,6 +1424,11 @@ ${{ if(inputs.use_sealos_objectstorage === 'true') }}
                   key: external
             - name: OSS_HOST
               value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+${{ else() }}
+            - name: OSS_ENABLED
+              value: 'false'
+            - name: STORAGE_MODE
+              value: disabled
 ${{ endif() }}
           ports:
             - containerPort: 3333
@@ -1749,7 +1773,7 @@ spec:
           image: apitable/imageproxy-server:v0.13.4-alpha_build13
           imagePullPolicy: IfNotPresent
           env:
-${{ if(inputs.use_sealos_objectstorage === 'true') }}
+${{ if(inputs.enable_s3_storage === 'true') }}
             - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
               valueFrom:
                 secretKeyRef:
@@ -1757,6 +1781,11 @@ ${{ if(inputs.use_sealos_objectstorage === 'true') }}
                   key: external
             - name: BASEURL
               value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+${{ else() }}
+            - name: STORAGE_MODE
+              value: disabled
+            - name: BASEURL
+              value: http://127.0.0.1:9
 ${{ endif() }}
           ports:
             - containerPort: 8080
@@ -1833,7 +1862,7 @@ spec:
           args:
             - exec /bin/sh /etc/nginx/templates/apitable-entrypoint.sh
           env:
-${{ if(inputs.use_sealos_objectstorage === 'true') }}
+${{ if(inputs.enable_s3_storage === 'true') }}
             - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
               valueFrom:
                 secretKeyRef:
@@ -1841,6 +1870,11 @@ ${{ if(inputs.use_sealos_objectstorage === 'true') }}
                   key: external
             - name: OBJECT_STORAGE_EXTERNAL_ENDPOINT
               value: $(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+${{ else() }}
+            - name: STORAGE_MODE
+              value: disabled
+            - name: OBJECT_STORAGE_EXTERNAL_ENDPOINT
+              value: 127.0.0.1:9
 ${{ endif() }}
           ports:
             - containerPort: 80

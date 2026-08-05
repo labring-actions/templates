@@ -16,7 +16,6 @@ spec:
   locale: en
   i18n:
     zh:
-      title: 'Casdoor'
       description: 'Casdoor 是一个基于 OAuth 2.0、OIDC、SAML 和 CAS 的 UI 优先的身份访问管理（IAM）/单点登录（SSO）平台。'
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/casdoor/README_zh.md'
   categories:
@@ -30,6 +29,10 @@ spec:
       type: string
       value: casdoor-${{ random(8) }}
   inputs:
+    admin_password:
+      description: 'Initial password for the built-in administrator. Use at least 8 characters and do not use spaces.'
+      type: string
+      required: true
     driver_name:
       description: 'Database driver name (mysql, postgres, sqlite)'
       type: choice
@@ -46,6 +49,7 @@ kind: ConfigMap
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 data:
   vn-confvn-appvn-conf: |
@@ -65,6 +69,264 @@ data:
     origin =
     enableGzip = true
     ldapServerPort = 10389
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-admin-bootstrap
+  labels:
+    app: ${{ defaults.app_name }}-admin-bootstrap
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-admin-bootstrap
+data:
+  vn-optvn-casdoorvn-bootstrapvn-adminvn-sh: |
+    #!/bin/sh
+    set -eu
+
+    cookie_jar=/tmp/casdoor-admin.cookies
+    api_ca=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    token=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+    secret_api="https://kubernetes.default.svc/api/v1/namespaces/$NAMESPACE/secrets/$APP_NAME-admin-bootstrap"
+    pod_api="https://kubernetes.default.svc/api/v1/namespaces/$NAMESPACE/pods?labelSelector=app%3D$APP_NAME"
+
+    secret_response=$(curl --fail --silent --show-error \
+      --cacert "$api_ca" \
+      --header "Authorization: Bearer $token" \
+      "$secret_api")
+    admin_password_encoded=$(printf '%s' "$secret_response" | sed -n 's/.*"admin-password"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+    if [ -z "$admin_password_encoded" ]; then
+      echo 'The administrator password Secret is empty.' >&2
+      exit 1
+    fi
+    ADMIN_PASSWORD=$(printf '%s' "$admin_password_encoded" | base64 -d)
+    unset admin_password_encoded secret_response
+
+    pod_ip=
+    until [ -n "$pod_ip" ]; do
+      pod_response=$(curl --fail --silent --show-error \
+        --cacert "$api_ca" \
+        --header "Authorization: Bearer $token" \
+        "$pod_api")
+      pod_ip=$(printf '%s' "$pod_response" | sed -n 's/.*"podIP"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+      if [ -z "$pod_ip" ]; then
+        sleep 2
+      fi
+    done
+    base_url="http://$pod_ip:8000"
+
+    if [ "${#ADMIN_PASSWORD}" -lt 8 ] || [ "$ADMIN_PASSWORD" = '123' ]; then
+      echo 'The administrator password must contain at least 8 characters and must differ from the upstream default.' >&2
+      exit 1
+    fi
+    case "$ADMIN_PASSWORD" in
+      *' '*)
+        echo 'The administrator password cannot contain spaces.' >&2
+        exit 1
+        ;;
+    esac
+
+    json_escape() {
+      printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+    }
+
+    login() {
+      password=$(json_escape "$1")
+      rm -f "$cookie_jar"
+      curl --silent --show-error \
+        --cookie-jar "$cookie_jar" \
+        --header 'Content-Type: application/json' \
+        --data "{\"application\":\"app-built-in\",\"organization\":\"built-in\",\"username\":\"admin\",\"password\":\"$password\",\"autoSignin\":true,\"type\":\"login\"}" \
+        "$base_url/api/login"
+    }
+
+    is_success() {
+      printf '%s' "$1" | grep -Eq '"status"[[:space:]]*:[[:space:]]*"ok"'
+    }
+
+    until curl --fail --silent --show-error "$base_url/api/health" >/dev/null; do
+      sleep 2
+    done
+
+    configured_response=$(login "$ADMIN_PASSWORD")
+    if ! is_success "$configured_response"; then
+      default_response=$(login '123')
+      if is_success "$default_response"; then
+        update_response=$(curl --silent --show-error \
+          --cookie "$cookie_jar" \
+          --request POST \
+          --data-urlencode 'userOwner=built-in' \
+          --data-urlencode 'userName=admin' \
+          --data-urlencode 'oldPassword=123' \
+          --data-urlencode "newPassword=$ADMIN_PASSWORD" \
+          "$base_url/api/set-password")
+        if ! is_success "$update_response"; then
+          echo 'Casdoor rejected the configured administrator password.' >&2
+          exit 1
+        fi
+
+        configured_response=$(login "$ADMIN_PASSWORD")
+        if ! is_success "$configured_response"; then
+          echo 'Casdoor administrator password verification failed.' >&2
+          exit 1
+        fi
+      else
+        echo 'Casdoor rejected both the configured password and the upstream bootstrap password.' >&2
+        exit 1
+      fi
+    fi
+
+    api_url="https://kubernetes.default.svc/apis/apps/v1/namespaces/$NAMESPACE/$WORKLOAD_RESOURCE/$APP_NAME"
+    curl --fail --silent --show-error \
+      --cacert "$api_ca" \
+      --header "Authorization: Bearer $token" \
+      --header 'Content-Type: application/merge-patch+json' \
+      --request PATCH \
+      --data '{"spec":{"template":{"metadata":{"labels":{"casdoor.sealos.io/bootstrap":"ready"}}}}}' \
+      "$api_url" >/dev/null
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ${{ defaults.app_name }}-admin-bootstrap
+  labels:
+    app: ${{ defaults.app_name }}-admin-bootstrap
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+type: Opaque
+stringData:
+  admin-password: ${{ inputs.admin_password }}
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-admin-bootstrap
+  labels:
+    app: ${{ defaults.app_name }}-admin-bootstrap
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-admin-bootstrap
+  labels:
+    app: ${{ defaults.app_name }}-admin-bootstrap
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+rules:
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+      - statefulsets
+    resourceNames:
+      - ${{ defaults.app_name }}
+    verbs:
+      - get
+      - patch
+  - apiGroups:
+      - ''
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+  - apiGroups:
+      - ''
+    resources:
+      - secrets
+    resourceNames:
+      - ${{ defaults.app_name }}-admin-bootstrap
+    verbs:
+      - get
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-admin-bootstrap
+  labels:
+    app: ${{ defaults.app_name }}-admin-bootstrap
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-admin-bootstrap
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-admin-bootstrap
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-admin-bootstrap
+  labels:
+    app: ${{ defaults.app_name }}-admin-bootstrap
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  backoffLimit: 5
+  activeDeadlineSeconds: 900
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-admin-bootstrap
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    spec:
+      serviceAccountName: ${{ defaults.app_name }}-admin-bootstrap
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 100
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: admin-bootstrap
+          image: curlimages/curl:8.15.0@sha256:4026b29997dc7c823b51c164b71e2b51e0fd95cce4601f78202c513d97da2922
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - /opt/casdoor/bootstrap-admin.sh
+          env:
+            - name: APP_NAME
+              value: ${{ defaults.app_name }}
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            ${{ if(inputs.driver_name === 'sqlite') }}
+            - name: WORKLOAD_RESOURCE
+              value: statefulsets
+            ${{ else() }}
+            - name: WORKLOAD_RESOURCE
+              value: deployments
+            ${{ endif() }}
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: bootstrap-script
+              mountPath: /opt/casdoor/bootstrap-admin.sh
+              subPath: vn-optvn-casdoorvn-bootstrapvn-adminvn-sh
+              readOnly: true
+      volumes:
+        - name: bootstrap-script
+          configMap:
+            name: ${{ defaults.app_name }}-admin-bootstrap
+            items:
+              - key: vn-optvn-casdoorvn-bootstrapvn-adminvn-sh
+                path: vn-optvn-casdoorvn-bootstrapvn-adminvn-sh
 
 ---
 ${{ if(inputs.driver_name === 'mysql') }}
@@ -118,16 +380,18 @@ metadata:
   finalizers:
     - cluster.kubeblocks.io/finalizer
   labels:
+    kb.io/database: ac-mysql-8.0.30-1
     clusterdefinition.kubeblocks.io/name: apecloud-mysql
-    clusterversion.kubeblocks.io/name: ac-mysql-8.0.30
+    clusterversion.kubeblocks.io/name: ac-mysql-8.0.30-1
     sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
   name: ${{ defaults.app_name }}-mysql
 spec:
   affinity:
     podAntiAffinity: Preferred
     tenancy: SharedNode
   clusterDefinitionRef: apecloud-mysql
-  clusterVersionRef: ac-mysql-8.0.30
+  clusterVersionRef: ac-mysql-8.0.30-1
   componentSpecs:
     - componentDefRef: mysql
       monitor: true
@@ -151,6 +415,7 @@ spec:
                 storage: 1Gi
             storageClassName: openebs-backup
   terminationPolicy: Delete
+  tolerations: []
 ---
 apiVersion: batch/v1
 kind: Job
@@ -158,11 +423,22 @@ metadata:
   name: ${{ defaults.app_name }}-mysql-init
 spec:
   completions: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
   template:
     spec:
+      automountServiceAccountToken: false
       containers:
         - name: mysql-init
-          image: mysql:8.0
+          image: mysql:8.0.30
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
           env:
             - name: MYSQL_PASSWORD
               valueFrom:
@@ -201,9 +477,7 @@ spec:
               mysql -h${MYSQL_HOST} -P${MYSQL_PORT} -u${MYSQL_USER} -p${MYSQL_PASSWORD} \
                 -e "CREATE DATABASE IF NOT EXISTS \`${DATABASE_NAME}\` DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_unicode_ci;"
               echo "Database '${DATABASE_NAME}' ensured!"
-      restartPolicy: Never
-  backoffLimit: 0
-  ttlSecondsAfterFinished: 300
+      restartPolicy: OnFailure
 ${{ endif() }}
 
 ---
@@ -258,19 +532,23 @@ metadata:
   finalizers:
     - cluster.kubeblocks.io/finalizer
   labels:
+    kb.io/database: postgresql-16.4.0
     clusterdefinition.kubeblocks.io/name: postgresql
-    clusterversion.kubeblocks.io/name: postgresql-14.8.0
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
     sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
   name: ${{ defaults.app_name }}-pg
 spec:
   affinity:
     podAntiAffinity: Preferred
     tenancy: SharedNode
   clusterDefinitionRef: postgresql
-  clusterVersionRef: postgresql-14.8.0
+  clusterVersionRef: postgresql-16.4.0
   componentSpecs:
     - componentDefRef: postgresql
-      monitor: true
+      disableExporter: true
+      enabledLogs:
+        - running
       name: postgresql
       replicas: 1
       resources:
@@ -301,27 +579,58 @@ metadata:
   name: ${{ defaults.app_name }}-pg-init
 spec:
   completions: 1
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
   template:
     spec:
+      automountServiceAccountToken: false
       containers:
         - name: pgsql-init
-          image: postgres:14-alpine
+          image: postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
           env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
             - name: PG_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
-            - name: DATABASE_URL
-              value: postgresql://postgres:$(PG_PASSWORD)@${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc:5432
+            - name: PGPASSWORD
+              value: $(PG_PASSWORD)
+            - name: DB_NAME
+              value: casdoor
           command:
             - /bin/sh
-            - -c
+            - -ec
             - |
-              until psql ${DATABASE_URL} -c 'CREATE DATABASE casdoor;' &>/dev/null; do sleep 1; done
-      restartPolicy: Never
-  backoffLimit: 0
-  ttlSecondsAfterFinished: 300
+              until pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres >/dev/null 2>&1; do
+                sleep 2
+              done
+              if ! psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='casdoor'" | grep -q 1; then
+                psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE "casdoor";'
+              fi
+      restartPolicy: OnFailure
 ${{ endif() }}
 
 ---
@@ -331,7 +640,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: casbin/casdoor:v2.32.0
+    originImageName: casbin/casdoor:3.141.0
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -348,12 +657,25 @@ spec:
     metadata:
       labels:
         app: ${{ defaults.app_name }}
+        casdoor.sealos.io/bootstrap: pending
     spec:
       automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: ${{ defaults.app_name }}
-          image: casbin/casdoor:v2.32.0
+          image: casbin/casdoor:3.141.0
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           env:
             - name: RUNNING_IN_DOCKER
               value: "true"
@@ -362,49 +684,62 @@ spec:
             - name: driverName
               value: sqlite
             - name: dataSourceName
-              value: /tmp/casdoor.db
+              value: /home/casdoor.db
           ports:
             - name: http
               containerPort: 8000
               protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 12
           resources:
             limits:
-              cpu: 200m
-              memory: 256Mi
+              cpu: 100m
+              memory: 128Mi
             requests:
-              cpu: 20m
-              memory: 25Mi
+              cpu: 10m
+              memory: 12Mi
           volumeMounts:
-            - name: vn-confvn-appvn-conf
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /conf/app.conf
-              subPath: ./conf/app.conf
-            - name: data
+              subPath: vn-confvn-appvn-conf
+            - name: vn-home
               mountPath: /home
       volumes:
-        - name: vn-confvn-appvn-conf
+        - name: ${{ defaults.app_name }}-cm
           configMap:
             name: ${{ defaults.app_name }}
             items:
               - key: vn-confvn-appvn-conf
-                path: ./conf/app.conf
-            defaultMode: 420
+                path: vn-confvn-appvn-conf
   volumeClaimTemplates:
     - metadata:
         annotations:
           path: /home
           value: '1'
-        name: data
+        name: vn-home
       spec:
         accessModes:
           - ReadWriteOnce
         resources:
           requests:
             storage: 1Gi
-${{ else() }}
+${{ endif() }}
+
+---
+${{ if(inputs.driver_name !== 'sqlite') }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: casbin/casdoor:3.141.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
@@ -418,12 +753,115 @@ spec:
     metadata:
       labels:
         app: ${{ defaults.app_name }}
+        casdoor.sealos.io/bootstrap: pending
     spec:
       automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        ${{ if(inputs.driver_name === 'mysql') }}
+        - name: wait-for-mysql
+          image: mysql:8.0.30
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: MYSQL_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: host
+            - name: MYSQL_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: port
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: username
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: password
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until mysql -h"$MYSQL_HOST" -P"$MYSQL_PORT" -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" -D casdoor -e "SELECT 1" >/dev/null 2>&1; do
+                sleep 2
+              done
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+        ${{ elif(inputs.driver_name === 'postgres') }}
+        - name: wait-for-postgres
+          image: postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: PGHOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PGPORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until psql -d casdoor -c "SELECT 1" >/dev/null 2>&1; do
+                sleep 2
+              done
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+        ${{ endif() }}
       containers:
         - name: ${{ defaults.app_name }}
-          image: casbin/casdoor:v1.702.0
+          image: casbin/casdoor:3.141.0
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           env:
             - name: RUNNING_IN_DOCKER
               value: "true"
@@ -484,25 +922,31 @@ spec:
             - name: http
               containerPort: 8000
               protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 12
           resources:
             limits:
-              cpu: 200m
-              memory: 256Mi
+              cpu: 100m
+              memory: 128Mi
             requests:
-              cpu: 20m
-              memory: 25Mi
+              cpu: 10m
+              memory: 12Mi
           volumeMounts:
-            - name: vn-confvn-appvn-conf
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /conf/app.conf
-              subPath: ./conf/app.conf
+              subPath: vn-confvn-appvn-conf
       volumes:
-        - name: vn-confvn-appvn-conf
+        - name: ${{ defaults.app_name }}-cm
           configMap:
             name: ${{ defaults.app_name }}
             items:
               - key: vn-confvn-appvn-conf
-                path: ./conf/app.conf
-            defaultMode: 420
+                path: vn-confvn-appvn-conf
 ${{ endif() }}
 
 ---
@@ -511,6 +955,7 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   type: ClusterIP
@@ -521,6 +966,7 @@ spec:
       name: http
   selector:
     app: ${{ defaults.app_name }}
+    casdoor.sealos.io/bootstrap: ready
 
 ---
 apiVersion: networking.k8s.io/v1

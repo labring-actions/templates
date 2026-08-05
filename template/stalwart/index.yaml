@@ -29,32 +29,42 @@ spec:
       type: string
       value: stalwart-${{ random(8) }}
   inputs:
-    admin_password:
-      description: Bootstrap administrator password used with the admin username during first setup
+    default_domain:
+      description: Primary email domain served by Stalwart, such as example.com.
       type: string
-      default: ''
       required: true
-    use_object_storage:
-      description: Provision a Sealos ObjectStorageBucket and inject S3-compatible credentials for later blob-store configuration
+    admin_password:
+      description: Password for the initial admin account. Use at least 8 characters.
+      type: string
+      required: true
+    use_postgresql:
+      description: Use an independent Sealos PostgreSQL 16 database. Clear selects SQLite on persistent storage.
+      type: boolean
+      default: 'true'
+      required: false
+    enable_s3_storage:
+      description: Store message bodies and other blobs in a private Sealos ObjectStorageBucket. Clear stores blobs in the selected data store.
       type: boolean
       default: 'false'
       required: false
 
 ---
-${{ if(inputs.use_object_storage === 'true') }}
+${{ if(inputs.enable_s3_storage === 'true') }}
 apiVersion: objectstorage.sealos.io/v1
 kind: ObjectStorageBucket
 metadata:
   name: ${{ defaults.app_name }}
   labels:
-    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   policy: private
-
+${{ else() }}
+# S3 is disabled; local blob storage remains in the selected data store.
 ---
 ${{ endif() }}
+---
 
+${{ if(inputs.use_postgresql === 'true') }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -107,6 +117,7 @@ metadata:
     kb.io/database: postgresql-16.4.0
     clusterdefinition.kubeblocks.io/name: postgresql
     clusterversion.kubeblocks.io/name: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
 spec:
   affinity:
     podAntiAffinity: Preferred
@@ -146,14 +157,21 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: ${{ defaults.app_name }}-pg-init
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   completions: 1
   template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     spec:
       automountServiceAccountToken: false
       containers:
         - name: pg-init
-          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine@sha256:5660c2cbfea50c7a9127d17dc4e48543eedd3d7a41a595a2dfa572471e37e64c
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_HOST
@@ -194,16 +212,20 @@ spec:
               fi
           resources:
             limits:
-              cpu: 200m
-              memory: 256Mi
+              cpu: 100m
+              memory: 128Mi
             requests:
-              cpu: 20m
-              memory: 25Mi
+              cpu: 10m
+              memory: 12Mi
       restartPolicy: OnFailure
   backoffLimit: 5
   ttlSecondsAfterFinished: 300
-
 ---
+${{ else() }}
+# SQLite stores structured data on the application PVC at /var/lib/stalwart.
+---
+${{ endif() }}
+
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -212,18 +234,134 @@ metadata:
     app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 data:
-  config.json: |
-    {
-      "@type": "PostgreSql",
-      "host": "${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc.cluster.local",
-      "port": 5432,
-      "database": "stalwart",
-      "authUsername": "postgres",
-      "authSecret": {
-        "@type": "EnvironmentVariable",
-        "variableName": "STALWART_DB_PASSWORD"
-      }
+  vn-optvn-stalwartvn-bootstrapvn-sh: |
+    #!/bin/sh
+    set -eu
+
+    config_path=/var/lib/stalwart/config.json
+    complete_path=/var/lib/stalwart/.sealos-bootstrap-complete
+    credentials_path=/var/lib/stalwart/.sealos-bootstrap-credentials
+    bootstrap_url=http://127.0.0.1:8080
+
+    stop_server() {
+      if [ -n "${server_pid:-}" ] && kill -0 "$server_pid" 2>/dev/null; then
+        kill "$server_pid"
+        wait "$server_pid" || true
+      fi
+      server_pid=''
     }
+
+    wait_for_server() {
+      attempts=0
+      until curl --fail --silent --show-error "$bootstrap_url/healthz/live" >/dev/null; do
+        attempts=$((attempts + 1))
+        if [ "$attempts" -ge 120 ]; then
+          echo 'Stalwart bootstrap listener did not become ready.' >&2
+          return 1
+        fi
+        sleep 2
+      done
+    }
+
+    json_escape() {
+      printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+    }
+
+    trap stop_server EXIT INT TERM
+
+    if [ ! -f "$config_path" ]; then
+      STALWART_RECOVERY_ADMIN="recovery:$ADMIN_PASSWORD" \
+        /usr/local/bin/stalwart --config "$config_path" &
+      server_pid=$!
+      wait_for_server
+
+      if [ "$USE_POSTGRESQL" = 'true' ]; then
+        data_store=$(printf '%s' "{\"@type\":\"PostgreSql\",\"host\":\"$STALWART_DB_HOST\",\"port\":$STALWART_DB_PORT,\"database\":\"stalwart\",\"authUsername\":\"$STALWART_DB_USER\",\"authSecret\":{\"@type\":\"EnvironmentVariable\",\"variableName\":\"STALWART_DB_PASSWORD\"},\"poolMaxConnections\":10}")
+      else
+        data_store='{"@type":"Sqlite","path":"/var/lib/stalwart/stalwart.db","poolMaxConnections":10,"poolWorkers":2}'
+      fi
+
+      if [ "$ENABLE_S3_STORAGE" = 'true' ]; then
+        blob_store=$(printf '%s' "{\"@type\":\"S3\",\"region\":{\"@type\":\"Custom\",\"customEndpoint\":\"https://$BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT\",\"customRegion\":\"us-east-1\"},\"bucket\":\"$S3_BUCKET\",\"accessKey\":{\"@type\":\"EnvironmentVariable\",\"variableName\":\"S3_ACCESS_KEY_ID\"},\"secretKey\":{\"@type\":\"EnvironmentVariable\",\"variableName\":\"S3_SECRET_ACCESS_KEY\"},\"verifyAfterWrite\":true,\"maxRetries\":3,\"timeout\":30000}")
+      else
+        blob_store='{"@type":"Default"}'
+      fi
+
+      bootstrap_payload=$(printf '%s' "{\"using\":[\"urn:ietf:params:jmap:core\",\"urn:stalwart:jmap\"],\"methodCalls\":[[\"x:Bootstrap/set\",{\"update\":{\"singleton\":{\"serverHostname\":\"$STALWART_HOSTNAME\",\"defaultDomain\":\"$STALWART_DEFAULT_DOMAIN\",\"requestTlsCertificate\":false,\"generateDkimKeys\":true,\"dataStore\":$data_store,\"blobStore\":$blob_store,\"searchStore\":{\"@type\":\"Default\"},\"inMemoryStore\":{\"@type\":\"Default\"},\"directory\":{\"@type\":\"Internal\"},\"tracer\":{\"@type\":\"Log\",\"path\":\"/var/lib/stalwart/logs\",\"prefix\":\"stalwart\",\"enable\":true},\"dnsServer\":{\"@type\":\"Manual\"}}}},\"bootstrap\"]]}")
+      bootstrap_response=$(curl --fail --silent --show-error \
+        --user "recovery:$ADMIN_PASSWORD" \
+        --header 'Content-Type: application/json' \
+        --data "$bootstrap_payload" \
+        "$bootstrap_url/jmap")
+
+      if printf '%s' "$bootstrap_response" | grep -q '"notUpdated"'; then
+        echo 'Stalwart bootstrap API rejected the storage or identity configuration.' >&2
+        exit 1
+      fi
+      bootstrap_user=$(printf '%s' "$bootstrap_response" | sed -n 's/.*"username":"\([^"]*\)".*/\1/p')
+      bootstrap_secret=$(printf '%s' "$bootstrap_response" | sed -n 's/.*"secret":"\([^"]*\)".*/\1/p')
+      if [ -z "$bootstrap_user" ] || [ -z "$bootstrap_secret" ] || [ ! -f "$config_path" ]; then
+        echo 'Stalwart bootstrap API did not return permanent administrator credentials.' >&2
+        exit 1
+      fi
+      umask 077
+      printf '%s\n%s\n' "$bootstrap_user" "$bootstrap_secret" > "$credentials_path"
+      stop_server
+    fi
+
+    if [ ! -f "$complete_path" ]; then
+      if [ ! -f "$credentials_path" ]; then
+        echo 'Stalwart bootstrap credentials are unavailable; restore the persistent volume or redeploy.' >&2
+        exit 1
+      fi
+      bootstrap_secret=$(sed -n '2p' "$credentials_path")
+
+      STALWART_RECOVERY_MODE=true \
+      STALWART_RECOVERY_ADMIN="recovery:$ADMIN_PASSWORD" \
+        /usr/local/bin/stalwart --config "$config_path" &
+      server_pid=$!
+      wait_for_server
+
+      attempts=0
+      account_response=''
+      until account_response=$(curl --fail --silent --show-error \
+        --user "recovery:$ADMIN_PASSWORD" \
+        --header 'Content-Type: application/json' \
+        --data '{"using":["urn:ietf:params:jmap:core","urn:stalwart:jmap"],"methodCalls":[["x:Account/query",{"filter":{"name":"admin"},"limit":1},"account-query"]]}' \
+        "$bootstrap_url/jmap"); do
+        attempts=$((attempts + 1))
+        if [ "$attempts" -ge 60 ]; then
+          echo 'Permanent Stalwart administrator did not become available.' >&2
+          exit 1
+        fi
+        sleep 2
+      done
+      admin_id=$(printf '%s' "$account_response" | sed -n 's/.*"ids":\["\([^"]*\)".*/\1/p')
+      if [ -z "$admin_id" ]; then
+        echo 'Permanent Stalwart administrator account was not found.' >&2
+        exit 1
+      fi
+
+      escaped_password=$(json_escape "$ADMIN_PASSWORD")
+      escaped_current_secret=$(json_escape "$bootstrap_secret")
+      password_payload=$(printf '%s' "{\"using\":[\"urn:ietf:params:jmap:core\",\"urn:stalwart:jmap\"],\"methodCalls\":[[\"x:AccountPassword/set\",{\"accountId\":\"$admin_id\",\"update\":{\"singleton\":{\"currentSecret\":\"$escaped_current_secret\",\"secret\":\"$escaped_password\"}}},\"password-update\"]]}")
+      password_response=$(curl --fail --silent --show-error \
+        --user "recovery:$ADMIN_PASSWORD" \
+        --header 'Content-Type: application/json' \
+        --data "$password_payload" \
+        "$bootstrap_url/jmap")
+      if printf '%s' "$password_response" | grep -q '"notUpdated"'; then
+        echo 'Stalwart rejected the requested administrator password.' >&2
+        exit 1
+      fi
+
+      touch "$complete_path"
+      rm "$credentials_path"
+      stop_server
+    fi
+
+    trap - EXIT INT TERM
+    exit 0
 
 ---
 apiVersion: apps/v1
@@ -231,7 +369,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: stalwartlabs/stalwart:v0.16.7
+    originImageName: stalwartlabs/stalwart:v0.16.16@sha256:66ae90f2753ec1dabd70f69cad7da9f0598d2628a04193ce2b08c7263d47aced
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
     docker-to-sealos.official-kubernetes-source: https://stalw.art/docs/cluster/orchestration/kubernetes/
@@ -254,9 +392,13 @@ spec:
         cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     spec:
       automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 2000
+        fsGroupChangePolicy: OnRootMismatch
       initContainers:
+        ${{ if(inputs.use_postgresql === 'true') }}
         - name: wait-for-postgres
-          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine@sha256:5660c2cbfea50c7a9127d17dc4e48543eedd3d7a41a595a2dfa572471e37e64c
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_HOST
@@ -287,41 +429,117 @@ spec:
               export PGPORT="$PG_PORT"
               export PGUSER="$PG_USER"
               export PGPASSWORD="$PG_PASSWORD"
-              until pg_isready -d stalwart >/dev/null 2>&1 && psql -d stalwart -tAc "SELECT 1" >/dev/null 2>&1; do
+              until pg_isready -d stalwart >/dev/null 2>&1 && psql -d stalwart -tAc 'SELECT 1' >/dev/null 2>&1; do
                 sleep 2
               done
           resources:
             limits:
-              cpu: 200m
-              memory: 256Mi
+              cpu: 100m
+              memory: 128Mi
             requests:
-              cpu: 20m
-              memory: 25Mi
+              cpu: 10m
+              memory: 12Mi
+        ${{ else() }}
+        # SQLite uses the application PVC and needs no database wait container.
+        ${{ endif() }}
+        - name: bootstrap-stalwart
+          image: stalwartlabs/stalwart:v0.16.16@sha256:66ae90f2753ec1dabd70f69cad7da9f0598d2628a04193ce2b08c7263d47aced
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - /opt/stalwart/bootstrap.sh
+          env:
+            - name: ADMIN_PASSWORD
+              value: ${{ inputs.admin_password }}
+            - name: USE_POSTGRESQL
+              value: "${{ inputs.use_postgresql }}"
+            - name: ENABLE_S3_STORAGE
+              value: "${{ inputs.enable_s3_storage }}"
+            - name: STALWART_DEFAULT_DOMAIN
+              value: ${{ inputs.default_domain }}
+            - name: STALWART_PUBLIC_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: STALWART_HOSTNAME
+              value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            ${{ if(inputs.use_postgresql === 'true') }}
+            - name: STALWART_DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: STALWART_DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: STALWART_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: STALWART_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            ${{ else() }}
+            # SQLite is initialized on the mounted application PVC.
+            ${{ endif() }}
+            ${{ if(inputs.enable_s3_storage === 'true') }}
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            ${{ else() }}
+            - name: S3_STORAGE_MODE
+              value: local
+            ${{ endif() }}
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+          volumeMounts:
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /opt/stalwart/bootstrap.sh
+              subPath: vn-optvn-stalwartvn-bootstrapvn-sh
+              readOnly: true
+            - name: vn-varvn-libvn-stalwart
+              mountPath: /var/lib/stalwart
       containers:
         - name: ${{ defaults.app_name }}
-          image: stalwartlabs/stalwart:v0.16.7
+          image: stalwartlabs/stalwart:v0.16.16@sha256:66ae90f2753ec1dabd70f69cad7da9f0598d2628a04193ce2b08c7263d47aced
           imagePullPolicy: IfNotPresent
           args:
             - --config
-            - /etc/stalwart/config.json
+            - /var/lib/stalwart/config.json
           ports:
             - name: smtp
               containerPort: 25
               protocol: TCP
-            - name: smtps
+            - name: submissions
               containerPort: 465
-              protocol: TCP
-            - name: submission
-              containerPort: 587
-              protocol: TCP
-            - name: imap
-              containerPort: 143
               protocol: TCP
             - name: imaps
               containerPort: 993
-              protocol: TCP
-            - name: pop3
-              containerPort: 110
               protocol: TCP
             - name: pop3s
               containerPort: 995
@@ -330,71 +548,84 @@ spec:
               containerPort: 4190
               protocol: TCP
             - name: http
-              containerPort: 80
+              containerPort: 8080
               protocol: TCP
             - name: https
               containerPort: 443
               protocol: TCP
-            - name: mgmt
-              containerPort: 8080
-              protocol: TCP
           env:
+            - name: STALWART_PUBLIC_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: STALWART_HOSTNAME
+              value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            ${{ if(inputs.use_postgresql === 'true') }}
+            - name: STALWART_DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: STALWART_DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: STALWART_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
             - name: STALWART_DB_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: ${{ defaults.app_name }}-pg-conn-credential
                   key: password
-            - name: STALWART_RECOVERY_ADMIN
-              value: admin:${{ inputs.admin_password }}
-            - name: STALWART_PUBLIC_URL
-              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
-            - name: STALWART_HOSTNAME
-              value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
-            ${{ if(inputs.use_object_storage === 'true') }}
-            - name: STALWART_S3_ACCESS_KEY
+            ${{ else() }}
+            # SQLite is read from /var/lib/stalwart/config.json.
+            ${{ endif() }}
+            ${{ if(inputs.enable_s3_storage === 'true') }}
+            - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: accessKey
-            - name: STALWART_S3_SECRET_KEY
+            - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: secretKey
-            - name: STALWART_S3_BUCKET
+            - name: S3_BUCKET
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
                   key: bucket
-            - name: STALWART_S3_EXTERNAL_ENDPOINT
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
               valueFrom:
                 secretKeyRef:
                   name: object-storage-key
                   key: external
-            - name: STALWART_S3_ENDPOINT
-              value: https://$(STALWART_S3_EXTERNAL_ENDPOINT)
-            - name: STALWART_S3_REGION
-              value: us-east-1
+            ${{ else() }}
+            - name: S3_STORAGE_MODE
+              value: local
             ${{ endif() }}
           resources:
             limits:
-              cpu: 200m
-              memory: 256Mi
+              cpu: 100m
+              memory: 128Mi
             requests:
-              cpu: 20m
-              memory: 25Mi
+              cpu: 10m
+              memory: 12Mi
           startupProbe:
             httpGet:
               path: /healthz/live
-              port: mgmt
+              port: http
               scheme: HTTP
-            failureThreshold: 60
+            failureThreshold: 90
             periodSeconds: 5
             timeoutSeconds: 5
           livenessProbe:
             httpGet:
               path: /healthz/live
-              port: mgmt
+              port: http
               scheme: HTTP
             initialDelaySeconds: 30
             periodSeconds: 10
@@ -402,20 +633,31 @@ spec:
           readinessProbe:
             httpGet:
               path: /healthz/ready
-              port: mgmt
+              port: http
               scheme: HTTP
             initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 5
           volumeMounts:
-            - name: vn-etcvn-stalwartvn-config-json
-              mountPath: /etc/stalwart/config.json
-              subPath: config.json
-              readOnly: true
+            - name: vn-varvn-libvn-stalwart
+              mountPath: /var/lib/stalwart
       volumes:
-        - name: vn-etcvn-stalwartvn-config-json
+        - name: ${{ defaults.app_name }}-cm
           configMap:
             name: ${{ defaults.app_name }}
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-varvn-libvn-stalwart
+        annotations:
+          path: /var/lib/stalwart
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+        storageClassName: openebs-backup
 
 ---
 apiVersion: v1
@@ -432,25 +674,13 @@ spec:
       port: 25
       targetPort: smtp
       protocol: TCP
-    - name: smtps
+    - name: submissions
       port: 465
-      targetPort: smtps
-      protocol: TCP
-    - name: submission
-      port: 587
-      targetPort: submission
-      protocol: TCP
-    - name: imap
-      port: 143
-      targetPort: imap
+      targetPort: submissions
       protocol: TCP
     - name: imaps
       port: 993
       targetPort: imaps
-      protocol: TCP
-    - name: pop3
-      port: 110
-      targetPort: pop3
       protocol: TCP
     - name: pop3s
       port: 995
@@ -461,16 +691,12 @@ spec:
       targetPort: sieve
       protocol: TCP
     - name: http
-      port: 80
+      port: 8080
       targetPort: http
       protocol: TCP
     - name: https
       port: 443
       targetPort: https
-      protocol: TCP
-    - name: mgmt
-      port: 8080
-      targetPort: mgmt
       protocol: TCP
   selector:
     app: ${{ defaults.app_name }}
