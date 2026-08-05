@@ -2,6 +2,8 @@ apiVersion: app.sealos.io/v1
 kind: Template
 metadata:
   name: libredb-studio
+  annotations:
+    docker-to-sealos.database-mode: optional-managed
 spec:
   title: 'LibreDB Studio'
   url: 'https://libredb.org'
@@ -28,27 +30,190 @@ spec:
     app_host:
       type: string
       value: libredb-studio-${{ random(8) }}
+    jwt_secret:
+      type: string
+      value: 'LibreDB-${{ random(48) }}'
   inputs:
     admin_email:
-      description: 'Admin user email for the first login'
+      description: 'Admin email used to sign in after deployment.'
       type: string
-      default: ''
       required: true
     admin_password:
-      description: 'Admin user password (minimum 8 characters)'
+      description: 'Admin password used to sign in after deployment. Use at least 8 characters.'
       type: string
-      default: ''
       required: true
-    jwt_secret:
-      description: 'Secret used to sign session tokens (minimum 32 characters). A secure value is generated automatically.'
-      type: string
-      default: '${{ random(48) }}'
+    enable_postgres_storage:
+      description: 'Provision a dedicated Sealos-managed PostgreSQL database for server-side storage.'
+      type: boolean
+      default: 'false'
       required: false
-    volume_size:
-      description: 'Persistent storage size for the database (GiB)'
-      type: string
-      default: '1'
-      required: false
+
+---
+${{ if(inputs.enable_postgres_storage === 'true') }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    kb.io/database: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  terminationPolicy: Delete
+  componentSpecs:
+    - name: postgresql
+      componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
+      replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  backoffLimit: 5
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: pg-init
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: PGHOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PGPORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              for attempt in $(seq 1 90); do
+                if pg_isready -d postgres >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 2
+              done
+              pg_isready -d postgres >/dev/null 2>&1
+              if [ "$(psql -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='libredb_storage'")" != '1' ]; then
+                createdb libredb_storage
+              fi
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+${{ else() }}
+# SQLite storage remains on the application PVC at /app/data.
+${{ endif() }}
+
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -59,12 +224,13 @@ metadata:
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   serviceName: ${{ defaults.app_name }}
   replicas: 1
   revisionHistoryLimit: 1
+  minReadySeconds: 10
   selector:
     matchLabels:
       app: ${{ defaults.app_name }}
@@ -72,78 +238,166 @@ spec:
     metadata:
       labels:
         app: ${{ defaults.app_name }}
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     spec:
       automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      ${{ if(inputs.enable_postgres_storage === 'true') }}
       initContainers:
-        - name: init-chown-data
-          image: busybox:1.36
+        - name: wait-for-postgres
+          image: public.ecr.aws/docker/library/postgres:16.4-alpine
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: PGHOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PGPORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
           command:
-            - sh
-            - -c
-            - chown -R 1001:65534 /app/data
-          volumeMounts:
-            - name: vn-data
-              mountPath: /app/data
+            - /bin/sh
+            - -ec
+            - |
+              until pg_isready -d libredb_storage >/dev/null 2>&1; do
+                sleep 2
+              done
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+      ${{ endif() }}
       containers:
         - name: ${{ defaults.app_name }}
           image: ghcr.io/libredb/libredb-studio:0.9.66
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           env:
             - name: ADMIN_EMAIL
               value: ${{ inputs.admin_email }}
             - name: ADMIN_PASSWORD
               value: ${{ inputs.admin_password }}
             - name: JWT_SECRET
-              value: ${{ inputs.jwt_secret }}
+              value: ${{ defaults.jwt_secret }}
+            - name: AUTH_BOOTSTRAP
+              value: 'off'
+            ${{ if(inputs.enable_postgres_storage === 'true') }}
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: STORAGE_PROVIDER
+              value: postgres
+            - name: STORAGE_POSTGRES_URL
+              value: 'postgresql://$(PG_USERNAME):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/libredb_storage?sslmode=disable'
+            ${{ else() }}
             - name: STORAGE_PROVIDER
               value: sqlite
             - name: STORAGE_SQLITE_PATH
               value: /app/data/libredb-storage.db
-            - name: AUTH_COOKIE_SECURE
-              value: 'false'
+            ${{ endif() }}
           ports:
             - containerPort: 3000
               name: http
-          volumeMounts:
-            - name: vn-data
-              mountPath: /app/data
+              protocol: TCP
           resources:
             requests:
+              cpu: 10m
+              memory: 12Mi
+            limits:
               cpu: 100m
               memory: 128Mi
-            limits:
-              cpu: 1000m
-              memory: 1024Mi
           startupProbe:
             httpGet:
               path: /api/db/health
-              port: 3000
-            initialDelaySeconds: 10
-            periodSeconds: 5
+              port: http
+            periodSeconds: 2
+            timeoutSeconds: 3
             failureThreshold: 30
           readinessProbe:
             httpGet:
               path: /api/db/health
-              port: 3000
-            periodSeconds: 5
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
           livenessProbe:
             httpGet:
               path: /api/db/health
-              port: 3000
-            periodSeconds: 10
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 3
+          ${{ if(inputs.enable_postgres_storage === 'false') }}
+          volumeMounts:
+            - name: vn-appvn-data
+              mountPath: /app/data
+          ${{ endif() }}
+  ${{ if(inputs.enable_postgres_storage === 'false') }}
   volumeClaimTemplates:
     - metadata:
+        name: vn-appvn-data
         annotations:
           path: /app/data
-          value: '${{ inputs.volume_size }}'
-        name: vn-data
+          value: '1'
       spec:
         accessModes:
           - ReadWriteOnce
         resources:
           requests:
-            storage: ${{ inputs.volume_size }}Gi
+            storage: 1Gi
+  ${{ endif() }}
 
 ---
 apiVersion: v1
@@ -151,11 +405,13 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   type: ClusterIP
   ports:
-    - port: 3000
+    - name: http
+      port: 3000
       targetPort: 3000
       protocol: TCP
   selector:
@@ -212,7 +468,7 @@ metadata:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   data:
-    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/login
   displayType: normal
   icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/libredb-studio/logo.svg'
   name: ${{ defaults.app_name }}
