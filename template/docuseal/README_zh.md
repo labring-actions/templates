@@ -37,10 +37,12 @@ Sealos 会自动配置公网 HTTPS 路由、服务发现、持久化存储和资
 
 此模板会部署以下服务：
 
-- **DocuSeal Web 服务**：运行 `docuseal/docuseal:3.0.1`，监听 `3000` 端口，提供 Web UI、API、嵌入式签署页面和后台任务。
+- **DocuSeal Web 服务**：运行 `docuseal/docuseal:3.1.1`，监听 `3000` 端口，提供 Web UI、API、嵌入式签署页面和后台任务。
 - **PostgreSQL**：由 Kubeblocks 管理的 PostgreSQL `postgresql-16.4.0`，用于存储用户、账号、模板、提交记录和应用元数据。
 - **PostgreSQL 初始化 Job**：在 PostgreSQL 就绪后，以幂等方式创建 `docuseal` 数据库。
+- **PostgreSQL 就绪门**：等待 `docuseal` 数据库接受连接后再启动 DocuSeal，避免冷启动期间反复重启。
 - **持久化存储**：挂载到 `/data/docuseal` 的 `1Gi` 卷，用于保存 DocuSeal 运行文件和上传附件。
+- **可选 Sealos 对象存储**：启用 `enable_external_files` 后创建私有 S3 兼容 bucket，并通过 DocuSeal 文档中的 `AWS_*` 与 `S3_*` 配置保存附件。
 - **Ingress 与 App 入口**：Sealos 暴露 HTTPS 访问域名，并在仪表盘中创建应用入口。
 
 **配置：**
@@ -52,8 +54,9 @@ Sealos 会自动配置公网 HTTPS 路由、服务发现、持久化存储和资
 - `FORCE_SSL=true`，让 DocuSeal 按 HTTPS 公网路由运行。
 - `SECRET_KEY_BASE` 为自动生成的密钥。
 - `DATABASE_URL` 来自 Kubeblocks PostgreSQL 连接 Secret。
+- `enable_external_files` 为可选布尔参数。默认值 `false` 使用 `/data/docuseal` 卷保存附件，设为 `true` 时创建 Sealos bucket 并注入 S3 凭据与 endpoint。
 
-部署时不需要填写必填参数。SMTP、对象存储、SSO 或许可证相关设置可在部署后通过 DocuSeal UI 配置，也可以在 Sealos Canvas 中编辑工作负载环境变量。
+部署时不需要填写必填参数。SMTP、SSO 和许可证相关设置可在部署后通过 DocuSeal UI 或 Sealos Canvas 配置。
 
 **许可证信息：**
 
@@ -74,8 +77,8 @@ Sealos 是基于 Kubernetes 的 AI 辅助云操作系统，覆盖从云端开发
 
 ## 部署指南
 
-1. 打开 [DocuSeal 模板](https://sealos.run/products/app-store/docuseal)，点击 **Deploy Now**。
-2. 除非需要自定义生成名称或访问域名，否则保留默认参数即可。
+1. 打开 [DocuSeal 模板](https://sealos.io/products/app-store/docuseal)，点击 **Deploy Now**。
+2. 除非需要自定义生成名称或访问域名，否则保留默认参数即可。需要让附件使用 Sealos S3 兼容 bucket 时，启用 **Enable External Files**。
 3. 等待部署完成，通常需要 2-3 分钟。部署后会跳转到 Canvas。后续如需修改，可在 AI 对话框中描述需求，或点击对应资源卡片调整配置。
 4. 从 App 入口打开生成的 DocuSeal URL。
 5. 完成首次初始化表单：
@@ -85,7 +88,7 @@ Sealos 是基于 Kubernetes 的 AI 辅助云操作系统，覆盖从云端开发
    - 设置管理员密码。
    - App URL 字段保持生成的 Sealos HTTPS URL；除非你已经配置了自定义域名。
    - 选择界面语言并提交表单。
-6. 初始化完成后，后续可在登录页使用同一个邮箱和密码登录。
+6. 初始化完成后，后续可在 `/sign_in` 使用同一个邮箱和密码登录。首次初始化会创建首个管理员；配置 SMTP 后，可在 **Settings > Users** 邀请其他团队成员。
 
 ## 配置
 
@@ -97,6 +100,8 @@ Sealos 是基于 Kubernetes 的 AI 辅助云操作系统，覆盖从云端开发
 - **资源卡片**：在 Canvas 中点击 StatefulSet、PostgreSQL、Ingress 或存储卡片，查看并调整配置。
 
 如果需要发送站内邀请或签署邮件，请先配置 SMTP 相关环境变量。若后续修改公网域名，也应在 DocuSeal 账号设置中同步更新 App URL，确保生成的签署链接继续使用正确主机名。
+
+启用 `enable_external_files` 后，模板会创建私有 Sealos bucket，并映射到 `S3_ATTACHMENTS_BUCKET`、`AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY`、`AWS_REGION` 和 `S3_ENDPOINT`。请保持 bucket 私有，并在部署后验证附件上传。
 
 ## 扩展
 
@@ -122,6 +127,10 @@ Sealos 是基于 Kubernetes 的 AI 辅助云操作系统，覆盖从云端开发
 ### 邀请邮件或签署邮件无法发送
 
 DocuSeal 需要 SMTP 配置才能发送外部邮件。请在 StatefulSet 资源卡片中添加所需 SMTP 环境变量，重启工作负载，然后在 DocuSeal 设置中测试邮件发送。
+
+### 启用对象存储后附件上传失败
+
+检查 ObjectStorageBucket 是否 Ready、生成的 bucket Secret 是否存在，并确认启用 `enable_external_files` 后工作负载已经重启。再查看 DocuSeal 日志中的 S3 endpoint 或权限错误。
 
 ### 获取帮助
 

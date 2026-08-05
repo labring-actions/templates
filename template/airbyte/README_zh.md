@@ -38,21 +38,18 @@ Airbyte 由多项服务协同运行，包括 Web UI、API/控制服务、Worker�
 
 该模板会部署以下资源：
 
-- **Airbyte Webapp (`airbyte/webapp:0.63.11`)**：通过 HTTPS Ingress 对外提供界面访问。
-- **Airbyte Server (`airbyte/server:0.63.11`)**：负责认证、编排与控制平面 API。
-- **Airbyte Worker (`airbyte/worker:0.63.11`)**：负责同步与连接器任务的后台执行。
-- **Airbyte Cron (`airbyte/cron:0.63.11`)**：负责周期性控制任务与维护任务。
-- **Connector Builder Server (`airbyte/connector-builder-server:0.63.11`)**：提供 Connector Builder API 服务。
-- **Temporal (`temporalio/auto-setup:1.23.0`)**：负责编排、重试与工作流管理。
-- **PostgreSQL Cluster (`postgresql-16.4.0`)**：通过 KubeBlocks 提供带持久化的元数据库。
-- **Object Storage Bucket**：兼容 S3，用于日志、状态与任务产物存储。
-- **Bootloader Job (`airbyte/bootloader:0.63.11`)**：启动时初始化/迁移数据库结构。
+- **Airbyte Server (`airbyte/server:2.1.0`)**：在 `8001` 端口同时提供经过补丁处理的 Web UI 和带认证的控制平面 API。
+- **Airbyte Worker (`airbyte/worker:2.1.0`)**：在 `9000` 端口执行同步与连接器任务。
+- **Airbyte Cron (`airbyte/cron:2.1.0`)**：执行周期性控制任务与维护任务。
+- **Temporal (`temporalio/auto-setup:1.29.7`)**：负责工作流编排与重试。
+- **PostgreSQL Cluster (`postgresql-16.4.0`)**：通过 KubeBlocks 提供 Airbyte 元数据与 Temporal 数据库，并使用持久化存储。
+- **Object Storage Bucket**：兼容 S3，用于日志、状态、活动负载和任务产物存储。
+- **Bootloader 与 auth-init Job**：初始化 Airbyte 数据库结构，并写入部署时配置的管理员。
 
 ### 服务拓扑
 
-- 公网入口通过 Ingress 路由到 `webapp`。
-- `webapp` 在集群内调用 `server`。
-- `server`、`worker` 与 `cron` 通过 `temporal:7233` 协调工作流。
+- 公网入口通过 Ingress 路由到 `server` Service，由它同时提供 Web UI 和 API。
+- `server`、`worker` 与 `cron` 通过 `temporal:7233` Service 协调工作流。
 - `server`、`worker`、`cron` 与 bootloader 通过 KubeBlocks 生成的 Secret 获取 PostgreSQL 凭据。
 - `server` 与 `worker` 通过 Sealos 对象存储 Secret 获取对象存储凭据。
 
@@ -66,8 +63,8 @@ Airbyte 由多项服务协同运行，包括 Web UI、API/控制服务、Worker�
 
 模板暴露以下安全相关输入参数：
 
-- `auth_admin_username`：初始管理员用户名（默认 `admin`，可修改）
-- `auth_admin_password`：初始管理员密码（默认随机值，可修改）
+- `auth_admin_email`：初始管理员邮箱（必填）
+- `auth_admin_password`：初始管理员密码（必填）
 - JWT 签名密钥与刷新密钥：自动生成随机值
 
 首次登录请使用你在部署配置中填写的管理员凭据，随后建议按安全策略立即轮换。
@@ -96,7 +93,7 @@ Sealos 是构建在 Kubernetes 之上的 AI 辅助云操作系统，统一了应
 2. 在弹窗中填写部署参数。
 3. 等待部署完成（通常 2-3 分钟）。部署成功后会跳转至 Canvas。后续如果要调整配置，可在对话框描述需求由 AI 执行，或直接点击对应资源卡片修改。
 4. 打开生成的公网地址并登录：
-   - **用户名**：你配置的 `auth_admin_username`
+   - **邮箱**：你配置的 `auth_admin_email`
    - **密码**：你配置的 `auth_admin_password`
 
 ## 配置说明

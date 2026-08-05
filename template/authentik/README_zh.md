@@ -41,6 +41,7 @@ Authentik 提供集中认证、单点登录（Single Sign-On, SSO）、基于策
 - **Authentik Worker（StatefulSet）**：使用相同镜像运行 `worker` 模式，处理后台与定时任务。
 - **PostgreSQL 集群（KubeBlocks）**：部署 PostgreSQL `16.4.0`，提供持久化存储和基于 Secret 的凭据注入。
 - **PostgreSQL 初始化任务（Init Job）**：等待数据库就绪后，若不存在则创建 `authentik` 数据库。
+- **可选 Sealos 对象存储**：启用 `enable_external_files` 后创建私有 S3 兼容 bucket，并让 Authentik 使用它保存媒体和上传文件；默认使用 `/data` 与 `/templates` 本地持久卷。
 - **Service + Ingress**：通过 Sealos 自动 TLS 证书集成，将 Authentik 以 HTTPS 暴露到公网。
 - **App 资源**：将访问 URL 发布到 Sealos 应用卡片，便于在 Canvas 一键进入。
 
@@ -59,6 +60,7 @@ Authentik 提供集中认证、单点登录（Single Sign-On, SSO）、基于策
 - `app_host`：Ingress 使用的公网域名前缀。
 - `app_name`：本次部署的资源命名前缀。
 - `authentik_secret_key`：运行时密钥（默认自动生成）。
+- `enable_external_files`：启用 Sealos S3 兼容 bucket 保存 Authentik 媒体和上传文件，默认值为 `false`。
 
 数据库主机、端口、用户名和密码会从 Kubernetes 自动生成的 Secret 注入。Authentik Server 与 Worker 共享同一个 PostgreSQL 后端和密钥，以保证运行行为一致。
 
@@ -87,8 +89,10 @@ Sealos 是构建在 Kubernetes 之上的 AI 辅助云操作系统，覆盖从部
    - **App Host**：公网域名前缀。
    - **App Name**：部署资源前缀。
    - **Authentik Secret Key**：可使用默认生成值，或提供你自己的高强度密钥。
+   - **`enable_external_files`**：设置为 `true` 后创建可选的 Sealos 私有 S3 兼容 bucket，用于媒体和上传文件。
 3. 等待部署完成（通常 2-3 分钟）。部署后会自动跳转到 Canvas。后续变更可在对话框中描述需求由 AI 自动应用，或点击资源卡片手动修改。
-4. 打开生成的访问地址，完成 Authentik 初始化流程并创建首个管理员账号。
+4. 打开生成的访问地址，进入 `/if/flow/initial-setup/` 创建首个管理员账号。
+5. 后续通过默认认证流程 `/if/flow/default-authentication-flow/` 登录，再进入 Admin 管理界面配置提供方和应用。
 
 ## 配置
 
@@ -101,9 +105,10 @@ Sealos 是构建在 Kubernetes 之上的 AI 辅助云操作系统，覆盖从部
 典型的部署后配置任务包括：
 
 1. 在初始化向导中创建首个管理员账号。
-2. 按需接入外部身份源。
-3. 添加 OIDC/SAML 提供方并映射应用。
-4. 为高权限用户启用 MFA 策略。
+2. 通过默认认证流程登录并进入 Admin 管理界面。
+3. 按需接入外部身份源。
+4. 添加 OIDC/SAML 提供方并映射应用。
+5. 为高权限用户启用 MFA 策略。
 
 ## 扩缩容
 

@@ -38,21 +38,18 @@ This template includes all required dependencies: Airbyte control-plane services
 
 This template deploys the following resources:
 
-- **Airbyte Webapp (`airbyte/webapp:0.63.11`)**: Public UI served through HTTPS ingress.
-- **Airbyte Server (`airbyte/server:0.63.11`)**: API/control plane with authentication and orchestration logic.
-- **Airbyte Worker (`airbyte/worker:0.63.11`)**: Background execution engine for sync and connector tasks.
-- **Airbyte Cron (`airbyte/cron:0.63.11`)**: Scheduled control-plane and maintenance tasks.
-- **Connector Builder Server (`airbyte/connector-builder-server:0.63.11`)**: Connector builder API service.
-- **Temporal (`temporalio/auto-setup:1.23.0`)**: Workflow service for orchestration and retries.
-- **PostgreSQL Cluster (`postgresql-16.4.0`)**: Metadata database via KubeBlocks with persistent storage.
-- **Object Storage Bucket**: S3-compatible storage for logs/state/workload output.
-- **Bootloader Job (`airbyte/bootloader:0.63.11`)**: Initializes/migrates database schema at startup.
+- **Airbyte Server (`airbyte/server:2.1.0`)**: Serves the patched web UI and the authenticated control-plane API on port `8001`.
+- **Airbyte Worker (`airbyte/worker:2.1.0`)**: Background execution engine for sync and connector tasks on port `9000`.
+- **Airbyte Cron (`airbyte/cron:2.1.0`)**: Scheduled control-plane and maintenance tasks.
+- **Temporal (`temporalio/auto-setup:1.29.7`)**: Workflow service for orchestration and retries.
+- **PostgreSQL Cluster (`postgresql-16.4.0`)**: Metadata and Temporal database via KubeBlocks with persistent storage.
+- **Object Storage Bucket**: S3-compatible storage for logs, state, activity payloads, and workload output.
+- **Bootloader and auth-init Jobs**: Initialize the Airbyte schema and seed the configured administrator.
 
 ### Service Topology
 
-- Public ingress routes to `webapp`.
-- `webapp` talks to `server` internally.
-- `server`, `worker`, and `cron` use `temporal:7233` for workflow coordination.
+- Public ingress routes to the `server` service, which serves the web UI and API.
+- `server`, `worker`, and `cron` use the `temporal:7233` service for workflow coordination.
 - `server`, `worker`, `cron`, and bootloader use PostgreSQL credentials from KubeBlocks-generated secrets.
 - `server` and `worker` use object storage credentials from Sealos object-storage secrets.
 
@@ -66,8 +63,8 @@ This template deploys the following resources:
 
 The template exposes these security-related deployment inputs:
 
-- `auth_admin_username`: initial admin username (default `admin`, editable)
-- `auth_admin_password`: initial admin password (default random value, editable)
+- `auth_admin_email`: initial admin email address (required)
+- `auth_admin_password`: initial admin password (required)
 - JWT signature and refresh secrets: auto-generated random values
 
 Use the configured admin credential from deployment configuration on first login, then rotate credentials according to your security policy.
@@ -96,7 +93,7 @@ Deploy Airbyte on Sealos and focus on data pipelines instead of platform plumbin
 2. Configure deployment parameters in the popup dialog.
 3. Wait for deployment to complete (typically 2-3 minutes). After deployment, you will be redirected to Canvas. For later changes, describe your requirements in the dialog to let AI apply updates, or click relevant resource cards to modify settings.
 4. Open the generated public URL and log in:
-   - **Username**: the `auth_admin_username` value you configured
+   - **Email**: the `auth_admin_email` value you configured
    - **Password**: the `auth_admin_password` value you configured
 
 ## Configuration

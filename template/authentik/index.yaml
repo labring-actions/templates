@@ -32,7 +32,35 @@ spec:
     authentik_secret_key:
       type: string
       value: ${{ random(64) }}
+  inputs:
+    enable_external_files:
+      description: Create a private Sealos bucket for Authentik media and uploaded files
+      type: boolean
+      default: 'false'
+      required: false
 ---
+${{ if(inputs.enable_external_files === 'true') }}
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  policy: private
+---
+${{ else() }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-storage-mode
+  labels:
+    app: ${{ defaults.app_name }}-storage-mode
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-storage-mode
+data:
+  mode: local
+---
+${{ endif() }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -80,6 +108,7 @@ metadata:
   name: ${{ defaults.app_name }}-pg
   labels:
     kb.io/database: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
     clusterdefinition.kubeblocks.io/name: postgresql
     clusterversion.kubeblocks.io/name: postgresql-16.4.0
 spec:
@@ -163,6 +192,13 @@ spec:
           done
           psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -tc "SELECT 1 FROM pg_database WHERE datname = '$AK_DB_NAME'" | grep -q 1 || \
             psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d postgres -c "CREATE DATABASE \"$AK_DB_NAME\";"
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 20m
+            memory: 25Mi
       restartPolicy: Never
   backoffLimit: 5
   ttlSecondsAfterFinished: 300
@@ -176,8 +212,8 @@ metadata:
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
-    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   replicas: 1
   revisionHistoryLimit: 1
@@ -224,6 +260,45 @@ spec:
               key: username
         - name: AUTHENTIK_SECRET_KEY
           value: ${{ defaults.authentik_secret_key }}
+        ${{ if(inputs.enable_external_files === 'true') }}
+        - name: S3_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key
+              key: accessKey
+        - name: S3_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key
+              key: secretKey
+        - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key
+              key: external
+        - name: S3_BUCKET
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+              key: bucket
+        - name: AUTHENTIK_STORAGE__BACKEND
+          value: s3
+        - name: AUTHENTIK_STORAGE__S3__ACCESS_KEY
+          value: $(S3_ACCESS_KEY_ID)
+        - name: AUTHENTIK_STORAGE__S3__SECRET_KEY
+          value: $(S3_SECRET_ACCESS_KEY)
+        - name: AUTHENTIK_STORAGE__S3__BUCKET_NAME
+          value: $(S3_BUCKET)
+        - name: AUTHENTIK_STORAGE__S3__ENDPOINT
+          value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+        - name: AUTHENTIK_STORAGE__S3__REGION
+          value: us-east-1
+        ${{ else() }}
+        - name: AUTHENTIK_STORAGE__BACKEND
+          value: file
+        - name: SEALOS_FILE_STORAGE_MODE
+          value: local
+        ${{ endif() }}
         args:
         - server
         startupProbe:
@@ -336,6 +411,45 @@ spec:
               key: username
         - name: AUTHENTIK_SECRET_KEY
           value: ${{ defaults.authentik_secret_key }}
+        ${{ if(inputs.enable_external_files === 'true') }}
+        - name: S3_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key
+              key: accessKey
+        - name: S3_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key
+              key: secretKey
+        - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key
+              key: external
+        - name: S3_BUCKET
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+              key: bucket
+        - name: AUTHENTIK_STORAGE__BACKEND
+          value: s3
+        - name: AUTHENTIK_STORAGE__S3__ACCESS_KEY
+          value: $(S3_ACCESS_KEY_ID)
+        - name: AUTHENTIK_STORAGE__S3__SECRET_KEY
+          value: $(S3_SECRET_ACCESS_KEY)
+        - name: AUTHENTIK_STORAGE__S3__BUCKET_NAME
+          value: $(S3_BUCKET)
+        - name: AUTHENTIK_STORAGE__S3__ENDPOINT
+          value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+        - name: AUTHENTIK_STORAGE__S3__REGION
+          value: us-east-1
+        ${{ else() }}
+        - name: AUTHENTIK_STORAGE__BACKEND
+          value: file
+        - name: SEALOS_FILE_STORAGE_MODE
+          value: local
+        ${{ endif() }}
         args:
         - worker
         startupProbe:
@@ -415,6 +529,7 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
@@ -434,11 +549,26 @@ kind: Ingress
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
   annotations:
     kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
     nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
 spec:
   rules:
   - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}

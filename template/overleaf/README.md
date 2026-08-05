@@ -1,6 +1,6 @@
 # Deploy and Host Overleaf on Sealos
 
-Overleaf is an open-source, real-time collaborative LaTeX editor. This template deploys Overleaf Community Edition 6.1.2 with KubeBlocks MongoDB, KubeBlocks Redis, persistent project storage, and an HTTPS public endpoint on Sealos Cloud.
+Overleaf is an open-source, real-time collaborative LaTeX editor. This template deploys Overleaf Community Edition 6.2.0 with KubeBlocks MongoDB, KubeBlocks Redis, persistent project storage, and an HTTPS public endpoint on Sealos Cloud.
 
 ## About Hosting Overleaf
 
@@ -29,15 +29,16 @@ The Sealos template includes all required runtime dependencies: Overleaf Communi
 
 **Architecture Components:**
 
-- **Overleaf web service**: Runs `sharelatex/sharelatex:6.1.2` and exposes the web UI on port 80.
+- **Overleaf web service**: Runs `sharelatex/sharelatex:6.2.0` and exposes the web UI on port 80.
 - **MongoDB**: Stores users, projects, and Overleaf application metadata through KubeBlocks MongoDB 8.0.4.
 - **Redis**: Provides Overleaf cache/realtime coordination through KubeBlocks Redis 7.2.7.
 - **Persistent project storage**: Stores Overleaf data under `/var/lib/overleaf` on a 1 GiB volume.
+- **Optional Sealos Object Storage**: When `enable_external_files` is enabled, four private S3-compatible buckets store user files, templates, project history blobs, and history chunks.
 - **Ingress and App entry**: Publishes the HTTPS URL and integrates the deployment into the Sealos App launcher.
 
 **Configuration:**
 
-The template sets `OVERLEAF_SITE_URL` from the generated Sealos hostname, enables proxy-aware behavior, and keeps email confirmation disabled by default for first-run Community Edition setup. Overleaf Community Edition is intended for trusted users; isolated/sandboxed compiles are a Server Pro feature, not part of this template.
+The template sets `OVERLEAF_SITE_URL` from the generated Sealos hostname, enables proxy-aware behavior, and keeps email confirmation disabled by default for first-run Community Edition setup. `enable_external_files` selects the optional Sealos S3-compatible backend for project files and history; the default uses the mounted `/var/lib/overleaf` volume. Overleaf Community Edition is intended for trusted users; isolated/sandboxed compiles are a Server Pro feature, not part of this template.
 
 **License Information:**
 
@@ -57,11 +58,11 @@ Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies
 ## Deployment Guide
 
 1. Open the [Overleaf template](https://sealos.io/products/app-store/overleaf) and click **Deploy Now**.
-2. Configure the parameters in the popup dialog. The defaults are enough for a first test deployment.
+2. Configure the parameters in the popup dialog. The defaults are enough for a first test deployment; enable **Enable External Files** when project files and history should use Sealos S3-compatible storage.
 3. Wait for deployment to complete. The first cold start can take several minutes because Overleaf initializes MongoDB indexes and runs migrations.
-4. Open the generated Overleaf URL from the Sealos App entry.
-5. Open `/register` to confirm public self-signup. Overleaf Community Edition normally shows **Please contact to create an account** until an administrator creates users.
-6. Create the first administrator or user from the container console, then sign in from `/login` and continue to `/project` to start using Overleaf.
+4. Open the generated Overleaf URL from the Sealos App entry. The ingress redirects the root path `/` to `/launchpad`.
+5. On `/launchpad`, enter an email address and password, then click **Register** to create the first administrator account.
+6. Sign in from `/login`, then open `/project` to start using Overleaf. Administrators can create additional users from `/admin/register`.
 
 ## Configuration
 
@@ -74,12 +75,15 @@ Deployment parameters:
 | `ENABLED_LINKED_FILE_TYPES` | Comma-separated linked file types enabled for projects. | `project_file,project_output_file` |
 | `ENABLE_CONVERSIONS` | Enable thumbnail generation with ImageMagick. | `true` |
 | `EMAIL_CONFIRMATION_DISABLED` | Disable email confirmation for first-run local account setup. | `true` |
+| `enable_external_files` | Provision four private Sealos S3-compatible buckets for project files and history. | `false` |
 
-After deployment, create the initial account from the Overleaf container console or import an existing data set, then sign in from `/login`. The live validation for this template confirmed that `/login` is reachable and `/register` returns the expected Community Edition message, **Please contact to create an account**, when public self-signup is not enabled.
+After deployment, open the root URL to continue to `/launchpad` and create the first administrator account. Sign in from `/login` after setup. Administrators can create additional users from `/admin/register`, while `/register` remains the Community Edition administrator-contact page.
+
+With `enable_external_files=true`, the template injects the documented `OVERLEAF_FILESTORE_*` and `OVERLEAF_HISTORY_*` S3 variables, including path-style access for the Sealos endpoint. The four buckets are private and retain the MongoDB and Redis topology required by Overleaf.
 
 ## Scaling
 
-The template is tuned for a small Community Edition deployment. The minimum tested app allocation is 1 vCPU and 2 GiB memory for the Overleaf container, plus KubeBlocks MongoDB and Redis at 500 mCPU and 512 MiB memory per database component. Increase memory first if cold starts, migrations, or PDF compilation workloads become slow.
+The template is tuned for a small Community Edition deployment. The default app allocation is 1 vCPU and 2 GiB memory for the Overleaf container, plus KubeBlocks MongoDB and Redis at 500 mCPU and 512 MiB memory per database component. Increase memory first if cold starts, migrations, or PDF compilation workloads become slow.
 
 To scale resources, open the deployment Canvas, click the relevant resource card, adjust CPU, memory, storage, or replicas, and apply the change in the dialog.
 
@@ -91,11 +95,19 @@ Overleaf runs database migrations on an empty MongoDB database. Wait until the O
 
 ### `/register` says “Please contact to create an account”
 
-This is the expected Community Edition behavior when public self-signup is not enabled. Create or invite users from the administrator context, then sign in from `/login`.
+This is the expected Community Edition account policy. Use `/launchpad` to create the first administrator, then sign in from `/login`. Administrators can create additional users from `/admin/register`.
+
+### `/launchpad` reports that setup is complete
+
+The first administrator account already exists. Sign in from `/login`, then use `/admin/register` to create additional users.
 
 ### Login succeeds but projects are slow to open
 
 Check the Overleaf pod memory and database health in Sealos. Increase the Overleaf memory limit if the instance is used for larger documents or heavier compilation workloads.
+
+### S3-backed project files are unavailable
+
+Check that all four ObjectStorageBucket resources are Ready, their generated Secrets exist, and the Overleaf pod restarted after enabling `enable_external_files`. Review the pod logs for endpoint, credentials, or bucket permission errors.
 
 ### Getting Help
 
