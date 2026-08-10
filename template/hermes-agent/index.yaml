@@ -1,0 +1,298 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: hermes-agent
+spec:
+  title: Hermes Agent
+  url: https://hermes-agent.nousresearch.com/
+  gitRepo: https://github.com/NousResearch/hermes-agent
+  author: Nous Research
+  description: An open-source AI agent with persistent memory, a web dashboard, and messaging gateways.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/hermes-agent/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/hermes-agent/logo.png
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/hermes-agent/website-screenshot.webp
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: Hermes Agent 是开源 AI 智能体，提供持久记忆、Web 控制台和消息平台网关。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/hermes-agent/README_zh.md
+  categories:
+    - ai
+    - tool
+  defaults:
+    app_name:
+      type: string
+      value: hermes-agent-${{ random(8) }}
+    app_host:
+      type: string
+      value: hermes-agent-${{ random(8) }}
+    dashboard_secret:
+      type: string
+      value: ${{ random(64) }}
+  inputs:
+    dashboard_username:
+      description: Username for the externally reachable Hermes dashboard.
+      type: string
+      required: true
+    dashboard_password:
+      description: Password for the Hermes dashboard. Use a strong password.
+      type: string
+      required: true
+    api_server_key:
+      description: Bearer key for the Hermes OpenAI-compatible API server. Defaults to an auto-generated 32-character key; custom values must be at least 16 characters and private.
+      type: string
+      default: ${{ random(32) }}
+      required: true
+    openai_api_key:
+      description: Optional OpenAI-compatible model API key used by Hermes chat actions.
+      type: string
+      default: ''
+      required: false
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: nousresearch/hermes-agent@sha256:16788311e2fa3035456bdc1bafb8ec2b1777db64ebf020af9bb7eb73c3712c9e
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: nousresearch/hermes-agent@sha256:16788311e2fa3035456bdc1bafb8ec2b1777db64ebf020af9bb7eb73c3712c9e
+          imagePullPolicy: IfNotPresent
+          command:
+            - /opt/hermes/docker/entrypoint-dispatch.sh
+          args:
+            - gateway
+            - run
+          env:
+            - name: HERMES_UID
+              value: '10000'
+            - name: HERMES_GID
+              value: '10000'
+            - name: HERMES_HOME
+              value: /opt/data
+            - name: API_SERVER_ENABLED
+              value: 'true'
+            - name: API_SERVER_HOST
+              value: 0.0.0.0
+            - name: API_SERVER_PORT
+              value: '8642'
+            - name: API_SERVER_KEY
+              value: ${{ inputs.api_server_key }}
+            - name: OPENAI_API_KEY
+              value: ${{ inputs.openai_api_key }}
+          ports:
+            - name: api
+              containerPort: 8642
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 100m
+              memory: 512Mi
+            requests:
+              cpu: 10m
+              memory: 51Mi
+          startupProbe:
+            httpGet:
+              path: /health
+              port: api
+            failureThreshold: 36
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: api
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: api
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: vn-optvn-data
+              mountPath: /opt/data
+        - name: dashboard
+          image: nousresearch/hermes-agent@sha256:16788311e2fa3035456bdc1bafb8ec2b1777db64ebf020af9bb7eb73c3712c9e
+          imagePullPolicy: IfNotPresent
+          command:
+            - /opt/hermes/docker/entrypoint-dispatch.sh
+          args:
+            - dashboard
+            - --host
+            - 0.0.0.0
+            - --port
+            - '9119'
+            - --no-open
+          env:
+            - name: HERMES_UID
+              value: '10000'
+            - name: HERMES_GID
+              value: '10000'
+            - name: HERMES_HOME
+              value: /opt/data
+            - name: HERMES_DASHBOARD_HOST
+              value: 0.0.0.0
+            - name: HERMES_DASHBOARD_PORT
+              value: '9119'
+            - name: HERMES_DASHBOARD_BASIC_AUTH_USERNAME
+              value: ${{ inputs.dashboard_username }}
+            - name: HERMES_DASHBOARD_BASIC_AUTH_PASSWORD
+              value: ${{ inputs.dashboard_password }}
+            - name: HERMES_DASHBOARD_BASIC_AUTH_SECRET
+              value: ${{ defaults.dashboard_secret }}
+          ports:
+            - name: dashboard
+              containerPort: 9119
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 100m
+              memory: 256Mi
+            requests:
+              cpu: 10m
+              memory: 25Mi
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: dashboard
+            failureThreshold: 36
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: dashboard
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: dashboard
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: vn-optvn-data
+              mountPath: /opt/data
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-optvn-data
+        labels:
+          app: ${{ defaults.app_name }}
+          cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+        annotations:
+          path: /opt/data
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  selector:
+    app: ${{ defaults.app_name }}
+  ports:
+    - name: dashboard
+      port: 9119
+      targetPort: dashboard
+      protocol: TCP
+    - name: api
+      port: 8642
+      targetPort: api
+      protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 9119
+          - pathType: Prefix
+            path: /v1
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 8642
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/hermes-agent/logo.png
+  name: Hermes Agent
+  type: link

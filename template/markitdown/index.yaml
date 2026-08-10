@@ -1,0 +1,223 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: markitdown
+spec:
+  title: MarkItDown MCP
+  url: https://github.com/microsoft/markitdown
+  gitRepo: https://github.com/microsoft/markitdown
+  author: Microsoft
+  description: The official MarkItDown MCP server exposes document-to-Markdown conversion through Streamable HTTP and SSE.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/markitdown/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/markitdown/logo.png
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/markitdown/website-screenshot.webp
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: 官方 MarkItDown MCP 服务通过 Streamable HTTP 和 SSE 提供文档转 Markdown 能力。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/markitdown/README_zh.md
+  categories:
+    - ai
+    - tool
+  defaults:
+    app_name:
+      type: string
+      value: markitdown-${{ random(8) }}
+    app_host:
+      type: string
+      value: markitdown-${{ random(8) }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: mcp/markitdown@sha256:9cb5f26d30b609a1d5560a090371cb9dba84fc32e7df10e5496aa22aa7b52658
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: mcp/markitdown@sha256:9cb5f26d30b609a1d5560a090371cb9dba84fc32e7df10e5496aa22aa7b52658
+          imagePullPolicy: IfNotPresent
+          args:
+            - --http
+            - --host
+            - 0.0.0.0
+            - --port
+            - '3001'
+          env:
+            - name: MARKITDOWN_ENABLE_PLUGINS
+              value: 'true'
+            - name: EXIFTOOL_PATH
+              value: /usr/bin/exiftool
+            - name: FFMPEG_PATH
+              value: /usr/bin/ffmpeg
+          ports:
+            - name: http
+              containerPort: 3001
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            limits:
+              cpu: 100m
+              memory: 256Mi
+            requests:
+              cpu: 10m
+              memory: 25Mi
+          startupProbe:
+            tcpSocket:
+              port: http
+            failureThreshold: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: vn-workdir
+              mountPath: /workdir
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-workdir
+        labels:
+          app: ${{ defaults.app_name }}
+          cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+        annotations:
+          path: /workdir
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  selector:
+    app: ${{ defaults.app_name }}
+  ports:
+    - name: http
+      port: 3001
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 3001
+          - pathType: Prefix
+            path: /mcp
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 3001
+          - pathType: Prefix
+            path: /sse
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 3001
+          - pathType: Prefix
+            path: /messages/
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 3001
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/mcp/
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/markitdown/logo.png
+  name: MarkItDown MCP
+  type: link
