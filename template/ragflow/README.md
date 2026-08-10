@@ -66,7 +66,7 @@ RAGFlow and Infinity are available under the Apache License 2.0.
 
 1. Open the [RAGFlow template](https://sealos.io/products/app-store/ragflow) and click **Deploy Now**.
 2. Review the generated application name and hostname, then start the deployment.
-3. Wait for every resource to become Ready. The first deployment pulls a large RAGFlow image and commonly takes 10-15 minutes. The RAGFlow Pod can spend about 7 minutes starting at the validated `200m` CPU limit.
+3. Wait for every resource to become Ready. Sealos typically creates the application resources in 2-3 minutes, then the larger RAGFlow image pull and startup continue; end-to-end first deployment commonly takes 10-15 minutes. The RAGFlow Pod can spend about 7 minutes starting at the validated `200m` CPU limit.
 4. Open the generated RAGFlow URL from the App resource.
 5. Create an account, sign in, and configure a model provider before creating a knowledge base or agent.
 

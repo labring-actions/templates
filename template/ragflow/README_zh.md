@@ -66,7 +66,7 @@ RAGFlow 和 Infinity 均采用 Apache License 2.0。
 
 1. 打开 [RAGFlow 模板](https://sealos.io/products/app-store/ragflow)，点击 **立即部署**。
 2. 检查自动生成的应用名称和域名，然后开始部署。
-3. 等待所有资源进入 Ready 状态。首次部署需要拉取体积较大的 RAGFlow 镜像，通常需要 10-15 分钟。在经过验证的 `200m` CPU 限制下，RAGFlow Pod 的启动过程约需 7 分钟。
+3. 等待所有资源进入 Ready 状态。Sealos 通常会在 2-3 分钟内创建应用资源，随后继续拉取体积较大的 RAGFlow 镜像并启动服务；首次完整部署通常需要 10-15 分钟。在经过验证的 `200m` CPU 限制下，RAGFlow Pod 的启动过程约需 7 分钟。
 4. 从 App 资源打开自动生成的 RAGFlow URL。
 5. 创建账户并登录，然后配置模型提供商，再创建知识库或 Agent。
 
