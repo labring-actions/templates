@@ -1,0 +1,2296 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: clouisle
+spec:
+  title: Clouisle
+  url: https://clouisle.asia/
+  gitRepo: https://github.com/clouisle/clouisle
+  author: Clouisle
+  description: Open-source AI agent platform with visual workflows, RAG knowledge bases, tools, and team-based administration.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/clouisle/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/clouisle/logo.png
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/clouisle/website-screenshot.webp
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: 开源 AI 智能体平台，提供可视化工作流、RAG 知识库、工具集成和团队管理。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/clouisle/README_zh.md
+  categories:
+    - ai
+    - low-code
+    - tool
+  defaults:
+    app_name:
+      type: string
+      value: clouisle-${{ random(8) }}
+    app_host:
+      type: string
+      value: clouisle-${{ random(8) }}
+    secret_key:
+      type: string
+      value: ${{ random(64) }}
+    qdrant_api_key:
+      type: string
+      value: ${{ random(48) }}
+  inputs:
+    enable_s3_storage:
+      description: Store uploads in a private Sealos ObjectStorageBucket. Clear keeps uploads on shared persistent local storage.
+      type: boolean
+      default: 'false'
+      required: false
+    enable_sandbox:
+      description: Enable the Bubblewrap sandbox worker in a workspace that permits Unconfined seccomp or provides an equivalent Localhost profile.
+      type: boolean
+      default: 'false'
+      required: false
+---
+${{ if(inputs.enable_s3_storage === 'true') }}
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  policy: private
+---
+${{ else() }}
+# Local uploads use the conditional /app/uploads persistent volume.
+---
+${{ endif() }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-runtime-config
+  labels:
+    app: ${{ defaults.app_name }}-runtime-config
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-runtime-config
+data:
+  SANDBOX_ARTIFACT_UPLOAD_BASE_URL: http://${{ defaults.app_name }}-api.${{ SEALOS_NAMESPACE }}.svc.cluster.local:8000
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-pg-search
+  labels:
+    app: ${{ defaults.app_name }}-pg-search
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-pg-search
+data:
+  vn-usrvn-sharevn-postgresqlvn-16vn-extensionvn-pgvn-se-a7948dbf: |
+    comment = 'pg_search: Full text search for PostgreSQL using BM25'
+    default_version = '0.24.3'
+    module_pathname = '/home/postgres/pgdata/pg-search/lib/pg_search'
+    directory = '/home/postgres/pgdata/pg-search/extension'
+    relocatable = false
+    superuser = false
+    schema = paradedb
+  vn-optvn-clouislevn-configurevn-pgvn-searchvn-py: |
+    #!/usr/bin/env python3
+    import json
+    import os
+    import re
+    import ssl
+    import sys
+    import urllib.request
+
+    configmap = sys.argv[1]
+    library_dir = sys.argv[2]
+    service_account_dir = '/var/run/secrets/kubernetes.io/serviceaccount'
+    with open(f'{service_account_dir}/namespace', encoding='utf-8') as file:
+      namespace = file.read().strip()
+    with open(f'{service_account_dir}/token', encoding='utf-8') as file:
+      token = file.read().strip()
+
+    host = os.environ['KUBERNETES_SERVICE_HOST']
+    port = os.environ.get('KUBERNETES_SERVICE_PORT_HTTPS', '443')
+    url = f'https://{host}:{port}/api/v1/namespaces/{namespace}/configmaps/{configmap}'
+    headers = {'Authorization': f'Bearer {token}'}
+    context = ssl.create_default_context(cafile=f'{service_account_dir}/ca.crt')
+    request = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(request, context=context, timeout=10) as response:
+      resource = json.load(response)
+
+    key = 'postgresql.conf'
+    config = resource['data'][key]
+    preload_pattern = re.compile(
+      r"^shared_preload_libraries\s*=\s*(['\"])(.*?)\1\s*$",
+      re.MULTILINE,
+    )
+    preload_match = preload_pattern.search(config)
+    if preload_match is None:
+      raise RuntimeError('shared_preload_libraries is missing from postgresql.conf')
+    libraries = [item.strip() for item in preload_match.group(2).split(',') if item.strip()]
+    for library in ('pg_stat_statements', 'pg_search'):
+      if library not in libraries:
+        libraries.append(library)
+    config = preload_pattern.sub(
+      f"shared_preload_libraries = '{','.join(libraries)}'",
+      config,
+      count=1,
+    )
+
+    dynamic_pattern = re.compile(
+      r"^dynamic_library_path\s*=\s*(['\"])(.*?)\1\s*$",
+      re.MULTILINE,
+    )
+    dynamic_match = dynamic_pattern.search(config)
+    if dynamic_match is None:
+      config += f"\ndynamic_library_path = '$libdir:{library_dir}'\n"
+    else:
+      paths = [item.strip() for item in dynamic_match.group(2).split(':') if item.strip()]
+      if '$libdir' not in paths:
+        paths.insert(0, '$libdir')
+      if library_dir not in paths:
+        paths.append(library_dir)
+      config = dynamic_pattern.sub(
+        f"dynamic_library_path = '{':'.join(paths)}'",
+        config,
+        count=1,
+      )
+
+    if config == resource['data'][key]:
+      raise SystemExit(0)
+    payload = json.dumps({'data': {key: config}}).encode()
+    headers['Content-Type'] = 'application/merge-patch+json'
+    request = urllib.request.Request(url, data=payload, headers=headers, method='PATCH')
+    with urllib.request.urlopen(request, context=context, timeout=10):
+      pass
+  vn-optvn-clouislevn-installvn-pgvn-searchvn-sh: |
+    #!/bin/sh
+    set -eu
+
+    case "$1:$2" in
+      on_start:*|on_role_change:master) ;;
+      *) exit 0 ;;
+    esac
+
+    runtime_dir=/home/postgres/pgdata/pg-search
+    package_file="$runtime_dir/postgresql-16-pg-search_0.24.3-jammy_amd64.deb"
+    package_sha256=ca5c45fbbacdc626fbd3c0ee00746875f7b9140c16ed6d0dd11e1beb1f9c5f60
+    library_file="$runtime_dir/lib/pg_search.so"
+    extension_file="$runtime_dir/extension/pg_search--0.24.3.sql"
+
+    if [ ! -s "$library_file" ] || [ ! -s "$extension_file" ]; then
+      mkdir -p "$runtime_dir/lib" "$runtime_dir/extension" "$runtime_dir/package"
+      if ! echo "$package_sha256  $package_file" | sha256sum -c - >/dev/null 2>&1 \
+        || ! dpkg-deb --contents "$package_file" >/dev/null 2>&1; then
+        curl -fL --retry 3 \
+          https://github.com/paradedb/paradedb/releases/download/v0.24.3/postgresql-16-pg-search_0.24.3-1PARADEDB-jammy_amd64.deb \
+          -o "$package_file.download"
+        echo "$package_sha256  $package_file.download" | sha256sum -c -
+        dpkg-deb --contents "$package_file.download" >/dev/null
+        mv "$package_file.download" "$package_file"
+      fi
+      find "$runtime_dir/package" -mindepth 1 -delete
+      dpkg-deb -x "$package_file" "$runtime_dir/package"
+      cp "$runtime_dir/package/usr/lib/postgresql/16/lib/pg_search.so" "$library_file"
+      cp "$runtime_dir/package/usr/share/postgresql/16/extension/pg_search"* "$runtime_dir/extension/"
+      chmod 755 "$library_file"
+    fi
+
+    current_libraries="$(psql -U postgres -d postgres -Atc 'SHOW shared_preload_libraries' || true)"
+    dynamic_path="$(psql -U postgres -d postgres -Atc 'SHOW dynamic_library_path' || true)"
+    case ",$current_libraries,:$dynamic_path:" in
+      *,pg_search,*:*/home/postgres/pgdata/pg-search/lib:*) exit 0 ;;
+    esac
+    configmap_name="${3%-patroni????????}-postgresql-configuration"
+    /opt/clouisle/configure-pg-search.py "$configmap_name" "$runtime_dir/lib"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  componentSpecs:
+    - componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
+      name: postgresql
+      replicas: 1
+      instances:
+        - name: pgsearch
+          replicas: 1
+          env:
+            - name: CALLBACK_SCRIPT
+              value: /opt/clouisle/install-pg-search.sh
+          volumes:
+            - name: pg-search-script
+              configMap:
+                name: ${{ defaults.app_name }}-pg-search
+                defaultMode: 493
+                items:
+                  - key: vn-optvn-clouislevn-configurevn-pgvn-searchvn-py
+                    path: configure-pg-search.py
+                  - key: vn-optvn-clouislevn-installvn-pgvn-searchvn-sh
+                    path: install-pg-search.sh
+            - name: pg-search-control
+              configMap:
+                name: ${{ defaults.app_name }}-pg-search
+                items:
+                  - key: vn-usrvn-sharevn-postgresqlvn-16vn-extensionvn-pgvn-se-a7948dbf
+                    path: pg_search.control
+          volumeMounts:
+            - name: pg-search-script
+              mountPath: /opt/clouisle
+              readOnly: true
+            - name: pg-search-control
+              mountPath: /usr/share/postgresql/16/extension/pg_search.control
+              subPath: pg_search.control
+              readOnly: true
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+  labels:
+    app: ${{ defaults.app_name }}-pg-init
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-pg-init
+spec:
+  backoffLimit: 20
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-pg-init
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-pg-init
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: OnFailure
+      containers:
+        - name: pg-init
+          image: postgres:16.14-alpine3.24
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_DATABASE
+              value: clouisle
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export PGPASSWORD="$PG_PASSWORD"
+              for i in $(seq 1 240); do
+                if pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d postgres >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 2
+              done
+              pg_isready -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d postgres
+              if ! psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d postgres -tAc \
+                "SELECT 1 FROM pg_database WHERE datname='$PG_DATABASE'" | grep -qx 1; then
+                psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d postgres \
+                  -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"$PG_DATABASE\";"
+              fi
+              for i in $(seq 1 240); do
+                preload="$(psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d "$PG_DATABASE" -Atc 'SHOW shared_preload_libraries' 2>/dev/null || true)"
+                case ",$preload," in
+                  *,pg_search,*)
+                    case ",$preload," in
+                      *,pg_stat_statements,*) break ;;
+                    esac
+                    ;;
+                esac
+                sleep 2
+              done
+              psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d "$PG_DATABASE" \
+                -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;'
+              psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d "$PG_DATABASE" \
+                -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS pg_stat_statements;'
+              test "$(psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d "$PG_DATABASE" -Atc "SELECT extversion FROM pg_extension WHERE extname='pg_search'")" = 0.24.3
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 70
+            runAsGroup: 70
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-redis
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-redis
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    kb.io/database: redis-7.2.7
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/version: 7.2.7
+    clusterversion.kubeblocks.io/name: redis-7.2.7
+    clusterdefinition.kubeblocks.io/name: redis
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys:
+      - kubernetes.io/hostname
+  clusterDefinitionRef: redis
+  componentSpecs:
+    - componentDef: redis-7
+      name: redis
+      replicas: 1
+      enabledLogs:
+        - running
+      env:
+        - name: CUSTOM_SENTINEL_MASTER_NAME
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      serviceVersion: 7.2.7
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+    - componentDef: redis-sentinel-7
+      name: redis-sentinel
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-redis
+      serviceVersion: 7.2.7
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+  terminationPolicy: Delete
+  topology: replication
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-qdrant
+  labels:
+    app: ${{ defaults.app_name }}-qdrant
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-qdrant
+  annotations:
+    originImageName: qdrant/qdrant:v1.18.3
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}-qdrant
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-qdrant
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-qdrant
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ${{ defaults.app_name }}-qdrant
+          image: qdrant/qdrant:v1.18.3
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: QDRANT__SERVICE__API_KEY
+              value: ${{ defaults.qdrant_api_key }}
+          ports:
+            - name: http
+              containerPort: 6333
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 6333
+              httpHeaders:
+                - name: api-key
+                  value: ${{ defaults.qdrant_api_key }}
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 6333
+              httpHeaders:
+                - name: api-key
+                  value: ${{ defaults.qdrant_api_key }}
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 6333
+              httpHeaders:
+                - name: api-key
+                  value: ${{ defaults.qdrant_api_key }}
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 6
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+          volumeMounts:
+            - name: vn-qdrantvn-storage
+              mountPath: /qdrant/storage
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-qdrantvn-storage
+        annotations:
+          path: /qdrant/storage
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+        storageClassName: openebs-backup
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-qdrant
+  labels:
+    app: ${{ defaults.app_name }}-qdrant
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-qdrant
+spec:
+  ports:
+    - name: http
+      port: 6333
+      targetPort: 6333
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-qdrant
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-api
+  labels:
+    app: ${{ defaults.app_name }}-api
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-api
+  annotations:
+    originImageName: registry.cn-shanghai.aliyuncs.com/clouisle/clouisle-backend:0.3.0-beta.4
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}-api
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-api
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-api
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: wait-postgres
+          image: postgres:16.14-alpine3.24
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export PGPASSWORD="$PG_PASSWORD"
+              for i in $(seq 1 240); do
+                version="$(psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d clouisle -Atc "SELECT extversion FROM pg_extension WHERE extname='pg_search'" 2>/dev/null || true)"
+                preload="$(psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d clouisle -Atc 'SHOW shared_preload_libraries' 2>/dev/null || true)"
+                if [ "$version" = 0.24.3 ]; then
+                  case ",$preload," in
+                    *,pg_search,*)
+                      case ",$preload," in
+                        *,pg_stat_statements,*) exit 0 ;;
+                      esac
+                      ;;
+                  esac
+                fi
+                sleep 2
+              done
+              exit 1
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 70
+            runAsGroup: 70
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+        - name: wait-redis
+          image: redis:7.2.7-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export REDISCLI_AUTH="$REDIS_PASSWORD"
+              for i in $(seq 1 180); do
+                if redis-cli -h "$REDIS_HOST" -p 6379 ping 2>/dev/null | grep -qx PONG; then
+                  exit 0
+                fi
+                sleep 2
+              done
+              exit 1
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+        - name: wait-qdrant
+          image: curlimages/curl:8.16.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: QDRANT_URL
+              value: http://${{ defaults.app_name }}-qdrant.${{ SEALOS_NAMESPACE }}.svc.cluster.local:6333
+            - name: QDRANT_API_KEY
+              value: ${{ defaults.qdrant_api_key }}
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              for i in $(seq 1 180); do
+                if curl -fsS -H "api-key: $QDRANT_API_KEY" "$QDRANT_URL/healthz" >/dev/null; then
+                  exit 0
+                fi
+                sleep 2
+              done
+              exit 1
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 100
+            runAsGroup: 101
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+      containers:
+        - name: ${{ defaults.app_name }}-api
+          image: registry.cn-shanghai.aliyuncs.com/clouisle/clouisle-backend:0.3.0-beta.4
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: ${{ defaults.app_name }}-runtime-config
+          command:
+            - python
+          args:
+            - main.py
+            - server
+            - -H
+            - 0.0.0.0
+            - -w
+            - '1'
+            - --no-reload
+          env:
+            - name: PROJECT_NAME
+              value: Clouisle
+            - name: SECRET_KEY
+              value: ${{ defaults.secret_key }}
+            - name: TIMEZONE
+              value: Asia/Shanghai
+            - name: API_BASE_URL
+              value: http://${{ defaults.app_name }}-api.${{ SEALOS_NAMESPACE }}.svc.cluster.local:8000
+            - name: FRONTEND_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: BACKEND_CORS_ORIGINS
+              value: '["https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"]'
+            - name: POSTGRES_SERVER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: POSTGRES_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: POSTGRES_DB
+              value: clouisle
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
+            - name: VECTOR_BACKEND
+              value: qdrant
+            - name: QDRANT_URL
+              value: http://${{ defaults.app_name }}-qdrant.${{ SEALOS_NAMESPACE }}.svc.cluster.local:6333
+            - name: QDRANT_API_KEY
+              value: ${{ defaults.qdrant_api_key }}
+            - name: QDRANT_COLLECTION_PREFIX
+              value: kb_dim
+            - name: QDRANT_DISTANCE
+              value: Cosine
+            - name: RETRIEVAL_HYBRID_KILL_SWITCH
+              value: 'false'
+            - name: RETRIEVAL_SHADOW_ENABLED
+              value: 'false'
+            - name: SANDBOX_RUNTIME_ENABLED
+              value: 'true'
+            - name: SANDBOX_LEGACY_FALLBACK_ENABLED
+              value: 'true'
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8000
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 120
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8000
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8000
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            limits:
+              cpu: 100m
+              memory: 1024Mi
+            requests:
+              cpu: 10m
+              memory: 102Mi
+          ${{ if(inputs.enable_s3_storage === 'false') }}
+          volumeMounts:
+            - name: vn-appvn-uploads
+              mountPath: /app/uploads
+          ${{ endif() }}
+  ${{ if(inputs.enable_s3_storage === 'false') }}
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-appvn-uploads
+        annotations:
+          path: /app/uploads
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+        storageClassName: openebs-backup
+  ${{ endif() }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-api
+  labels:
+    app: ${{ defaults.app_name }}-api
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-api
+spec:
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-api
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-runtime-settings
+  labels:
+    app: ${{ defaults.app_name }}-runtime-settings
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-runtime-settings
+spec:
+  backoffLimit: 20
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-runtime-settings
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-runtime-settings
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: OnFailure
+      containers:
+        - name: configure-runtime-settings
+          image: registry.cn-shanghai.aliyuncs.com/clouisle/clouisle-backend:0.3.0-beta.4
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+          command:
+            - python
+          args:
+            - -c
+            - |
+              import asyncio
+              import os
+
+              import asyncpg
+
+
+              async def main() -> None:
+                connection = None
+                for _ in range(300):
+                  try:
+                    connection = await asyncpg.connect(
+                      host=os.environ['PG_HOST'],
+                      port=int(os.environ['PG_PORT']),
+                      user=os.environ['PG_USERNAME'],
+                      password=os.environ['PG_PASSWORD'],
+                      database='clouisle',
+                    )
+                    if await connection.fetchval(
+                      "SELECT to_regclass('public.site_settings') IS NOT NULL"
+                    ):
+                      break
+                    await connection.close()
+                    connection = None
+                  except Exception:
+                    if connection is not None:
+                      await connection.close()
+                      connection = None
+                  await asyncio.sleep(2)
+                else:
+                  raise RuntimeError('Clouisle site_settings did not become ready')
+
+                await connection.execute(
+                  """
+                  INSERT INTO site_settings
+                    (id, key, value, value_type, category, description, is_public, updated_at)
+                  VALUES
+                    (gen_random_uuid(), 'kb_document_max_upload_size_mb', '31', 'int',
+                     'storage', 'Knowledge base document max upload size in MB within the Sealos 32m Ingress envelope', true, NOW())
+                  ON CONFLICT (key) DO UPDATE SET
+                    value = EXCLUDED.value,
+                    value_type = EXCLUDED.value_type,
+                    category = EXCLUDED.category,
+                    description = EXCLUDED.description,
+                    is_public = EXCLUDED.is_public,
+                    updated_at = NOW()
+                  """
+                )
+                await connection.close()
+
+
+              asyncio.run(main())
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            limits:
+              cpu: 100m
+              memory: 256Mi
+            requests:
+              cpu: 10m
+              memory: 25Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-worker
+  labels:
+    app: ${{ defaults.app_name }}-worker
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-worker
+  annotations:
+    originImageName: registry.cn-shanghai.aliyuncs.com/clouisle/clouisle-backend:0.3.0-beta.4
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-worker
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-worker
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      ${{ if(inputs.enable_s3_storage === 'false') }}
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: ${{ defaults.app_name }}-api
+              topologyKey: kubernetes.io/hostname
+      ${{ endif() }}
+      initContainers:
+        - name: wait-schema
+          image: postgres:16.14-alpine3.24
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export PGPASSWORD="$PG_PASSWORD"
+              for i in $(seq 1 300); do
+                if psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d clouisle -tAc \
+                  "SELECT CASE WHEN to_regclass('public.users') IS NOT NULL AND to_regclass('public.knowledge_lexical_chunks') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_indexes WHERE indexname='knowledge_lexical_chunks_bm25_idx') AND EXISTS (SELECT 1 FROM pg_extension WHERE extname='pg_search' AND extversion='0.24.3') THEN 1 ELSE 0 END" 2>/dev/null | grep -qx 1; then
+                  exit 0
+                fi
+                sleep 2
+              done
+              exit 1
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 70
+            runAsGroup: 70
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+        - name: wait-redis
+          image: redis:7.2.7-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export REDISCLI_AUTH="$REDIS_PASSWORD"
+              for i in $(seq 1 180); do
+                if redis-cli -h "$REDIS_HOST" -p 6379 ping 2>/dev/null | grep -qx PONG; then
+                  exit 0
+                fi
+                sleep 2
+              done
+              exit 1
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+        - name: wait-qdrant
+          image: curlimages/curl:8.16.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: QDRANT_URL
+              value: http://${{ defaults.app_name }}-qdrant.${{ SEALOS_NAMESPACE }}.svc.cluster.local:6333
+            - name: QDRANT_API_KEY
+              value: ${{ defaults.qdrant_api_key }}
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              for i in $(seq 1 180); do
+                if curl -fsS -H "api-key: $QDRANT_API_KEY" "$QDRANT_URL/healthz" >/dev/null; then
+                  exit 0
+                fi
+                sleep 2
+              done
+              exit 1
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 100
+            runAsGroup: 101
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+      containers:
+        - name: ${{ defaults.app_name }}-worker
+          image: registry.cn-shanghai.aliyuncs.com/clouisle/clouisle-backend:0.3.0-beta.4
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: ${{ defaults.app_name }}-runtime-config
+          command:
+            - python
+          args:
+            - main.py
+            - worker
+            - -c
+            - '4'
+            - -Q
+            - default,knowledge,workflow
+          env:
+            - name: PROJECT_NAME
+              value: Clouisle
+            - name: SECRET_KEY
+              value: ${{ defaults.secret_key }}
+            - name: TIMEZONE
+              value: Asia/Shanghai
+            - name: API_BASE_URL
+              value: http://${{ defaults.app_name }}-api.${{ SEALOS_NAMESPACE }}.svc.cluster.local:8000
+            - name: FRONTEND_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: BACKEND_CORS_ORIGINS
+              value: '["https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"]'
+            - name: POSTGRES_SERVER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: POSTGRES_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: POSTGRES_DB
+              value: clouisle
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
+            - name: VECTOR_BACKEND
+              value: qdrant
+            - name: QDRANT_URL
+              value: http://${{ defaults.app_name }}-qdrant.${{ SEALOS_NAMESPACE }}.svc.cluster.local:6333
+            - name: QDRANT_API_KEY
+              value: ${{ defaults.qdrant_api_key }}
+            - name: QDRANT_COLLECTION_PREFIX
+              value: kb_dim
+            - name: QDRANT_DISTANCE
+              value: Cosine
+            - name: RETRIEVAL_HYBRID_KILL_SWITCH
+              value: 'false'
+            - name: RETRIEVAL_SHADOW_ENABLED
+              value: 'false'
+            - name: SANDBOX_RUNTIME_ENABLED
+              value: 'true'
+            - name: SANDBOX_LEGACY_FALLBACK_ENABLED
+              value: 'true'
+          startupProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -ec
+                - kill -0 1
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -ec
+                - kill -0 1
+            periodSeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -ec
+                - kill -0 1
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            limits:
+              cpu: 100m
+              memory: 1024Mi
+            requests:
+              cpu: 10m
+              memory: 102Mi
+          ${{ if(inputs.enable_s3_storage === 'false') }}
+          volumeMounts:
+            - name: uploads
+              mountPath: /app/uploads
+          ${{ endif() }}
+      ${{ if(inputs.enable_s3_storage === 'false') }}
+      volumes:
+        - name: uploads
+          persistentVolumeClaim:
+            claimName: vn-appvn-uploads-${{ defaults.app_name }}-api-0
+      ${{ endif() }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-beat
+  labels:
+    app: ${{ defaults.app_name }}-beat
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-beat
+  annotations:
+    originImageName: registry.cn-shanghai.aliyuncs.com/clouisle/clouisle-backend:0.3.0-beta.4
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-beat
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-beat
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: wait-schema
+          image: postgres:16.14-alpine3.24
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export PGPASSWORD="$PG_PASSWORD"
+              for i in $(seq 1 300); do
+                if psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d clouisle -tAc \
+                  "SELECT CASE WHEN to_regclass('public.users') IS NOT NULL AND to_regclass('public.knowledge_lexical_chunks') IS NOT NULL THEN 1 ELSE 0 END" 2>/dev/null | grep -qx 1; then
+                  exit 0
+                fi
+                sleep 2
+              done
+              exit 1
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 70
+            runAsGroup: 70
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+        - name: wait-redis
+          image: redis:7.2.7-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export REDISCLI_AUTH="$REDIS_PASSWORD"
+              for i in $(seq 1 180); do
+                if redis-cli -h "$REDIS_HOST" -p 6379 ping 2>/dev/null | grep -qx PONG; then
+                  exit 0
+                fi
+                sleep 2
+              done
+              exit 1
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+      containers:
+        - name: ${{ defaults.app_name }}-beat
+          image: registry.cn-shanghai.aliyuncs.com/clouisle/clouisle-backend:0.3.0-beta.4
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+          args:
+            - main.py
+            - beat
+          env:
+            - name: PROJECT_NAME
+              value: Clouisle
+            - name: SECRET_KEY
+              value: ${{ defaults.secret_key }}
+            - name: TIMEZONE
+              value: Asia/Shanghai
+            - name: API_BASE_URL
+              value: http://${{ defaults.app_name }}-api.${{ SEALOS_NAMESPACE }}.svc.cluster.local:8000
+            - name: FRONTEND_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: BACKEND_CORS_ORIGINS
+              value: '["https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"]'
+            - name: POSTGRES_SERVER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: POSTGRES_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: POSTGRES_DB
+              value: clouisle
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
+            - name: VECTOR_BACKEND
+              value: qdrant
+            - name: QDRANT_URL
+              value: http://${{ defaults.app_name }}-qdrant.${{ SEALOS_NAMESPACE }}.svc.cluster.local:6333
+            - name: QDRANT_API_KEY
+              value: ${{ defaults.qdrant_api_key }}
+          startupProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -ec
+                - kill -0 1
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -ec
+                - kill -0 1
+            periodSeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -ec
+                - kill -0 1
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            limits:
+              cpu: 100m
+              memory: 256Mi
+            requests:
+              cpu: 10m
+              memory: 25Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+  annotations:
+    originImageName: registry.cn-shanghai.aliyuncs.com/clouisle/clouisle-frontend:0.3.0-beta.4
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: registry.cn-shanghai.aliyuncs.com/clouisle/clouisle-frontend:0.3.0-beta.4
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: BACKEND_INTERNAL_URL
+              value: http://${{ defaults.app_name }}-api.${{ SEALOS_NAMESPACE }}.svc.cluster.local:8000
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /
+              port: 3000
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 3000
+          - pathType: Prefix
+            path: /api
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-api
+                port:
+                  number: 8000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+${{ if(inputs.enable_s3_storage === 'true') }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-s3-config
+  labels:
+    app: ${{ defaults.app_name }}-s3-config
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-s3-config
+data:
+  vn-optvn-clouislevn-configurevn-storagevn-py: |
+    import asyncio
+    import os
+    import sys
+    import urllib.request
+
+    import asyncpg
+
+    sys.path.insert(0, '/app/backend')
+    from app.services.upload_storage import ObjectStorageConfig, ObjectUploadStorage
+
+
+    async def wait_for_api() -> None:
+      for _ in range(240):
+        try:
+          with urllib.request.urlopen(
+            os.environ['API_HEALTH_URL'],
+            timeout=5,
+          ) as response:
+            if response.status == 200:
+              return
+        except Exception:
+          pass
+        await asyncio.sleep(2)
+      raise RuntimeError('Clouisle API did not become healthy')
+
+
+    async def main() -> None:
+      await wait_for_api()
+      endpoint = os.environ['BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT']
+      storage = ObjectUploadStorage(
+        ObjectStorageConfig(
+          endpoint=endpoint,
+          bucket=os.environ['S3_BUCKET'],
+          region=None,
+          access_key=os.environ['S3_ACCESS_KEY_ID'],
+          secret_key=os.environ['S3_SECRET_ACCESS_KEY'],
+          secure=True,
+          force_path_style=True,
+        )
+      )
+      await storage.validate()
+
+      connection = await asyncpg.connect(
+        host=os.environ['PG_HOST'],
+        port=int(os.environ['PG_PORT']),
+        user=os.environ['PG_USERNAME'],
+        password=os.environ['PG_PASSWORD'],
+        database='clouisle',
+      )
+      settings = (
+        ('upload_storage_backend', 'object', 'string', 'Upload storage backend (local or object)'),
+        ('object_storage_endpoint', endpoint, 'string', 'S3-compatible object storage endpoint'),
+        ('object_storage_bucket', os.environ['S3_BUCKET'], 'string', 'Object storage bucket for uploaded files'),
+        ('object_storage_region', '', 'string', 'Object storage region'),
+        ('object_storage_access_key', os.environ['S3_ACCESS_KEY_ID'], 'string', 'Object storage access key'),
+        ('object_storage_secret_key', os.environ['S3_SECRET_ACCESS_KEY'], 'string', 'Object storage secret key'),
+        ('object_storage_force_path_style', 'true', 'bool', 'Use path-style S3 object storage URLs'),
+        ('object_storage_secure', 'true', 'bool', 'Use HTTPS for object storage endpoint when no scheme is provided'),
+      )
+      query = """
+        INSERT INTO site_settings
+          (id, key, value, value_type, category, description, is_public, updated_at)
+        VALUES
+          (gen_random_uuid(), $1, $2, $3, 'storage', $4, false, NOW())
+        ON CONFLICT (key) DO UPDATE SET
+          value = EXCLUDED.value,
+          value_type = EXCLUDED.value_type,
+          category = EXCLUDED.category,
+          description = EXCLUDED.description,
+          is_public = EXCLUDED.is_public,
+          updated_at = NOW()
+      """
+      try:
+        await connection.executemany(query, settings)
+      finally:
+        await connection.close()
+
+
+    asyncio.run(main())
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-s3-config
+  labels:
+    app: ${{ defaults.app_name }}-s3-config
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-s3-config
+spec:
+  backoffLimit: 20
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-s3-config
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-s3-config
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: configure-storage
+          image: registry.cn-shanghai.aliyuncs.com/clouisle/clouisle-backend:0.3.0-beta.4
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+          args:
+            - /opt/clouisle/configure-storage.py
+          env:
+            - name: API_HEALTH_URL
+              value: http://${{ defaults.app_name }}-api.${{ SEALOS_NAMESPACE }}.svc.cluster.local:8000/api/v1/health
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: external
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: accessKey
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key
+                  key: secretKey
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          volumeMounts:
+            - name: ${{ defaults.app_name }}-s3-config-cm
+              mountPath: /opt/clouisle/configure-storage.py
+              subPath: vn-optvn-clouislevn-configurevn-storagevn-py
+      volumes:
+        - name: ${{ defaults.app_name }}-s3-config-cm
+          configMap:
+            name: ${{ defaults.app_name }}-s3-config
+---
+${{ else() }}
+# Local storage uses the application defaults and persistent upload volume.
+---
+${{ endif() }}
+---
+${{ if(inputs.enable_sandbox === 'true') }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}-sandbox-worker
+  labels:
+    app: ${{ defaults.app_name }}-sandbox-worker
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-sandbox-worker
+  annotations:
+    originImageName: registry.cn-shanghai.aliyuncs.com/clouisle/clouisle-sandbox-worker:0.3.0-beta.4
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-sandbox-worker
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-sandbox-worker
+      annotations:
+        clouisle.asia/sandbox-seccomp-source: https://github.com/clouisle/clouisle/blob/v0.3.0-beta.4/docs/dev/backend/celery-and-async-jobs.md
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      ${{ if(inputs.enable_s3_storage === 'false') }}
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: ${{ defaults.app_name }}-api
+              topologyKey: kubernetes.io/hostname
+      ${{ endif() }}
+      initContainers:
+        - name: wait-schema
+          image: postgres:16.14-alpine3.24
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export PGPASSWORD="$PG_PASSWORD"
+              for i in $(seq 1 300); do
+                if psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USERNAME" -d clouisle -tAc \
+                  "SELECT CASE WHEN to_regclass('public.users') IS NOT NULL AND to_regclass('public.knowledge_lexical_chunks') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_indexes WHERE indexname='knowledge_lexical_chunks_bm25_idx') THEN 1 ELSE 0 END" 2>/dev/null | grep -qx 1; then
+                  exit 0
+                fi
+                sleep 2
+              done
+              exit 1
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 70
+            runAsGroup: 70
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+        - name: wait-redis
+          image: redis:7.2.7-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              export REDISCLI_AUTH="$REDIS_PASSWORD"
+              for i in $(seq 1 180); do
+                if redis-cli -h "$REDIS_HOST" -p 6379 ping 2>/dev/null | grep -qx PONG; then
+                  exit 0
+                fi
+                sleep 2
+              done
+              exit 1
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+        - name: wait-qdrant
+          image: curlimages/curl:8.16.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: QDRANT_URL
+              value: http://${{ defaults.app_name }}-qdrant.${{ SEALOS_NAMESPACE }}.svc.cluster.local:6333
+            - name: QDRANT_API_KEY
+              value: ${{ defaults.qdrant_api_key }}
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              for i in $(seq 1 180); do
+                if curl -fsS -H "api-key: $QDRANT_API_KEY" "$QDRANT_URL/healthz" >/dev/null; then
+                  exit 0
+                fi
+                sleep 2
+              done
+              exit 1
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 100
+            runAsGroup: 101
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+      containers:
+        - name: ${{ defaults.app_name }}-sandbox-worker
+          image: registry.cn-shanghai.aliyuncs.com/clouisle/clouisle-sandbox-worker:0.3.0-beta.4
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: ${{ defaults.app_name }}-runtime-config
+          command:
+            - python
+          args:
+            - main.py
+            - sandbox-worker
+            - -c
+            - '1'
+          env:
+            - name: PROJECT_NAME
+              value: Clouisle
+            - name: SECRET_KEY
+              value: ${{ defaults.secret_key }}
+            - name: TIMEZONE
+              value: Asia/Shanghai
+            - name: API_BASE_URL
+              value: http://${{ defaults.app_name }}-api.${{ SEALOS_NAMESPACE }}.svc.cluster.local:8000
+            - name: FRONTEND_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: BACKEND_CORS_ORIGINS
+              value: '["https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"]'
+            - name: POSTGRES_SERVER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: POSTGRES_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: POSTGRES_DB
+              value: clouisle
+            - name: REDIS_HOST
+              value: ${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+            - name: REDIS_PORT
+              value: '6379'
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-redis-redis-account-default
+                  key: password
+            - name: VECTOR_BACKEND
+              value: qdrant
+            - name: QDRANT_URL
+              value: http://${{ defaults.app_name }}-qdrant.${{ SEALOS_NAMESPACE }}.svc.cluster.local:6333
+            - name: QDRANT_API_KEY
+              value: ${{ defaults.qdrant_api_key }}
+            - name: QDRANT_COLLECTION_PREFIX
+              value: kb_dim
+            - name: QDRANT_DISTANCE
+              value: Cosine
+            - name: SANDBOX_RUNTIME_ENABLED
+              value: 'true'
+            - name: SANDBOX_LEGACY_FALLBACK_ENABLED
+              value: 'true'
+            - name: SANDBOX_WORKER_CONCURRENCY
+              value: '1'
+            - name: SANDBOX_WORKSPACE_ROOT
+              value: /tmp/clouisle-sandbox/jobs
+            - name: SANDBOX_FILESYSTEM_ISOLATION_ENABLED
+              value: 'true'
+            - name: SANDBOX_FILESYSTEM_ISOLATION_BINARY
+              value: /usr/bin/bwrap
+            - name: SANDBOX_MAX_DISK_MB
+              value: '8192'
+            - name: SANDBOX_SESSION_TTL_HOURS
+              value: '24'
+            - name: SANDBOX_RESULT_TTL_SECONDS
+              value: '86400'
+            - name: SANDBOX_ARTIFACT_MAX_FILE_SIZE_MB
+              value: '10'
+            - name: SANDBOX_ARTIFACT_MAX_TOTAL_SIZE_MB
+              value: '10'
+          startupProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -ec
+                - kill -0 1
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -ec
+                - kill -0 1
+            periodSeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -ec
+                - kill -0 1
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            # Rootless Bubblewrap needs namespace and mount syscalls; see the pod annotation.
+            seccompProfile:
+              type: Unconfined
+          resources:
+            limits:
+              cpu: 100m
+              memory: 256Mi
+            requests:
+              cpu: 10m
+              memory: 25Mi
+          ${{ if(inputs.enable_s3_storage === 'false') }}
+          volumeMounts:
+            - name: uploads
+              mountPath: /app/uploads
+          ${{ endif() }}
+      ${{ if(inputs.enable_s3_storage === 'false') }}
+      volumes:
+        - name: uploads
+          persistentVolumeClaim:
+            claimName: vn-appvn-uploads-${{ defaults.app_name }}-api-0
+      ${{ endif() }}
+---
+${{ endif() }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/clouisle/logo.png
+  name: Clouisle
+  type: link
