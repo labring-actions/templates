@@ -65,7 +65,7 @@ Sealos is a Kubernetes-based cloud operating system that manages application res
 ## Deployment Guide
 
 1. Open the [GLPI template](https://sealos.io/products/app-store/glpi) and click **Deploy Now**.
-2. Enter the initial Super-Admin password. Use at least 12 characters with one uppercase letter, one lowercase letter, one digit, and one symbol; line breaks are rejected. Review the generated application name, domain, and resource plan, then start the deployment.
+2. Enter the initial Super-Admin password. Use a long, unique value; line breaks are rejected. Review the generated application name, domain, and resource plan, then start the deployment.
 3. Wait for deployment to complete. The Canvas typically opens in 2-3 minutes; the initial MySQL provisioning and GLPI schema installation may take several additional minutes.
 4. Open the URL shown on the GLPI application card. The root path `/` displays the login page when initialization is complete.
 
