@@ -1,0 +1,86 @@
+apiVersion: docker-to-sealos/v1
+kind: TopologyEvidence
+metadata:
+  name: clouisle-topology
+spec:
+  appName: clouisle
+  source: https://github.com/clouisle/clouisle/blob/v0.3.0-beta.4/deploy/docker-compose.yml
+  compatibility:
+    postgresql: KubeBlocks PostgreSQL 16.4.0 with the official ParadeDB pg_search 0.24.3 PostgreSQL 16 package and validated BM25 final state
+    ingress: Sealos fixes the HTTP body envelope at 32m, so this template initializes the Clouisle knowledge-base document limit to 31 MiB for multipart overhead; upstream Helm uses 100m
+    sandbox: v0.3.0-beta.4 has one secure backend, backend/app/services/sandbox/process_launcher.py invokes rootless Bubblewrap with namespace and mount isolation as required by docs/dev/backend/celery-and-async-jobs.md; standard Sealos enforces PodSecurity baseline v1.25 and denies Unconfined seccomp, so enable_sandbox defaults false and the conditional role requires a workspace permitting Unconfined or an equivalent installed Localhost profile
+  resources:
+    - kind: ObjectStorageBucket
+      name: ${{ defaults.app_name }}
+      when: inputs.enable_s3_storage === 'true'
+    - kind: Cluster
+      name: ${{ defaults.app_name }}-pg
+      when: always
+      components:
+        - name: postgresql
+          replicas: 1
+    - kind: Cluster
+      name: ${{ defaults.app_name }}-redis
+      when: always
+      components:
+        - name: redis
+          replicas: 1
+        - name: redis-sentinel
+          replicas: 1
+    - kind: StatefulSet
+      name: ${{ defaults.app_name }}-qdrant
+      when: always
+      replicas: 1
+    - kind: StatefulSet
+      name: ${{ defaults.app_name }}-api
+      when: always
+      replicas: 1
+    - kind: Deployment
+      name: ${{ defaults.app_name }}-worker
+      when: always
+      replicas: 1
+    - kind: Deployment
+      name: ${{ defaults.app_name }}-sandbox-worker
+      when: inputs.enable_sandbox === 'true'
+      replicas: 1
+    - kind: Deployment
+      name: ${{ defaults.app_name }}-beat
+      when: always
+      replicas: 1
+    - kind: Deployment
+      name: ${{ defaults.app_name }}
+      when: always
+      replicas: 1
+---
+apiVersion: docker-to-sealos/v1
+kind: RuntimeBundleEvidence
+metadata:
+  name: clouisle-runtime-bundle
+spec:
+  appName: clouisle
+  source: https://github.com/clouisle/clouisle/releases/tag/v0.3.0-beta.4
+  images:
+    - registry.cn-shanghai.aliyuncs.com/clouisle/clouisle-backend:0.3.0-beta.4
+    - registry.cn-shanghai.aliyuncs.com/clouisle/clouisle-sandbox-worker:0.3.0-beta.4
+    - registry.cn-shanghai.aliyuncs.com/clouisle/clouisle-frontend:0.3.0-beta.4
+    - qdrant/qdrant:v1.18.3
+  components:
+    - ${{ defaults.app_name }}-api
+    - ${{ defaults.app_name }}-worker
+    - ${{ defaults.app_name }}-sandbox-worker
+    - ${{ defaults.app_name }}-beat
+    - ${{ defaults.app_name }}
+    - ${{ defaults.app_name }}-qdrant
+  routes:
+    - path: /
+      service: ${{ defaults.app_name }}
+    - path: /api
+      service: ${{ defaults.app_name }}-api
+  env:
+    - API_BASE_URL
+    - POSTGRES_SERVER
+    - REDIS_HOST
+    - QDRANT_URL
+    - BACKEND_INTERNAL_URL
+  configMapEnv:
+    - SANDBOX_ARTIFACT_UPLOAD_BASE_URL
