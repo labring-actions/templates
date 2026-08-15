@@ -1,0 +1,450 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: glpi
+spec:
+  title: GLPI
+  description: GLPI is an open source IT asset management and service desk platform.
+  url: https://glpi-project.org/
+  gitRepo: https://github.com/glpi-project/glpi
+  author: Sealos
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/glpi/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/glpi/logo.png
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/glpi/website-screenshot.webp
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: GLPI 是一个开源的 IT 资产管理和服务台平台。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/glpi/README_zh.md
+  categories:
+    - tool
+    - dev-ops
+  defaults:
+    app_name:
+      type: string
+      value: glpi-${{ random(8) }}
+    app_host:
+      type: string
+      value: glpi-${{ random(8) }}
+  inputs:
+    admin_password:
+      type: string
+      description: Required initial GLPI Super-Admin password. Use a long, unique value; line breaks are rejected.
+      required: true
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-mysql
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-mysql
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-mysql
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-mysql
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-mysql
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-mysql
+  labels:
+    kb.io/database: ac-mysql-8.0.30-1
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mysql
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-mysql
+    clusterdefinition.kubeblocks.io/name: apecloud-mysql
+    clusterversion.kubeblocks.io/name: ac-mysql-8.0.30-1
+spec:
+  affinity:
+    nodeLabels: {}
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys:
+      - kubernetes.io/hostname
+  clusterDefinitionRef: apecloud-mysql
+  clusterVersionRef: ac-mysql-8.0.30-1
+  componentSpecs:
+    - componentDefRef: mysql
+      monitor: true
+      name: mysql
+      noCreatePDB: false
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-mysql
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+  tolerations: []
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-optvn-sealosvn-bootstrapvn-glpivn-sh: |
+    #!/bin/bash
+    set -euo pipefail
+
+    marker=/var/glpi/.sealos-account-bootstrap-v1
+    marker_tmp=
+    trap 'rm -f "${marker_tmp}"' EXIT
+
+    mysql_query() {
+      MYSQL_PWD="${GLPI_DB_PASSWORD}" mysql --protocol=TCP --connect-timeout=5 \
+        -h"${GLPI_DB_HOST}" -P"${GLPI_DB_PORT}" -u"${GLPI_DB_USER}" \
+        "${GLPI_DB_NAME}" --batch --skip-column-names -e "$1" 2>/dev/null
+    }
+
+    seeded_active="$(mysql_query "SELECT COUNT(*) FROM glpi_users WHERE name IN ('tech','normal','post-only') AND is_active=1 AND is_deleted=0;")"
+    if [ ! -f "${marker}" ] || [ "${seeded_active}" != '0' ]; then
+      php -r '$p = getenv("GLPI_ADMIN_PASSWORD"); exit(is_string($p) && $p !== "" && !preg_match("/[\r\n]/", $p) ? 0 : 1);' || {
+        echo 'The GLPI administrator password is required and must not contain line breaks.' >&2
+        exit 1
+      }
+
+      bootstrap_active="$(mysql_query "SELECT COUNT(*) FROM glpi_users WHERE name='glpi' AND is_active=1 AND is_deleted=0;")"
+      if [ "${bootstrap_active}" = '1' ]; then
+        current_hash="$(mysql_query "SELECT password FROM glpi_users WHERE name='glpi' AND is_active=1 AND is_deleted=0 LIMIT 1;")"
+        if ! CURRENT_HASH="${current_hash}" php -r 'exit(password_verify(getenv("GLPI_ADMIN_PASSWORD"), getenv("CURRENT_HASH")) ? 0 : 1);'; then
+          php /var/www/glpi/bin/console user:reset_password glpi --password="${GLPI_ADMIN_PASSWORD}" --no-interaction >/dev/null
+        fi
+      fi
+
+      for seeded_user in tech normal post-only; do
+        seeded_user_active="$(mysql_query "SELECT COUNT(*) FROM glpi_users WHERE name='${seeded_user}' AND is_active=1 AND is_deleted=0;")"
+        if [ "${seeded_user_active}" != '0' ]; then
+          php /var/www/glpi/bin/console user:disable "${seeded_user}" --no-interaction >/dev/null
+        fi
+      done
+
+      current_hash="$(mysql_query "SELECT password FROM glpi_users WHERE name='glpi' AND is_active=1 AND is_deleted=0 LIMIT 1;")"
+      if [ -n "${current_hash}" ]; then
+        CURRENT_HASH="${current_hash}" php -r 'exit(password_verify(getenv("GLPI_ADMIN_PASSWORD"), getenv("CURRENT_HASH")) ? 0 : 1);'
+      fi
+      [ "$(mysql_query "SELECT COUNT(*) FROM glpi_users WHERE name IN ('tech','normal','post-only') AND is_active=1 AND is_deleted=0;")" = '0' ]
+      [ "$(mysql_query "SELECT COUNT(DISTINCT u.id) FROM glpi_users u JOIN glpi_profiles_users pu ON pu.users_id=u.id JOIN glpi_profiles p ON p.id=pu.profiles_id WHERE u.is_active=1 AND u.is_deleted=0 AND p.name='Super-Admin';")" -ge 1 ]
+
+      umask 077
+      marker_tmp="${marker}.$$"
+      printf '%s\n' hardened > "${marker_tmp}"
+      mv -f "${marker_tmp}" "${marker}"
+      marker_tmp=
+    fi
+
+    unset GLPI_ADMIN_PASSWORD
+    exec /usr/bin/supervisord -c /etc/supervisor/supervisord.conf
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: glpi/glpi:11.0.8
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+    docker-to-sealos.resource-override-source: 'Live Sealos validation on 2026-08-14: GLPI 11.0.8 completed hardened cold start, administrator login, Computers and Tickets navigation, a 404 route, and a 233-second stability window at 100m CPU / 512Mi memory with zero restarts; 256Mi was OOMKilled during authenticated dashboard traffic.'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 33
+        runAsGroup: 33
+        fsGroup: 33
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+        # The sysctl permits UID 33 to bind port 80 after the no-new-privileges exec chain.
+        sysctls:
+          - name: net.ipv4.ip_unprivileged_port_start
+            value: '0'
+      initContainers:
+        - name: ${{ defaults.app_name }}-mysql-init
+          image: mysql:8.0.44
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: MYSQL_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: host
+            - name: MYSQL_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: port
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: username
+            - name: MYSQL_PWD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: password
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              for i in $(seq 1 90); do
+                if mysqladmin ping -h"${MYSQL_HOST}" -P"${MYSQL_PORT}" -u"${MYSQL_USER}" --silent; then
+                  break
+                fi
+                sleep 2
+              done
+              mysqladmin ping -h"${MYSQL_HOST}" -P"${MYSQL_PORT}" -u"${MYSQL_USER}" --silent
+              mysql -h"${MYSQL_HOST}" -P"${MYSQL_PORT}" -u"${MYSQL_USER}" \
+                -e "CREATE DATABASE IF NOT EXISTS glpi CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: glpi/glpi:11.0.8
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+              # Keep Apache's image-level file capability executable in the reduced bounding set.
+              add:
+                - NET_BIND_SERVICE
+          args:
+            - /bin/bash
+            - /opt/sealos/bootstrap-glpi.sh
+          env:
+            - name: GLPI_ADMIN_PASSWORD
+              value: ${{ inputs.admin_password }}
+            - name: GLPI_DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: host
+            - name: GLPI_DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: port
+            - name: GLPI_DB_NAME
+              value: glpi
+            - name: GLPI_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: username
+            - name: GLPI_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-mysql-conn-credential
+                  key: password
+            - name: GLPI_SKIP_AUTOINSTALL
+              value: 'false'
+            - name: GLPI_SKIP_AUTOUPDATE
+              value: 'false'
+            - name: GLPI_CRONTAB_ENABLED
+              value: '1'
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /status.php
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -ec
+                - |
+                  test -f /var/glpi/.sealos-account-bootstrap-v1
+                  php -r '$d=json_decode(file_get_contents("http://127.0.0.1/status.php"), true); exit(($d["db"]["status"] ?? "") === "OK" && ($d["filesystem"]["status"] ?? "") === "OK" ? 0 : 1);'
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /opt/sealos/bootstrap-glpi.sh
+              subPath: vn-optvn-sealosvn-bootstrapvn-glpivn-sh
+              readOnly: true
+            - name: vn-varvn-glpi
+              mountPath: /var/glpi
+          resources:
+            limits:
+              cpu: 100m
+              memory: 512Mi
+            requests:
+              cpu: 10m
+              memory: 51Mi
+      volumes:
+        - name: ${{ defaults.app_name }}-cm
+          configMap:
+            name: ${{ defaults.app_name }}
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-varvn-glpi
+        annotations:
+          path: /var/glpi
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: ClusterIP
+  selector:
+    app: ${{ defaults.app_name }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/glpi/logo.png
+  name: GLPI
+  type: link
