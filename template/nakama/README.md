@@ -1,8 +1,8 @@
 # Deploy and Host Nakama Server on Sealos
 
-Nakama is an open-source game server for realtime multiplayer, player accounts, social systems, and live operations. This template deploys Nakama v3.39.0 with a managed PostgreSQL database on Sealos Cloud.
+Nakama is an open-source game server for realtime multiplayer, player accounts, social systems, and live operations. This template deploys Nakama v3.40.0 with a managed PostgreSQL database on Sealos Cloud.
 
-![Nakama Console Screenshot](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/nakama/website-screenshot.webp)
+![Nakama Console Dashboard](website-screenshot.webp)
 
 ## About Hosting Nakama
 
@@ -37,7 +37,7 @@ The Sealos template includes all required runtime dependencies: Nakama Server an
 
 This template deploys these services:
 
-- **Nakama Server**: StatefulSet running `heroiclabs/nakama:3.39.0` with persistent `/data` storage for runtime modules.
+- **Nakama Server**: StatefulSet running `heroiclabs/nakama:3.40.0` with persistent `/data` storage for runtime modules.
 - **PostgreSQL Database**: KubeBlocks PostgreSQL 16.4.0 cluster for persistent Nakama data.
 - **PostgreSQL Init Job**: Creates the `nakama` database idempotently before the server starts.
 - **Nakama Console Ingress**: Primary web entry that routes to Nakama Console on port `7351`.
@@ -46,15 +46,24 @@ This template deploys these services:
 
 **Configuration:**
 
-Nakama starts only after PostgreSQL is reachable and the target database exists. A migration init container runs `nakama migrate up` before the main server starts, then health probes use `nakama healthcheck` for startup, readiness, and liveness checks.
+Nakama starts only after PostgreSQL is reachable and the target database exists. A migration init container runs `nakama migrate up` before the main server starts, then health probes use `nakama healthcheck` for startup, readiness, and liveness checks. The initialization jobs and Nakama workload run with UID/GID 1000, a runtime-default seccomp profile, dropped Linux capabilities, and privilege escalation disabled.
 
-The primary resource profile is tuned to the smallest validated Sealos tier for this template: `100m` CPU and `128Mi` memory for the Nakama container. PostgreSQL uses the standard database profile: `500m` CPU and `512Mi` memory.
+**Verified Minimum Resources:**
+
+| Component | CPU | Memory | Storage |
+| --- | ---: | ---: | ---: |
+| Nakama | 100m | 128Mi | 100Mi for runtime modules |
+| Directory and PostgreSQL readiness initializers | 100m | 128Mi | - |
+| Nakama database migration | 200m | 256Mi | - |
+| PostgreSQL | 500m | 512Mi | 1Gi |
+
+The Nakama container used approximately 6-9m CPU and 11-17Mi memory during the validated console, player-authentication, WebSocket, and gRPC smoke tests. The template uses the smallest supported Sealos workload tier for the long-running server.
 
 **Login and Access:**
 
 Nakama Console requires the console credentials configured during deployment:
 
-- **Username**: value of `console_username` (default `admin`)
+- **Username**: value of the required `console_username` input
 - **Password**: value of `console_password`
 
 Player accounts are not created from the console login screen. Game clients create or authenticate player accounts through Nakama APIs such as device authentication at `/v2/account/authenticate/device?create=true`, using the configured socket/server key as Basic Auth username.
@@ -78,7 +87,7 @@ Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies
 
 1. Open the [Nakama Server template](https://sealos.io/products/app-store/nakama) and click **Deploy Now**.
 2. Configure the parameters in the popup dialog:
-   - **Console Username**: Admin username for Nakama Console. The default is `admin`.
+   - **Console Username**: Required admin username for Nakama Console. Choose a unique value.
    - **Console Password**: Password for the console user. Set a strong value and save it securely.
    - **Enable gRPC**: Optional. Enable only if your clients need public gRPC endpoints.
 3. Wait for deployment to complete. It typically takes 2-3 minutes because PostgreSQL must initialize before Nakama starts.
@@ -100,7 +109,7 @@ After deployment, manage Nakama through:
 
 ### Console Login
 
-The console does not provide public self-registration. Use the console credentials configured during deployment. If you lose the password, update `console_password` in the Nakama StatefulSet arguments or redeploy with a new password.
+The deployment form creates the Console administrator from the required username and password. Store both values in a password manager. To rotate the credentials, update the corresponding Nakama StatefulSet arguments or redeploy with new values.
 
 ### Client Authentication
 
@@ -133,7 +142,7 @@ For production multiplayer games, benchmark with representative concurrent users
 
 **Nakama Console login fails**
 - Cause: Incorrect console username or password.
-- Solution: Use the credentials configured during deployment. The default username is `admin`, but the password is whatever you entered in the deployment form.
+- Solution: Use the username and password configured in the deployment form. Both Console credentials are required inputs.
 
 **API returns `Server key invalid`**
 - Cause: The client is using the wrong Basic Auth username.

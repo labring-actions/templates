@@ -1,0 +1,103 @@
+apiVersion: docker-to-sealos/v1
+kind: TopologyEvidence
+metadata:
+  name: billionmail-topology
+spec:
+  appName: billionmail
+  source: https://github.com/Billionmail/BillionMail/blob/fc36c76c050c3775c5e899faf7403cf0262d2744/docker-compose.yml
+  resources:
+    - kind: Cluster
+      name: ${{ defaults.app_name }}-pg
+      when: always
+      components:
+        - name: postgresql
+          replicas: 1
+    - kind: Cluster
+      name: ${{ defaults.app_name }}-redis
+      when: always
+      components:
+        - name: redis
+          replicas: 1
+        - name: redis-sentinel
+          replicas: 1
+    - kind: StatefulSet
+      name: ${{ defaults.app_name }}
+      when: always
+      replicas: 1
+---
+apiVersion: docker-to-sealos/v1
+kind: RuntimeBundleEvidence
+metadata:
+  name: billionmail-runtime-bundle
+spec:
+  appName: billionmail
+  source: https://github.com/Billionmail/BillionMail/blob/fc36c76c050c3775c5e899faf7403cf0262d2744/docker-compose.yml
+  images:
+    - public.ecr.aws/docker/library/postgres:16.4-alpine@sha256:5660c2cbfea50c7a9127d17dc4e48543eedd3d7a41a595a2dfa572471e37e64c
+    - alpine/openssl:3.5.4@sha256:42c7389ef077aed0eb4e96d0abbd094083d701bbaff1313073b061c0c9cd8278
+    - python:3.12.12-alpine@sha256:2d91681153dd4b8cdb52d4fd34a17b9edbafa4dd3086143cfd4b6c3a84c1acb0
+    - alpine/socat:1.8.0.0@sha256:a6be4c0262b339c53ddad723cdd178a1a13271e1137c65e27f90a08c16de02b8
+    - billionmail/rspamd:1.2@sha256:bed48c106e8b8fcbf0a133c86e90900e7e17d4dec14cc30a9ddf989ada74f058
+    - billionmail/dovecot:1.6@sha256:bbf5c304f248141768d1dbdf26b190fd28b69de6969b90e994ee81f54b942fab
+    - billionmail/postfix:1.6@sha256:870656c055c83f4e4b83fcd4c2f9cecfbcd0d8e3a963ab7d0c9c88bd6b348342
+    - roundcube/roundcubemail:1.6.11-fpm-alpine@sha256:bc86e4b7ce9dfb0104cafc9fe17974dbcfb8dd976e6af11b385bf9de350212cd
+    - billionmail/core:4.9.3@sha256:b97c71b463e99368f0fb50a4f3088139c2f04a37171d3b660b92f946a3076692
+  components:
+    - ${{ defaults.app_name }}
+  routes:
+    - path: /
+      service: ${{ defaults.app_name }}
+  env:
+    - TZ
+    - DBNAME
+    - DBUSER
+    - DBPASS
+    - REDISPASS
+    - BILLIONMAIL_HOSTNAME
+    - RETENTION_DAYS
+    - ROUNDCUBEMAIL_REQUEST_PATH
+  validation:
+    deployment:
+      method: template-api
+      resourcesCreated: 14
+      workloadReady: 9/9
+      databaseClustersReady: 2/2
+      restarts: 0
+    accountFlow:
+      - explicit administrator credentials
+      - password sign-in
+      - JWT authenticated language read
+      - JWT authenticated system configuration read
+      - JWT authenticated domain list read
+      - missing API returned 404
+    database:
+      database: billionmail
+      compatibilityView: public.pg_indexes
+      compatibilityTable: bm_relay_old
+      uniqueIndex: uk_relay_domain
+      owner: billionmail
+      searchPath: public, pg_catalog
+    storage:
+      applicationMode: local-pvc
+      objectStorageIntegration: unsupported-upstream
+      externalDatabaseAlternative: unsupported-upstream
+    resources:
+      accepted:
+        component: rspamd-billionmail
+        cpu: 100m
+        memory: 512Mi
+        observedMemory: 350Mi
+        stabilityWindowSeconds: 144
+      rejected:
+        - component: rspamd-billionmail
+          cpu: 100m
+          memory: 128Mi
+          signal: OOMKilled
+          exitCode: 137
+        - component: rspamd-billionmail
+          cpu: 100m
+          memory: 256Mi
+          signal: OOMKilled
+          exitCode: 137
+    cleanup:
+      footprintResources: 0
