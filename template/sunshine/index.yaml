@@ -1,0 +1,209 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: sunshine
+spec:
+  title: Sunshine
+  url: https://app.lizardbyte.dev/Sunshine/
+  gitRepo: https://github.com/LizardByte/Sunshine
+  author: Sealos
+  description: Sunshine is a self-hosted game stream host for Moonlight with a browser-based configuration UI and client pairing workflow.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/sunshine/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/sunshine/logo.png
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/sunshine/website-screenshot.webp
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: Sunshine 是一个面向 Moonlight 客户端的自托管游戏串流主机，提供浏览器配置界面和客户端配对流程。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/sunshine/README_zh.md
+  categories:
+    - tool
+  defaults:
+    app_host:
+      type: string
+      value: sunshine-${{ random(8) }}
+    app_name:
+      type: string
+      value: sunshine-${{ random(8) }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: docker.io/lizardbyte/sunshine:v2026.516.143833-ubuntu-22.04
+    docker-to-sealos.resource-override-source: https://docs.lizardbyte.dev/projects/sunshine/latest/md_docs_2getting__started.html documents the Web UI on port 47990; streaming hosts need more than the baseline resources.
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 10
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: docker.io/lizardbyte/sunshine:v2026.516.143833-ubuntu-22.04
+          imagePullPolicy: IfNotPresent
+          args:
+            - csrf_allowed_origins=https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+          ports:
+            - name: http
+              containerPort: 47990
+              protocol: TCP
+            - name: rtsp
+              containerPort: 48010
+              protocol: TCP
+          env:
+            - name: PUID
+              value: '1000'
+            - name: PGID
+              value: '1000'
+            - name: TZ
+              value: Etc/UTC
+          startupProbe:
+            tcpSocket:
+              port: http
+            failureThreshold: 60
+            periodSeconds: 5
+            timeoutSeconds: 3
+          readinessProbe:
+            tcpSocket:
+              port: http
+            failureThreshold: 6
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: http
+            failureThreshold: 6
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 102Mi
+            limits:
+              cpu: 500m
+              memory: 1024Mi
+          volumeMounts:
+            - name: vn-homevn-lizardvn-conf
+              mountPath: /home/lizard/.config/sunshine
+            - name: vn-homevn-lizardvn-cache
+              mountPath: /home/lizard/.cache/sunshine
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-homevn-lizardvn-conf
+        annotations:
+          path: /home/lizard/.config/sunshine
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+    - metadata:
+        name: vn-homevn-lizardvn-cache
+        annotations:
+          path: /home/lizard/.cache/sunshine
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - name: http
+      port: 47990
+      targetPort: http
+      protocol: TCP
+    - name: rtsp
+      port: 48010
+      targetPort: rtsp
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTPS
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 47990
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/sunshine/logo.png
+  name: Sunshine
+  type: link
