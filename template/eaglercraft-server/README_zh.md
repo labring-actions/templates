@@ -1,115 +1,118 @@
 # 在 Sealos 上部署和托管 EaglerCraft Server
 
-EaglerCraft Server 将 EaglercraftX 浏览器客户端、WebSocket 游戏入口、Paper 服务端运行时和基于 RCON 的管理面板打包在一起。这个模板默认部署 Paper 1.12.2，也可以启动带持久化世界数据的 Paper 1.8.8 服务器。
+EaglerCraft Server 将 EaglercraftX 浏览器客户端、WebSocket 游戏网关、Paper 服务端和基于 RCON 的管理面板打包在一个镜像中。本模板在 Sealos Cloud 上部署 EaglercraftX Server 2.2.3，并持久化世界和插件数据。
 
 ![EaglerCraft Server 截图](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/eaglercraft-server/website-screenshot.webp)
 
 ## 关于 EaglerCraft Server 托管
 
-EaglerCraft Server 让玩家直接在浏览器中打开类 Minecraft 游戏客户端，并通过安全的 WebSocket 连接到自托管 Paper 服务器。发布镜像同时包含 1.8 和 1.12 两套运行目录；本模板提供 `minecraft_version` 选项来设置 `MINECRAFT_VERSION`，默认选择 `1.12`。
+EaglerCraft Server 让玩家直接在浏览器中打开类 Minecraft 客户端，并通过安全的 WebSocket 连接到自托管 Paper 世界。2.2.3 镜像包含 EaglercraftX 1.8 和 1.12 客户端，以及 Paper 1.8.8 和 1.12.2 运行时；`minecraft_version` 参数会在启动时选择运行时。
 
-Sealos 模板会把 EaglerCraft Server 部署为单个 StatefulSet，并将一个持久卷挂载到 `/eaglerX-1.8-server/server-data`。这个挂载点会保存生成的世界数据，同时保留镜像内置的启动脚本和版本目录。
+Sealos 模板运行一个 StatefulSet，并配置一个持久卷。持久卷挂载到 `/eaglerx-data`，镜像运行时初始化在 `/eaglerx-data/runtime` 下，`PERSISTENT_DATA_ROOT` 会在重启后保留世界数据和按版本隔离的插件仓库。
 
 ## 常见使用场景
 
-- **浏览器多人游戏**：为 ChromeOS、平板、学校设备和其他只能使用浏览器的环境提供多人游戏服务器。
+- **浏览器多人游戏**：为浏览器、ChromeOS 设备、平板和学校电脑运行多人世界。
 - **课堂或社团服务器**：让成员共享一个类 Minecraft 世界，无需分发桌面客户端。
-- **私有社区世界**：用托管存储和自动 HTTPS 为小型社群长期运行 Paper 服务器。
-- **插件和配置测试**：在隔离、可销毁的部署中测试 Paper 1.12.2 或 1.8.8 服务端改动。
+- **私有社区世界**：用持久化存储和自动 HTTPS 长期运行小型社区服务器。
+- **插件和配置测试**：在隔离部署中测试 Paper 1.8.8 或 1.12.2 的改动。
 
 ## EaglerCraft Server 托管依赖
 
-Sealos 模板内置 EaglercraftX 服务端镜像、WebSocket 游戏入口、启用 RCON 的管理面板，以及用于世界数据的持久化存储。
+Sealos 模板内置 EaglercraftX 服务端镜像、浏览器游戏入口、管理 API、Paper 运行时和持久化存储。
 
 ### 部署依赖
 
-- [EaglerCraft Server Docker 镜像](https://github.com/yangchuansheng/eaglercraft-server) - 本模板使用的容器镜像和运行文档
-- [已发布的 GHCR 镜像](https://github.com/yangchuansheng/eaglercraft-server/pkgs/container/eaglerx1.8server) - `ghcr.io/yangchuansheng/eaglerx1.8server:1.12.1`
-- [上游服务端源码](https://gitee.com/mirrorvim/eaglerX-1.8-server) - 构建镜像所使用的源项目
+- [EaglerXserver 源码和文档](https://github.com/yangchuansheng/eaglerXserver) - 官方源码和运行指南
+- [已发布的 GHCR 镜像](https://github.com/yangchuansheng/eaglerXserver/pkgs/container/eaglerx1.8server) - `ghcr.io/yangchuansheng/eaglerx1.8server:2.2.3`
+- [Sealos Discord](https://discord.gg/wdUn538zVP) - 社区支持
 
 ## 实现细节
 
 ### 架构组件
 
-这个模板会部署一个有状态服务：
+模板部署一个有状态服务、两个公网路由和一个持久卷：
 
-- **EaglerCraft Server**：在单个容器中运行浏览器客户端、WebSocket 网关、Paper 运行时和管理桥接服务
-- **游戏入口**：端口 `5200`，通过部署根 URL 暴露，用于浏览器游戏和 Multiplayer 服务器入口
-- **管理面板**：端口 `5201`，通过同一个公网域名下的 `/admin` 和 `/api` 暴露，用于基于 RCON 的服务器管理
-- **持久化存储**：一个 1 GiB 持久卷挂载到 `/eaglerX-1.8-server/server-data`，保存生成的世界数据
+- **EaglerCraft Server**：在一个容器中运行浏览器客户端、WebSocket 网关、Paper 运行时和管理桥接服务
+- **游戏入口**：端口 `5200`，通过 HTTPS 根路径暴露，用于浏览器客户端和 Multiplayer 服务器入口
+- **管理入口**：端口 `5201`，通过 `/admin`、`/admin.css`、`/admin.js`、`/api` 和 `/dynmap` 暴露
+- **内部 Paper 和 RCON**：端口 `25565` 和 `25575` 保留在容器内，由管理桥接服务访问
+- **持久化存储**：1 GiB 持久卷挂载到 `/eaglerx-data`，保存 `/eaglerx-data/runtime/server-data` 和插件仓库
 
 **配置：**
 
-`minecraft_version` 输入会设置 `MINECRAFT_VERSION`；选择 `1.12` 启动 Paper 1.12.2，选择 `1.8` 启动 Paper 1.8.8。`rcon_password` 输入会设置 `RCON_PASSWORD`。当 `/admin` 面板提示登录时，使用部署时填写的密码进入管理界面。
+`minecraft_version` 输入接受 `1.8` 或 `1.12`，并设置 `MINECRAFT_VERSION`。默认的 `1.12` 选项启动 Paper 1.12.2，`1.8` 启动 Paper 1.8.8。`rcon_password` 输入设置 `RCON_PASSWORD`，保护 `/api/login` 和 `/admin` 面板。实测起始规格为 100m CPU、1 GiB 内存和 1 GiB 存储；世界和玩家数量增长后，可在 Canvas 中增加资源。
 
-Sealos 会在 Ingress 层终止 TLS，并将一个公网 HTTPS 域名路由到两个后端端口：`/` 进入端口 `5200` 的浏览器游戏客户端和 Multiplayer 入口；`/admin`、`/admin.css`、`/admin.js`、`/api`、`/dynmap` 进入端口 `5201` 的管理面板和 RCON API。
+Sealos 会在 Ingress 层终止 TLS，并将一个公网 HTTPS 域名路由到游戏和管理端口。游戏路由保留 WebSocket 支持和较长的代理超时；管理路由将 API、面板资源和 Dynmap 流量发送到端口 `5201`。
 
 **许可证信息：**
 
-这个模板基于 MIT License 提供。重新分发前，请同时查看上游 EaglercraftX 和内置服务端组件各自的许可证。
+这个 Sealos 模板基于 MIT License 提供。重新分发前，请查看 EaglercraftX 项目和内置服务端组件各自适用的许可证。
 
 ## 为什么在 Sealos 上部署 EaglerCraft Server？
 
 Sealos 是基于 Kubernetes 的 AI 云操作系统，统一应用部署、运维、扩缩容和管理。在 Sealos 上部署 EaglerCraft Server，你可以获得：
 
-- **一键部署**：直接从 App Store 模板启动可在浏览器中游玩的服务器，无需手写 Kubernetes YAML。
-- **世界数据持久化**：用持久卷保存 Paper 生成的世界数据。
-- **即时 HTTPS 访问**：游戏入口和管理入口都会获得公网 HTTPS URL。
-- **资源可控**：玩家数量或世界规模增长后，可以在 Canvas 中调整 CPU、内存和存储。
-- **AI 辅助运维**：部署后可以通过 Canvas AI 对话或资源卡片修改配置。
-- **按量使用**：从紧凑资源规格起步，服务器需要更多资源时再扩容。
+- **一键部署**：直接从 App Store 模板启动可在浏览器中游玩的服务器。
+- **世界数据持久化**：用托管存储保存 Paper 世界和插件仓库。
+- **即时 HTTPS 访问**：游戏和管理入口都会获得公网 HTTPS URL。
+- **资源可控**：使用 Canvas 根据实际使用量调整 CPU、内存和存储。
+- **AI 辅助运维**：通过 Canvas AI 对话或资源卡片应用变更。
+- **按量使用**：从紧凑规格开始，随着需求扩容。
 
-在 Sealos 上部署 EaglerCraft Server，用托管基础设施运行一个可持久保存的浏览器游戏世界。
+在 Sealos 上部署 EaglerCraft Server，用托管基础设施运行可持久保存的浏览器游戏世界。
 
 ## 部署指南
 
 1. 打开 [EaglerCraft Server 模板](https://sealos.io/products/app-store/eaglercraft-server)，点击 **Deploy Now**。
-2. 在弹窗中检查生成的应用名称和访问域名，选择 Minecraft 版本，并填写 RCON 密码。默认 Minecraft 版本是 `1.12`；需要 Paper 1.8.8 运行时时选择 `1.8`。
+2. 在弹窗中检查生成的应用名称和访问域名，选择 `1.12` 或 `1.8`，并填写 RCON 密码。这个密码用于管理面板登录和基于 RCON 的操作。
 3. 等待部署完成，通常需要 2-3 分钟。部署完成后会跳转到 Canvas。后续需要调整时，可以在对话框中描述需求让 AI 修改，也可以点击相关资源卡片修改设置。
-4. 通过生成的 URL 访问服务器：
-   - **游戏客户端**：打开 `https://[your-app-url]` 加载浏览器客户端并开始游玩。
-   - **多人服务器入口**：在 EaglercraftX Multiplayer 对话框中添加服务器或直接连接，填写公网主机名，例如 `[your-app-url-host]`。
-   - **管理面板**：打开 `https://[your-app-url]/admin`，使用部署时填写的 RCON 密码登录。
+4. 通过生成的 HTTPS URL 访问服务器：
+   - **游戏客户端**：打开 `https://[your-app-url-host]` 加载浏览器客户端。
+   - **Multiplayer 服务器入口**：在 EaglercraftX Multiplayer 对话框中填写 `wss://[your-app-url-host]`。
+   - **管理面板**：打开 `https://[your-app-url-host]/admin`，使用部署时填写的 RCON 密码登录。
 
 ## 配置
 
 部署完成后，可以通过以下方式配置 EaglerCraft Server：
 
 - **浏览器客户端**：打开根 URL，使用内置的浏览器游戏客户端。
-- **管理面板**：打开 `/admin`，输入部署表单里的 RCON 密码使用管理界面。
-- **Canvas AI 对话**：描述 CPU、内存、存储或环境变量调整需求，让 AI 应用变更。
-- **资源卡片**：点击 StatefulSet、Service、Ingress 或存储卡片查看并修改设置。
+- **管理面板**：打开 `/admin`，输入部署表单中的 RCON 密码，使用服务器控制功能。
+- **Canvas AI 对话**：描述 CPU、内存、存储或环境变量调整需求，让 AI 辅助应用变更。
+- **资源卡片**：点击 StatefulSet、Service、Ingress 或存储卡片查看并编辑资源。
 
-### 玩家连接方式
+### 管理员登录和玩家注册
 
-使用部署根 URL 进入浏览器游戏。客户端出现 `press any key to continue`（按任意键继续）时，随便按一个键，设置名称和皮肤，然后点击 **Multiplayer**。使用 **Add Server** 或 **Direct Connect** 加入当前部署。
+管理面板使用部署时填写的 `rcon_password`。打开 `/admin` 并输入该密码，浏览器会为管理 API 保存一个短期会话令牌。
 
-输入公网主机名，保留纯主机名形式，无需添加 `https://` 或 `wss://` 前缀：
-
-```text
-[your-app-url-host]
-```
-
-加入服务器后，注册玩家密码前移动会被阻止。打开聊天框并执行：
+玩家通过下面的安全 WebSocket 地址连接。进入世界后按 `T` 或 `/` 打开聊天框，并在 30 秒登录窗口内完成注册：
 
 ```text
 /register <你的密码>
 ```
 
-管理面板使用同一个公网域名加 `/admin`：
+后续进入服务器时使用同一个密码登录：
 
 ```text
-https://[your-app-url]/admin
+/login <你的密码>
 ```
+
+在 Multiplayer 中使用以下地址：
+
+```text
+wss://[your-app-url-host]
+```
+
+内置的 1.12 客户端也会把纯主机名自动规范化为 `wss://`；文档统一采用显式安全 WebSocket 地址。
 
 ## 扩容
 
 扩容服务器：
 
 1. 打开当前部署的 Canvas。
-2. 点击 StatefulSet 资源卡片。
+2. 打开 StatefulSet 资源卡片。
 3. 根据玩家数量或世界生成负载增加 CPU 和内存。
-4. 世界、插件或资源文件增长后，点击存储资源卡片扩容持久卷。
+4. 世界、插件或资源文件增长后扩展存储资源。
 
 ## 故障排查
 
@@ -117,31 +120,36 @@ https://[your-app-url]/admin
 
 **管理面板要求输入密码**
 
-- 原因：管理面板由 `RCON_PASSWORD` 保护。
-- 解决方案：使用部署参数中的 `rcon_password` 值。
+- **原因**：管理面板由 `RCON_PASSWORD` 保护。
+- **解决方案**：使用部署参数中的 `rcon_password` 值。
 
-**玩家无法从浏览器客户端连接**
+**浏览器客户端无法连接**
 
-- 原因：客户端 Multiplayer 服务器输入框需要主机名。
-- 解决方案：只复制 App URL 中的公网主机名，例如 `[your-app-url-host]`，省略 URL 协议前缀。
+- **原因**：Multiplayer 通过生成域名上的安全 WebSocket 入口连接。
+- **解决方案**：填写 `wss://[your-app-url-host]`。进入世界后，在提示的登录窗口内完成 `/register <你的密码>` 或 `/login <你的密码>`。
 
-**重启后世界数据消失**
+**首次服务器操作仍在启动**
 
-- 原因：世界数据需要存放在配置好的 `SERVER_DATA_DIR` 下。
-- 解决方案：保留模板提供的 `/eaglerX-1.8-server/server-data` 持久卷挂载。
+- **原因**：首次启动会初始化 Paper 和所选的 EaglercraftX 运行时。
+- **解决方案**：等待 2-3 分钟的首次启动窗口结束，再重试管理操作。
+
+**重启后缺少世界数据**
+
+- **原因**：世界数据路径需要位于持久卷上。
+- **解决方案**：保留模板提供的 `/eaglerx-data` 挂载，使 `/eaglerx-data/runtime/server-data` 中的运行时数据持续保存。
 
 ### 获取帮助
 
-- [EaglerCraft Server Issues](https://github.com/yangchuansheng/eaglercraft-server/issues)
-- [上游服务端源码](https://gitee.com/mirrorvim/eaglerX-1.8-server)
+- [EaglerXserver Issues](https://github.com/yangchuansheng/eaglerXserver/issues)
+- [EaglerXserver 文档](https://github.com/yangchuansheng/eaglerXserver)
 - [Sealos Discord](https://discord.gg/wdUn538zVP)
 
 ## 更多资源
 
-- [EaglerCraft Server 文档](https://github.com/yangchuansheng/eaglercraft-server)
-- [EaglerCraft Server 博客](https://sealos.io/blog/eaglercraft-server/)
-- [已发布的容器镜像](https://github.com/yangchuansheng/eaglercraft-server/pkgs/container/eaglerx1.8server)
+- [EaglerXserver 源码和运行文档](https://github.com/yangchuansheng/eaglerXserver)
+- [Sealos EaglerCraft Server 博客](https://sealos.io/blog/eaglercraft-server/)
+- [已发布的容器镜像](https://github.com/yangchuansheng/eaglerXserver/pkgs/container/eaglerx1.8server)
 
 ## 许可证
 
-这个 Sealos 模板基于 MIT License 提供。EaglerCraft Server 使用 MIT License，内置上游组件保留各自许可证。
+这个 Sealos 模板基于 MIT License 提供。EaglerCraft Server 及其内置上游组件保留各自适用的许可证。

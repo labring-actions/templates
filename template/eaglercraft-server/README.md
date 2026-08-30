@@ -1,115 +1,118 @@
 # Deploy and Host EaglerCraft Server on Sealos
 
-EaglerCraft Server packages the EaglercraftX browser client, WebSocket game access, Paper server runtime, and an RCON-backed admin panel. This template deploys Paper 1.12.2 by default and can also launch a Paper 1.8.8 server with persistent world data on Sealos Cloud.
+EaglerCraft Server packages the EaglercraftX browser client, WebSocket game gateway, Paper server, and RCON-backed admin panel in one image. This template deploys EaglercraftX Server 2.2.3 on Sealos Cloud with persistent world and plugin data.
 
 ![EaglerCraft Server Screenshot](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/eaglercraft-server/website-screenshot.webp)
 
 ## About Hosting EaglerCraft Server
 
-EaglerCraft Server lets players open a Minecraft-style game client directly in the browser and connect to a self-hosted Paper server over secure WebSocket access. The published image contains both 1.8 and 1.12 runtime trees; this template exposes a `minecraft_version` choice that sets `MINECRAFT_VERSION`, with `1.12` selected by default.
+EaglerCraft Server lets players open a Minecraft-style client in a browser and connect to a self-hosted Paper world over secure WebSocket access. Image 2.2.3 contains EaglercraftX 1.8 and 1.12 clients plus Paper 1.8.8 and 1.12.2 runtimes; the `minecraft_version` parameter selects the runtime at startup.
 
-The Sealos template deploys EaglerCraft Server as a single StatefulSet with one persistent volume mounted at `/eaglerX-1.8-server/server-data`. That mount preserves generated world data while keeping the image's runtime scripts and version directories intact.
+The Sealos template runs one StatefulSet with a persistent volume. The volume is mounted at `/eaglerx-data`, the image runtime is initialized under `/eaglerx-data/runtime`, and `PERSISTENT_DATA_ROOT` keeps world data and version-specific plugin repositories across restarts.
 
 ## Common Use Cases
 
-- **Browser-Based Minecraft Sessions**: Run a multiplayer game server that players can join from ChromeOS, tablets, school devices, and other browser-only environments.
-- **Classroom or Club Servers**: Provide a shared Minecraft-style world without distributing desktop clients.
-- **Private Community Worlds**: Keep a persistent Paper server online for a small group with managed storage and automatic HTTPS.
-- **Plugin and Configuration Testing**: Test Paper 1.12.2 or 1.8.8 server changes in an isolated, disposable deployment.
+- **Browser-Based Minecraft Sessions**: Run a multiplayer world for browsers, ChromeOS devices, tablets, and school computers.
+- **Classroom or Club Servers**: Give a group a shared Minecraft-style world without distributing desktop clients.
+- **Private Community Worlds**: Keep a small community server online with persistent storage and automatic HTTPS.
+- **Plugin and Configuration Testing**: Test Paper 1.8.8 or 1.12.2 changes in an isolated deployment.
 
 ## Dependencies for EaglerCraft Server Hosting
 
-The Sealos template includes the EaglercraftX server image, WebSocket game endpoint, RCON-enabled admin panel, and persistent storage for world data.
+The Sealos template includes the EaglercraftX server image, browser game endpoint, admin API, Paper runtime, and persistent storage.
 
 ### Deployment Dependencies
 
-- [EaglerCraft Server Docker Image](https://github.com/yangchuansheng/eaglercraft-server) - Container image and runtime documentation used by this template
-- [Published GHCR Image](https://github.com/yangchuansheng/eaglercraft-server/pkgs/container/eaglerx1.8server) - `ghcr.io/yangchuansheng/eaglerx1.8server:1.12.1`
-- [Upstream Server Source](https://gitee.com/mirrorvim/eaglerX-1.8-server) - Source project used to build the image
+- [EaglerXserver source and documentation](https://github.com/yangchuansheng/eaglerXserver) - Official source and runtime guide
+- [Published GHCR image](https://github.com/yangchuansheng/eaglerXserver/pkgs/container/eaglerx1.8server) - `ghcr.io/yangchuansheng/eaglerx1.8server:2.2.3`
+- [Sealos Discord](https://discord.gg/wdUn538zVP) - Community support
 
 ## Implementation Details
 
 ### Architecture Components
 
-This template deploys one stateful service:
+The template deploys one stateful service with two public routes and one persistent volume:
 
 - **EaglerCraft Server**: Browser client, WebSocket gateway, Paper runtime, and admin bridge in one container
-- **Game Endpoint**: Port `5200`, exposed at the deployment root URL for browser gameplay and Multiplayer server entry
-- **Admin Panel**: Port `5201`, exposed through `/admin` and `/api` on the same public host for RCON-backed server administration
-- **Persistent Storage**: One 1 GiB volume mounted at `/eaglerX-1.8-server/server-data` for generated world data
+- **Game endpoint**: Port `5200`, exposed at the HTTPS root for the browser client and Multiplayer server entry
+- **Admin endpoint**: Port `5201`, exposed through `/admin`, `/admin.css`, `/admin.js`, `/api`, and `/dynmap`
+- **Internal Paper and RCON**: Ports `25565` and `25575` remain inside the container and are reached by the admin bridge
+- **Persistent storage**: A 1 GiB volume mounted at `/eaglerx-data` stores `/eaglerx-data/runtime/server-data` and plugin repositories
 
 **Configuration:**
 
-The `minecraft_version` input sets `MINECRAFT_VERSION`; choose `1.12` for Paper 1.12.2 or `1.8` for Paper 1.8.8. The `rcon_password` input sets `RCON_PASSWORD`. Use that password when the `/admin` panel prompts for access.
+The `minecraft_version` input accepts `1.8` or `1.12` and sets `MINECRAFT_VERSION`. The default `1.12` option starts Paper 1.12.2; `1.8` starts Paper 1.8.8. The `rcon_password` input sets `RCON_PASSWORD` and protects `/api/login` and the `/admin` panel. The tested starting footprint is 100m CPU, 1 GiB memory, and 1 GiB storage; increase resources from the Canvas as the world and player count grow.
 
-Sealos terminates TLS at the Ingress layer and routes one public HTTPS host to two backend ports: `/` reaches the browser game client and Multiplayer entry on port `5200`; `/admin`, `/admin.css`, `/admin.js`, `/api`, and `/dynmap` reach the management surface on port `5201`.
+Sealos terminates TLS at the Ingress layer and routes one public HTTPS host to the game and admin ports. The game route keeps WebSocket support and long proxy timeouts, while the admin route sends API, panel assets, and Dynmap traffic to port `5201`.
 
 **License Information:**
 
-This template is provided under the MIT License. Review the upstream EaglercraftX and bundled server components for their own licenses before redistribution.
+This Sealos template is provided under the MIT License. Review the EaglercraftX project and bundled server components for their applicable licenses before redistribution.
 
 ## Why Deploy EaglerCraft Server on Sealos?
 
 Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies application deployment, operation, scaling, and management. By deploying EaglerCraft Server on Sealos, you get:
 
-- **One-Click Deployment**: Start a browser-playable server from the App Store template without writing Kubernetes YAML.
-- **Persistent World Data**: Store generated Paper world data on a persistent volume.
-- **Instant HTTPS Access**: Get a public HTTPS URL for both gameplay and administration.
-- **Resource Controls**: Adjust CPU, memory, and storage from the Canvas when your player count or world size grows.
-- **AI-Assisted Operations**: Use the Canvas AI dialog or resource cards to change settings after deployment.
-- **Pay-As-You-Go Efficiency**: Start with a compact footprint and scale only when the server needs more resources.
+- **One-Click Deployment**: Start a browser-playable server from the App Store template.
+- **Persistent World Data**: Keep Paper worlds and plugin repositories on managed storage.
+- **Instant HTTPS Access**: Receive a public HTTPS URL for gameplay and administration.
+- **Resource Controls**: Adjust CPU, memory, and storage from the Canvas as usage grows.
+- **AI-Assisted Operations**: Use the Canvas AI dialog or resource cards to apply changes.
+- **Pay-As-You-Go Efficiency**: Begin with a compact footprint and scale with demand.
 
 Deploy EaglerCraft Server on Sealos and run a persistent browser-playable world with managed infrastructure.
 
 ## Deployment Guide
 
 1. Open the [EaglerCraft Server template](https://sealos.io/products/app-store/eaglercraft-server) and click **Deploy Now**.
-2. Review the generated app name and host, choose the Minecraft version, and enter an RCON password in the popup dialog. The default Minecraft version is `1.12`; choose `1.8` when you want the Paper 1.8.8 runtime.
+2. Review the generated app name and host, choose `1.12` or `1.8`, and enter an RCON password in the popup dialog. The password is used for admin login and RCON-backed operations.
 3. Wait for deployment to complete, typically 2-3 minutes. After deployment, you will be redirected to the Canvas. For later changes, describe your requirements in the dialog to let AI apply updates, or click the relevant resource cards to modify settings.
-4. Access your server via the provided URL:
-   - **Game Client**: Open `https://[your-app-url]` to load the browser client and play.
-   - **Multiplayer Server Entry**: In the EaglercraftX Multiplayer dialog, add or direct-connect to the public host only, for example `[your-app-url-host]`.
-   - **Admin Panel**: Open `https://[your-app-url]/admin` and log in with the RCON password you entered during deployment.
+4. Access your server through the generated HTTPS URL:
+   - **Game client**: Open `https://[your-app-url-host]` to load the browser client.
+   - **Multiplayer server entry**: In the EaglercraftX Multiplayer dialog, enter `wss://[your-app-url-host]`.
+   - **Admin panel**: Open `https://[your-app-url-host]/admin` and sign in with the RCON password from deployment.
 
 ## Configuration
 
 After deployment, configure EaglerCraft Server through:
 
-- **Browser Client**: Open the root URL and use the in-browser game client.
-- **Admin Panel**: Open `/admin` and enter the RCON password from the deployment form to use the RCON-backed management surface.
-- **Canvas AI Dialog**: Describe CPU, memory, storage, or environment changes and let AI apply them.
-- **Resource Cards**: Click the StatefulSet, Service, Ingress, or storage cards to inspect and modify settings.
+- **Browser client**: Open the root URL and use the in-browser game client.
+- **Admin panel**: Open `/admin`, enter the deployment RCON password, and use the server controls.
+- **Canvas AI dialog**: Describe CPU, memory, storage, or environment changes for AI-assisted updates.
+- **Resource cards**: Open the StatefulSet, Service, Ingress, or storage cards to inspect and edit resources.
 
-### Connecting Players
+### Admin Login and Player Registration
 
-Use the deployment root URL for browser gameplay. When the client shows `press any key to continue`, press any key, set your player name and skin, then click **Multiplayer**. Use **Add Server** or **Direct Connect** to join the deployment.
+The admin panel uses the `rcon_password` entered during deployment. Open `/admin`, enter that password, and the browser stores a short-lived session token for the management API.
 
-Enter the public host exactly as a hostname, without an `https://` or `wss://` prefix:
-
-```text
-[your-app-url-host]
-```
-
-After joining the server, movement is blocked until the player account is registered. Open chat and run:
+Players connect through the secure WebSocket endpoint below. When the world appears, press `T` or `/` to open chat and register within the 30-second login window:
 
 ```text
 /register <password>
 ```
 
-The admin panel uses the same public host with `/admin`:
+On later visits, log in with the same password:
 
 ```text
-https://[your-app-url]/admin
+/login <password>
 ```
+
+Use this address in Multiplayer:
+
+```text
+wss://[your-app-url-host]
+```
+
+The bundled 1.12 client also normalizes a bare hostname to `wss://`; the explicit secure WebSocket address is the documented connection format.
 
 ## Scaling
 
 To scale your server:
 
 1. Open the Canvas for your deployment.
-2. Click the StatefulSet resource card.
+2. Open the StatefulSet resource card.
 3. Increase CPU and memory for more players or heavier world generation.
-4. Click the storage resource card to expand the persistent volume when worlds, plugins, or assets grow.
+4. Expand the storage resource when worlds, plugins, or assets grow.
 
 ## Troubleshooting
 
@@ -117,31 +120,36 @@ To scale your server:
 
 **The admin panel asks for a password**
 
-- Cause: The admin panel is protected by `RCON_PASSWORD`.
-- Solution: Use the `rcon_password` value from the deployment parameters.
+- **Cause**: The panel is protected by `RCON_PASSWORD`.
+- **Solution**: Use the `rcon_password` value from the deployment parameters.
 
-**Players cannot connect from the browser client**
+**The browser client cannot connect**
 
-- Cause: The client expects a hostname in the Multiplayer server field.
-- Solution: Copy only the public host from the App URL, such as `[your-app-url-host]`, and leave out URL prefixes.
+- **Cause**: Multiplayer connects through the secure WebSocket endpoint on the generated host.
+- **Solution**: Enter `wss://[your-app-url-host]`. After entering the world, complete `/register <password>` or `/login <password>` within the displayed login window.
 
-**World data disappears after restart**
+**The first server action is still starting**
 
-- Cause: World data must live under the configured `SERVER_DATA_DIR`.
-- Solution: Keep the provided persistent volume mounted at `/eaglerX-1.8-server/server-data`.
+- **Cause**: Paper and the selected EaglercraftX runtime initialize during the first launch.
+- **Solution**: Wait for the deployment to finish its 2-3 minute startup window, then retry the admin action.
+
+**World data is missing after a restart**
+
+- **Cause**: The world data path must remain on the persistent volume.
+- **Solution**: Keep the template volume mounted at `/eaglerx-data` so the runtime data under `/eaglerx-data/runtime/server-data` remains available.
 
 ### Getting Help
 
-- [EaglerCraft Server Issues](https://github.com/yangchuansheng/eaglercraft-server/issues)
-- [Upstream Server Source](https://gitee.com/mirrorvim/eaglerX-1.8-server)
+- [EaglerXserver issues](https://github.com/yangchuansheng/eaglerXserver/issues)
+- [EaglerXserver documentation](https://github.com/yangchuansheng/eaglerXserver)
 - [Sealos Discord](https://discord.gg/wdUn538zVP)
 
 ## Additional Resources
 
-- [EaglerCraft Server Documentation](https://github.com/yangchuansheng/eaglercraft-server)
-- [EaglerCraft Server Blog](https://sealos.io/blog/eaglercraft-server/)
-- [Published Container Image](https://github.com/yangchuansheng/eaglercraft-server/pkgs/container/eaglerx1.8server)
+- [EaglerXserver source and runtime documentation](https://github.com/yangchuansheng/eaglerXserver)
+- [Sealos EaglerCraft Server blog](https://sealos.io/blog/eaglercraft-server/)
+- [Published container image](https://github.com/yangchuansheng/eaglerXserver/pkgs/container/eaglerx1.8server)
 
 ## License
 
-This Sealos template is provided under the MIT License. EaglerCraft Server is licensed under MIT, and bundled upstream components retain their own licenses.
+This Sealos template is provided under the MIT License. EaglerCraft Server and its bundled upstream components retain their own applicable licenses.
