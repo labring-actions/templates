@@ -68,9 +68,9 @@ Deploy EaglerCraft Server on Sealos and run a persistent browser-playable world 
 2. Review the generated app name and host, choose `1.12` or `1.8`, and enter an RCON password in the popup dialog. The password is used for admin login and RCON-backed operations.
 3. Wait for deployment to complete, typically 2-3 minutes. After deployment, you will be redirected to the Canvas. For later changes, describe your requirements in the dialog to let AI apply updates, or click the relevant resource cards to modify settings.
 4. Access your server through the generated HTTPS URL:
-   - **Game client**: Open `https://[your-app-url]` to load the browser client.
-   - **Multiplayer server entry**: In the EaglercraftX Multiplayer dialog, enter the public hostname, such as `[your-app-url-host]`.
-   - **Admin panel**: Open `https://[your-app-url]/admin` and sign in with the RCON password from deployment.
+   - **Game client**: Open `https://[your-app-url-host]` to load the browser client.
+   - **Multiplayer server entry**: In the EaglercraftX Multiplayer dialog, enter `wss://[your-app-url-host]`.
+   - **Admin panel**: Open `https://[your-app-url-host]/admin` and sign in with the RCON password from deployment.
 
 ## Configuration
 
@@ -83,19 +83,27 @@ After deployment, configure EaglerCraft Server through:
 
 ### Admin Login and Player Registration
 
-The admin panel uses the `rcon_password` entered during deployment. It has no separate registration flow: open `/admin`, enter that password, and the browser stores a short-lived session token for the management API.
+The admin panel uses the `rcon_password` entered during deployment. Open `/admin`, enter that password, and the browser stores a short-lived session token for the management API.
 
-Players create their in-game account after joining the public hostname. In the game chat, run:
+Players connect through the secure WebSocket endpoint below. When the world appears, press `T` or `/` to open chat and register within the 30-second login window:
 
 ```text
 /register <password>
 ```
 
-Use the same public hostname in Multiplayer, without an `https://` or `wss://` prefix:
+On later visits, log in with the same password:
 
 ```text
-[your-app-url-host]
+/login <password>
 ```
+
+Use this address in Multiplayer:
+
+```text
+wss://[your-app-url-host]
+```
+
+The bundled 1.12 client also normalizes a bare hostname to `wss://`; the explicit secure WebSocket address is the documented connection format.
 
 ## Scaling
 
@@ -117,8 +125,8 @@ To scale your server:
 
 **The browser client cannot connect**
 
-- **Cause**: The Multiplayer field expects a hostname.
-- **Solution**: Enter only `[your-app-url-host]` and keep the `https://` and `wss://` prefixes out of the field.
+- **Cause**: Multiplayer connects through the secure WebSocket endpoint on the generated host.
+- **Solution**: Enter `wss://[your-app-url-host]`. After entering the world, complete `/register <password>` or `/login <password>` within the displayed login window.
 
 **The first server action is still starting**
 

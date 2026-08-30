@@ -68,9 +68,9 @@ Sealos 是基于 Kubernetes 的 AI 云操作系统，统一应用部署、运维
 2. 在弹窗中检查生成的应用名称和访问域名，选择 `1.12` 或 `1.8`，并填写 RCON 密码。这个密码用于管理面板登录和基于 RCON 的操作。
 3. 等待部署完成，通常需要 2-3 分钟。部署完成后会跳转到 Canvas。后续需要调整时，可以在对话框中描述需求让 AI 修改，也可以点击相关资源卡片修改设置。
 4. 通过生成的 HTTPS URL 访问服务器：
-   - **游戏客户端**：打开 `https://[your-app-url]` 加载浏览器客户端。
-   - **Multiplayer 服务器入口**：在 EaglercraftX Multiplayer 对话框中填写公网主机名，例如 `[your-app-url-host]`。
-   - **管理面板**：打开 `https://[your-app-url]/admin`，使用部署时填写的 RCON 密码登录。
+   - **游戏客户端**：打开 `https://[your-app-url-host]` 加载浏览器客户端。
+   - **Multiplayer 服务器入口**：在 EaglercraftX Multiplayer 对话框中填写 `wss://[your-app-url-host]`。
+   - **管理面板**：打开 `https://[your-app-url-host]/admin`，使用部署时填写的 RCON 密码登录。
 
 ## 配置
 
@@ -83,19 +83,27 @@ Sealos 是基于 Kubernetes 的 AI 云操作系统，统一应用部署、运维
 
 ### 管理员登录和玩家注册
 
-管理面板使用部署时填写的 `rcon_password`。管理员使用现有密码登录：打开 `/admin`，输入密码，浏览器会为管理 API 保存一个短期会话令牌。
+管理面板使用部署时填写的 `rcon_password`。打开 `/admin` 并输入该密码，浏览器会为管理 API 保存一个短期会话令牌。
 
-玩家加入公网主机名后，在游戏内创建账号。打开游戏聊天框并执行：
+玩家通过下面的安全 WebSocket 地址连接。进入世界后按 `T` 或 `/` 打开聊天框，并在 30 秒登录窗口内完成注册：
 
 ```text
 /register <你的密码>
 ```
 
-在 Multiplayer 中使用同一个公网主机名，保留纯主机名形式，不添加 `https://` 或 `wss://`：
+后续进入服务器时使用同一个密码登录：
 
 ```text
-[your-app-url-host]
+/login <你的密码>
 ```
+
+在 Multiplayer 中使用以下地址：
+
+```text
+wss://[your-app-url-host]
+```
+
+内置的 1.12 客户端也会把纯主机名自动规范化为 `wss://`；文档统一采用显式安全 WebSocket 地址。
 
 ## 扩容
 
@@ -117,8 +125,8 @@ Sealos 是基于 Kubernetes 的 AI 云操作系统，统一应用部署、运维
 
 **浏览器客户端无法连接**
 
-- **原因**：Multiplayer 输入框需要主机名。
-- **解决方案**：只填写 `[your-app-url-host]`，不要在输入框中加入 `https://` 或 `wss://` 前缀。
+- **原因**：Multiplayer 通过生成域名上的安全 WebSocket 入口连接。
+- **解决方案**：填写 `wss://[your-app-url-host]`。进入世界后，在提示的登录窗口内完成 `/register <你的密码>` 或 `/login <你的密码>`。
 
 **首次服务器操作仍在启动**
 
