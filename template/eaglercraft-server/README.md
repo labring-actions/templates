@@ -33,12 +33,12 @@ The image includes both browser clients, Paper runtimes, the WebSocket gateway, 
 
 - **StatefulSet**: One replica using `ghcr.io/yangchuansheng/eaglerx1.8server:2.2.4`, pinned to its published SHA-256 digest.
 - **Game route**: HTTPS `/` and secure WebSocket connections reach port `5200`.
-- **Admin route**: `/admin`, `/api`, `/admin.css`, `/admin.js`, `/admin-i18n.js`, and `/dynmap` reach port `5201` on the same host.
+- **Admin route**: `/admin`, `/api`, `/admin.css`, `/admin.js`, `/admin-i18n.js`, and `/dynmap` reach port `5201` on the same host. The Service publishes Pod endpoints during game initialization so the console and browser client open as soon as their HTTP services start.
 - **Internal services**: Paper `25565` and RCON `25575` stay inside the Pod.
 - **Persistent volume**: `/eaglerx-data` contains the full runtime, worlds, and configuration. `PERSISTENT_DATA_ROOT=/eaglerx-data/runtime/server-data` holds the version-specific plugin repositories.
 - **Runtime initialization**: An init container seeds fresh volumes and refreshes image-owned scripts and browser assets on existing volumes, preserving Paper configuration, worlds, and plugin data.
 
-The main container has a `200m` CPU limit and `1024Mi` memory limit; the init container uses `100m` CPU and `128Mi` memory. Validation at `100m` CPU triggered Paper 1.8's watchdog during chunk saving, and `512Mi` memory caused a startup OOM. Readiness waits for the game, HTTP, Paper, and RCON listeners plus the selected world's `level.dat` file. The startup probe verifies an RCON command response and saves newly generated worlds immediately, avoiding the five-minute wait for automatic saving.
+The main container has a `200m` CPU limit and `1024Mi` memory limit; the init container uses `100m` CPU and `128Mi` memory. Validation at `100m` CPU triggered Paper 1.8's watchdog during chunk saving, and `512Mi` memory caused a startup OOM. Pod readiness waits for the game, HTTP, Paper, and RCON listeners plus the selected world's `level.dat` file. The startup probe verifies an RCON command response and saves newly generated worlds immediately. The Service uses `publishNotReadyAddresses: true` to make the console and browser client available during this process; entering the world requires Paper to finish starting.
 
 `PUBLIC_GAME_URL` uses the generated HTTPS address. The admin Overview displays the corresponding `wss://` address and an **Open and join game** link. The ingress accepts plugin uploads up to **32 MiB**.
 
@@ -50,9 +50,9 @@ The main container has a `200m` CPU limit and `1024Mi` memory limit; the init co
 
 1. Open the [EaglerCraft Server template](https://sealos.io/products/app-store/eaglercraft-server) and click **Deploy Now**.
 2. Choose `minecraft_version` (`1.12` by default) and set `rcon_password` to a strong, non-empty, single-line password. Save this value for administrator login.
-3. Provisioning typically takes **2-3 minutes**. Allow additional time for initial world generation and plugin loading at the default CPU limit. The public URL may return **HTTP 502/503** during startup. Wait for the StatefulSet to become Ready, then open its application URL from the Canvas.
-4. Open `/admin` on that HTTPS host, enter the deployment RCON password, and click **Confirm**. Use the header's **Language** selector to choose English or 简体中文.
-5. On **Overview**, use **Open and join game**, or copy the WebSocket address into the browser client's Multiplayer server list. Complete the player registration or login described below.
+3. Full game startup typically takes **2-3 minutes**, depending on world generation and plugin loading. Open the application link in the Canvas: it goes directly to `/admin`, which becomes available as soon as the management HTTP service starts.
+4. Enter the deployment RCON password and click **Confirm**. Administrator login is available while the game initializes. World data and game controls become available when the StatefulSet is Ready. Use the header's **Language** selector to choose English or 简体中文.
+5. Once the StatefulSet is Ready, use **Open and join game** on **Overview**, or copy the WebSocket address into the browser client's Multiplayer server list. Complete the player registration or login described below.
 
 ## Administrator Login and Player Registration
 
@@ -60,7 +60,7 @@ The main container has a `200m` CPU limit and `1024Mi` memory limit; the init co
 
 The admin login form uses the `rcon_password` set during deployment. Successful login creates an administration token stored in the current browser tab's `sessionStorage`, with an 8-hour lifetime. Closing the tab clears that tab's session; **Log out** also clears the stored login.
 
-After connecting, try the **sunny** weather button and **noon** time button under **Operation control**. The world-state card and command console show the results. The panel also offers player management, world saving, and plugin controls.
+Once the game is Ready, try the **sunny** weather button and **noon** time button under **Operation control**. The world-state card and command console show the results. The panel also offers player management, world saving, and plugin controls.
 
 ### Player access
 
@@ -96,7 +96,7 @@ For Minecraft 1.8, initialization disables Dynmap's player health and armor disp
 
 ## Troubleshooting
 
-- **The public URL returns HTTP 502/503 during startup**: Check the StatefulSet's Ready status in the Canvas. Startup automatically saves the new world once Paper and RCON are available, then enables public routing. Increase CPU in the Canvas when faster world generation and plugin loading matter.
+- **The console opens while game controls are still loading**: Check the StatefulSet's Ready status in the Canvas. The browser client `/` and console `/admin` open early; entering the world and using game controls requires Paper and RCON. The `[start]` log lines describe entrypoint configuration. Paper's initialization progress is in `/eaglerx-data/runtime/server/logs/latest.log` inside the container.
 - **Admin login fails**: Enter the saved `rcon_password`. Five failed attempts from the same source trigger a 10-minute lockout; clients sharing a reverse proxy may share that window.
 - **The player is disconnected shortly after joining**: Complete `/register` on the first visit or `/login` on later visits within 30 seconds, using the same player name.
 - **A plugin upload returns HTTP 413**: Keep the JAR within the template's 32 MiB ingress limit.

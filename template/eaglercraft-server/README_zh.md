@@ -33,12 +33,12 @@ EaglerCraft Server 集成浏览器游戏客户端、安全 WebSocket 网关、Pa
 
 - **StatefulSet**：单副本运行 `ghcr.io/yangchuansheng/eaglerx1.8server:2.2.4`，并固定到已发布的 SHA-256 摘要。
 - **游戏路由**：HTTPS 根路径 `/` 和安全 WebSocket 连接访问端口 `5200`。
-- **管理路由**：同一域名下的 `/admin`、`/api`、`/admin.css`、`/admin.js`、`/admin-i18n.js` 和 `/dynmap` 访问端口 `5201`。
+- **管理路由**：同一域名下的 `/admin`、`/api`、`/admin.css`、`/admin.js`、`/admin-i18n.js` 和 `/dynmap` 访问端口 `5201`。Service 在游戏初始化期间就发布 Pod 端点，管理页和浏览器客户端各自的 HTTP 服务启动后即可访问。
 - **内部服务**：Paper 端口 `25565` 和 RCON 端口 `25575` 保持在 Pod 内部。
 - **持久卷**：`/eaglerx-data` 保存完整运行目录、世界和配置。`PERSISTENT_DATA_ROOT=/eaglerx-data/runtime/server-data` 保存按版本隔离的插件仓库。
 - **运行目录初始化**：初始化容器会为新持久卷写入完整运行目录，并刷新已有持久卷中由镜像提供的脚本和浏览器资源，同时保留 Paper 配置、世界及插件数据。
 
-主容器的 CPU 上限为 `200m`、内存上限为 `1024Mi`；初始化容器使用 `100m` CPU 和 `128Mi` 内存。验证中，`100m` CPU 配额下的区块保存触发了 Paper 1.8 看门狗，`512Mi` 内存档位在启动时触发了 OOM。就绪检查会等待游戏、HTTP、Paper 和 RCON 端口，以及所选世界的 `level.dat` 文件。启动探针会确认 RCON 命令响应，并立即保存新生成的世界，消除等待自动保存带来的约五分钟延迟。
+主容器的 CPU 上限为 `200m`、内存上限为 `1024Mi`；初始化容器使用 `100m` CPU 和 `128Mi` 内存。验证中，`100m` CPU 配额下的区块保存触发了 Paper 1.8 看门狗，`512Mi` 内存档位在启动时触发了 OOM。Pod 就绪检查会等待游戏、HTTP、Paper 和 RCON 端口，以及所选世界的 `level.dat` 文件。启动探针会确认 RCON 命令响应，并立即保存新生成的世界。Service 通过 `publishNotReadyAddresses: true` 在这一过程期间提前开放管理页和浏览器客户端，进入世界需要等待 Paper 启动完成。
 
 `PUBLIC_GAME_URL` 自动使用生成的 HTTPS 地址。管理面板的 Overview 会显示对应的 `wss://` 地址和 **Open and join game** 链接。通过本模板入口上传的插件大小上限为 **32 MiB**。
 
@@ -50,9 +50,9 @@ EaglerCraft Server 集成浏览器游戏客户端、安全 WebSocket 网关、Pa
 
 1. 打开 [EaglerCraft Server 模板页面](https://sealos.io/products/app-store/eaglercraft-server)，点击 **Deploy Now**。
 2. 选择 `minecraft_version`，默认值为 `1.12`；将 `rcon_password` 设置为强度足够的非空单行密码，并保存好这个管理员登录密码。
-3. 资源创建通常需要 **2-3 分钟**。默认 CPU 配额下，首次生成世界和加载插件还需要额外时间。启动期间，公网地址可能返回 **HTTP 502/503**。等待 StatefulSet 进入 Ready 状态，再从 Canvas 打开应用地址。
-4. 在该 HTTPS 域名后加上 `/admin`，输入部署时的 RCON 密码，点击 **Confirm**。可通过页眉的 **Language** 选择 English 或简体中文。
-5. 在 **Overview** 中点击 **Open and join game**，或将 WebSocket 地址复制到浏览器客户端的 Multiplayer 服务器列表。进入世界后，按照下文完成玩家注册或登录。
+3. 游戏完整启动通常需要 **2-3 分钟**，具体取决于世界生成和插件加载。在 Canvas 点击应用链接会直接打开 `/admin`，管理 HTTP 服务启动后即可访问该页面。
+4. 输入部署时的 RCON 密码，点击 **Confirm**。游戏初始化期间即可完成管理员登录；StatefulSet 进入 Ready 状态后，世界数据和游戏控制功能可用。可通过页眉的 **Language** 选择 English 或简体中文。
+5. 等待 StatefulSet 进入 Ready 状态后，在 **Overview** 中点击 **Open and join game**，或将 WebSocket 地址复制到浏览器客户端的 Multiplayer 服务器列表。进入世界后，按照下文完成玩家注册或登录。
 
 ## 管理员登录与玩家注册
 
@@ -60,7 +60,7 @@ EaglerCraft Server 集成浏览器游戏客户端、安全 WebSocket 网关、Pa
 
 管理面板使用部署时设置的 `rcon_password` 登录。登录成功后，管理令牌保存在当前浏览器标签页的 `sessionStorage` 中，有效期为 8 小时。关闭标签页会清除该标签页的会话；点击 **Log out** 也会清除已保存的登录状态。
 
-连接成功后，可在 **Operation control** 中点击天气按钮 **sunny** 和时间按钮 **noon**。世界状态卡片和命令控制台会显示操作结果。面板同时提供玩家管理、世界保存和插件管理功能。
+游戏进入 Ready 状态后，可在 **Operation control** 中点击天气按钮 **sunny** 和时间按钮 **noon**。世界状态卡片和命令控制台会显示操作结果。面板同时提供玩家管理、世界保存和插件管理功能。
 
 ### 玩家访问
 
@@ -96,7 +96,7 @@ Minecraft 1.8 的初始化流程会关闭 Dynmap 的玩家生命值和护甲显�
 
 ## 故障排查
 
-- **启动期间公网地址返回 HTTP 502/503**：在 Canvas 查看 StatefulSet 的 Ready 状态。Paper 和 RCON 启动完成后，启动流程会自动保存新世界并放行公网访问。需要加快世界生成和插件加载时，可在 Canvas 增加 CPU。
+- **管理页面已打开，游戏控制仍在加载**：在 Canvas 查看 StatefulSet 的 Ready 状态。浏览器客户端 `/` 和管理页 `/admin` 提前开放，进入世界及游戏控制需要等待 Paper 和 RCON。`[start]` 日志描述入口脚本的配置过程，Paper 的实际初始化进度保存在容器内的 `/eaglerx-data/runtime/server/logs/latest.log`。
 - **管理员登录失败**：使用已保存的 `rcon_password`。同一来源连续输错 5 次会锁定 10 分钟；通过同一反向代理访问的客户端可能共享这一窗口。
 - **玩家加入后很快断开**：首次访问时在 30 秒内执行 `/register`，之后访问时执行 `/login`，并保持玩家名一致。
 - **插件上传返回 HTTP 413**：将 JAR 文件大小控制在模板的 32 MiB 入口限制内。
