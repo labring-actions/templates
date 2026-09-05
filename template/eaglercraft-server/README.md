@@ -38,7 +38,7 @@ The image includes both browser clients, Paper runtimes, the WebSocket gateway, 
 - **Persistent volume**: `/eaglerx-data` contains the full runtime, worlds, and configuration. `PERSISTENT_DATA_ROOT=/eaglerx-data/runtime/server-data` holds the version-specific plugin repositories.
 - **Runtime initialization**: An init container seeds fresh volumes and refreshes image-owned scripts and browser assets on existing volumes, preserving Paper configuration, worlds, and plugin data.
 
-The main container has a `100m` CPU limit and `1024Mi` memory limit; the init container uses `100m` CPU and `128Mi` memory. The main container's `512Mi` memory tier failed startup validation with an OOM. Readiness waits for the game, HTTP, Paper, and RCON listeners plus the selected world's `level.dat` file.
+The main container has a `200m` CPU limit and `1024Mi` memory limit; the init container uses `100m` CPU and `128Mi` memory. Validation at `100m` CPU triggered Paper 1.8's watchdog during chunk saving, and `512Mi` memory caused a startup OOM. Readiness waits for the game, HTTP, Paper, and RCON listeners plus the selected world's `level.dat` file. The startup probe verifies an RCON command response and saves newly generated worlds immediately, avoiding the five-minute wait for automatic saving.
 
 `PUBLIC_GAME_URL` uses the generated HTTPS address. The admin Overview displays the corresponding `wss://` address and an **Open and join game** link. The ingress accepts plugin uploads up to **32 MiB**.
 
@@ -50,7 +50,7 @@ The main container has a `100m` CPU limit and `1024Mi` memory limit; the init co
 
 1. Open the [EaglerCraft Server template](https://sealos.io/products/app-store/eaglercraft-server) and click **Deploy Now**.
 2. Choose `minecraft_version` (`1.12` by default) and set `rcon_password` to a strong, non-empty, single-line password. Save this value for administrator login.
-3. Provisioning typically takes **2-3 minutes**. Initial world generation and plugin loading can extend startup to **5-10 minutes** at the default CPU limit. Wait for the StatefulSet to become Ready, then open its application URL from the Canvas.
+3. Provisioning typically takes **2-3 minutes**. Allow additional time for initial world generation and plugin loading at the default CPU limit. The public URL may return **HTTP 502/503** during startup. Wait for the StatefulSet to become Ready, then open its application URL from the Canvas.
 4. Open `/admin` on that HTTPS host, enter the deployment RCON password, and click **Confirm**. Use the header's **Language** selector to choose English or 简体中文.
 5. On **Overview**, use **Open and join game**, or copy the WebSocket address into the browser client's Multiplayer server list. Complete the player registration or login described below.
 
@@ -96,7 +96,7 @@ For Minecraft 1.8, initialization disables Dynmap's player health and armor disp
 
 ## Troubleshooting
 
-- **Startup is still in progress**: Wait for world generation, plugin initialization, RCON, and the first world save. The application becomes Ready when these prerequisites are available. Increase CPU in the Canvas when faster startup matters.
+- **The public URL returns HTTP 502/503 during startup**: Check the StatefulSet's Ready status in the Canvas. Startup automatically saves the new world once Paper and RCON are available, then enables public routing. Increase CPU in the Canvas when faster world generation and plugin loading matter.
 - **Admin login fails**: Enter the saved `rcon_password`. Five failed attempts from the same source trigger a 10-minute lockout; clients sharing a reverse proxy may share that window.
 - **The player is disconnected shortly after joining**: Complete `/register` on the first visit or `/login` on later visits within 30 seconds, using the same player name.
 - **A plugin upload returns HTTP 413**: Keep the JAR within the template's 32 MiB ingress limit.

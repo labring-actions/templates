@@ -1,9 +1,12 @@
-"""Run with Python and PyYAML to verify the persisted-runtime upgrade hook."""
+"""Run with Python and PyYAML to verify runtime upgrades and first-save startup."""
 
 import os
 from pathlib import Path
 import subprocess
+import sys
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 import zipfile
 
 import yaml
@@ -60,7 +63,28 @@ with TemporaryDirectory() as directory:
     (server / "server.properties").write_text("level-name=custom world\n")
     env["APP_DIR"] = str(runtime)
     assert subprocess.run(["/bin/sh", "-c", guard], env=env).returncode != 0
-    (server / "custom world/level.dat").write_bytes(b"saved world")
+    startup = container["startupProbe"]["exec"]["command"][-1].split("<<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
+    level = server / "custom world/level.dat"
+    bridge = SimpleNamespace(SERVER_ROOT=str(server), get_level_name=lambda: "custom world", rcon_send=Mock())
+    with patch.dict(sys.modules, {"http_server": bridge}), patch("socket.create_connection"):
+        bridge.rcon_send.side_effect = RuntimeError("RCON unavailable")
+        try:
+            exec(startup, {})
+        except RuntimeError as error:
+            assert str(error) == "RCON unavailable"
+        else:
+            raise AssertionError("Startup passed while the first save failed")
+        assert not level.exists()
+        bridge.rcon_send.reset_mock()
+        bridge.rcon_send.side_effect = lambda command, **kwargs: level.write_bytes(b"saved world") if command == "save-all" else "No players online"
+        exec(startup, {})
+        bridge.rcon_send.assert_called_once_with("save-all", retries=1)
+        exec(startup, {})
+        bridge.rcon_send.assert_called_with("list", retries=1)
+        assert level.read_bytes() == b"saved world"
+        level.write_bytes(b"")
+        exec(startup, {})
+        assert level.read_bytes() == b"saved world"
     subprocess.run(["/bin/sh", "-c", guard], env=env, check=True)
 
-print("PASS: initialization, incomplete-volume protection, upgrade refresh, Dynmap compatibility, readiness, and data preservation")
+print("PASS: initialization, upgrade refresh, Dynmap compatibility, first-save startup, readiness, and data preservation")

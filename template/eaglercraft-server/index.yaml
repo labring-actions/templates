@@ -49,7 +49,7 @@ metadata:
     originImageName: ghcr.io/yangchuansheng/eaglerx1.8server:2.2.4@sha256:66da3351b997942ae6e149d2d60764266153a843135416ab12598e0ec30860ff
     deploy.cloud.sealos.io/minReplicas: "1"
     deploy.cloud.sealos.io/maxReplicas: "1"
-    docker-to-sealos.resource-override-source: "live validation on 2026-09-05: 100m CPU/1024Mi memory passed; 512Mi memory OOMKilled during startup"
+    docker-to-sealos.resource-override-source: "live validation on 2026-09-06: 100m CPU triggered the Paper 1.8 watchdog during chunk saving; 512Mi memory OOMKilled during startup"
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
@@ -134,10 +134,10 @@ spec:
               value: /eaglerx-data/runtime/server-data
           resources:
             requests:
-              cpu: 10m
+              cpu: 20m
               memory: 102Mi
             limits:
-              cpu: 100m
+              cpu: 200m
               memory: 1024Mi
           ports:
             - containerPort: 5200
@@ -149,10 +149,23 @@ spec:
               command:
                 - /bin/sh
                 - -c
-                - >-
-                  python3 -c "import socket; [socket.create_connection(('127.0.0.1', port), 3).close() for port in (5200, 5201, 25565, 25575)]"
+                - |
+                  PYTHONPATH="$APP_DIR/script" python3 - <<'PY'
+                  import socket
+                  from pathlib import Path
+                  from http_server import SERVER_ROOT, get_level_name, rcon_send
+
+                  for port in (5200, 5201, 25565, 25575):
+                      socket.create_connection(('127.0.0.1', port), 3).close()
+                  level = Path(SERVER_ROOT) / get_level_name() / 'level.dat'
+                  # Save new worlds immediately so readiness can pass before autosave.
+                  fresh = not level.is_file() or level.stat().st_size == 0
+                  rcon_send('save-all' if fresh else 'list', retries=1)
+                  if level.stat().st_size == 0:
+                      raise SystemExit('Waiting for the initial world save')
+                  PY
             periodSeconds: 10
-            timeoutSeconds: 5
+            timeoutSeconds: 15
             failureThreshold: 60
           # Wait for the first world save as well as Paper's RCON listener.
           readinessProbe:

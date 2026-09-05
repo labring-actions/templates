@@ -38,7 +38,7 @@ EaglerCraft Server 集成浏览器游戏客户端、安全 WebSocket 网关、Pa
 - **持久卷**：`/eaglerx-data` 保存完整运行目录、世界和配置。`PERSISTENT_DATA_ROOT=/eaglerx-data/runtime/server-data` 保存按版本隔离的插件仓库。
 - **运行目录初始化**：初始化容器会为新持久卷写入完整运行目录，并刷新已有持久卷中由镜像提供的脚本和浏览器资源，同时保留 Paper 配置、世界及插件数据。
 
-主容器的 CPU 上限为 `100m`、内存上限为 `1024Mi`；初始化容器使用 `100m` CPU 和 `128Mi` 内存。主容器在 `512Mi` 内存档位的启动验证中触发了 OOM。就绪检查会等待游戏、HTTP、Paper 和 RCON 端口，以及所选世界的 `level.dat` 文件。
+主容器的 CPU 上限为 `200m`、内存上限为 `1024Mi`；初始化容器使用 `100m` CPU 和 `128Mi` 内存。验证中，`100m` CPU 配额下的区块保存触发了 Paper 1.8 看门狗，`512Mi` 内存档位在启动时触发了 OOM。就绪检查会等待游戏、HTTP、Paper 和 RCON 端口，以及所选世界的 `level.dat` 文件。启动探针会确认 RCON 命令响应，并立即保存新生成的世界，消除等待自动保存带来的约五分钟延迟。
 
 `PUBLIC_GAME_URL` 自动使用生成的 HTTPS 地址。管理面板的 Overview 会显示对应的 `wss://` 地址和 **Open and join game** 链接。通过本模板入口上传的插件大小上限为 **32 MiB**。
 
@@ -50,7 +50,7 @@ EaglerCraft Server 集成浏览器游戏客户端、安全 WebSocket 网关、Pa
 
 1. 打开 [EaglerCraft Server 模板页面](https://sealos.io/products/app-store/eaglercraft-server)，点击 **Deploy Now**。
 2. 选择 `minecraft_version`，默认值为 `1.12`；将 `rcon_password` 设置为强度足够的非空单行密码，并保存好这个管理员登录密码。
-3. 资源创建通常需要 **2-3 分钟**。默认 CPU 配额下，首次生成世界和加载插件可能将启动时间延长至 **5-10 分钟**。等待 StatefulSet 进入 Ready 状态，再从 Canvas 打开应用地址。
+3. 资源创建通常需要 **2-3 分钟**。默认 CPU 配额下，首次生成世界和加载插件还需要额外时间。启动期间，公网地址可能返回 **HTTP 502/503**。等待 StatefulSet 进入 Ready 状态，再从 Canvas 打开应用地址。
 4. 在该 HTTPS 域名后加上 `/admin`，输入部署时的 RCON 密码，点击 **Confirm**。可通过页眉的 **Language** 选择 English 或简体中文。
 5. 在 **Overview** 中点击 **Open and join game**，或将 WebSocket 地址复制到浏览器客户端的 Multiplayer 服务器列表。进入世界后，按照下文完成玩家注册或登录。
 
@@ -96,7 +96,7 @@ Minecraft 1.8 的初始化流程会关闭 Dynmap 的玩家生命值和护甲显�
 
 ## 故障排查
 
-- **应用仍在启动**：等待世界生成、插件初始化、RCON 启动和首次世界保存。这些条件满足后，应用会进入 Ready 状态。需要缩短启动时间时，可在 Canvas 增加 CPU。
+- **启动期间公网地址返回 HTTP 502/503**：在 Canvas 查看 StatefulSet 的 Ready 状态。Paper 和 RCON 启动完成后，启动流程会自动保存新世界并放行公网访问。需要加快世界生成和插件加载时，可在 Canvas 增加 CPU。
 - **管理员登录失败**：使用已保存的 `rcon_password`。同一来源连续输错 5 次会锁定 10 分钟；通过同一反向代理访问的客户端可能共享这一窗口。
 - **玩家加入后很快断开**：首次访问时在 30 秒内执行 `/register`，之后访问时执行 `/login`，并保持玩家名一致。
 - **插件上传返回 HTTP 413**：将 JAR 文件大小控制在模板的 32 MiB 入口限制内。
