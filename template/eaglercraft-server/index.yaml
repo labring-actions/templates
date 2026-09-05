@@ -7,7 +7,7 @@ spec:
   url: "https://github.com/yangchuansheng/eaglerXserver"
   gitRepo: "https://github.com/yangchuansheng/eaglerXserver"
   author: "Sealos"
-  description: "EaglercraftX 2.2.3 server image with browser gameplay, WebSocket access, admin panel, and persistent Paper world data"
+  description: "EaglercraftX 2.2.4 server with browser gameplay, secure WebSocket access, a bilingual admin console, and persistent Paper worlds"
   readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/eaglercraft-server/README.md'
   icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/eaglercraft-server/logo.svg'
   screenshots:
@@ -16,7 +16,7 @@ spec:
   locale: en
   i18n:
     zh:
-      description: "EaglercraftX 2.2.3 服务器镜像，支持网页端游戏、WebSocket 连接、管理面板和持久化 Paper 世界数据"
+      description: "EaglercraftX 2.2.4 服务器，支持网页端游戏、安全 WebSocket 连接、双语管理面板和持久化 Paper 世界"
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/eaglercraft-server/README_zh.md'
   categories:
     - game
@@ -37,7 +37,7 @@ spec:
         - "1.12"
         - "1.8"
     rcon_password:
-      description: RCON password for the admin panel and server command bridge.
+      description: Non-empty RCON password for admin login and server commands. Use a single-line password.
       type: string
       required: true
 ---
@@ -46,10 +46,10 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: ghcr.io/yangchuansheng/eaglerx1.8server:2.2.3@sha256:15d9041132ad06a01c93c68a985893795499909927e73bbfc763c637e9fdca5f
+    originImageName: ghcr.io/yangchuansheng/eaglerx1.8server:2.2.4@sha256:66da3351b997942ae6e149d2d60764266153a843135416ab12598e0ec30860ff
     deploy.cloud.sealos.io/minReplicas: "1"
     deploy.cloud.sealos.io/maxReplicas: "1"
-    docker-to-sealos.resource-override-source: "live validation on 2026-08-29: 100m CPU/1Gi memory passed; 512Mi memory OOMKilled during startup"
+    docker-to-sealos.resource-override-source: "live validation on 2026-09-05: 100m CPU/1024Mi memory passed; 512Mi memory OOMKilled during startup"
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
@@ -72,9 +72,52 @@ spec:
     spec:
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 45
+      initContainers:
+        # Initialize fresh volumes and refresh image-owned code while preserving server state.
+        - name: refresh-runtime
+          image: ghcr.io/yangchuansheng/eaglerx1.8server:2.2.4@sha256:66da3351b997942ae6e149d2d60764266153a843135416ab12598e0ec30860ff
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              if [ -f /eaglerx-data/runtime/script/start_server.sh ]; then
+                cp -a "$IMAGE_APP_DIR/script" "$IMAGE_APP_DIR/web-1.8" "$IMAGE_APP_DIR/web-1.12" /eaglerx-data/runtime/
+              elif [ -z "$(ls -A /eaglerx-data/runtime 2>/dev/null)" ]; then
+                mkdir -p /eaglerx-data/runtime
+                cp -a "$IMAGE_APP_DIR/." /eaglerx-data/runtime/
+              else
+                echo "Incomplete runtime directory; restore it before starting." >&2
+                exit 1
+              fi
+              # Dynmap's armor API requires Minecraft 1.9+. Keep maps working on 1.8.
+              python3 - <<'PY'
+              from pathlib import Path
+              import re
+              import zipfile
+
+              plugins = Path('/eaglerx-data/runtime/server-1.8/plugins')
+              jar = plugins / 'Dynmap.jar'
+              if jar.is_file():
+                  config = plugins / 'dynmap/configuration.txt'
+                  config.parent.mkdir(parents=True, exist_ok=True)
+                  with zipfile.ZipFile(jar) as archive:
+                      text = config.read_text() if config.exists() else archive.read('configuration.txt').decode()
+                  config.write_text(re.sub(r'(?m)^(\s*)(sendhealth|showplayerhealth):\s*\w+', r'\1\2: false', text))
+              PY
+          resources:
+            requests:
+              cpu: 10m
+              memory: 12Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: vn-eaglerxvn-data
+              mountPath: /eaglerx-data
       containers:
         - name: ${{ defaults.app_name }}
-          image: ghcr.io/yangchuansheng/eaglerx1.8server:2.2.3@sha256:15d9041132ad06a01c93c68a985893795499909927e73bbfc763c637e9fdca5f
+          image: ghcr.io/yangchuansheng/eaglerx1.8server:2.2.4@sha256:66da3351b997942ae6e149d2d60764266153a843135416ab12598e0ec30860ff
           imagePullPolicy: IfNotPresent
           env:
             - name: APP_DIR
@@ -85,6 +128,8 @@ spec:
               value: ${{ inputs.minecraft_version }}
             - name: RCON_PASSWORD
               value: ${{ inputs.rcon_password }}
+            - name: PUBLIC_GAME_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
             - name: PERSISTENT_DATA_ROOT
               value: /eaglerx-data/runtime/server-data
           resources:
@@ -105,17 +150,19 @@ spec:
                 - /bin/sh
                 - -c
                 - >-
-                  python3 -c "import socket; [socket.create_connection(('127.0.0.1', port), 3).close() for port in (5200, 5201, 25565)]"
+                  python3 -c "import socket; [socket.create_connection(('127.0.0.1', port), 3).close() for port in (5200, 5201, 25565, 25575)]"
             periodSeconds: 10
             timeoutSeconds: 5
-            failureThreshold: 30
+            failureThreshold: 60
+          # Wait for the first world save as well as Paper's RCON listener.
           readinessProbe:
             exec:
               command:
                 - /bin/sh
                 - -c
                 - >-
-                  python3 -c "import socket; [socket.create_connection(('127.0.0.1', port), 3).close() for port in (5200, 5201, 25565)]"
+                  test -s "$APP_DIR/server/$(sed -n 's/^level-name=//p' "$APP_DIR/server/server.properties")/level.dat" &&
+                  python3 -c "import socket; [socket.create_connection(('127.0.0.1', port), 3).close() for port in (5200, 5201, 25565, 25575)]"
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 6
@@ -248,6 +295,13 @@ spec:
                   number: 5201
           - pathType: Prefix
             path: /admin.js
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 5201
+          - pathType: Exact
+            path: /admin-i18n.js
             backend:
               service:
                 name: ${{ defaults.app_name }}
