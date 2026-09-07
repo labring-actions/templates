@@ -8,7 +8,7 @@ EaglerCraft Server 集成浏览器游戏客户端、安全 WebSocket 网关、Pa
 
 玩家打开浏览器客户端后，通过安全 WebSocket 连接加入 Paper 世界。首次部署前选择游戏版本：`1.12` 对应 Paper 1.12.2，`1.8` 对应 Paper 1.8.8。每个 Minecraft 版本应使用独立的实例和持久卷。
 
-一个 StatefulSet 运行游戏网关、Paper 和管理桥接服务。Sealos 自动配置 1 GiB 持久卷、公网 HTTPS 地址，以及游戏和管理面板的访问路由。Pod 替换后，世界文件、服务端配置、玩家账号和按版本隔离的插件仓库会继续保留。
+一个 StatefulSet 运行游戏网关、Paper 和管理桥接服务。Sealos 自动配置 1 GiB 持久卷和两个公网 HTTPS 地址：一个给游戏，一个给管理面板。Pod 替换后，世界文件、服务端配置、玩家账号和按版本隔离的插件仓库会继续保留。
 
 ## 常见使用场景
 
@@ -33,7 +33,7 @@ EaglerCraft Server 集成浏览器游戏客户端、安全 WebSocket 网关、Pa
 
 - **StatefulSet**：单副本运行 `ghcr.io/yangchuansheng/eaglerx1.8server:2.2.4`，并固定到已发布的 SHA-256 摘要。
 - **游戏路由**：HTTPS 根路径 `/` 和安全 WebSocket 连接访问端口 `5200`。
-- **管理路由**：同一域名下的 `/admin`、`/api`、`/admin.css`、`/admin.js`、`/admin-i18n.js` 和 `/dynmap` 访问端口 `5201`。Service 在游戏初始化期间就发布 Pod 端点，管理页和浏览器客户端各自的 HTTP 服务启动后即可访问。
+- **管理路由**：`<app_host>-admin` 域名访问端口 `5201`。管理面板、`/api` 接口和 `/dynmap` 代理都在这个域名下，拿到游戏地址的玩家看不到管理面板。Service 在游戏初始化期间就发布 Pod 端点，管理页和浏览器客户端各自的 HTTP 服务启动后即可访问。
 - **内部服务**：Paper 端口 `25565` 和 RCON 端口 `25575` 保持在 Pod 内部。
 - **持久卷**：`/eaglerx-data` 保存完整运行目录、世界和配置。`PERSISTENT_DATA_ROOT=/eaglerx-data/runtime/server-data` 保存按版本隔离的插件仓库。
 - **运行目录初始化**：初始化容器会为新持久卷写入完整运行目录，并刷新已有持久卷中由镜像提供的脚本和浏览器资源，同时保留 Paper 配置、世界及插件数据。
@@ -50,7 +50,7 @@ EaglerCraft Server 集成浏览器游戏客户端、安全 WebSocket 网关、Pa
 
 1. 打开 [EaglerCraft Server 模板页面](https://sealos.io/products/app-store/eaglercraft-server)，点击 **Deploy Now**。
 2. 选择 `minecraft_version`，默认值为 `1.12`；将 `rcon_password` 设置为强度足够的非空单行密码，并保存好这个管理员登录密码。
-3. 游戏完整启动通常需要 **2-3 分钟**，具体取决于世界生成和插件加载。在 Canvas 点击应用链接会直接打开 `/admin`，管理 HTTP 服务启动后即可访问该页面。
+3. 游戏完整启动通常需要 **2-3 分钟**，具体取决于世界生成和插件加载。在 Canvas 点击应用链接会打开管理域名（`https://<app_host>-admin.<domain>`），管理 HTTP 服务启动后即可访问该页面。玩家使用游戏域名（`https://<app_host>.<domain>`）。
 4. 输入部署时的 RCON 密码，点击 **Confirm**。游戏初始化期间即可完成管理员登录；StatefulSet 进入 Ready 状态后，世界数据和游戏控制功能可用。可通过页眉的 **Language** 选择 English 或简体中文。
 5. 等待 StatefulSet 进入 Ready 状态后，在 **Overview** 中点击 **Open and join game**，或将 WebSocket 地址复制到浏览器客户端的 Multiplayer 服务器列表。进入世界后，按照下文完成玩家注册或登录。
 
@@ -96,7 +96,7 @@ Minecraft 1.8 的初始化流程会关闭 Dynmap 的玩家生命值和护甲显�
 
 ## 故障排查
 
-- **管理页面已打开，游戏控制仍在加载**：在 Canvas 查看 StatefulSet 的 Ready 状态。浏览器客户端 `/` 和管理页 `/admin` 提前开放，进入世界及游戏控制需要等待 Paper 和 RCON。`[start]` 日志描述入口脚本的配置过程，Paper 的实际初始化进度保存在容器内的 `/eaglerx-data/runtime/server/logs/latest.log`。
+- **管理页面已打开，游戏控制仍在加载**：在 Canvas 查看 StatefulSet 的 Ready 状态。浏览器客户端（游戏域名）和管理页（`-admin` 域名）提前开放，进入世界及游戏控制需要等待 Paper 和 RCON。`[start]` 日志描述入口脚本的配置过程，Paper 的实际初始化进度保存在容器内的 `/eaglerx-data/runtime/server/logs/latest.log`。
 - **管理员登录失败**：使用已保存的 `rcon_password`。同一来源连续输错 5 次会锁定 10 分钟；通过同一反向代理访问的客户端可能共享这一窗口。
 - **玩家加入后很快断开**：首次访问时在 30 秒内执行 `/register`，之后访问时执行 `/login`，并保持玩家名一致。
 - **插件上传返回 HTTP 413**：将 JAR 文件大小控制在模板的 32 MiB 入口限制内。

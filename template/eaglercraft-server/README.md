@@ -8,7 +8,7 @@ EaglerCraft Server bundles a browser game client, secure WebSocket gateway, Pape
 
 Players open the browser client and join a Paper world through a secure WebSocket connection. Choose `1.12` for Paper 1.12.2 or `1.8` for Paper 1.8.8 before the first deployment. Use a separate instance and volume for each Minecraft version.
 
-One StatefulSet runs the game gateway, Paper, and administration bridge. Sealos provisions a 1 GiB persistent volume, a public HTTPS address, and routing for gameplay and the admin panel. World files, server configuration, player accounts, and version-specific plugin repositories survive Pod replacement.
+One StatefulSet runs the game gateway, Paper, and administration bridge. Sealos provisions a 1 GiB persistent volume and two public HTTPS addresses: one for gameplay and one for the admin panel. World files, server configuration, player accounts, and version-specific plugin repositories survive Pod replacement.
 
 ## Common Use Cases
 
@@ -33,7 +33,7 @@ The image includes both browser clients, Paper runtimes, the WebSocket gateway, 
 
 - **StatefulSet**: One replica using `ghcr.io/yangchuansheng/eaglerx1.8server:2.2.4`, pinned to its published SHA-256 digest.
 - **Game route**: HTTPS `/` and secure WebSocket connections reach port `5200`.
-- **Admin route**: `/admin`, `/api`, `/admin.css`, `/admin.js`, `/admin-i18n.js`, and `/dynmap` reach port `5201` on the same host. The Service publishes Pod endpoints during game initialization so the console and browser client open as soon as their HTTP services start.
+- **Admin route**: the `<app_host>-admin` host reaches port `5201`. The admin console, its `/api` endpoints, and the `/dynmap` proxy all live on this host, so players who receive the game address never see the admin console. The Service publishes Pod endpoints during game initialization so the console and browser client open as soon as their HTTP services start.
 - **Internal services**: Paper `25565` and RCON `25575` stay inside the Pod.
 - **Persistent volume**: `/eaglerx-data` contains the full runtime, worlds, and configuration. `PERSISTENT_DATA_ROOT=/eaglerx-data/runtime/server-data` holds the version-specific plugin repositories.
 - **Runtime initialization**: An init container seeds fresh volumes and refreshes image-owned scripts and browser assets on existing volumes, preserving Paper configuration, worlds, and plugin data.
@@ -50,7 +50,7 @@ The main container has a `200m` CPU limit and `1024Mi` memory limit; the init co
 
 1. Open the [EaglerCraft Server template](https://sealos.io/products/app-store/eaglercraft-server) and click **Deploy Now**.
 2. Choose `minecraft_version` (`1.12` by default) and set `rcon_password` to a strong, non-empty, single-line password. Save this value for administrator login.
-3. Full game startup typically takes **2-3 minutes**, depending on world generation and plugin loading. Open the application link in the Canvas: it goes directly to `/admin`, which becomes available as soon as the management HTTP service starts.
+3. Full game startup typically takes **2-3 minutes**, depending on world generation and plugin loading. Open the application link in the Canvas: it goes to the admin host (`https://<app_host>-admin.<domain>`), which becomes available as soon as the management HTTP service starts. Players use the game host (`https://<app_host>.<domain>`).
 4. Enter the deployment RCON password and click **Confirm**. Administrator login is available while the game initializes. World data and game controls become available when the StatefulSet is Ready. Use the header's **Language** selector to choose English or 简体中文.
 5. Once the StatefulSet is Ready, use **Open and join game** on **Overview**, or copy the WebSocket address into the browser client's Multiplayer server list. Complete the player registration or login described below.
 
@@ -96,7 +96,7 @@ For Minecraft 1.8, initialization disables Dynmap's player health and armor disp
 
 ## Troubleshooting
 
-- **The console opens while game controls are still loading**: Check the StatefulSet's Ready status in the Canvas. The browser client `/` and console `/admin` open early; entering the world and using game controls requires Paper and RCON. The `[start]` log lines describe entrypoint configuration. Paper's initialization progress is in `/eaglerx-data/runtime/server/logs/latest.log` inside the container.
+- **The console opens while game controls are still loading**: Check the StatefulSet's Ready status in the Canvas. The browser client (game host) and console (`-admin` host) open early; entering the world and using game controls requires Paper and RCON. The `[start]` log lines describe entrypoint configuration. Paper's initialization progress is in `/eaglerx-data/runtime/server/logs/latest.log` inside the container.
 - **Admin login fails**: Enter the saved `rcon_password`. Five failed attempts from the same source trigger a 10-minute lockout; clients sharing a reverse proxy may share that window.
 - **The player is disconnected shortly after joining**: Complete `/register` on the first visit or `/login` on later visits within 30 seconds, using the same player name.
 - **A plugin upload returns HTTP 413**: Keep the JAR within the template's 32 MiB ingress limit.
