@@ -7,22 +7,22 @@ spec:
   url: 'https://github.com/harry0703/MoneyPrinterTurbo'
   gitRepo: 'https://github.com/harry0703/MoneyPrinterTurbo'
   author: 'Sealos'
-  description: '利用AI大模型，一键生成高清短视频。只需提供一个视频 主题 或 关键词 ，就可以全自动生成视频文案、视频素材、视频字幕、视频背景音乐，然后合成一个高清的短视频。'
+  description: 'Generate short videos from a topic with AI scripts, footage, narration, subtitles, and background music.'
   readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/moneyprinterturbo/README.md'
   icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/moneyprinterturbo/logo.png'
   screenshots:
     - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/moneyprinterturbo/website-screenshot.webp'
   templateType: inline
-  locale: zh
+  locale: en
   i18n:
     zh:
+      description: '输入主题，自动生成视频文案、素材、配音、字幕和背景音乐，合成高清短视频。'
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/moneyprinterturbo/README_zh.md'
   categories:
     - tool
     - ai
   defaults:
     app_host:
-      # number or string..
       type: string
       value: moneyprinterturbo-${{ random(8) }}
     app_name:
@@ -55,15 +55,47 @@ spec:
     spec:
       terminationGracePeriodSeconds: 10
       automountServiceAccountToken: false
+      initContainers:
+        - name: initialize-config
+          image: ghcr.io/harry0703/moneyprinterturbo:v1.3.6
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - 'test -f /MoneyPrinterTurbo/storage/config.toml || cp /MoneyPrinterTurbo/config.example.toml /MoneyPrinterTurbo/storage/config.toml'
+          resources:
+            requests:
+              cpu: 10m
+              memory: 12Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: vn-moneyprinterturbovn-storage
+              mountPath: /MoneyPrinterTurbo/storage
       containers:
         - name: ${{ defaults.app_name }}
           image: ghcr.io/harry0703/moneyprinterturbo:v1.3.6
+          # Load the mounted configuration, then save atomically inside the PVC.
+          command: [python, -c]
+          args:
+            - "from app.config import config; config.root_dir = '/MoneyPrinterTurbo/storage'; config.config_file = '/MoneyPrinterTurbo/storage/config.toml'; from streamlit.web.cli import main; main()"
+            - run
+            - ./webui/Main.py
+            - --server.address=0.0.0.0
+            - --server.port=8501
+            - --browser.serverAddress=${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - --server.enableCORS=True
+            - --browser.gatherUsageStats=False
+            - --client.toolbarMode=minimal
+            - --logger.hideWelcomeMessage=True
+            - --server.showEmailPrompt=False
           resources:
             requests:
-              cpu: 200m
-              memory: 408Mi
+              cpu: 400m
+              memory: 409Mi
             limits:
-              cpu: 2000m
+              cpu: '4'
               memory: 4096Mi
           ports:
             - name: http
@@ -71,24 +103,35 @@ spec:
               containerPort: 8501
           imagePullPolicy: IfNotPresent
           volumeMounts:
-            - name: vn-moneyprinterturbo-storage
+            - name: vn-moneyprinterturbovn-storage
               mountPath: /MoneyPrinterTurbo/storage
+            - name: vn-moneyprinterturbovn-storage
+              mountPath: /MoneyPrinterTurbo/config.toml
+              subPath: config.toml
+          startupProbe:
+            httpGet:
+              path: /_stcore/health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
           livenessProbe:
             httpGet:
-              path: /
+              path: /_stcore/health
               port: http
-            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
           readinessProbe:
             httpGet:
-              path: /
+              path: /_stcore/health
               port: http
-            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
   volumeClaimTemplates:
     - metadata:
         annotations:
           path: /MoneyPrinterTurbo/storage
           value: '1'
-        name: vn-moneyprinterturbo-storage
+        name: vn-moneyprinterturbovn-storage
       spec:
         accessModes:
           - ReadWriteOnce
@@ -102,10 +145,13 @@ kind: Service
 metadata:
   name: ${{ defaults.app_name }}
   labels:
+    app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
   ports:
-    - port: 8501
+    - name: http
+      port: 8501
+      targetPort: http
   selector:
     app: ${{ defaults.app_name }}
 ---
@@ -124,7 +170,6 @@ metadata:
       large_client_header_buffers 4 128k;
     nginx.ingress.kubernetes.io/ssl-redirect: 'true'
     nginx.ingress.kubernetes.io/backend-protocol: HTTP
-    nginx.ingress.kubernetes.io/rewrite-target: /$2
     nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
     nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
@@ -140,7 +185,7 @@ spec:
       http:
         paths:
           - pathType: Prefix
-            path: /()(.*)
+            path: /
             backend:
               service:
                 name: ${{ defaults.app_name }}
@@ -163,5 +208,5 @@ spec:
     url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
   displayType: normal
   icon: "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/moneyprinterturbo/logo.png"
-  name: moneyprinterturbo
+  name: MoneyPrinterTurbo
   type: link
