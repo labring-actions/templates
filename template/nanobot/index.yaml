@@ -1,0 +1,280 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: nanobot
+spec:
+  title: nanobot
+  url: https://nanobot.wiki
+  gitRepo: https://github.com/HKUDS/nanobot
+  author: Sealos
+  description: A self-hosted AI agent with a browser workspace, persistent conversations, tools, memory, and scheduled tasks.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/nanobot/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/nanobot/logo.png
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/nanobot/website-screenshot.webp
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: 自托管 AI 智能体，提供浏览器工作台、持久化对话、工具调用、记忆和定时任务。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/nanobot/README_zh.md
+  categories:
+    - ai
+    - tool
+  defaults:
+    app_name:
+      type: string
+      value: nanobot-${{ random(8) }}
+    app_host:
+      type: string
+      value: nanobot-${{ random(8) }}
+  inputs:
+    web_token:
+      description: WebUI login password. Set your own strong password and save it for signing in.
+      type: string
+      required: true
+    api_key:
+      description: API key for your OpenAI-compatible model provider.
+      type: string
+      required: true
+    api_base:
+      description: OpenAI-compatible API base URL, including the version path such as /v1.
+      type: string
+      default: https://api.openai.com/v1
+      required: true
+    model:
+      description: Exact model ID supported by your provider, for example gpt-4.1-mini.
+      type: string
+      required: true
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}-gateway
+data:
+  vn-appvn-sealosvn-configvn-json: |
+    {
+      "agents": {
+        "defaults": {
+          "workspace": "/home/nanobot/.nanobot/workspace",
+          "model": "${NANOBOT_MODEL}",
+          "provider": "custom"
+        }
+      },
+      "providers": {
+        "custom": {
+          "apiKey": "${OPENAI_API_KEY}",
+          "apiBase": "${OPENAI_API_BASE}"
+        }
+      },
+      "gateway": {"host": "127.0.0.1", "port": 18790},
+      "channels": {
+        "websocket": {
+          "enabled": true,
+          "host": "0.0.0.0",
+          "port": 8765,
+          "tokenIssueSecret": "${NANOBOT_WEB_TOKEN}",
+          "websocketRequiresToken": true
+        }
+      },
+      "tools": {
+        "restrictToWorkspace": true,
+        "webuiAllowRemotePackageInstall": false,
+        "my": {"allowSet": false}
+      }
+    }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-gateway
+  labels:
+    app: ${{ defaults.app_name }}-gateway
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-gateway
+  annotations:
+    originImageName: ghcr.io/yangchuansheng/sealos-template-init:nanobot-v0.3.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}-gateway
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-gateway
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-gateway
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: initialize-config
+          image: ghcr.io/yangchuansheng/sealos-template-init:nanobot-v0.3.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              test -f /home/nanobot/.nanobot/config.json || (umask 077; cp /app/sealos-config.json /home/nanobot/.nanobot/config.json)
+              python -c 'import tiktoken; tiktoken.get_encoding("cl100k_base")'
+          env:
+            - name: TIKTOKEN_CACHE_DIR
+              value: /home/nanobot/.nanobot/tiktoken-cache
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+          volumeMounts:
+            - name: ${{ defaults.app_name }}-gateway-cm
+              mountPath: /app/sealos-config.json
+              subPath: vn-appvn-sealosvn-configvn-json
+            - name: vn-homevn-nanobotvn-nanobot
+              mountPath: /home/nanobot/.nanobot
+      containers:
+        - name: ${{ defaults.app_name }}-gateway
+          image: ghcr.io/yangchuansheng/sealos-template-init:nanobot-v0.3.0
+          imagePullPolicy: IfNotPresent
+          args: [gateway, --config, /home/nanobot/.nanobot/config.json]
+          env:
+            - name: TIKTOKEN_CACHE_DIR
+              value: /home/nanobot/.nanobot/tiktoken-cache
+            - name: OPENAI_API_KEY
+              value: ${{ inputs.api_key }}
+            - name: OPENAI_API_BASE
+              value: ${{ inputs.api_base }}
+            - name: NANOBOT_MODEL
+              value: ${{ inputs.model }}
+            - name: NANOBOT_WEB_TOKEN
+              value: ${{ JSON.stringify(inputs.web_token) }}
+          ports:
+            - name: websocket
+              containerPort: 8765
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          startupProbe:
+            httpGet:
+              path: /
+              port: websocket
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /
+              port: websocket
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:18790/health", timeout=3)'
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: vn-homevn-nanobotvn-nanobot
+              mountPath: /home/nanobot/.nanobot
+      volumes:
+        - name: ${{ defaults.app_name }}-gateway-cm
+          configMap:
+            name: ${{ defaults.app_name }}-gateway
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-homevn-nanobotvn-nanobot
+        annotations:
+          path: /home/nanobot/.nanobot
+          value: '1'
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-gateway
+  labels:
+    app: ${{ defaults.app_name }}-gateway
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-gateway
+spec:
+  selector:
+    app: ${{ defaults.app_name }}-gateway
+  ports:
+    - name: websocket
+      port: 8765
+      targetPort: websocket
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-gateway
+  labels:
+    app: ${{ defaults.app_name }}-gateway
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-gateway
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '3600'
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '3600'
+    nginx.ingress.kubernetes.io/backend-protocol: WS
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}-gateway
+                port:
+                  number: 8765
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/nanobot/logo.png
+  name: nanobot
+  type: link
