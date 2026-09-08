@@ -1,6 +1,6 @@
 # Deploy and Host LibreDB Studio on Sealos
 
-LibreDB Studio is an open-source database IDE for querying and managing PostgreSQL, MySQL, SQLite, MongoDB, and other supported data sources from a browser. This template deploys LibreDB Studio 0.9.66 with HTTPS access, persistent server-side storage, health probes, and deployment-defined administrator credentials on Sealos Cloud.
+LibreDB Studio is an open-source database IDE for querying and managing PostgreSQL, MySQL, SQLite, MongoDB, and other supported data sources from a browser. This template deploys LibreDB Studio 0.14.1 with HTTPS access, persistent server-side storage, health probes, and deployment-defined administrator credentials on Sealos Cloud.
 
 ![LibreDB Studio Screenshot](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/libredb-studio/website-screenshot.webp)
 
@@ -21,7 +21,7 @@ The PostgreSQL option stores LibreDB Studio settings such as saved connections a
 
 The template includes the runtime components required for a working deployment:
 
-- **LibreDB Studio**: `ghcr.io/libredb/libredb-studio:0.9.66`
+- **LibreDB Studio**: `ghcr.io/libredb/libredb-studio:0.14.1`
 - **Default SQLite storage**: `/app/data/libredb-storage.db` on a 1 GiB application PVC
 - **Optional PostgreSQL storage**: KubeBlocks-managed `postgresql-16.4.0` with a 1 GiB data PVC
 - **HTTPS entrypoint**: Sealos Service, Ingress, and App resources on port `3000`
