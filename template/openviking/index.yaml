@@ -1,0 +1,470 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: openviking
+spec:
+  title: OpenViking
+  url: https://www.openviking.ai/
+  gitRepo: https://github.com/volcengine/OpenViking
+  author: Sealos
+  description: A context database for AI agents with persistent memories, resources, skills, semantic retrieval, and Web Studio.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/openviking/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/openviking/logo.png
+  screenshots:
+  - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/openviking/website-screenshot.webp
+  templateType: inline
+  locale: en
+  categories:
+  - ai
+  - database
+  i18n:
+    zh:
+      description: 面向 AI 智能体的上下文数据库，提供持久化记忆、资源、技能、语义检索和 Web Studio。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/openviking/README_zh.md
+  defaults:
+    app_name:
+      type: string
+      value: openviking-${{ random(8) }}
+    app_host:
+      type: string
+      value: openviking-${{ random(8) }}
+    root_api_key:
+      type: string
+      value: ${{ random(32) }}
+  inputs:
+    embedding_api_key:
+      description: API key for an OpenAI-compatible embedding service
+      type: string
+      required: true
+    embedding_api_base:
+      description: Base URL of the OpenAI-compatible embedding API
+      type: string
+      required: true
+      default: https://api.openai.com/v1
+    embedding_model:
+      description: Embedding model served by the configured API
+      type: string
+      required: true
+      default: text-embedding-3-small
+    embedding_dimension:
+      description: Positive integer dimension returned by the embedding model
+      type: string
+      required: true
+      default: '1536'
+    vlm_api_key:
+      description: API key for an OpenAI-compatible vision or language model service
+      type: string
+      required: true
+    vlm_api_base:
+      description: Base URL of the OpenAI-compatible vision or language model API
+      type: string
+      required: true
+      default: https://api.openai.com/v1
+    vlm_model:
+      description: Vision or language model used for context summaries and memory extraction
+      type: string
+      required: true
+      default: gpt-4o-mini
+    enable_s3_storage:
+      description: Store context files in private Sealos object storage; local files are used when disabled
+      type: boolean
+      required: false
+      default: 'false'
+    enable_redis_queue:
+      description: Use managed Redis for QueueFS; persistent SQLite is used when disabled
+      type: boolean
+      required: false
+      default: 'false'
+
+---
+${{ if(inputs.enable_s3_storage === 'true') }}
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}
+spec:
+  policy: private
+${{ else() }}
+# Context files use local filesystem storage on the application PVC.
+---
+${{ endif() }}
+
+---
+${{ if(inputs.enable_redis_queue === 'true') }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+rules:
+- apiGroups:
+  - '*'
+  resources:
+  - '*'
+  verbs:
+  - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-redis
+subjects:
+- kind: ServiceAccount
+  name: ${{ defaults.app_name }}-redis
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    kb.io/database: redis-7.2.7
+    sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/version: 7.2.7
+    clusterversion.kubeblocks.io/name: redis-7.2.7
+    clusterdefinition.kubeblocks.io/name: redis
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+    topologyKeys:
+    - kubernetes.io/hostname
+  clusterDefinitionRef: redis
+  componentSpecs:
+  - componentDef: redis-7
+    name: redis
+    replicas: 1
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 50m
+        memory: 51Mi
+    serviceAccountName: ${{ defaults.app_name }}-redis
+    serviceVersion: 7.2.7
+    volumeClaimTemplates:
+    - name: data
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+    enabledLogs:
+    - running
+    env:
+    - name: CUSTOM_SENTINEL_MASTER_NAME
+    switchPolicy:
+      type: Noop
+  - componentDef: redis-sentinel-7
+    name: redis-sentinel
+    replicas: 1
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 50m
+        memory: 51Mi
+    serviceAccountName: ${{ defaults.app_name }}-redis
+    serviceVersion: 7.2.7
+    volumeClaimTemplates:
+    - name: data
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+  terminationPolicy: Delete
+  topology: replication
+${{ else() }}
+# QueueFS uses SQLite on the application PVC.
+${{ endif() }}
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-appvn-openvikingvn-ovvn-conf: |
+    {
+      "server": {
+        "host": "0.0.0.0", "port": 1933, "workers": 1,
+        "auth_mode": "api_key", "root_api_key": "${OPENVIKING_ROOT_API_KEY}",
+        "cors_origins": ["https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}" ]
+      },
+      "storage": {
+        "workspace": "/app/.openviking/workspace",
+        "vectordb": {"backend": "local"},
+        "agfs": {
+${{ if(inputs.enable_s3_storage === 'true') }}
+          "backend": "s3",
+          "s3": {"bucket": "${S3_BUCKET}", "region": "us-east-1", "access_key": "${S3_ACCESS_KEY_ID}", "secret_key": "${S3_SECRET_ACCESS_KEY}", "endpoint": "${S3_ENDPOINT}", "use_ssl": true, "use_path_style": true, "directory_marker_mode": "empty", "disable_batch_delete": true},
+${{ else() }}
+          "backend": "local",
+${{ endif() }}
+${{ if(inputs.enable_redis_queue === 'true') }}
+          "queuefs": {"backend": "cache", "cache_key_prefix": "openviking"}
+${{ else() }}
+          "queuefs": {"backend": "sqlite"}
+${{ endif() }}
+        }
+      },
+${{ if(inputs.enable_redis_queue === 'true') }}
+      "cache": {"provider": "redis", "params": {"mode": "standalone", "endpoints": ["redis://${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local:6379"], "password_env": "OPENVIKING_REDIS_PASSWORD", "command_timeout_ms": 1000}},
+${{ endif() }}
+      "embedding": {"dense": {"provider": "openai", "api_key": "${EMBEDDING_API_KEY}", "api_base": "${EMBEDDING_API_BASE}", "model": "${EMBEDDING_MODEL}", "dimension": ${{ inputs.embedding_dimension }}, "input": "text"}, "max_concurrent": 1},
+      "vlm": {"provider": "openai", "api_key": "${VLM_API_KEY}", "api_base": "${VLM_API_BASE}", "model": "${VLM_MODEL}", "max_concurrent": 1, "max_retries": 2, "max_tokens": 16384},
+      "log": {"level": "INFO", "output": "stdout"}
+    }
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/volcengine/openviking:v0.4.18
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: ${{ defaults.app_name }}
+        image: ghcr.io/volcengine/openviking:v0.4.18
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
+        env:
+        - name: OPENVIKING_WITH_BOT
+          value: '0'
+        - name: OPENVIKING_PUBLIC_BASE_URL
+          value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+        - name: OPENVIKING_ROOT_API_KEY
+          value: ${{ defaults.root_api_key }}
+        - name: EMBEDDING_API_KEY
+          value: ${{ inputs.embedding_api_key }}
+        - name: EMBEDDING_API_BASE
+          value: ${{ inputs.embedding_api_base }}
+        - name: EMBEDDING_MODEL
+          value: ${{ inputs.embedding_model }}
+        - name: VLM_API_KEY
+          value: ${{ inputs.vlm_api_key }}
+        - name: VLM_API_BASE
+          value: ${{ inputs.vlm_api_base }}
+        - name: VLM_MODEL
+          value: ${{ inputs.vlm_model }}
+${{ if(inputs.enable_s3_storage === 'true') }}
+        - name: OPENVIKING_CONFIG_FILE
+          value: /app/.openviking/ov.conf
+        - name: S3_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key
+              key: accessKey
+        - name: S3_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key
+              key: secretKey
+        - name: S3_BUCKET
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+              key: bucket
+        - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+          valueFrom:
+            secretKeyRef:
+              name: object-storage-key
+              key: external
+        - name: S3_ENDPOINT
+          value: https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)
+${{ else() }}
+        # Local filesystem storage is configured in ov.conf.
+        - name: OPENVIKING_CONFIG_FILE
+          value: /app/.openviking/ov.conf
+${{ endif() }}
+${{ if(inputs.enable_redis_queue === 'true') }}
+        - name: OPENVIKING_REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-redis-redis-account-default
+              key: password
+${{ endif() }}
+        ports:
+        - name: http
+          containerPort: 1933
+          protocol: TCP
+        resources:
+          limits:
+            cpu: 100m
+            memory: 512Mi
+          requests:
+            cpu: 10m
+            memory: 51Mi
+        startupProbe:
+          httpGet:
+            path: /ready
+            port: 1933
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 60
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 1933
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 1933
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        volumeMounts:
+        - name: vn-appvn-openviking
+          mountPath: /app/.openviking
+        - name: ${{ defaults.app_name }}-cm
+          mountPath: /app/.openviking/ov.conf
+          subPath: vn-appvn-openvikingvn-ovvn-conf
+      volumes:
+      - name: ${{ defaults.app_name }}-cm
+        configMap:
+          name: ${{ defaults.app_name }}
+  volumeClaimTemplates:
+  - metadata:
+      name: vn-appvn-openviking
+      annotations:
+        path: /app/.openviking
+        value: '1'
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+  - name: http
+    port: 1933
+    targetPort: 1933
+    protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: 'client_header_buffer_size 64k;
+
+      large_client_header_buffers 4 128k;
+
+      '
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: "if ($request_uri ~* \\.(js|css|gif|jpe?g|png)) {\n  expires 30d;\n\
+      \  add_header Cache-Control \"public\";\n}\n"
+spec:
+  rules:
+  - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+    http:
+      paths:
+      - pathType: Prefix
+        path: /
+        backend:
+          service:
+            name: ${{ defaults.app_name }}
+            port:
+              number: 1933
+  tls:
+  - hosts:
+    - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+    secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/studio/
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/openviking/logo.png
+  name: OpenViking
+  type: link
