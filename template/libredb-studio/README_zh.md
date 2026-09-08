@@ -1,6 +1,6 @@
 # 在 Sealos 上部署和托管 LibreDB Studio
 
-LibreDB Studio 是一款开源数据库 IDE，可直接在浏览器中查询和管理 PostgreSQL、MySQL、SQLite、MongoDB 等数据源。此模板会在 Sealos Cloud 上部署 LibreDB Studio 0.9.66，并配置 HTTPS 入口、持久化服务端存储、健康检查和部署时创建的管理员账号。
+LibreDB Studio 是一款开源数据库 IDE，可直接在浏览器中查询和管理 PostgreSQL、MySQL、SQLite、MongoDB 等数据源。此模板会在 Sealos Cloud 上部署 LibreDB Studio 0.14.1，并配置 HTTPS 入口、持久化服务端存储、健康检查和部署时创建的管理员账号。
 
 ![LibreDB Studio 截图](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/libredb-studio/website-screenshot.webp)
 
@@ -21,7 +21,7 @@ PostgreSQL 选项保存 LibreDB Studio 的连接配置、收藏查询等应用�
 
 模板包含可用部署所需的运行组件：
 
-- **LibreDB Studio**：`ghcr.io/libredb/libredb-studio:0.9.66`
+- **LibreDB Studio**：`ghcr.io/libredb/libredb-studio:0.14.1`
 - **默认 SQLite 存储**：`/app/data/libredb-storage.db`，使用 1 GiB 应用 PVC
 - **可选 PostgreSQL 存储**：KubeBlocks 托管的 `postgresql-16.4.0`，使用 1 GiB 数据 PVC
 - **HTTPS 入口**：通过 Sealos Service、Ingress 和 App 资源暴露 `3000` 端口
