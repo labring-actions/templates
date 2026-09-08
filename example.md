@@ -59,6 +59,7 @@ As demo shows, the metatda CR is a regular Kubernetes custom resource type, and 
 | `templateType` | `inline` indicates this is an inline mode template, all yaml files are integrated in one file. |
 | `defaults`      | Define default values to be filled into the resource file, such as application name (app_name), domain name (app_host), etc. |
 | `inputs`        | Define some parameters needed by the user when deploying the application, such as Email, API-KEY, etc. If none, this item can be omitted |
+| `entries`       | Optional. Declare which URL the platform opens after deployment (`open`) and which URL it offers for sharing (`share`). See [Explain: `Entries`](#explain-entries) |
 
 ### Explain: `Variables`
 
@@ -131,6 +132,24 @@ inputs:
 - The content of the `if` parameter is an expression, do not use `${{ }}` to wrap it.
 - When the result of the expression is `true`, the parameter is rendered; when the result is `false`, the parameter is not rendered, and the corresponding `required` parameter will not take effect.
 - If the result is not a boolean value, it will be coerced into a boolean value.
+
+### Explain: `Entries`
+
+`entries` is optional. It tells the platform which address to put behind its **Open** control and which address to offer when the user **shares** the deployed application. Both values are full URLs and accept the same `${{ }}` variables as every other field.
+
+```yaml
+spec:
+  entries:
+    open: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/admin
+    share: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/
+```
+
+| Key     | Meaning                                                                                       | When omitted                                                                                                   |
+| :------ | :-------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------- |
+| `open`  | The page the operator lands on right after deployment, such as an admin console or a login page. | The platform uses the `url` of the template's `kind: App` object, and otherwise the first public HTTP address at `/`. |
+| `share` | The page meant for end users, such as a game client, a public site, or a join link with parameters. | The platform shares the same address it opens.                                                                 |
+
+Declare `entries` only when the two addresses differ, or when the address to share is not the root of the application. Never put secrets (tokens, invite codes) in `share`; that address is meant to leave the platform.
 
 ### Built-in system variables and functions
 
