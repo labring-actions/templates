@@ -50,7 +50,7 @@ The main container has a `200m` CPU limit and `1024Mi` memory limit; the init co
 
 1. Open the [EaglerCraft Server template](https://sealos.io/products/app-store/eaglercraft-server) and click **Deploy Now**.
 2. Choose `minecraft_version` (`1.12` by default) and set `rcon_password` to a strong, non-empty, single-line password. Save this value for administrator login.
-3. Full game startup typically takes **2-3 minutes**, depending on world generation and plugin loading. Open the application link in the Canvas: it goes to the admin host (`https://<app_host>-admin.<domain>`), which becomes available as soon as the management HTTP service starts. Players use the game host (`https://<app_host>.<domain>`).
+3. Full game startup typically takes **2-3 minutes**, depending on world generation and plugin loading. Open the application link in the Canvas: it goes to the admin host (`https://<app_host>-admin.<domain>`), which becomes available as soon as the management HTTP service starts. Players use the game host (`https://<app_host>.<domain>`); Brain lists only the admin address, so copy the game address from the console's **Overview**.
 4. Enter the deployment RCON password and click **Confirm**. Administrator login is available while the game initializes. World data and game controls become available when the StatefulSet is Ready. Use the header's **Language** selector to choose English or 简体中文.
 5. Once the StatefulSet is Ready, use **Open and join game** on **Overview**, or copy the WebSocket address into the browser client's Multiplayer server list. Complete the player registration or login described below.
 

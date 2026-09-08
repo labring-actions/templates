@@ -50,7 +50,7 @@ EaglerCraft Server 集成浏览器游戏客户端、安全 WebSocket 网关、Pa
 
 1. 打开 [EaglerCraft Server 模板页面](https://sealos.io/products/app-store/eaglercraft-server)，点击 **Deploy Now**。
 2. 选择 `minecraft_version`，默认值为 `1.12`；将 `rcon_password` 设置为强度足够的非空单行密码，并保存好这个管理员登录密码。
-3. 游戏完整启动通常需要 **2-3 分钟**，具体取决于世界生成和插件加载。在 Canvas 点击应用链接会打开管理域名（`https://<app_host>-admin.<domain>`），管理 HTTP 服务启动后即可访问该页面。玩家使用游戏域名（`https://<app_host>.<domain>`）。
+3. 游戏完整启动通常需要 **2-3 分钟**，具体取决于世界生成和插件加载。在 Canvas 点击应用链接会打开管理域名（`https://<app_host>-admin.<domain>`），管理 HTTP 服务启动后即可访问该页面。玩家使用游戏域名（`https://<app_host>.<domain>`）；Brain 只列出管理地址，游戏地址请在控制台的 **Overview** 中复制。
 4. 输入部署时的 RCON 密码，点击 **Confirm**。游戏初始化期间即可完成管理员登录；StatefulSet 进入 Ready 状态后，世界数据和游戏控制功能可用。可通过页眉的 **Language** 选择 English 或简体中文。
 5. 等待 StatefulSet 进入 Ready 状态后，在 **Overview** 中点击 **Open and join game**，或将 WebSocket 地址复制到浏览器客户端的 Multiplayer 服务器列表。进入世界后，按照下文完成玩家注册或登录。
 
