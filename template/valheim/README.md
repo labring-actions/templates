@@ -29,7 +29,7 @@ The template includes the server image, SteamCMD, Odin, Huginn, persistent volum
 | Component | Configuration |
 | --- | --- |
 | Server | `mbround18/valheim:3.7.0`, one StatefulSet replica |
-| CPU / memory limits | 100m / 2 GiB |
+| CPU / memory limits | 500m / 2 GiB |
 | Game installation | 2 GiB PVC at `/home/steam/valheim` |
 | World saves | 1 GiB PVC at `/home/steam/.config/unity3d/IronGate/Valheim` |
 | Dashboard | Huginn on port `3000`, served by a ClusterIP Service through HTTPS Ingress |
@@ -38,7 +38,7 @@ The template includes the server image, SteamCMD, Odin, Huginn, persistent volum
 
 The container runs as UID `111` and GID `1000`. Startup and readiness checks use Huginn's `/readiness`; liveness verifies both the Valheim process and Huginn. The container image version pins the Docker tooling; SteamCMD installs the current stable Valheim server on first start. Later restarts reuse the installed version. Set `UPDATE_ON_STARTUP=1` temporarily when you want to update, then return it to `0`.
 
-The resource limits were tested with an empty world, public server queries, dashboard/API access, and save persistence. Increase capacity before sustained multiplayer sessions. The 2 GiB installation volume fits the tested vanilla build. Expand it before large updates or adding mods. Use one replica per world, and increase CPU and memory for active players or larger worlds. Automatic update and backup schedules are disabled by default; keep separate copies of important saves.
+Empty-server validation at 100m CPU / 2 GiB covered public server queries, dashboard/API access, and save persistence. The template defaults to a 500m CPU limit. Increase capacity before sustained multiplayer sessions. The 2 GiB installation volume fits the tested vanilla build. Expand it before large updates or adding mods. Use one replica per world, and increase CPU and memory for active players or larger worlds. Automatic update and backup schedules are disabled by default; keep separate copies of important saves.
 
 ## Why Deploy Valheim Docker on Sealos?
 
@@ -48,7 +48,7 @@ Sealos provides a Kubernetes foundation, one-click deployment, persistent storag
 
 1. Open the [Valheim Docker template](https://sealos.io/products/app-store/valheim) and click **Deploy Now**.
 2. Set `server_name`, `world_name`, and `server_password`. Use at least 5 characters for the password and a value different from the server name. Use letters, numbers, and hyphens for passwords; world names also support underscores, and server names support spaces.
-3. Sealos typically provisions the resources in 2-3 minutes. The first server start downloads approximately 1.64 GiB and generates the world, which can take tens of minutes at the minimum CPU limit. Startup checks allow up to 60 minutes for this first initialization. Open the Canvas and wait for the server to become Ready.
+3. Sealos typically provisions the resources in 2-3 minutes. The first server start downloads approximately 1.64 GiB and generates the world, which takes additional time. Startup checks allow up to 60 minutes for this first initialization. Open the Canvas and wait for the server to become Ready.
 4. Open the application's HTTPS URL to view Huginn. The dashboard opens directly and uses public read-only endpoints; game access uses the password supplied during deployment.
 5. Open the Service resource card whose name ends in `-nodeport` and copy the public UDP host and the NodePort mapped from `2456`. In Valheim, select **Start Game**, choose your character, open **Join Game**, and use **Add Server** with `<public-host>:<game-node-port>`. Enter `server_password` when prompted.
 6. For Steam's server browser, use the separately mapped query port from `2457`. Keep the game and query mappings distinct when copying addresses. Canvas shows the actual assigned ports for your deployment.
