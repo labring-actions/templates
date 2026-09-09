@@ -1,108 +1,111 @@
 # Deploy and Host EaglerCraft Server on Sealos
 
-EaglerCraft Server bundles a browser game client, secure WebSocket gateway, Paper server, and web administration console. This template deploys version **2.2.4** on Sealos with a persistent world and a bilingual English/Simplified Chinese admin panel.
+EaglerCraft Server bundles browser-based Minecraft, a WebSocket gateway, Paper, and an English/Simplified Chinese administration console. This template deploys **2.2.7** with persistent worlds and player accounts.
 
-![EaglerCraft Server admin console](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/eaglercraft-server/website-screenshot.webp)
+![EaglerCraft Server administration console](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/eaglercraft-server/website-screenshot.webp)
+
+The screenshot shows the English console of a tested Sealos deployment with a connected player.
 
 ## About Hosting EaglerCraft Server
 
-Players open the browser client and join a Paper world through a secure WebSocket connection. Choose `1.12` for Paper 1.12.2 or `1.8` for Paper 1.8.8 before the first deployment. Use a separate instance and volume for each Minecraft version.
+Choose `1.12` for Paper 1.12.2 or `1.8` for Paper 1.8.8. Each deployment runs one game version in a single StatefulSet, with a 1 GiB persistent volume for worlds, configuration, player accounts, and version-specific plugins. Create separate instances and volumes to run both versions.
 
-One StatefulSet runs the game gateway, Paper, and administration bridge. Sealos provisions a 1 GiB persistent volume, a public HTTPS address, and routing for gameplay and the admin panel. World files, server configuration, player accounts, and version-specific plugin repositories survive Pod replacement.
+Players connect through the public HTTPS game page and secure WebSocket endpoint. The application card opens `/admin`, where the server owner can manage weather, time, players, worlds, and plugins.
 
 ## Common Use Cases
 
-- **Small community worlds**: Share a persistent multiplayer world through a browser link.
-- **Classroom and club sessions**: Give a group a common world with browser access.
-- **Server administration**: Manage weather, time, players, and plugins from the web console.
-- **Plugin testing**: Try trusted Paper plugins in a separate instance.
+- **Small shared worlds**: Invite friends with a browser link.
+- **Clubs and classrooms**: Host a persistent world for group sessions.
+- **Server administration**: Manage game settings and player access from the console.
+- **Plugin trials**: Test trusted Paper plugins in a separate instance.
 
 ## Dependencies for EaglerCraft Server Hosting
 
-The image includes both browser clients, Paper runtimes, the WebSocket gateway, the admin bridge, and bundled plugins. The deployment uses local persistent storage, including the LoginSecurity plugin's SQLite account data.
+The image includes the game clients, Paper, Bungee gateway, Python administration bridge, and plugins. LoginSecurity stores player accounts in SQLite on the persistent volume. The selected release documents local filesystem storage for this deployment.
 
 ### Deployment Dependencies
 
-- [Upstream runtime documentation](https://github.com/yangchuansheng/eaglerXserver/tree/v2.2.4)
-- [Version 2.2.4 release](https://github.com/yangchuansheng/eaglerXserver/releases/tag/v2.2.4)
-- [Published container image](https://github.com/yangchuansheng/eaglerXserver/pkgs/container/eaglerx1.8server)
+- A Sealos account and a browser with WebGL support.
+- A strong, non-empty, single-line administration password.
+- Acceptance of the [Minecraft EULA](https://www.minecraft.net/en-us/eula); the upstream entrypoint writes `eula=true` during startup.
+- [Version 2.2.7 source and deployment documentation](https://github.com/yangchuansheng/eaglerXserver/tree/v2.2.7).
+- [Version 2.2.7 release](https://github.com/yangchuansheng/eaglerXserver/releases/tag/v2.2.7).
 
-### Implementation Details
+### Architecture Components
 
-**Architecture Components:**
+- **StatefulSet**: One replica using `ghcr.io/yangchuansheng/eaglerx1.8server:2.2.7`, pinned to its verified SHA-256 digest.
+- **Initialization and probes**: ConfigMap scripts initialize fresh storage, refresh image-owned scripts and browser assets, and verify the first world save. Existing worlds, configuration, and plugin repositories retain their data.
+- **Persistent storage**: `/eaglerx-data/runtime` holds the runtime; `server-data/plugins-1.8` and `server-data/plugins-1.12` hold the version-specific plugin repositories.
+- **Game route**: HTTPS `/` and WSS connections reach port `5200`.
+- **Management route**: `/admin`, `/api`, admin assets, and `/dynmap` reach port `5201` on the same HTTPS host. Paper `25565` and RCON `25575` remain internal.
 
-- **StatefulSet**: One replica using `ghcr.io/yangchuansheng/eaglerx1.8server:2.2.4`, pinned to its published SHA-256 digest.
-- **Game route**: HTTPS `/` and secure WebSocket connections reach port `5200`.
-- **Admin route**: `/admin`, `/api`, `/admin.css`, `/admin.js`, `/admin-i18n.js`, and `/dynmap` reach port `5201` on the same host. The Service publishes Pod endpoints during game initialization so the console and browser client open as soon as their HTTP services start.
-- **Internal services**: Paper `25565` and RCON `25575` stay inside the Pod.
-- **Persistent volume**: `/eaglerx-data` contains the full runtime, worlds, and configuration. `PERSISTENT_DATA_ROOT=/eaglerx-data/runtime/server-data` holds the version-specific plugin repositories.
-- **Runtime initialization**: An init container seeds fresh volumes and refreshes image-owned scripts and browser assets on existing volumes, preserving Paper configuration, worlds, and plugin data.
-
-The main container has a `200m` CPU limit and `1024Mi` memory limit; the init container uses `100m` CPU and `128Mi` memory. Validation at `100m` CPU triggered Paper 1.8's watchdog during chunk saving, and `512Mi` memory caused a startup OOM. Pod readiness waits for the game, HTTP, Paper, and RCON listeners plus the selected world's `level.dat` file. The startup probe verifies an RCON command response and saves newly generated worlds immediately. The Service uses `publishNotReadyAddresses: true` to make the console and browser client available during this process; entering the world requires Paper to finish starting.
-
-`PUBLIC_GAME_URL` uses the generated HTTPS address. The admin Overview displays the corresponding `wss://` address and an **Open and join game** link. The ingress accepts plugin uploads up to **32 MiB**.
+The main container uses a `200m` CPU limit and `1024Mi` memory limit. Initialization uses `100m` CPU and `128Mi` memory. These settings cover the tested personal workload; increase resources as world complexity and player activity grow. The volume starts at 1 GiB; monitor free space as chunks, maps, and backups accumulate.
 
 ## Why Deploy EaglerCraft Server on Sealos?
 
-[Sealos](https://sealos.io) runs applications on Kubernetes with one-click deployment, managed HTTPS access, and persistent storage. Pay-as-you-go resource controls let a small server start with the tested footprint. After deployment, use the Canvas AI dialog or resource cards to adjust CPU, memory, and storage.
+[Sealos](https://sealos.io) provides one-click deployment on Kubernetes, managed HTTPS, persistent storage, and pay-as-you-go resources. After deployment, use the Canvas AI dialog or resource cards to adjust the server's CPU, memory, and storage.
 
 ## Deployment Guide
 
 1. Open the [EaglerCraft Server template](https://sealos.io/products/app-store/eaglercraft-server) and click **Deploy Now**.
-2. Choose `minecraft_version` (`1.12` by default) and set `rcon_password` to a strong, non-empty, single-line password. Save this value for administrator login.
-3. Full game startup typically takes **2-3 minutes**, depending on world generation and plugin loading. Open the application link in the Canvas: it goes directly to `/admin`, which becomes available as soon as the management HTTP service starts.
-4. Enter the deployment RCON password and click **Confirm**. Administrator login is available while the game initializes. World data and game controls become available when the StatefulSet is Ready. Use the header's **Language** selector to choose English or 简体中文.
-5. Once the StatefulSet is Ready, use **Open and join game** on **Overview**, or copy the WebSocket address into the browser client's Multiplayer server list. Complete the player registration or login described below.
+2. Choose `minecraft_version` and set `rcon_password`. Save this password for administration.
+3. Deployment typically takes **2-3 minutes**; initial world generation can take longer. After deployment, open the application card in the Canvas to reach `/admin`.
+4. Enter your `rcon_password` and click **Confirm**. The console accepts login during startup; wait for **Paper is ready** before using game controls.
+5. On **Overview**, click **Join game**. Follow the player setup and registration steps below. The **Language** selector switches the console between English and 简体中文.
 
 ## Administrator Login and Player Registration
 
-### Administrator access
+### Administrator login
 
-The admin login form uses the `rcon_password` set during deployment. Successful login creates an administration token stored in the current browser tab's `sessionStorage`, with an 8-hour lifetime. Closing the tab clears that tab's session; **Log out** also clears the stored login.
+The administration dialog uses the deployment's `rcon_password`. Login issues a token valid for 8 hours, stored in the current tab's `sessionStorage`. **Log out** clears that session.
 
-Once the game is Ready, try the **sunny** weather button and **noon** time button under **Operation control**. The world-state card and command console show the results. The panel also offers player management, world saving, and plugin controls.
+After **Paper is ready**, click **Rain** and **Noon** under **Runtime controls**. The world card updates its weather and time, and **Command terminal** shows command responses. **World tools** provides world-save operations; **System settings** provides configuration, plugins, and controlled Paper restarts.
 
-### Player access
+### Player setup and login
 
-Choose a player name with 3-16 characters. Connect through the generated address:
+1. Open the game page. Press a key when prompted to enable sound.
+2. For a fresh browser profile, choose **Edit Profile**, set a stable player name of 3-16 characters, and click **Done**. Complete any client information screen. Keep this same name for later visits; quick join can initially assign a random name.
+3. Choose **Multiplayer**. Version 2.2.7 lists this deployment automatically. Select it and click **Join Server**, or use the console's **Join game** link after configuring your profile.
+4. Once the world appears, press `T` and register within 30 seconds with a password of 6-32 characters:
+
+   ```text
+   /register <player-password>
+   ```
+
+5. On later connections, use the same player name, press `T`, and enter:
+
+   ```text
+   /login <player-password>
+   ```
+
+A successful registration signs the player in. Try `/sethome base` and `/homes` to save and list a home. Player passwords belong to LoginSecurity; the server owner uses the RCON password for administration.
+
+The secure connection address is displayed on Overview:
 
 ```text
-wss://[your-app-url-host]
+wss://[your-app-url-host]/
 ```
-
-Once you enter the world, press `T` to open chat and register within the 30-second login window. Use a player password with 6-32 characters:
-
-```text
-/register <password>
-```
-
-On later visits, use the same player name and password:
-
-```text
-/login <password>
-```
-
-Player passwords belong to LoginSecurity accounts. Keep the administrator RCON password for server management.
 
 ## Configuration and Upgrades
 
-Use the Canvas AI dialog or the StatefulSet resource card to adjust resources. Keep **one replica** for this shared world and increase CPU or memory as player activity grows.
+Use the Canvas AI dialog or StatefulSet resource card for resource changes. Keep one replica for this shared world. Store a backup before changing game versions or upgrading.
 
-The `/eaglerx-data` volume must remain attached across upgrades. Each Pod start refreshes bundled scripts and browser assets; world directories, Paper configuration, and plugin repositories retain their existing content. Keep custom server configuration under the persisted Paper directories. Store a backup of the volume before changing the Minecraft runtime version.
+Keep the `/eaglerx-data` volume attached. Each Pod start refreshes bundled scripts and web clients while preserving existing worlds, Paper configuration, and plugin state. Custom frontend changes require merging with the new image assets. The startup probe performs the first world save and checks Paper's RCON response before declaring readiness.
 
-The admin plugin panel supports uploading trusted JAR files up to 32 MiB through this template. Uploads and enable/disable changes take effect after a controlled Paper restart using **Restart the server**.
+Trusted plugin uploads are limited to **32 MiB** by this template's ingress. Upload, enable, or disable a plugin, then use the controlled Paper restart in **System settings** to apply changes. Allow several minutes for restart and check **Paper is ready** afterward.
 
-For Minecraft 1.8, initialization disables Dynmap's player health and armor display to accommodate the older Paper API. Map tiles and player positions remain available.
+For Minecraft 1.8, initialization disables Dynmap's player health/armor display to match the older Paper API; map tiles and player positions remain available.
 
 ## Troubleshooting
 
-- **The console opens while game controls are still loading**: Check the StatefulSet's Ready status in the Canvas. The browser client `/` and console `/admin` open early; entering the world and using game controls requires Paper and RCON. The `[start]` log lines describe entrypoint configuration. Paper's initialization progress is in `/eaglerx-data/runtime/server/logs/latest.log` inside the container.
-- **Admin login fails**: Enter the saved `rcon_password`. Five failed attempts from the same source trigger a 10-minute lockout; clients sharing a reverse proxy may share that window.
-- **The player is disconnected shortly after joining**: Complete `/register` on the first visit or `/login` on later visits within 30 seconds, using the same player name.
-- **A plugin upload returns HTTP 413**: Keep the JAR within the template's 32 MiB ingress limit.
+- **The console is available while game controls are loading**: Wait for **Paper is ready**. The Service publishes the console and game page during startup. Use the Canvas resource logs to inspect startup; Paper's detailed log is `/eaglerx-data/runtime/server/logs/latest.log`.
+- **Administrator login fails**: Use the saved deployment password. Five failed attempts from the same source cause a 10-minute lockout; clients behind a proxy may share the window.
+- **Login timed out in the game**: Rejoin and submit `/register` or `/login` within 30 seconds. Use a stable player name so the server can find your account.
+- **Changes wait for a restart**: Configuration and plugin changes take effect after the console's controlled Paper restart.
+- **Plugin upload returns HTTP 413**: Keep the JAR within 32 MiB.
 
-For application support, use [upstream issues](https://github.com/yangchuansheng/eaglerXserver/issues). For platform help, use the [Sealos community](https://discord.gg/wdUn538zVP).
+See [upstream issues](https://github.com/yangchuansheng/eaglerXserver/issues) for application support and the [Sealos community](https://discord.gg/wdUn538zVP) for platform help.
 
 ## License
 
-This template follows the [Sealos template repository](https://github.com/labring-actions/templates) licensing terms. Eaglercraft, Paper, and the bundled plugins retain their respective upstream licenses.
+This template follows the [Sealos templates repository](https://github.com/labring-actions/templates) licensing terms. Eaglercraft, Paper, Minecraft assets, and bundled plugins retain their respective upstream licenses and terms.

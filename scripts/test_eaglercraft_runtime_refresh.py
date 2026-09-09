@@ -13,8 +13,9 @@ import yaml
 
 
 template = Path(__file__).resolve().parents[1] / "template/eaglercraft-server/index.yaml"
-workload = next(doc for doc in yaml.safe_load_all(template.read_text()) if doc["kind"] == "StatefulSet")
-init = workload["spec"]["template"]["spec"]["initContainers"][0]
+documents = list(yaml.safe_load_all(template.read_text()))
+workload = next(doc for doc in documents if doc["kind"] == "StatefulSet")
+scripts = next(doc for doc in documents if doc["kind"] == "ConfigMap")["data"]
 
 with TemporaryDirectory() as directory:
     root = Path(directory)
@@ -28,14 +29,14 @@ with TemporaryDirectory() as directory:
     jar.parent.mkdir(parents=True)
     with zipfile.ZipFile(jar, "w") as archive:
         archive.writestr("configuration.txt", "    sendhealth: true\n    showplayerhealth: true\n    sendposition: true\n")
-    command = init["args"][0].replace("/eaglerx-data/runtime", str(runtime))
+    command = scripts["vn-refreshvn-runtimevn-sh"].replace("/eaglerx-data/runtime", str(runtime))
     env = dict(os.environ, IMAGE_APP_DIR=str(image))
     runtime.mkdir()
     (runtime / "keep.txt").write_text("incomplete runtime")
-    assert subprocess.run([*init["command"], command], env=env, capture_output=True).returncode != 0
+    assert subprocess.run(["/bin/sh", "-c", command], env=env, capture_output=True).returncode != 0
     assert (runtime / "keep.txt").read_text() == "incomplete runtime"
     (runtime / "keep.txt").unlink()
-    subprocess.run([*init["command"], command], env=env, check=True)
+    subprocess.run(["/bin/sh", "-c", command], env=env, check=True)
     assert all((runtime / asset).read_text() == "new release" for asset in assets)
     config = runtime / "server-1.8/plugins/dynmap/configuration.txt"
     assert config.read_text() == "    sendhealth: false\n    showplayerhealth: false\n    sendposition: true\n"
@@ -51,7 +52,7 @@ with TemporaryDirectory() as directory:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"persistent user data")
     for _ in range(2):
-        subprocess.run([*init["command"], command], env=env, check=True)
+        subprocess.run(["/bin/sh", "-c", command], env=env, check=True)
         assert all((runtime / asset).read_text() == "new release" for asset in assets)
         assert all((runtime / name).read_bytes() == b"persistent user data" for name in preserved)
         assert config.read_text().endswith("custom-setting: preserved\n")
@@ -63,7 +64,7 @@ with TemporaryDirectory() as directory:
     (server / "server.properties").write_text("level-name=custom world\n")
     env["APP_DIR"] = str(runtime)
     assert subprocess.run(["/bin/sh", "-c", guard], env=env).returncode != 0
-    startup = container["startupProbe"]["exec"]["command"][-1].split("<<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
+    startup = scripts["vn-startupvn-py"]
     level = server / "custom world/level.dat"
     bridge = SimpleNamespace(SERVER_ROOT=str(server), get_level_name=lambda: "custom world", rcon_send=Mock())
     with patch.dict(sys.modules, {"http_server": bridge}), patch("socket.create_connection"):
