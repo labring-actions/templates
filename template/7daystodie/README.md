@@ -2,7 +2,7 @@
 
 7 Days to Die is a multiplayer survival and crafting game. This template hosts a private dedicated server on Sealos using `vinanrra/7dtd-server:v0.9.3`, LinuxGSM, and persistent world saves.
 
-![LinuxGSM's 7 Days to Die server product page](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/7daystodie/website-screenshot.webp)
+![Official 7 Days to Die in-game screenshot from Steam](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/7daystodie/website-screenshot.webp)
 
 ## About Hosting 7 Days to Die
 
@@ -80,4 +80,6 @@ Useful commands include `listplayers` and `saveworld`. The Telnet interface list
 
 ## License
 
-The Docker packaging project is licensed under [GPL-3.0](https://github.com/vinanrra/Docker-7DaysToDie/blob/v0.9.3/LICENSE). 7 Days to Die is proprietary software owned by The Fun Pimps and remains subject to its game license terms. The screenshot shows the official LinuxGSM server product page.
+The Docker packaging project is licensed under [GPL-3.0](https://github.com/vinanrra/Docker-7DaysToDie/blob/v0.9.3/LICENSE). 7 Days to Die is proprietary software owned by The Fun Pimps and remains subject to its game license terms.
+
+Artwork sources: [official game logo](https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/251570/logo.png) and [publisher-provided in-game screenshot](https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/251570/766ed3debfe7b894fbb5650aa89fa213fa254d5d/ss_766ed3debfe7b894fbb5650aa89fa213fa254d5d.1920x1080.jpg?t=1788209289), from the [official Steam listing](https://store.steampowered.com/app/251570/7_Days_to_Die/).

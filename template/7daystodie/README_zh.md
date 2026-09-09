@@ -2,7 +2,7 @@
 
 7 Days to Die 是一款支持多人联机的生存建造游戏。本模板通过 `vinanrra/7dtd-server:v0.9.3` 和 LinuxGSM，在 Sealos 上部署带持久化存档的私人专用服务器。
 
-![LinuxGSM 的 7 Days to Die 服务器产品页面](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/7daystodie/website-screenshot.webp)
+![Steam 官方提供的 7 Days to Die 游戏内截图](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/7daystodie/website-screenshot.webp)
 
 ## 关于 7 Days to Die 托管
 
@@ -80,4 +80,6 @@ telnet 127.0.0.1 8081
 
 ## 许可证
 
-Docker 打包项目采用 [GPL-3.0](https://github.com/vinanrra/Docker-7DaysToDie/blob/v0.9.3/LICENSE) 许可证。7 Days to Die 是 The Fun Pimps 拥有的商业软件，使用时仍需遵守游戏许可条款。截图展示的是官方 LinuxGSM 服务器产品页面。
+Docker 打包项目采用 [GPL-3.0](https://github.com/vinanrra/Docker-7DaysToDie/blob/v0.9.3/LICENSE) 许可证。7 Days to Die 是 The Fun Pimps 拥有的商业软件，使用时仍需遵守游戏许可条款。
+
+图片来源：[官方游戏 Logo](https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/251570/logo.png) 与[发行商提供的游戏内截图](https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/251570/766ed3debfe7b894fbb5650aa89fa213fa254d5d/ss_766ed3debfe7b894fbb5650aa89fa213fa254d5d.1920x1080.jpg?t=1788209289)，均来自 [Steam 官方商店](https://store.steampowered.com/app/251570/7_Days_to_Die/)。
