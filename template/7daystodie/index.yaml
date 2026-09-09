@@ -1,0 +1,400 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: 7daystodie
+spec:
+  title: 7 Days to Die
+  url: https://7daystodie.com/
+  gitRepo: https://github.com/vinanrra/Docker-7DaysToDie
+  author: Sealos
+  description: A private 7 Days to Die dedicated server with persistent saves, LinuxGSM management, and native TCP/UDP access.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/7daystodie/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/7daystodie/logo.png
+  screenshots:
+  - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/7daystodie/website-screenshot.webp
+  templateType: inline
+  locale: en
+  categories:
+  - game
+  defaults:
+    app_name:
+      type: string
+      value: sdtd-${{ random(8) }}
+    server_password:
+      type: string
+      value: ${{ random(24) }}
+  inputs:
+    server_name:
+      description: Private server name shown in the game.
+      type: string
+      default: Sealos 7 Days to Die
+      required: true
+    max_players:
+      description: Maximum concurrent players, from 1 to 8. Increase resources for larger groups.
+      type: number
+      default: '4'
+      required: true
+  i18n:
+    zh:
+      description: 自托管 7 Days to Die 专用服务器，提供持久化存档、LinuxGSM 管理和原生 TCP/UDP 访问。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/7daystodie/README_zh.md
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - services
+  resourceNames:
+  - ${{ defaults.app_name }}-nodeport
+  verbs:
+  - get
+  - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}
+subjects:
+- kind: ServiceAccount
+  name: ${{ defaults.app_name }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-etcvn-sealosvn-runtimevn-py: |
+    import json
+    import os
+    from pathlib import Path
+    import re
+    import secrets
+    import socket
+    import ssl
+    import sys
+    import time
+    import urllib.error
+    import urllib.request
+    import xml.etree.ElementTree as ET
+
+    SAVES = Path('/home/sdtdserver/.local/share/7DaysToDie/Saves')
+
+
+    def ports(base):
+        if not 30000 <= base <= 32764:
+            raise ValueError('Game port must fit four consecutive Kubernetes NodePorts')
+        return [dict(name=name, protocol=protocol, port=26900 + offset,
+                     targetPort=base + offset, nodePort=base + offset)
+                for name, protocol, offset in [('game-tcp', 'TCP', 0),
+                                              ('game-udp', 'UDP', 0),
+                                              ('steam-udp', 'UDP', 1),
+                                              ('lite-udp', 'UDP', 2), ('reserved-udp', 'UDP', 3)]]
+
+
+    def allocate():
+        account = Path('/var/run/secrets/kubernetes.io/serviceaccount')
+        namespace = (account / 'namespace').read_text().strip()
+        url = ('https://kubernetes.default.svc/api/v1/namespaces/' + namespace
+               + '/services/' + os.environ['SERVICE_NAME'])
+        headers = {'Authorization': 'Bearer ' + (account / 'token').read_text().strip(),
+                   'Content-Type': 'application/merge-patch+json'}
+        context = ssl.create_default_context(cafile=str(account / 'ca.crt'))
+        for attempt in range(90):
+            try:
+                request = urllib.request.Request(url, headers=headers)
+                with urllib.request.urlopen(request, context=context, timeout=10) as response:
+                    service = json.load(response)
+                current = {p['name']: p for p in service['spec']['ports']}
+                base = current.get('game-tcp', {}).get('nodePort', 0)
+                expected = ports(base) if 30000 <= base <= 32764 else []
+                if expected and all(current.get(p['name'], {}).get('nodePort') == p['nodePort']
+                                    for p in expected):
+                    if len(current) == len(expected) and all(
+                            all(current[p['name']].get(key) == value for key, value in p.items())
+                            for p in expected):
+                        break
+                else:
+                    base = 30000 + secrets.randbelow(2765)
+                patch = {'metadata': {'resourceVersion': service['metadata']['resourceVersion']},
+                         'spec': {'type': 'NodePort', 'ports': ports(base)}}
+                request = urllib.request.Request(url, data=json.dumps(patch).encode(),
+                                                 headers=headers, method='PATCH')
+                with urllib.request.urlopen(request, context=context, timeout=10) as response:
+                    json.load(response)
+                break
+            except urllib.error.HTTPError as error:
+                if error.code not in (404, 409, 422):
+                    raise RuntimeError('Service allocation failed: HTTP ' + str(error.code)) from None
+                time.sleep(1)
+        else:
+            raise RuntimeError('Unable to reserve four consecutive game ports')
+        SAVES.mkdir(parents=True, exist_ok=True)
+        (SAVES / '.sealos-port').write_text(str(base))
+        os.chown(SAVES, 1000, 1000)
+        os.chown(SAVES / '.sealos-port', 1000, 1000)
+        start = SAVES / '.sealos-server-start.sh'
+        start.write_text('#!/bin/bash\nset -e\npython3 /etc/sealos/runtime.py configure\nif ! ./sdtdserver start; then\n  python3 /etc/sealos/runtime.py diagnose\n  exit 1\nfi\n')
+        start.chmod(0o755)
+        os.chown(start, 1000, 1000)
+        print('Reserved game ports:', base, base + 1, base + 2, base + 3)
+
+
+    def configure():
+        tree = ET.parse('/home/sdtdserver/serverfiles/serverconfig.xml')
+        settings = tree.getroot()
+        values = {'ServerPort': (SAVES / '.sealos-port').read_text(),
+                  'ServerName': os.environ['ServerName'],
+                  'ServerPassword': os.environ['ServerPassword'],
+                  'ServerMaxPlayerCount': os.environ['ServerMaxPlayerCount'],
+                  'ServerVisibility': '0', 'GameWorld': 'Navezgane', 'GameName': 'Sealos',
+                  'UserDataFolder': str(SAVES.parent), 'TelnetEnabled': 'true',
+                  'TelnetPort': '8081', 'TelnetPassword': ''}
+        if not 1 <= int(values['ServerMaxPlayerCount']) <= 8:
+            raise ValueError('ServerMaxPlayerCount must be from 1 to 8')
+        for name, value in values.items():
+            node = settings.find("property[@name='" + name + "']")
+            if node is None:
+                node = ET.SubElement(settings, 'property', name=name)
+            node.set('value', value)
+        for name in ('WebDashboardEnabled', 'ControlPanelEnabled', 'ServerAllowCrossplay'):
+            node = settings.find("property[@name='" + name + "']")
+            if node is not None:
+                node.set('value', 'false')
+        target = Path('/home/sdtdserver/serverfiles/sdtdserver.xml')
+        tree.write(target, encoding='utf-8', xml_declaration=True)
+        target.chmod(0o600)
+
+
+    def diagnose():
+        for log in Path('/home/sdtdserver/log').rglob('*.log'):
+            print('Startup log:', log)
+            for line in log.read_text(errors='replace').splitlines()[-100:]:
+                if not re.search('password|token|secret|authorization|cookie', line, re.I):
+                    print(line)
+
+
+    def query():
+        base = int((SAVES / '.sealos-port').read_text())
+        with socket.create_connection(('127.0.0.1', base), timeout=4) as client:
+            client.settimeout(4)
+            reply = b''
+            while len(reply) < 4096:
+                chunk = client.recv(4096)
+                if not chunk:
+                    break
+                reply += chunk
+                if b'GameType:7DTD;' in reply and b'LevelName:Navezgane;' in reply:
+                    break
+            else:
+                raise RuntimeError('Game server information exceeds the query limit')
+            if b'GameType:7DTD;' not in reply or b'LevelName:Navezgane;' not in reply:
+                raise RuntimeError('Game server information is not ready')
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as client:
+            client.settimeout(4)
+            client.connect(('127.0.0.1', base + 2))
+            # LiteNetLib answers a ping from an unknown peer with PeerNotFound.
+            client.send(bytes([3, 0, 0]))
+            if client.recv(64) != bytes([14]):
+                raise RuntimeError('LiteNetLib listener is not ready')
+        print('Game information and LiteNetLib ready')
+
+
+    if __name__ == '__main__':
+        if sys.argv[1] == '--self-test':
+            assert [p['nodePort'] for p in ports(31000)] == [31000, 31000, 31001, 31002, 31003]
+            assert [p['protocol'] for p in ports(31000)] == ['TCP', 'UDP', 'UDP', 'UDP', 'UDP']
+            for invalid in (29999, 32765):
+                try:
+                    ports(invalid)
+                    raise AssertionError('Invalid port accepted')
+                except ValueError:
+                    pass
+            print('Port contract checks passed')
+        else:
+            {'allocate': allocate, 'configure': configure, 'query': query, 'diagnose': diagnose}[sys.argv[1]]()
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+  annotations:
+    originImageName: vinanrra/7dtd-server:v0.9.3
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}-nodeport
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+      annotations:
+        sealos.io/service-account-token-reason: Reserve consecutive TCP/UDP ports by reading and patching only this application
+          Service.
+    spec:
+      automountServiceAccountToken: true
+      serviceAccountName: ${{ defaults.app_name }}
+      terminationGracePeriodSeconds: 120
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+      - name: allocate-game-ports
+        image: vinanrra/7dtd-server:v0.9.3
+        imagePullPolicy: IfNotPresent
+        command:
+        - /bin/sh
+        - -c
+        - exec python3 /etc/sealos/runtime.py allocate
+        env:
+        - name: SERVICE_NAME
+          value: ${{ defaults.app_name }}-nodeport
+        resources:
+          requests:
+            cpu: 10m
+            memory: 12Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+        volumeMounts:
+        - name: vn-homevn-sdtdservervn-localvn-sharevn-7daystodievn-saves
+          mountPath: /home/sdtdserver/.local/share/7DaysToDie/Saves
+        - name: ${{ defaults.app_name }}-cm
+          mountPath: /etc/sealos/runtime.py
+          subPath: vn-etcvn-sealosvn-runtimevn-py
+      containers:
+      - name: ${{ defaults.app_name }}
+        image: vinanrra/7dtd-server:v0.9.3
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: START_MODE
+          value: '1'
+        - name: VERSION
+          value: stable
+        - name: LINUXGSM_VERSION
+          value: v25.2.0
+        - name: TimeZone
+          value: Etc/UTC
+        - name: ServerName
+          value: ${{ inputs.server_name }}
+        - name: ServerPassword
+          value: ${{ defaults.server_password }}
+        - name: ServerMaxPlayerCount
+          value: ${{ inputs.max_players }}
+        resources:
+          requests:
+            cpu: 400m
+            memory: 819Mi
+            ephemeral-storage: 20Gi
+          limits:
+            cpu: '4'
+            memory: 8192Mi
+            ephemeral-storage: 20Gi
+        startupProbe:
+          exec:
+            command:
+            - python3
+            - /etc/sealos/runtime.py
+            - query
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 240
+        readinessProbe:
+          exec:
+            command:
+            - python3
+            - /etc/sealos/runtime.py
+            - query
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 3
+        livenessProbe:
+          exec:
+            command:
+            - python3
+            - /etc/sealos/runtime.py
+            - query
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 5
+        volumeMounts:
+        - name: vn-homevn-sdtdservervn-localvn-sharevn-7daystodievn-saves
+          mountPath: /home/sdtdserver/.local/share/7DaysToDie/Saves
+        - name: ${{ defaults.app_name }}-cm
+          mountPath: /etc/sealos/runtime.py
+          subPath: vn-etcvn-sealosvn-runtimevn-py
+        - name: vn-homevn-sdtdservervn-localvn-sharevn-7daystodievn-saves
+          mountPath: /home/sdtdserver/scripts/server_start.sh
+          subPath: .sealos-server-start.sh
+      volumes:
+      - name: ${{ defaults.app_name }}-cm
+        configMap:
+          name: ${{ defaults.app_name }}
+  volumeClaimTemplates:
+  - metadata:
+      name: vn-homevn-sdtdservervn-localvn-sharevn-7daystodievn-saves
+      annotations:
+        path: /home/sdtdserver/.local/share/7DaysToDie/Saves
+        value: '1'
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-nodeport
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: ClusterIP
+  selector:
+    app: ${{ defaults.app_name }}
+  ports:
+  - name: game-tcp
+    protocol: TCP
+    port: 26900
+    targetPort: 26900
+  - name: game-udp
+    protocol: UDP
+    port: 26900
+    targetPort: 26900
+  - name: steam-udp
+    protocol: UDP
+    port: 26901
+    targetPort: 26901
+  - name: lite-udp
+    protocol: UDP
+    port: 26902
+    targetPort: 26902
+  - name: reserved-udp
+    protocol: UDP
+    port: 26903
+    targetPort: 26903
