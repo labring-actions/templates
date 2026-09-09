@@ -7,7 +7,7 @@ spec:
   url: "https://github.com/yangchuansheng/eaglerXserver"
   gitRepo: "https://github.com/yangchuansheng/eaglerXserver"
   author: "Sealos"
-  description: "EaglercraftX 2.2.4 server with browser gameplay, secure WebSocket access, a bilingual admin console, and persistent Paper worlds"
+  description: "EaglercraftX 2.2.7 server with browser gameplay, secure WebSocket access, a bilingual admin console, and persistent Paper worlds"
   readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/eaglercraft-server/README.md'
   icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/eaglercraft-server/logo.svg'
   screenshots:
@@ -16,7 +16,7 @@ spec:
   locale: en
   i18n:
     zh:
-      description: "EaglercraftX 2.2.4 服务器，支持网页端游戏、安全 WebSocket 连接、双语管理面板和持久化 Paper 世界"
+      description: "EaglercraftX 2.2.7 服务器，支持网页端游戏、安全 WebSocket 连接、双语管理面板和持久化 Paper 世界"
       readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/eaglercraft-server/README_zh.md'
   categories:
     - game
@@ -44,15 +44,63 @@ spec:
       type: string
       required: true
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-refreshvn-runtimevn-sh: |
+    set -eu
+    if [ -f /eaglerx-data/runtime/script/start_server.sh ]; then
+      cp -a "$IMAGE_APP_DIR/script" "$IMAGE_APP_DIR/web-1.8" "$IMAGE_APP_DIR/web-1.12" /eaglerx-data/runtime/
+    elif [ -z "$(ls -A /eaglerx-data/runtime 2>/dev/null)" ]; then
+      mkdir -p /eaglerx-data/runtime
+      cp -a "$IMAGE_APP_DIR/." /eaglerx-data/runtime/
+    else
+      echo "Incomplete runtime directory; restore it before starting." >&2
+      exit 1
+    fi
+    # Dynmap's armor API requires Minecraft 1.9+. Keep maps working on 1.8.
+    python3 - <<'PY'
+    from pathlib import Path
+    import re
+    import zipfile
+
+    plugins = Path('/eaglerx-data/runtime/server-1.8/plugins')
+    jar = plugins / 'Dynmap.jar'
+    if jar.is_file():
+        config = plugins / 'dynmap/configuration.txt'
+        config.parent.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(jar) as archive:
+            text = config.read_text() if config.exists() else archive.read('configuration.txt').decode()
+        config.write_text(re.sub(r'(?m)^(\s*)(sendhealth|showplayerhealth):\s*\w+', r'\1\2: false', text))
+    PY
+  vn-startupvn-py: |
+    import socket
+    from pathlib import Path
+    from http_server import SERVER_ROOT, get_level_name, rcon_send
+
+    for port in (5200, 5201, 25565, 25575):
+        socket.create_connection(('127.0.0.1', port), 3).close()
+    level = Path(SERVER_ROOT) / get_level_name() / 'level.dat'
+    # Save new worlds immediately so readiness can pass before autosave.
+    fresh = not level.is_file() or level.stat().st_size == 0
+    rcon_send('save-all' if fresh else 'list', retries=1)
+    if level.stat().st_size == 0:
+        raise SystemExit('Waiting for the initial world save')
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: ghcr.io/yangchuansheng/eaglerx1.8server:2.2.4@sha256:66da3351b997942ae6e149d2d60764266153a843135416ab12598e0ec30860ff
+    originImageName: ghcr.io/yangchuansheng/eaglerx1.8server:2.2.7@sha256:56ad224a996030b7bfb2837702f065fe88685eda511d7a186812f22dc5cad047
     deploy.cloud.sealos.io/minReplicas: "1"
     deploy.cloud.sealos.io/maxReplicas: "1"
-    docker-to-sealos.resource-override-source: "live validation on 2026-09-06: 100m CPU triggered the Paper 1.8 watchdog during chunk saving; 512Mi memory OOMKilled during startup"
+    docker-to-sealos.resource-override-source: "live validation on 2026-09-09 (2.2.7): 100m CPU triggered the Paper 1.8 watchdog while saving new world chunks; 512Mi memory OOMKilled Paper 1.12 during startup"
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
@@ -78,36 +126,9 @@ spec:
       initContainers:
         # Initialize fresh volumes and refresh image-owned code while preserving server state.
         - name: refresh-runtime
-          image: ghcr.io/yangchuansheng/eaglerx1.8server:2.2.4@sha256:66da3351b997942ae6e149d2d60764266153a843135416ab12598e0ec30860ff
+          image: ghcr.io/yangchuansheng/eaglerx1.8server:2.2.7@sha256:56ad224a996030b7bfb2837702f065fe88685eda511d7a186812f22dc5cad047
           imagePullPolicy: IfNotPresent
-          command: ["/bin/sh", "-c"]
-          args:
-            - |
-              set -eu
-              if [ -f /eaglerx-data/runtime/script/start_server.sh ]; then
-                cp -a "$IMAGE_APP_DIR/script" "$IMAGE_APP_DIR/web-1.8" "$IMAGE_APP_DIR/web-1.12" /eaglerx-data/runtime/
-              elif [ -z "$(ls -A /eaglerx-data/runtime 2>/dev/null)" ]; then
-                mkdir -p /eaglerx-data/runtime
-                cp -a "$IMAGE_APP_DIR/." /eaglerx-data/runtime/
-              else
-                echo "Incomplete runtime directory; restore it before starting." >&2
-                exit 1
-              fi
-              # Dynmap's armor API requires Minecraft 1.9+. Keep maps working on 1.8.
-              python3 - <<'PY'
-              from pathlib import Path
-              import re
-              import zipfile
-
-              plugins = Path('/eaglerx-data/runtime/server-1.8/plugins')
-              jar = plugins / 'Dynmap.jar'
-              if jar.is_file():
-                  config = plugins / 'dynmap/configuration.txt'
-                  config.parent.mkdir(parents=True, exist_ok=True)
-                  with zipfile.ZipFile(jar) as archive:
-                      text = config.read_text() if config.exists() else archive.read('configuration.txt').decode()
-                  config.write_text(re.sub(r'(?m)^(\s*)(sendhealth|showplayerhealth):\s*\w+', r'\1\2: false', text))
-              PY
+          command: ["/bin/sh", "/etc/eaglercraft/refresh-runtime.sh"]
           resources:
             requests:
               cpu: 10m
@@ -116,11 +137,17 @@ spec:
               cpu: 100m
               memory: 128Mi
           volumeMounts:
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /etc/eaglercraft/refresh-runtime.sh
+              subPath: vn-refreshvn-runtimevn-sh
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /etc/eaglercraft/startup.py
+              subPath: vn-startupvn-py
             - name: vn-eaglerxvn-data
               mountPath: /eaglerx-data
       containers:
         - name: ${{ defaults.app_name }}
-          image: ghcr.io/yangchuansheng/eaglerx1.8server:2.2.4@sha256:66da3351b997942ae6e149d2d60764266153a843135416ab12598e0ec30860ff
+          image: ghcr.io/yangchuansheng/eaglerx1.8server:2.2.7@sha256:56ad224a996030b7bfb2837702f065fe88685eda511d7a186812f22dc5cad047
           imagePullPolicy: IfNotPresent
           env:
             - name: APP_DIR
@@ -152,21 +179,7 @@ spec:
               command:
                 - /bin/sh
                 - -c
-                - |
-                  PYTHONPATH="$APP_DIR/script" python3 - <<'PY'
-                  import socket
-                  from pathlib import Path
-                  from http_server import SERVER_ROOT, get_level_name, rcon_send
-
-                  for port in (5200, 5201, 25565, 25575):
-                      socket.create_connection(('127.0.0.1', port), 3).close()
-                  level = Path(SERVER_ROOT) / get_level_name() / 'level.dat'
-                  # Save new worlds immediately so readiness can pass before autosave.
-                  fresh = not level.is_file() or level.stat().st_size == 0
-                  rcon_send('save-all' if fresh else 'list', retries=1)
-                  if level.stat().st_size == 0:
-                      raise SystemExit('Waiting for the initial world save')
-                  PY
+                - PYTHONPATH="$APP_DIR/script" exec python3 /etc/eaglercraft/startup.py
             periodSeconds: 10
             timeoutSeconds: 15
             failureThreshold: 60
@@ -194,8 +207,18 @@ spec:
             timeoutSeconds: 5
             failureThreshold: 3
           volumeMounts:
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /etc/eaglercraft/refresh-runtime.sh
+              subPath: vn-refreshvn-runtimevn-sh
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /etc/eaglercraft/startup.py
+              subPath: vn-startupvn-py
             - name: vn-eaglerxvn-data
               mountPath: /eaglerx-data
+      volumes:
+        - name: ${{ defaults.app_name }}-cm
+          configMap:
+            name: ${{ defaults.app_name }}
   volumeClaimTemplates:
     - metadata:
         annotations:
@@ -245,6 +268,7 @@ metadata:
   annotations:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/backend-protocol: WS
     nginx.ingress.kubernetes.io/proxy-read-timeout: '3600'
     nginx.ingress.kubernetes.io/proxy-send-timeout: '3600'
     nginx.ingress.kubernetes.io/ssl-redirect: 'true'
