@@ -1,4 +1,7 @@
-"""Check port allocation and native game readiness with Python and PyYAML."""
+"""Check port allocation and native game readiness with Python and PyYAML.
+
+Usage: python3 scripts/test_7daystodie_template.py
+"""
 
 from contextlib import redirect_stdout
 from io import StringIO
@@ -12,7 +15,8 @@ from unittest.mock import MagicMock, patch
 import yaml
 
 
-documents = list(yaml.safe_load_all(Path(__file__).with_name('index.yaml').read_text()))
+template = Path(__file__).resolve().parents[1] / 'template/7daystodie/index.yaml'
+documents = list(yaml.safe_load_all(template.read_text()))
 config = next(document for document in documents if document['kind'] == 'ConfigMap')
 service = next(document for document in documents if document['kind'] == 'Service')
 workload = next(document for document in documents if document['kind'] == 'StatefulSet')
