@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Check public Steam/RakNet endpoints and authenticated RCON players/save commands.
 
-Usage: PZ_RCON_PASSWORD=... python3 check_runtime.py HOST GAME_PORT DIRECT_PORT RCON_PORT
-       python3 check_runtime.py --check-template  # Requires PyYAML.
+Usage: PZ_RCON_PASSWORD=... python3 scripts/check_project_zomboid_runtime.py HOST GAME_PORT DIRECT_PORT RCON_PORT
+       python3 scripts/check_project_zomboid_runtime.py --check-template  # Requires PyYAML.
 """
 import os
 import re
@@ -21,7 +21,8 @@ def check_template():
     from types import SimpleNamespace
     import yaml
 
-    docs = list(yaml.safe_load_all(Path(__file__).with_name('index.yaml').read_text()))
+    template = Path(__file__).resolve().parents[1] / 'template/project-zomboid/index.yaml'
+    docs = list(yaml.safe_load_all(template.read_text()))
     app = '${{ defaults.app_name }}'
     name = app + '-nodeport'
     services = [doc for doc in docs if doc['kind'] == 'Service']
