@@ -1,0 +1,291 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: valheim
+spec:
+  title: Valheim Docker
+  url: https://mbround18.github.io/valheim-docker/
+  gitRepo: https://github.com/mbround18/valheim-docker
+  author: Sealos
+  description: A persistent Valheim dedicated server with the built-in Huginn status
+    dashboard and Steam multiplayer support.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/valheim/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/valheim/logo.png
+  screenshots:
+  - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/valheim/website-screenshot.webp
+  templateType: inline
+  locale: en
+  categories:
+  - game
+  i18n:
+    zh:
+      description: 提供持久化世界存档、内置 Huginn 状态面板与 Steam 多人游戏支持的 Valheim 专用服务器。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/valheim/README_zh.md
+  defaults:
+    app_name:
+      type: string
+      value: valheim-${{ random(8) }}
+    app_host:
+      type: string
+      value: valheim-${{ random(8) }}
+  inputs:
+    server_name:
+      description: Server name shown in the community list. Use letters, numbers,
+        spaces, and hyphens.
+      type: string
+      default: Valheim on Sealos
+      required: true
+    world_name:
+      description: Persistent world name. Use letters, numbers, underscores, and hyphens.
+      type: string
+      default: Dedicated
+      required: true
+    server_password:
+      description: 'Game password: at least 5 characters, different from the server
+        name. Use letters, numbers, and hyphens.'
+      type: string
+      required: true
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+  annotations:
+    originImageName: mbround18/valheim:3.7.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 120
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 111
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: ${{ defaults.app_name }}
+        image: mbround18/valheim:3.7.0
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        env:
+        - name: NAME
+          value: ${{ inputs.server_name }}
+        - name: WORLD
+          value: ${{ inputs.world_name }}
+        - name: PASSWORD
+          value: ${{ inputs.server_password }}
+        - name: PORT
+          value: '2456'
+        - name: HTTP_PORT
+          value: '3000'
+        - name: ADDRESS
+          value: 127.0.0.1:2457
+        - name: PUBLIC
+          value: '1'
+        - name: TYPE
+          value: Vanilla
+        - name: ENABLE_CROSSPLAY
+          value: '0'
+        - name: TZ
+          value: UTC
+        - name: PUID
+          value: '111'
+        - name: PGID
+          value: '1000'
+        - name: UPDATE_ON_STARTUP
+          value: '0'
+        - name: AUTO_UPDATE
+          value: '0'
+        - name: AUTO_BACKUP
+          value: '0'
+        ports:
+        - containerPort: 3000
+          name: http
+          protocol: TCP
+        - containerPort: 2456
+          name: game
+          protocol: UDP
+        - containerPort: 2457
+          name: query
+          protocol: UDP
+        - containerPort: 2458
+          name: game-extra
+          protocol: UDP
+        resources:
+          limits:
+            cpu: 500m
+            memory: 2048Mi
+          requests:
+            cpu: 50m
+            memory: 204Mi
+        volumeMounts:
+        - name: vn-homevn-steamvn-configvn-unity3dvn-irongatevn-valheim
+          mountPath: /home/steam/.config/unity3d/IronGate/Valheim
+        - name: vn-homevn-steamvn-valheim
+          mountPath: /home/steam/valheim
+        startupProbe:
+          httpGet:
+            path: /readiness
+            port: 3000
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 360
+        readinessProbe:
+          httpGet:
+            path: /readiness
+            port: 3000
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - pidof valheim_server.x86_64 >/dev/null && curl -fsS http://127.0.0.1:3000/liveness
+              >/dev/null
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+  volumeClaimTemplates:
+  - metadata:
+      name: vn-homevn-steamvn-configvn-unity3dvn-irongatevn-valheim
+      annotations:
+        path: /home/steam/.config/unity3d/IronGate/Valheim
+        value: '1'
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+  - metadata:
+      name: vn-homevn-steamvn-valheim
+      annotations:
+        path: /home/steam/valheim
+        value: '1'
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: ClusterIP
+  selector:
+    app: ${{ defaults.app_name }}
+  ports:
+  - name: http
+    port: 3000
+    targetPort: 3000
+    protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-nodeport
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: NodePort
+  selector:
+    app: ${{ defaults.app_name }}
+  ports:
+  - name: game
+    port: 2456
+    targetPort: 2456
+    protocol: UDP
+  - name: query
+    port: 2457
+    targetPort: 2457
+    protocol: UDP
+  - name: game-extra
+    port: 2458
+    targetPort: 2458
+    protocol: UDP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+  - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+    http:
+      paths:
+      - pathType: Prefix
+        path: /
+        backend:
+          service:
+            name: ${{ defaults.app_name }}
+            port:
+              number: 3000
+  tls:
+  - hosts:
+    - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+    secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  type: link
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/valheim/logo.png
+  name: Valheim Docker
