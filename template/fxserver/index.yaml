@@ -1,0 +1,228 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: fxserver
+spec:
+  title: FXServer
+  url: https://fivem.net/
+  gitRepo: https://github.com/routmoute/fxserver
+  author: Sealos
+  description: Host a FiveM server with the built-in txAdmin setup wizard, server console, player management, and persistent server data.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/fxserver/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/fxserver/logo.png
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/fxserver/website-screenshot.webp
+  templateType: inline
+  locale: en
+  categories:
+    - game
+  i18n:
+    zh:
+      description: 部署内置 txAdmin 的 FiveM 服务器，提供初始化向导、服务器控制台、玩家管理和持久化数据存储。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/fxserver/README_zh.md
+  defaults:
+    app_name:
+      type: string
+      value: fxserver-${{ random(8) }}
+    app_host:
+      type: string
+      value: fxserver-${{ random(8) }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: routmoute/fxserver:35245@sha256:82ea87604947cbed3960385b7f5f76999a4c7db81e97614d746bf6ddb65020ea
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: routmoute/fxserver:35245@sha256:82ea87604947cbed3960385b7f5f76999a4c7db81e97614d746bf6ddb65020ea
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: TXHOST_DATA_PATH
+              value: /txdata
+            - name: TXHOST_GAME_NAME
+              value: fivem
+            - name: TXHOST_TXA_PORT
+              value: '40120'
+            - name: TXHOST_FXS_PORT
+              value: '30120'
+            - name: TXHOST_INTERFACE
+              value: 0.0.0.0
+            - name: TXHOST_TXA_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+          ports:
+            - name: http
+              containerPort: 40120
+              protocol: TCP
+            - name: game-tcp
+              containerPort: 30120
+              protocol: TCP
+            - name: game-udp
+              containerPort: 30120
+              protocol: UDP
+          resources:
+            requests:
+              cpu: 20m
+              memory: 25Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          startupProbe:
+            tcpSocket:
+              port: 40120
+            periodSeconds: 5
+            failureThreshold: 120
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 40120
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 40120
+            periodSeconds: 20
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: vn-txdata
+              mountPath: /txdata
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-txdata
+        annotations:
+          path: /txdata
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: ClusterIP
+  selector:
+    app: ${{ defaults.app_name }}
+  ports:
+    - name: http
+      port: 40120
+      targetPort: 40120
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-nodeport
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: NodePort
+  selector:
+    app: ${{ defaults.app_name }}
+  ports:
+    - name: game-tcp
+      port: 30120
+      targetPort: 30120
+      protocol: TCP
+    - name: game-udp
+      port: 30120
+      targetPort: 30120
+      protocol: UDP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 40120
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/fxserver/logo.png
+  name: FXServer
+  type: link
