@@ -2,7 +2,9 @@
 
 Project Zomboid is a multiplayer zombie survival game. This template runs a persistent dedicated server on Sealos Cloud with Steam networking, private-world access, and RCON administration.
 
-![Project Zomboid official website](website-screenshot.webp)
+![Project Zomboid in-game screenshot showing a survivor facing a zombie horde](website-screenshot.webp)
+
+Official game assets from The Indie Stone: [in-game screenshot on Steam](https://store.steampowered.com/app/108600/Project_Zomboid/) and [game logo](https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/108600/logo.png).
 
 ## About Hosting Project Zomboid
 

@@ -2,7 +2,9 @@
 
 Project Zomboid 是一款支持多人联机的僵尸生存游戏。此模板在 Sealos Cloud 上部署持久化专用服务器，支持 Steam 联机、私人世界和远程控制台（RCON）管理。
 
-![Project Zomboid 官方网站](website-screenshot.webp)
+![Project Zomboid 游戏画面：幸存者面对僵尸群](website-screenshot.webp)
+
+官方游戏素材由 The Indie Stone 提供：[Steam 页面中的游戏截图](https://store.steampowered.com/app/108600/Project_Zomboid/)和[游戏标志](https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/108600/logo.png)。
 
 ## 关于托管 Project Zomboid
 
