@@ -2,7 +2,9 @@
 
 FXServer runs FiveM multiplayer servers with the built-in txAdmin management interface. This template deploys one server with persistent data, an HTTPS management URL, and public TCP/UDP game ports on Sealos.
 
-![Official FiveM website](./website-screenshot.webp)
+![Grand Theft Auto V in-game driving scene](./website-screenshot.webp)
+
+Game artwork: the Grand Theft Auto V logo and in-game screenshot published by Rockstar Games on [Steam](https://store.steampowered.com/app/271590/Grand_Theft_Auto_V_Legacy/). These illustrate the base game used by FiveM; server-specific content depends on the installed recipe.
 
 ## About Hosting FXServer
 

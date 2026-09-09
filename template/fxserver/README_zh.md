@@ -2,7 +2,9 @@
 
 FXServer 用于运行 FiveM 多人游戏服务器，并内置 txAdmin 管理界面。此模板在 Sealos 上部署一个服务器实例，配备持久化存储、HTTPS 管理地址和公网 TCP/UDP 游戏端口。
 
-![FiveM 官方网站](./website-screenshot.webp)
+![Grand Theft Auto V 游戏内驾驶画面](./website-screenshot.webp)
+
+游戏素材：Rockstar Games 在 [Steam](https://store.steampowered.com/app/271590/Grand_Theft_Auto_V_Legacy/) 发布的 Grand Theft Auto V 游戏 logo 与游戏内截图，用于展示 FiveM 所基于的游戏；服务器具体内容取决于安装的配置方案。
 
 ## 关于 FXServer 托管
 
