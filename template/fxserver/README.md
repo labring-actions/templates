@@ -14,8 +14,8 @@ Sealos provisions one StatefulSet and a 1Gi persistent volume at `/txdata`. Acco
 
 - **FXServer and txAdmin:** One container using the upstream `35245` build and its verified image digest.
 - **Persistent storage:** A 1Gi volume for `/txdata`; install recipes and resources inside this directory.
-- **Management access:** An HTTPS Ingress routes to txAdmin on port `40120`.
-- **Game access:** A NodePort Service exposes TCP and UDP `30120` through one shared public game port.
+- **Management access:** An HTTPS Ingress routes through the application's ClusterIP Service to txAdmin on port `40120`.
+- **Game access:** A separate `<app-name>-nodeport` Service exposes TCP and UDP `30120` through one shared public game port.
 
 The selected vanilla server setup uses local storage. Framework recipes that require a database need their documented dependencies configured separately.
 
@@ -48,7 +48,7 @@ After deployment, use Canvas to inspect your server. Describe configuration chan
 3. Open the generated HTTPS application URL. On the first visit, txAdmin displays **No Cfx.re account linked** and asks for a PIN. Open the server resource card in Canvas, view the container logs, and find the txAdmin setup PIN.
 4. Enter the PIN and click **Link Account**. Sign in to Cfx.re, approve the account link, and create the backup password requested by txAdmin. Keep that password for later local password logins.
 5. Follow the server setup wizard. Select the **CFX Default FiveM** recipe for the vanilla setup, keep its installation directory under `/txdata`, and enter your server license key from the [Cfx.re Portal](https://portal.cfx.re/). Run the recipe and start the server.
-6. Open the Service resource card and find the public port shared by `game-tcp` and `game-udp`. Connect with your FiveM client using that game address. The HTTPS application URL opens txAdmin.
+6. Open the `<app-name>-nodeport` Service resource card and find the public port shared by `game-tcp` and `game-udp`. Connect with your FiveM client using that game address. The HTTPS application URL opens txAdmin.
 
 ### Connecting a FiveM Client
 

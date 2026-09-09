@@ -14,8 +14,8 @@ Sealos 会创建一个 StatefulSet，并将 1Gi 持久卷挂载到 `/txdata`。�
 
 - **FXServer 和 txAdmin：** 共用一个容器，采用上游 `35245` 构建版本及已核验的镜像摘要。
 - **持久化存储：** 为 `/txdata` 提供 1Gi 存储；请将配方和资源安装在此目录中。
-- **管理入口：** HTTPS Ingress 将请求转发到 txAdmin 的 `40120` 端口。
-- **游戏入口：** NodePort Service 将 TCP 和 UDP `30120` 映射到同一个公网游戏端口。
+- **管理入口：** HTTPS Ingress 通过应用的 ClusterIP Service 将请求转发到 txAdmin 的 `40120` 端口。
+- **游戏入口：** 独立的 `<app-name>-nodeport` Service 将 TCP 和 UDP `30120` 映射到同一个公网游戏端口。
 
 所选原版服务器方案使用本地存储。需要数据库的框架配方应按其文档另外配置依赖。
 
@@ -48,7 +48,7 @@ Sealos 基于 Kubernetes 提供一键部署，CPU、内存和存储按量计费�
 3. 打开自动生成的 HTTPS 应用地址。首次访问时，txAdmin 会显示 **No Cfx.re account linked** 并要求输入 PIN。在 Canvas 中打开服务器资源卡片，查看容器日志，找到 txAdmin 初始化 PIN。
 4. 输入 PIN 并点击 **Link Account**。登录 Cfx.re，批准账号关联，然后按 txAdmin 提示创建备用密码。请保存该密码，方便以后使用本地密码登录。
 5. 按服务器设置向导继续。原版方案选择 **CFX Default FiveM** 配方，将安装目录保留在 `/txdata` 下，并填写从 [Cfx.re Portal](https://portal.cfx.re/) 获取的服务器许可密钥。运行配方并启动服务器。
-6. 打开 Service 资源卡片，找到 `game-tcp` 和 `game-udp` 共用的公网端口。在 FiveM 客户端中使用该游戏地址连接。HTTPS 应用地址用于打开 txAdmin。
+6. 打开 `<app-name>-nodeport` Service 资源卡片，找到 `game-tcp` 和 `game-udp` 共用的公网端口。在 FiveM 客户端中使用该游戏地址连接。HTTPS 应用地址用于打开 txAdmin。
 
 ### 连接 FiveM 客户端
 
