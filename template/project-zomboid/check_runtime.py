@@ -2,6 +2,7 @@
 """Check public Steam/RakNet endpoints and authenticated RCON players/save commands.
 
 Usage: PZ_RCON_PASSWORD=... python3 check_runtime.py HOST GAME_PORT DIRECT_PORT RCON_PORT
+       python3 check_runtime.py --check-template  # Requires PyYAML.
 """
 import os
 import re
@@ -11,6 +12,38 @@ import sys
 import time
 
 MAGIC = bytes.fromhex('00ffff00fefefefefdfdfdfd12345678')
+
+
+def check_template():
+    """Check the dedicated NodePort Service and every startup reference to it."""
+    import ast
+    from pathlib import Path
+    from types import SimpleNamespace
+    import yaml
+
+    docs = list(yaml.safe_load_all(Path(__file__).with_name('index.yaml').read_text()))
+    app = '${{ defaults.app_name }}'
+    name = app + '-nodeport'
+    services = [doc for doc in docs if doc['kind'] == 'Service']
+    assert len(services) == 1
+    service = services[0]
+    assert service['metadata']['name'] == name and service['spec']['type'] == 'NodePort'
+    assert service['metadata']['labels']['app'] == app
+    assert service['metadata']['labels']['cloud.sealos.io/app-deploy-manager'] == app
+    assert service['spec']['selector'] == {'app': app}
+    workload = next(doc for doc in docs if doc['kind'] == 'StatefulSet')
+    assert workload['spec']['serviceName'] == name
+    role = next(doc for doc in docs if doc['kind'] == 'Role')
+    assert role['rules'][0]['resourceNames'] == [name]
+    init = workload['spec']['template']['spec']['initContainers'][0]
+    assert next(item['value'] for item in init['env'] if item['name'] == 'APP_NAME') == app
+    config = next(doc for doc in docs if doc['kind'] == 'ConfigMap')
+    script = ast.parse(config['data']['vn-optvn-sealosvn-configurevn-py'])
+    url = next(node.value for node in script.body if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == 'url' for target in node.targets))
+    context = {'os': SimpleNamespace(environ={'APP_NAME': 'test-app', 'POD_NAMESPACE': 'test-namespace'}), '__builtins__': {}}
+    resolved = eval(compile(ast.Expression(url), '<initializer-url>', 'eval'), context)
+    assert resolved == 'https://kubernetes.default.svc/api/v1/namespaces/test-namespace/services/test-app-nodeport'
+    print('NodePort Service references and workload selectors passed')
 
 
 def receive(sock, count):
@@ -115,7 +148,9 @@ def check(host, game_port, direct_port, rcon_port, password):
 
 
 if __name__ == '__main__':
-    if sys.argv[1:] == ['--self-test']:
+    if sys.argv[1:] == ['--check-template']:
+        check_template()
+    elif sys.argv[1:] == ['--self-test']:
         left, right = socket.socketpair()
         with left, right:
             left.sendall(packet(2, 0, 'Players connected (0):'))

@@ -37,7 +37,7 @@ The image contains the dedicated server and Java runtime. The template includes 
 | Initialization container | Reads and patches only this instance's Service, then writes the allocated game ports and persistent server settings. |
 | World volume | 1 GiB mounted at `/home/steam/Zomboid` for accounts, configuration, saves, and backups. |
 | Workshop volume | 1 GiB mounted at `/home/steam/pz-dedicated/steamapps/workshop` for downloaded Workshop content. |
-| Public networking | `game` UDP, `direct` UDP, and authenticated `rcon` TCP endpoints. |
+| Public networking | The dedicated `${{ defaults.app_name }}-nodeport` Service exposes `game` UDP, `direct` UDP, and authenticated `rcon` TCP endpoints, selecting the original server workload. |
 
 **Configuration:** The world name is `sealos`, the player limit starts at 4, and public server-list advertising is disabled. The initialization step owns the port, join-password, RCON, public-list, player-limit, and UPnP settings; other saved INI options are preserved. Kubernetes sends the console `quit` command during shutdown and allows up to 120 seconds for saving.
 

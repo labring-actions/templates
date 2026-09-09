@@ -37,7 +37,7 @@ Sealos 自动创建服务器、存储和公网 UDP/TCP 端点。初始化容器�
 | 初始化容器 | 仅查询和更新本实例的 Service，随后写入分配的游戏端口及持久化服务器设置。 |
 | 世界数据卷 | 1 GiB，挂载到 `/home/steam/Zomboid`，保存账号、配置、存档和备份。 |
 | 创意工坊数据卷 | 1 GiB，挂载到 `/home/steam/pz-dedicated/steamapps/workshop`，保存下载的创意工坊内容。 |
-| 公网连接 | 提供 `game` UDP、`direct` UDP，以及需要认证的 `rcon` TCP 端点。 |
+| 公网连接 | 独立的 `${{ defaults.app_name }}-nodeport` Service 选中原服务器工作负载，提供 `game` UDP、`direct` UDP，以及需要认证的 `rcon` TCP 端点。 |
 
 **配置：** 世界名称固定为 `sealos`，初始玩家上限为 4，默认关闭公开服务器列表展示。初始化步骤负责设置端口、服务器加入密码、RCON、公开列表、玩家上限和 UPnP，其余已保存的 INI 选项会继续保留。关闭时，Kubernetes 向服务器控制台发送 `quit` 命令，并留出最多 120 秒供游戏保存数据。
 
