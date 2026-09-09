@@ -2,7 +2,9 @@
 
 [Valheim Docker](https://github.com/mbround18/valheim-docker) 通过 Odin 管理 Valheim 专用服务器，并内置 Huginn 状态面板。本模板部署一个原版游戏服务器，分别持久化保存游戏程序和世界存档。
 
-![Valheim Docker 官网](./website-screenshot.webp)
+![Valheim 游戏内营地截图](./website-screenshot.webp)
+
+游戏内截图来源：[Valheim 官方媒体素材](https://www.valheimgame.com/press/)。
 
 ## 关于托管 Valheim Docker
 

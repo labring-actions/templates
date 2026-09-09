@@ -2,7 +2,9 @@
 
 [Valheim Docker](https://github.com/mbround18/valheim-docker) runs a Valheim dedicated server with Odin process management and the built-in Huginn status dashboard. This template deploys one vanilla server with persistent game files and world saves.
 
-![Valheim Docker website](./website-screenshot.webp)
+![Valheim in-game camp screenshot](./website-screenshot.webp)
+
+In-game screenshot from the [official Valheim press kit](https://www.valheimgame.com/press/).
 
 ## About Hosting Valheim Docker
 
