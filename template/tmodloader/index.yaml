@@ -1,0 +1,219 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: tmodloader
+spec:
+  title: tModLoader
+  url: https://www.tmodloader.net/
+  gitRepo: https://github.com/JACOBSMILE/tmodloader1.4
+  author: Sealos
+  description: Host a modded Terraria server with Steam Workshop mods, persistent worlds, scheduled saves, and password-protected multiplayer.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/tmodloader/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/tmodloader/logo.png
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/tmodloader/website-screenshot.webp
+  templateType: inline
+  locale: en
+  categories:
+    - game
+  i18n:
+    zh:
+      description: 托管支持 Steam 创意工坊模组、持久化世界、定时存档和密码保护联机的 Terraria 模组服务器。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/tmodloader/README_zh.md
+  defaults:
+    app_name:
+      type: string
+      value: tmodloader-${{ random(8) }}
+    server_password:
+      type: string
+      value: ${{ random(16) }}
+  inputs:
+    workshop_mods:
+      description: Comma-separated Steam Workshop mod IDs to download and enable. Leave empty to use saved enabled.json settings (initially no mods).
+      type: string
+      default: ''
+      required: false
+    world_size:
+      description: Size for a newly generated world (1 = Small, 2 = Medium, 3 = Large). Increase resources for larger worlds or mod packs.
+      type: choice
+      options:
+        - '1'
+        - '2'
+        - '3'
+      default: '1'
+      required: true
+    difficulty:
+      description: Difficulty for a newly generated world (0 = Classic, 1 = Expert, 2 = Master, 3 = Journey).
+      type: choice
+      options:
+        - '0'
+        - '1'
+        - '2'
+        - '3'
+      default: '0'
+      required: true
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-optvn-sealosvn-startvn-sh: |
+    #!/bin/bash
+    set -euo pipefail
+    if [[ -n "$TMOD_AUTODOWNLOAD" && ! "$TMOD_AUTODOWNLOAD" =~ ^[0-9]+(,[0-9]+)*$ ]]; then
+      echo 'Enter comma-separated numeric Workshop mod IDs.' >&2
+      exit 1
+    fi
+    mkdir -p /data/tModLoader/Worlds /data/tModLoader/Mods /data/steamMods
+    # The upstream config generator prints the server password to stdout.
+    ./prepare-config.sh >/dev/null
+    # The upstream config-file branch checks this marker and reads serverconfig.txt.
+    touch /terraria-server/customconfig.txt
+    export TMOD_USECONFIGFILE=Yes
+    exec ./entrypoint.sh
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: jacobsmile/tmodloader1.4:v2026.07.3.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 120
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: jacobsmile/tmodloader1.4:v2026.07.3.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/bash
+            - -c
+            - exec /bin/bash /opt/sealos/start.sh
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            # Invariant formatting; use an ICU-equipped image for locale-specific mod collation.
+            - name: DOTNET_SYSTEM_GLOBALIZATION_INVARIANT
+              value: '1'
+            - name: DOTNET_SYSTEM_GLOBALIZATION_PREDEFINED_CULTURES_ONLY
+              value: 'false'
+            - name: TAR_OPTIONS
+              value: --no-same-owner
+            - name: UPDATE_NOTICE
+              value: 'false'
+            - name: TMOD_PASS
+              value: ${{ defaults.server_password }}
+            - name: TMOD_AUTODOWNLOAD
+              value: ${{ inputs.workshop_mods }}
+            - name: TMOD_ENABLEDMODS
+              value: ${{ inputs.workshop_mods }}
+            - name: TMOD_WORLDNAME
+              value: Sealos
+            - name: TMOD_WORLDSEED
+              value: Sealos
+            - name: TMOD_WORLDSIZE
+              value: ${{ inputs.world_size }}
+            - name: TMOD_DIFFICULTY
+              value: ${{ inputs.difficulty }}
+            - name: TMOD_MAXPLAYERS
+              value: '8'
+            - name: TMOD_MOTD
+              value: Welcome to the Sealos tModLoader server!
+            - name: TMOD_PORT
+              value: '7777'
+            - name: TMOD_UPNP
+              value: '0'
+            - name: TMOD_LANGUAGE
+              value: en-US
+            - name: TMOD_AUTOSAVE_INTERVAL
+              value: '10'
+          resources:
+            requests:
+              cpu: 10m
+              memory: 102Mi
+            limits:
+              cpu: 100m
+              memory: 1024Mi
+          ports:
+            - name: game
+              containerPort: 7777
+              protocol: TCP
+          startupProbe:
+            tcpSocket:
+              port: game
+            periodSeconds: 10
+            failureThreshold: 180
+          readinessProbe:
+            tcpSocket:
+              port: game
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: game
+            periodSeconds: 30
+            failureThreshold: 3
+          volumeMounts:
+            - name: vn-data
+              mountPath: /data
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /opt/sealos/start.sh
+              subPath: vn-optvn-sealosvn-startvn-sh
+      volumes:
+        - name: ${{ defaults.app_name }}-cm
+          configMap:
+            name: ${{ defaults.app_name }}
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-data
+        annotations:
+          path: /data
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: NodePort
+  selector:
+    app: ${{ defaults.app_name }}
+  ports:
+    - name: game
+      port: 7777
+      targetPort: game
+      protocol: TCP
