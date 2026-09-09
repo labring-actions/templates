@@ -2,7 +2,9 @@
 
 tModLoader adds community mods to Terraria; this template hosts a password-protected tModLoader dedicated server with persistent worlds and Steam Workshop support on Sealos Cloud.
 
-![Official tModLoader documentation](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/tmodloader/website-screenshot.webp)
+![Official tModLoader modded gameplay](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/tmodloader/website-screenshot.webp)
+
+Media sources: [in-game title logo](https://github.com/tModLoader/tModLoader/blob/v2026.07.3.0/patches/tModLoader/Terraria/ModLoader/Logo.png) and [official Steam screenshots](https://store.steampowered.com/app/1281930/tModLoader/). This official image illustrates modded gameplay; this deployment's verification covers the server tests described below.
 
 ## About Hosting tModLoader
 

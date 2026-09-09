@@ -2,7 +2,9 @@
 
 tModLoader 为 Terraria 提供社区模组支持；本模板在 Sealos Cloud 上部署专用服务器，提供联机密码、世界持久化和 Steam 创意工坊模组支持。
 
-![tModLoader 官方文档](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/tmodloader/website-screenshot.webp)
+![tModLoader 官方模组游戏画面](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/tmodloader/website-screenshot.webp)
+
+素材来源：[游戏内标题 Logo](https://github.com/tModLoader/tModLoader/blob/v2026.07.3.0/patches/tModLoader/Terraria/ModLoader/Logo.png) 和 [Steam 官方截图](https://store.steampowered.com/app/1281930/tModLoader/)。画面用于展示官方模组玩法；本次部署实测范围为下文列出的服务器测试。
 
 ## 关于 tModLoader 托管
 
