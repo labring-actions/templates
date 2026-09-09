@@ -18,7 +18,7 @@ Odin 使用 SteamCMD 安装专用服务器，负责启动 Valheim 和安全关�
 
 ## Valheim Docker 托管依赖
 
-模板包含服务器镜像、SteamCMD、Odin、Huginn、持久卷、Service 和 HTTPS Ingress。玩家需要拥有正版 Valheim 客户端，且客户端版本应与服务器版本兼容。
+模板包含服务器镜像、SteamCMD、Odin、Huginn、持久卷、独立的 HTTP 与 UDP Service 和 HTTPS Ingress。玩家需要拥有正版 Valheim 客户端，且客户端版本应与服务器版本兼容。
 
 - [项目文档](https://mbround18.github.io/valheim-docker/)
 - [Valheim 专用服务器指南](https://www.valheimgame.com/support/a-guide-to-dedicated-servers/)
@@ -32,8 +32,8 @@ Odin 使用 SteamCMD 安装专用服务器，负责启动 Valheim 和安全关�
 | CPU / 内存上限 | 100m / 2 GiB |
 | 游戏程序 | 2 GiB PVC，挂载到 `/home/steam/valheim` |
 | 世界存档 | 1 GiB PVC，挂载到 `/home/steam/.config/unity3d/IronGate/Valheim` |
-| 状态面板 | Huginn 监听 `3000` 端口，通过 HTTPS 访问 |
-| 游戏网络 | UDP `2456`（游戏）、`2457`（查询）和 `2458` |
+| 状态面板 | Huginn 监听 `3000` 端口，通过 ClusterIP Service 与 HTTPS Ingress 访问 |
+| 游戏网络 | 独立的 `-nodeport` Service 提供 UDP `2456`（游戏）、`2457`（查询）和 `2458` |
 | 运行配置 | 原版游戏、公开服务器列表、Steam 后端、UTC 时区 |
 
 容器使用 UID `111` 和 GID `1000` 运行。启动检查和就绪检查使用 Huginn 的 `/readiness`；存活检查同时确认 Valheim 进程和 Huginn 可用。镜像标签固定 Docker 管理工具的版本；SteamCMD 在首次启动时安装当前稳定版 Valheim 服务器，后续重启复用已安装版本。需要升级时，临时将 `UPDATE_ON_STARTUP` 设为 `1`，升级完成后恢复为 `0`。
@@ -50,7 +50,7 @@ Sealos 基于 Kubernetes，提供一键部署、持久化存储和 HTTPS 状态�
 2. 填写 `server_name`、`world_name` 和 `server_password`。密码至少包含 5 个字符，并与服务器名称保持不同。密码使用字母、数字和连字符；世界名称还支持下划线，服务器名称还支持空格。
 3. Sealos 通常需要 2-3 分钟创建资源。服务器首次启动还需下载约 1.64 GiB 文件并生成世界，在最低 CPU 档位下可能需要数十分钟。启动检查为首次初始化预留了最长 60 分钟。进入 Canvas，等待服务器状态变为 Ready。
 4. 打开应用的 HTTPS 地址即可查看 Huginn。状态面板直接提供公开的只读信息；进入游戏时使用部署时设置的密码。
-5. 打开 Service 资源卡片，复制公网 UDP 主机地址以及内部端口 `2456` 对应的 NodePort。在 Valheim 中选择 **Start Game（开始游戏）**，选好角色后进入 **Join Game（加入游戏）**，通过 **Add Server（添加服务器）** 输入 `<public-host>:<game-node-port>`，并按提示输入 `server_password`。
+5. 打开名称以 `-nodeport` 结尾的 Service 资源卡片，复制公网 UDP 主机地址以及内部端口 `2456` 对应的 NodePort。在 Valheim 中选择 **Start Game（开始游戏）**，选好角色后进入 **Join Game（加入游戏）**，通过 **Add Server（添加服务器）** 输入 `<public-host>:<game-node-port>`，并按提示输入 `server_password`。
 6. 使用 Steam 服务器浏览器时，填写内部端口 `2457` 对应的独立查询端口。复制地址时区分游戏端口和查询端口，实际分配值以 Canvas 为准。
 
 ### 状态面板与游戏登录
