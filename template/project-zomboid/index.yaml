@@ -1,0 +1,398 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: project-zomboid
+spec:
+  title: Project Zomboid
+  url: https://projectzomboid.com/
+  gitRepo: https://github.com/Danixu/project-zomboid-server-docker
+  author: Sealos
+  description: Host a persistent Project Zomboid dedicated server with Steam multiplayer,
+    private worlds, and RCON administration.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/project-zomboid/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/project-zomboid/logo.png
+  screenshots:
+  - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/project-zomboid/website-screenshot.webp
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: 部署持久化 Project Zomboid 专用服务器，支持 Steam 多人联机、私人世界和 RCON 管理。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/project-zomboid/README_zh.md
+  categories:
+  - game
+  defaults:
+    app_name:
+      type: string
+      value: project-zomboid-${{ random(8) }}
+    rcon_password:
+      type: string
+      value: ${{ random(32) }}
+  inputs:
+    admin_username:
+      description: Administrator username. Use ASCII letters and digits only.
+      type: string
+      required: true
+    admin_password:
+      description: Administrator password for first startup. Must be non-empty and
+        contain no line breaks.
+      type: string
+      required: true
+    server_password:
+      description: Optional server join password. Use a single-line value.
+      type: string
+      default: ''
+      required: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - services
+  resourceNames:
+  - ${{ defaults.app_name }}
+  verbs:
+  - get
+  - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}
+subjects:
+- kind: ServiceAccount
+  name: ${{ defaults.app_name }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-optvn-sealosvn-configurevn-py: |
+    import json
+    import os
+    from pathlib import Path
+    import ssl
+    import time
+    import urllib.request
+
+    # Only this instance's Service is readable and patchable through its Role.
+    account = Path('/var/run/sealos-account')
+    url = 'https://kubernetes.default.svc/api/v1/namespaces/' + os.environ['POD_NAMESPACE'] + '/services/' + os.environ['APP_NAME']
+    headers = {'Authorization': 'Bearer ' + (account / 'token').read_text()}
+    context = ssl.create_default_context(cafile=str(account / 'ca.crt'))
+    for attempt in range(120):
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, headers=headers), context=context, timeout=10) as response:
+                service = json.load(response)
+            ports = service['spec']['ports']
+            assigned = {port['name']: port['nodePort'] for port in ports}
+            break
+        except (OSError, KeyError):
+            if attempt == 119:
+                raise RuntimeError('Service port allocation did not finish') from None
+            time.sleep(2)
+    for port in ports:
+        if port['protocol'] == 'UDP':
+            port['targetPort'] = port['nodePort']
+    request = urllib.request.Request(url, data=json.dumps({'spec': {'ports': ports}}).encode(), headers={**headers, 'Content-Type': 'application/merge-patch+json'}, method='PATCH')
+    with urllib.request.urlopen(request, context=context, timeout=10) as response:
+        response.read()
+
+    # The image already contains the game; persist only saves/configuration and mods.
+    Path('/home/steam/Zomboid/mods').mkdir(parents=True, exist_ok=True)
+    folder = Path('/home/steam/Zomboid/Server')
+    folder.mkdir(parents=True, exist_ok=True)
+    config = folder / 'sealos.ini'
+    settings = dict(line.split('=', 1) for line in config.read_text().splitlines() if '=' in line and not line.startswith('#')) if config.exists() else {}
+    for name in ('ADMINUSERNAME', 'ADMINPASSWORD', 'PASSWORD', 'RCONPASSWORD'):
+        if any(char in os.environ[name] for char in ('\n', '\r', '\0')):
+            raise ValueError(name + ' must be a single-line value')
+    if not (os.environ['ADMINUSERNAME'].isascii() and os.environ['ADMINUSERNAME'].isalnum()) or not os.environ['ADMINPASSWORD'] or not os.environ['RCONPASSWORD']:
+        raise ValueError('Provide an alphanumeric administrator name and non-empty passwords')
+    settings.update(DefaultPort=str(assigned['game']), UDPPort=str(assigned['direct']), RCONPort='27015', RCONPassword=os.environ['RCONPASSWORD'], Password=os.environ['PASSWORD'], Public='false', PublicName='Project Zomboid on Sealos', MaxPlayers='4', UPnP='false')
+    temporary = config.with_suffix('.ini.tmp')
+    temporary.write_text(''.join(key + '=' + value + '\n' for key, value in settings.items()))
+    temporary.chmod(0o600)
+    temporary.replace(config)
+    print('Configured allocated UDP ports and persistent server settings')
+  vn-optvn-sealosvn-startvn-sh: |
+    #!/bin/bash
+    set -euo pipefail
+    cd /home/steam/pz-dedicated
+    export LD_LIBRARY_PATH="${PWD}/jre64/lib:${LD_LIBRARY_PATH:-}"
+    rm -f /tmp/pz-console
+    mkfifo -m 600 /tmp/pz-console
+    exec 3<>/tmp/pz-console
+    bootstrap_password="$ADMINPASSWORD"
+    bootstrap_phase=password
+    unset ADMINPASSWORD PASSWORD RCONPASSWORD
+    # Respond only to the game's real bootstrap prompts, including after interrupted starts.
+    ./start-server.sh "-Xms${MIN_MEMORY}" "-Xmx${MAX_MEMORY}" -XX:+ExitOnOutOfMemoryError -- -servername sealos -adminusername "$ADMINUSERNAME" </tmp/pz-console 2>&1 | while IFS= read -r line; do
+        printf '%s\n' "$line"
+        case "$bootstrap_phase:$line" in
+            "password:LOG  : General "*"> Enter new administrator password: "*)
+                printf '%s\n' "$bootstrap_password" >&3
+                bootstrap_phase=confirm
+                ;;
+            "confirm:LOG  : General "*"> Confirm the password: "*)
+                printf '%s\n' "$bootstrap_password" >&3
+                unset bootstrap_password
+                bootstrap_phase=complete
+                ;;
+            *":LOG  : Network "*"> Initialising Server Systems...")
+                unset bootstrap_password
+                bootstrap_phase=complete
+                ;;
+        esac
+    done
+  vn-optvn-sealosvn-stopvn-sh: |
+    #!/bin/bash
+    set -euo pipefail
+    printf 'quit\n' >/tmp/pz-console
+    # Give the game the full save window before Kubernetes sends SIGTERM.
+    for ((attempt=0; attempt<110; attempt++)); do
+        kill -0 1 2>/dev/null || exit 0
+        sleep 1
+    done
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+  annotations:
+    originImageName: danixu86/project-zomboid-dedicated-server:42.20.4-release
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      serviceAccountName: ${{ defaults.app_name }}
+      terminationGracePeriodSeconds: 120
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+      - name: configure-server
+        image: python:3.12.11-alpine
+        imagePullPolicy: IfNotPresent
+        command:
+        - python
+        - /opt/sealos/configure.py
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          requests:
+            cpu: 10m
+            memory: 12Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+        env:
+        - name: ADMINUSERNAME
+          value: ${{ inputs.admin_username }}
+        - name: ADMINPASSWORD
+          value: ${{ inputs.admin_password }}
+        - name: PASSWORD
+          value: ${{ inputs.server_password }}
+        - name: RCONPASSWORD
+          value: ${{ defaults.rcon_password }}
+        - name: APP_NAME
+          value: ${{ defaults.app_name }}
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        volumeMounts:
+        - name: ${{ defaults.app_name }}-cm
+          mountPath: /opt/sealos/configure.py
+          subPath: vn-optvn-sealosvn-configurevn-py
+        - name: ${{ defaults.app_name }}-cm
+          mountPath: /opt/sealos/start.sh
+          subPath: vn-optvn-sealosvn-startvn-sh
+        - name: ${{ defaults.app_name }}-cm
+          mountPath: /opt/sealos/stop.sh
+          subPath: vn-optvn-sealosvn-stopvn-sh
+        - name: vn-homevn-steamvn-zomboid
+          mountPath: /home/steam/Zomboid
+        - name: vn-homevn-steamvn-pzvn-dedicatedvn-steamappsvn-workshop
+          mountPath: /home/steam/pz-dedicated/steamapps/workshop
+        - name: service-account
+          mountPath: /var/run/sealos-account
+          readOnly: true
+      containers:
+      - name: ${{ defaults.app_name }}
+        image: danixu86/project-zomboid-dedicated-server:42.20.4-release
+        imagePullPolicy: IfNotPresent
+        command:
+        - /bin/bash
+        - -c
+        - exec /bin/bash /opt/sealos/start.sh
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          limits:
+            cpu: 100m
+            memory: 4096Mi
+          requests:
+            cpu: 10m
+            memory: 409Mi
+        env:
+        - name: ADMINUSERNAME
+          value: ${{ inputs.admin_username }}
+        - name: ADMINPASSWORD
+          value: ${{ inputs.admin_password }}
+        - name: PASSWORD
+          value: ${{ inputs.server_password }}
+        - name: RCONPASSWORD
+          value: ${{ defaults.rcon_password }}
+        - name: MIN_MEMORY
+          value: 64m
+        - name: MAX_MEMORY
+          value: 2048m
+        - name: LANG
+          value: en_US.UTF-8
+        ports:
+        - name: rcon
+          containerPort: 27015
+          protocol: TCP
+        startupProbe:
+          tcpSocket:
+            port: 27015
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 180
+        readinessProbe:
+          tcpSocket:
+            port: 27015
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 6
+        livenessProbe:
+          tcpSocket:
+            port: 27015
+          periodSeconds: 30
+          timeoutSeconds: 3
+          failureThreshold: 6
+        lifecycle:
+          preStop:
+            exec:
+              command:
+              - /bin/bash
+              - /opt/sealos/stop.sh
+        volumeMounts:
+        - name: ${{ defaults.app_name }}-cm
+          mountPath: /opt/sealos/configure.py
+          subPath: vn-optvn-sealosvn-configurevn-py
+        - name: ${{ defaults.app_name }}-cm
+          mountPath: /opt/sealos/start.sh
+          subPath: vn-optvn-sealosvn-startvn-sh
+        - name: ${{ defaults.app_name }}-cm
+          mountPath: /opt/sealos/stop.sh
+          subPath: vn-optvn-sealosvn-stopvn-sh
+        - name: vn-homevn-steamvn-zomboid
+          mountPath: /home/steam/Zomboid
+        - name: vn-homevn-steamvn-pzvn-dedicatedvn-steamappsvn-workshop
+          mountPath: /home/steam/pz-dedicated/steamapps/workshop
+      volumes:
+      - name: ${{ defaults.app_name }}-cm
+        configMap:
+          name: ${{ defaults.app_name }}
+      - name: service-account
+        projected:
+          sources:
+          - serviceAccountToken:
+              path: token
+              expirationSeconds: 600
+          - configMap:
+              name: kube-root-ca.crt
+              items:
+              - key: ca.crt
+                path: ca.crt
+  volumeClaimTemplates:
+  - metadata:
+      name: vn-homevn-steamvn-zomboid
+      annotations:
+        path: /home/steam/Zomboid
+        value: '1'
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+  - metadata:
+      name: vn-homevn-steamvn-pzvn-dedicatedvn-steamappsvn-workshop
+      annotations:
+        path: /home/steam/pz-dedicated/steamapps/workshop
+        value: '1'
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  type: NodePort
+  selector:
+    app: ${{ defaults.app_name }}
+  ports:
+  - name: game
+    port: 16261
+    targetPort: 16261
+    protocol: UDP
+  - name: direct
+    port: 16262
+    targetPort: 16262
+    protocol: UDP
+  - name: rcon
+    port: 27015
+    targetPort: 27015
+    protocol: TCP
