@@ -34,7 +34,7 @@ The template uses the upstream Docker image, which includes tModLoader, SteamCMD
 | Component | Purpose |
 | --- | --- |
 | One StatefulSet replica | Runs the dedicated game server and owns one world |
-| TCP NodePort Service | Publishes container port `7777` through a region-specific public port |
+| TCP NodePort Service (`<app-name>-nodeport`) | Publishes container port `7777` through a region-specific public port |
 | 1Gi persistent volume at `/data` | Stores worlds, enabled-mod settings, and downloaded Workshop content |
 | ConfigMap | Initializes data directories and prepares server settings without printing the join password |
 
