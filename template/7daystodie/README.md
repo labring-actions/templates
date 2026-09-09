@@ -33,9 +33,11 @@ The container includes LinuxGSM, SteamCMD, and the tools needed to install the d
 | CPU and memory limits | 4 CPU cores and 8192 MiB, matching the documented dedicated server minimum |
 | Save storage | 1 GiB at `/home/sdtdserver/.local/share/7DaysToDie/Saves` |
 | Rebuildable installation | 20 GiB of container storage for SteamCMD and game files |
-| Native network | One NodePort Service: base port on TCP and UDP, plus the next three UDP ports |
+| Native network | Dedicated `<app-name>-nodeport` Service: base port on TCP and UDP, plus the next three UDP ports |
 | Port allocation | An init container with permission to read and patch only this application's Service |
 | Administration | Local Telnet on `127.0.0.1:8081`, available from the container terminal |
+
+The `<app-name>-nodeport` Service starts as ClusterIP. Before the game starts, the init container atomically promotes it to NodePort with four consecutive public ports. This keeps the native game ports together and preserves their allocation across Pod restarts.
 
 The server uses a generated password and stays hidden from the public server list. Web administration and cross-platform console support are disabled. The selected upstream runtime uses local saves; this template provisions those saves directly.
 

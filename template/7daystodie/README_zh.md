@@ -33,9 +33,11 @@ Sealos 会创建 1 GiB 持久化存档卷，并提供原生 TCP/UDP 访问。初
 | CPU 与内存上限 | 4 核 CPU、8192 MiB 内存，对应官方专用服务器最低要求 |
 | 存档空间 | 1 GiB，挂载到 `/home/sdtdserver/.local/share/7DaysToDie/Saves` |
 | 可重建安装文件 | 20 GiB 容器存储，用于 SteamCMD 和游戏文件 |
-| 原生网络 | 一个 NodePort Service：基础端口同时开放 TCP 和 UDP，随后三个端口开放 UDP |
+| 原生网络 | 独立的 `<app-name>-nodeport` Service：基础端口同时开放 TCP 和 UDP，随后三个端口开放 UDP |
 | 端口分配 | 初始化容器仅有读取、修改本应用 Service 的权限 |
 | 管理入口 | 容器终端内的本地 Telnet：`127.0.0.1:8081` |
+
+`<app-name>-nodeport` Service 初始类型为 ClusterIP。游戏启动前，初始化容器通过一次原子更新将其转为 NodePort，并分配四个连续的公网端口。游戏端口由此保持连续，Pod 重启时会复用已有分配。
 
 服务器使用自动生成的密码，并在公共服务器列表中隐藏。Web 管理和主机跨平台联机功能默认关闭。上游运行方式使用本地存档，模板为存档目录配置持久化存储。
 

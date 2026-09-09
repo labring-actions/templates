@@ -14,6 +14,20 @@ import yaml
 
 documents = list(yaml.safe_load_all(Path(__file__).with_name('index.yaml').read_text()))
 config = next(document for document in documents if document['kind'] == 'ConfigMap')
+service = next(document for document in documents if document['kind'] == 'Service')
+workload = next(document for document in documents if document['kind'] == 'StatefulSet')
+role = next(document for document in documents if document['kind'] == 'Role')
+app_name = workload['metadata']['name']
+service_name = app_name + '-nodeport'
+assert service['metadata']['name'] == service_name
+assert workload['spec']['serviceName'] == service_name
+assert role['rules'][0]['resourceNames'] == [service_name]
+assert service['metadata']['labels']['app'] == app_name
+assert service['spec']['selector']['app'] == app_name
+assert service['spec']['type'] == 'ClusterIP'
+initializer = workload['spec']['template']['spec']['initContainers'][0]
+assert {'name': 'SERVICE_NAME', 'value': service_name} in initializer['env']
+print('Dedicated NodePort Service references and atomic initialization contract passed')
 source = config['data']['vn-etcvn-sealosvn-runtimevn-py']
 compile(source, 'runtime.py', 'exec')
 with tempfile.TemporaryDirectory() as directory:
@@ -63,12 +77,13 @@ with tempfile.TemporaryDirectory() as directory:
         updates = []
 
         def open_service(request, **kwargs):
+            assert request.full_url.endswith('/namespaces/test/services/test-nodeport')
             if request.get_method() == 'PATCH':
                 updates.append(json.loads(request.data))
             return StringIO(json.dumps({'metadata': {'resourceVersion': '1'},
                                         'spec': {'ports': initial}}))
 
-        with patch.dict(runtime['os'].environ, {'APP_NAME': 'test'}), \
+        with patch.dict(runtime['os'].environ, {'SERVICE_NAME': 'test-nodeport'}), \
                 patch.dict(runtime, {'Path': lambda path: account}), \
                 patch.object(runtime['ssl'], 'create_default_context'), \
                 patch.object(runtime['urllib'].request, 'urlopen', side_effect=open_service), \
