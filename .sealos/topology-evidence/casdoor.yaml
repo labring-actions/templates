@@ -1,0 +1,73 @@
+apiVersion: docker-to-sealos/v1
+kind: TopologyEvidence
+metadata:
+  name: casdoor-topology
+spec:
+  appName: casdoor
+  source: https://github.com/casdoor/casdoor/blob/v3.141.0/docker-compose.yml
+  resources:
+    - kind: Cluster
+      name: ${{ defaults.app_name }}-mysql
+      when: inputs.driver_name === 'mysql'
+      components:
+        - name: mysql
+          replicas: 1
+    - kind: Cluster
+      name: ${{ defaults.app_name }}-pg
+      when: inputs.driver_name === 'postgres'
+      components:
+        - name: postgresql
+          replicas: 1
+    - kind: StatefulSet
+      name: ${{ defaults.app_name }}
+      when: inputs.driver_name === 'sqlite'
+      replicas: 1
+    - kind: Deployment
+      name: ${{ defaults.app_name }}
+      when: inputs.driver_name !== 'sqlite'
+      replicas: 1
+---
+apiVersion: docker-to-sealos/v1
+kind: RuntimeBundleEvidence
+metadata:
+  name: casdoor-runtime-bundle
+spec:
+  appName: casdoor
+  source: https://github.com/casdoor/casdoor/releases/tag/v3.141.0
+  images:
+    - casbin/casdoor:3.141.0
+  components:
+    - ${{ defaults.app_name }}
+  routes:
+    - path: /
+      service: ${{ defaults.app_name }}
+  env:
+    - RUNNING_IN_DOCKER
+  validation:
+    deployment:
+      branch: sqlite
+      workloadReady: 1/1
+      administratorBootstrapJobSucceeded: true
+      administratorPasswordInJobSpec: false
+      administratorPasswordSource: kubernetes-secret
+      publicEndpointsBeforeBootstrap: 0
+      publicEndpointsAfterBootstrap: 1
+      restarts: 0
+    accountFlow:
+      - configured administrator password bootstrap
+      - browser password sign-in
+      - authenticated Home and Apps navigation
+      - upstream default password rejection
+      - configured password sign-in after workload restart
+    negativePath:
+      unauthorizedApiStatus: error
+    storage:
+      mode: sqlite-pvc
+      databaseBytesAfterRestart: 634880
+    resources:
+      accepted:
+        component: casdoor
+        cpu: 100m
+        memory: 128Mi
+        observedCpu: 3m
+        observedMemory: 24Mi

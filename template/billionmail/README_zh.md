@@ -1,6 +1,6 @@
 # 在 Sealos 上部署和托管 BillionMail
 
-BillionMail 是开源邮件服务器、Newsletter 和邮件营销平台。这个模板会在 Sealos Cloud 上部署 BillionMail Web 控制台、邮件服务、PostgreSQL、Redis 和持久化存储。
+BillionMail 是开源邮件服务器、Newsletter 和邮件营销平台。这个模板会在 Sealos Cloud 上部署固定版本的 BillionMail 4.9 服务组合、PostgreSQL、Redis 和持久化存储。
 
 ![BillionMail 截图](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/billionmail/website-screenshot.webp)
 
@@ -20,7 +20,7 @@ BillionMail 提供自托管控制台，用于管理域名、邮箱、邮件活�
 
 ## BillionMail 托管依赖
 
-Sealos 模板包含所需运行时依赖：BillionMail Core、Postfix、Dovecot、Rspamd、Roundcube、PostgreSQL 16.4、Redis 7.2 和持久化数据卷。
+Sealos 模板包含所需运行时依赖：BillionMail Core 4.9.3、Postfix 1.6、Dovecot 1.6、Rspamd 1.2、Roundcube 1.6.11、PostgreSQL 16.4、Redis 7.2 和持久化数据卷。应用数据遵循官方 Compose 拓扑，使用本地持久化存储。这个服务组合以 PostgreSQL 和 Redis 作为必要后端。
 
 ### 部署依赖
 
@@ -43,6 +43,8 @@ Sealos 模板包含所需运行时依赖：BillionMail Core、Postfix、Dovecot�
 - **PostgreSQL**：KubeBlocks PostgreSQL 16.4 集群，用于 BillionMail 和 Webmail 数据。
 - **Redis**：KubeBlocks Redis 7.2 集群，用于缓存、会话和服务协同。
 - **持久化卷**：存储邮件数据、可变配置、TLS 文件、日志、Webmail 数据和邮件服务状态。
+
+邮件服务共享一个 ReadWriteOnce 数据卷，因此工作负载保持一个 StatefulSet 副本。PostgreSQL 运行一个副本，Redis 运行一个 Redis 副本和一个 Sentinel 副本。应用镜像固定到官方 Compose 服务组合提交 `fc36c76c050c3775c5e899faf7403cf0262d2744` 对应的不可变 digest。
 
 **配置：**
 
@@ -69,14 +71,14 @@ Sealos 是基于 Kubernetes 的 AI 辅助云操作系统，统一应用部署、
 
 1. 打开 [BillionMail 模板](https://sealos.io/products/app-store/billionmail)，点击 **Deploy Now**。
 2. 在弹窗中配置部署参数：
-   - **Admin Username**：初始 BillionMail 管理员用户名，默认值为 `billion`。
-   - **Admin Password**：初始 BillionMail 管理员密码。部署前请设置强密码。
+   - **Admin Username**：必填的初始 BillionMail 管理员用户名。
+   - **Admin Password**：必填的初始 BillionMail 管理员密码。请设置强度高且唯一的值。
    - **Mail Hostname**：邮件服务和 DNS 指引使用的主机名，例如 `mail.example.com`。
    - **Timezone**：容器时区，例如 `Etc/UTC`。
    - **Retention Days**：BillionMail 日志备份保留天数。
 3. 等待部署完成，通常需要 2-3 分钟。部署后 Sealos 会跳转到 Canvas。后续变更可以在 AI 对话中描述需求，或点击对应资源卡片修改。
 4. 打开 Sealos 提供的 BillionMail App URL。控制台位于根路径，例如 `https://<app-host>.<sealos-domain>`。
-5. 使用第 2 步配置的管理员用户名和密码登录。初始管理员账号会在部署期间创建，首次访问直接使用这些部署凭据。
+5. 使用第 2 步配置的准确管理员用户名和密码登录。初始管理员账号会在部署期间创建，首次访问直接使用这些部署凭据。
 6. 登录后先创建邮件域名和邮箱，再使用邮件投递或 Roundcube Webmail。
 
 ## 首次登录与 Webmail
@@ -93,16 +95,16 @@ https://<app-host>.<sealos-domain>/roundcube
 
 ## 邮件 DNS 与端口
 
-BillionMail 会在 Kubernetes 内提供 SMTP、SMTPS、Submission、IMAP、IMAPS、POP3 和 POP3S 服务。公网邮件投递还需要 DNS 与网络规划：
+BillionMail 通过 Kubernetes ClusterIP Service 提供 SMTP、SMTPS、Submission、IMAP、IMAPS、POP3 和 POP3S。模板仅通过 Sealos App URL 发布 HTTPS Web 控制台。互联网邮件投递需要单独配置公网 L4 路由，并完成 DNS 与网络规划：
 
 - 将 MX 记录指向配置的 `mail_hostname`。
 - 为每个发信域名配置 SPF、DKIM 和 DMARC。
-- 确认目标收发网络可以访问所需 SMTP 与 IMAP/POP 端口。
+- 通过经过批准的公网网络路径发布所需 SMTP 与 IMAP/POP 端口。
 - 当环境限制 `25` 端口时，认证发信使用 Submission `587` 端口。
 
 ## 扩缩容
 
-如需调整资源，打开部署 Canvas，在对应工作负载、数据库或存储卷资源卡片中修改 CPU、内存和存储。邮件存储与投递服务属于有状态组件，修改副本或存储配置后请验证邮件流。
+如需调整资源，打开部署 Canvas，在对应工作负载、数据库或存储卷资源卡片中修改 CPU、内存和存储。共享邮件 StatefulSet 保持一个副本，并使用默认 ReadWriteOnce 数据卷。每次修改存储或网络后都应验证邮件流。
 
 ## 故障排查
 

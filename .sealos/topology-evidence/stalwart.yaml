@@ -1,0 +1,161 @@
+apiVersion: docker-to-sealos/v1
+kind: TopologyEvidence
+metadata:
+  name: stalwart-topology
+spec:
+  appName: stalwart
+  source: https://github.com/stalwartlabs/stalwart/tree/ead8396aa114e7fcd2248131e78cb470ccd3b1e9
+  resources:
+    - kind: ObjectStorageBucket
+      name: ${{ defaults.app_name }}
+      when: inputs.enable_s3_storage === 'true'
+    - kind: Cluster
+      name: ${{ defaults.app_name }}-pg
+      when: inputs.use_postgresql === 'true'
+      components:
+        - name: postgresql
+          replicas: 1
+    - kind: StatefulSet
+      name: ${{ defaults.app_name }}
+      when: always
+      replicas: 1
+---
+apiVersion: docker-to-sealos/v1
+kind: RuntimeBundleEvidence
+metadata:
+  name: stalwart-runtime-bundle
+spec:
+  appName: stalwart
+  source: https://github.com/stalwartlabs/stalwart/releases/tag/v0.16.16
+  images:
+    - stalwartlabs/stalwart:v0.16.16@sha256:66ae90f2753ec1dabd70f69cad7da9f0598d2628a04193ce2b08c7263d47aced
+    - public.ecr.aws/docker/library/postgres:16.4-alpine@sha256:5660c2cbfea50c7a9127d17dc4e48543eedd3d7a41a595a2dfa572471e37e64c
+  components:
+    - ${{ defaults.app_name }}
+  routes:
+    - path: /
+      service: ${{ defaults.app_name }}
+  env:
+    - STALWART_HOSTNAME
+    - STALWART_PUBLIC_URL
+    - STALWART_DEFAULT_DOMAIN
+    - STALWART_DB_PASSWORD
+    - S3_ACCESS_KEY_ID
+    - S3_SECRET_ACCESS_KEY
+    - S3_BUCKET
+    - BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
+  validation:
+    dryRun:
+      status: 200
+      cases:
+        - sqlite-local
+        - sqlite-s3
+        - postgresql-local
+        - postgresql-s3
+    deployment:
+      method: template-api
+      validatedCases:
+        - sqlite-local
+        - sqlite-s3
+        - postgresql-local
+        - postgresql-s3
+      workloadReady: 4/4
+      workloadRestarts: 0
+      postgresqlClustersReady: 2/2
+      postgresqlInitJobsComplete: 2/2
+    network:
+      launchpadApiCode: 200
+      publicPort: 8080
+      exactHostMatches: 4/4
+      missingApiStatus: 404
+    accountFlow:
+      username: admin@<default_domain>
+      webUiOauthLogin: passed
+      jmapSessionStatus: 200
+      jmapCapabilities: 17
+      domainQueryStatus: 200
+      accountQueryStatus: 200
+      accountCreateStatus: 200
+      accountDestroyStatus: 200
+    database:
+      sqlite:
+        path: /var/lib/stalwart/stalwart.db
+        schemaTables: 24
+        localBlobRows: 2
+        localBlobBytes: 614751
+        s3BlobRows: 0
+      postgresql:
+        database: stalwart
+        owner: postgres
+        schema: public
+        schemaTables: 27
+        localBlobRows: 2
+        localBlobBytes: 614747
+        s3BlobRows: 0
+    storage:
+      dataStoreModes:
+        - sqlite
+        - postgresql
+      blobStoreModes:
+        - selected-data-store
+        - s3-compatible
+      s3ApplicationUploads: 2/2
+      sqliteS3Bucket:
+        objects: 2
+        bytes: 614750
+      postgresqlS3Bucket:
+        objects: 2
+        bytes: 614746
+    resources:
+      candidate:
+        component: ${{ defaults.app_name }}
+        cpu: 100m
+        memory: 128Mi
+      ladderFloor:
+        cpu: 100m
+        memory: 128Mi
+        lowerCandidate: unavailable
+      accepted:
+        - component: stalwart-main
+          runs: 4/4
+          cpu: 100m
+          memory: 128Mi
+          observedMemoryMax: 63Mi
+          observedCpuMax: 97m
+        - component: bootstrap-stalwart
+          runs: 4/4
+          cpu: 100m
+          memory: 128Mi
+          exitCode: 0
+        - component: wait-for-postgres
+          runs: 2/2
+          cpu: 100m
+          memory: 128Mi
+          exitCode: 0
+        - component: pg-init-job
+          runs: 2/2
+          cpu: 100m
+          memory: 128Mi
+          result: Complete
+      databaseClusterFixedProfile:
+        cpu: 500m
+        memory: 512Mi
+    stability:
+      sqliteLocalSeconds: 466
+      sqliteS3Seconds: 218
+      postgresqlLocalSeconds: 218
+      postgresqlS3Seconds: 218
+      activeFailures: 0
+    screenshot:
+      source: https://stalw.art/
+      language: en
+      viewport: 1920x1080
+      devicePixelRatio: 2
+      output: 3840x2160
+      scrollbarWidth: 0
+      bytes: 138052
+    cleanup:
+      validatedInstances: 4
+      diagnosticInstances: 1
+      orphanPvcRemoved: vn-varvn-libvn-stalwart-stalwart-zhydteyw-0
+      footprintResources: 0

@@ -32,18 +32,17 @@ spec:
       type: string
       value: ${{ random(32) }}
   inputs:
-    REPLICA_COUNT:
-      description: 'Number of EMQX broker replicas.'
-      type: number
-      default: '3'
-      required: true
     ADMIN_PASSWORD:
-      description: 'Initial EMQX Dashboard admin password. Change it after first login.'
+      description: 'Initial EMQX Dashboard admin password. Use 8-64 characters and change it after first login.'
       type: string
-      default: '${{ random(16) }}'
       required: true
     TCP_ENABLE:
       description: 'Expose MQTT TCP and SSL listener ports through a NodePort service.'
+      type: boolean
+      default: 'false'
+      required: false
+    WS_ENABLE:
+      description: 'Expose MQTT over WebSocket at the public /mqtt path. Configure MQTT authentication before enabling it for production traffic.'
       type: boolean
       default: 'false'
       required: false
@@ -55,13 +54,13 @@ metadata:
   name: ${{ defaults.app_name }}
   annotations:
     originImageName: emqx/emqx:5.8.9
-    deploy.cloud.sealos.io/minReplicas: '${{ inputs.REPLICA_COUNT }}'
-    deploy.cloud.sealos.io/maxReplicas: '${{ inputs.REPLICA_COUNT }}'
+    deploy.cloud.sealos.io/minReplicas: '3'
+    deploy.cloud.sealos.io/maxReplicas: '3'
   labels:
     app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 spec:
-  replicas: ${{ inputs.REPLICA_COUNT }}
+  replicas: 3
   revisionHistoryLimit: 1
   minReadySeconds: 10
   serviceName: ${{ defaults.app_name }}-headless
@@ -78,8 +77,6 @@ spec:
     spec:
       automountServiceAccountToken: false
       enableServiceLinks: false
-      imagePullSecrets:
-        - name: ${{ defaults.app_name }}
       terminationGracePeriodSeconds: 60
       securityContext:
         runAsUser: 1000
@@ -307,6 +304,33 @@ spec:
                 name: ${{ defaults.app_name }}
                 port:
                   number: 18083
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+
+---
+${{ if(inputs.WS_ENABLE === 'true') }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-mqtt
+  labels:
+    app: ${{ defaults.app_name }}-mqtt
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-mqtt
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '3600'
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '3600'
+    nginx.ingress.kubernetes.io/backend-protocol: WS
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
           - pathType: Prefix
             path: /mqtt
             backend:
@@ -318,6 +342,7 @@ spec:
     - hosts:
         - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
       secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+${{ endif() }}
 
 ---
 apiVersion: app.sealos.io/v1
