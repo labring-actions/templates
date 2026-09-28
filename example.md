@@ -22,6 +22,7 @@ spec:
   author: 'sealos'                                     
   description: 'Fast GPT allows you to use your own openai API KEY to quickly call the openai interface, currently integrating Gpt35, Gpt4 and embedding. You can build your own knowledge base.'    
   readme: 'https://raw.githubusercontent.com/labring/FastGPT/main/README.md'
+  youtube: '' # Optional YouTube tutorial URL
   icon: 'https://avatars.githubusercontent.com/u/50446880?s=96&v=4'
   templateType: inline
   defaults:
@@ -56,6 +57,7 @@ As demo shows, the metatda CR is a regular Kubernetes custom resource type, and 
 
 | Code            | Description                                                  |
 | :---------------| :----------------------------------------------------------- |
+| `youtube`       | Optional string containing one YouTube tutorial URL. Omit it or set it to `''` when no tutorial is available. |
 | `templateType` | `inline` indicates this is an inline mode template, all yaml files are integrated in one file. |
 | `defaults`      | Define default values to be filled into the resource file, such as application name (app_name), domain name (app_host), etc. |
 | `inputs`        | Define some parameters needed by the user when deploying the application, such as Email, API-KEY, etc. If none, this item can be omitted |
@@ -216,6 +218,7 @@ spec:
   author: 'Sealos'
   description: 'One-click free deployment of your cross-platform private ChatGPT application'
   readme: 'https://raw.githubusercontent.com/Yidadaa/ChatGPT-Next-Web/main/README.md'
+  youtube: '' # Optional YouTube tutorial URL
   icon: 'https://raw.githubusercontent.com/Yidadaa/ChatGPT-Next-Web/main/docs/images/icon.svg'
   templateType: inline
   categories:
