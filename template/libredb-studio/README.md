@@ -1,6 +1,6 @@
 # Deploy and Host LibreDB Studio on Sealos
 
-LibreDB Studio is an open-source database IDE for querying and managing PostgreSQL, MySQL, SQLite, MongoDB, and other supported data sources from a browser. This template deploys LibreDB Studio 0.17.0 with HTTPS access, persistent server-side storage, health probes, and deployment-defined administrator credentials on Sealos Cloud.
+LibreDB Studio is an open-source database IDE for querying and managing PostgreSQL, MySQL, SQLite, MongoDB, and other supported data sources from a browser. This template deploys LibreDB Studio 0.18.2 with HTTPS access, persistent server-side storage, health probes, and deployment-defined administrator credentials on Sealos Cloud.
 
 ![LibreDB Studio Screenshot](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/libredb-studio/website-screenshot.webp)
 
@@ -21,7 +21,7 @@ The PostgreSQL option stores LibreDB Studio settings such as saved connections a
 
 The template includes the runtime components required for a working deployment:
 
-- **LibreDB Studio**: `ghcr.io/libredb/libredb-studio:0.17.0`
+- **LibreDB Studio**: `ghcr.io/libredb/libredb-studio:0.18.2`
 - **Default SQLite storage**: `/app/data/libredb-storage.db` on a 1 GiB application PVC
 - **Optional PostgreSQL storage**: KubeBlocks-managed `postgresql-16.4.0` with a 1 GiB data PVC
 - **HTTPS entrypoint**: Sealos Service, Ingress, and App resources on port `3000`
@@ -80,7 +80,7 @@ LibreDB Studio uses a sign-in-only account model for this deployment. The templa
 3. Click **Sign In** to open the administration overview.
 4. Choose **Editor** to add database connections and run queries.
 
-Store the deployment credentials in your password manager. Credential changes can be applied from the LibreDB Studio StatefulSet environment variables in Canvas, followed by a workload restart.
+Store the deployment credentials in your password manager. This template runs a server-side store, so from 0.18.0 the account lives in the database and `ADMIN_PASSWORD` only seeds it on the first start. Editing that variable later and restarting does not change the password. To change it, set `ADMIN_PASSWORD` to the new value, add `ADMIN_PASSWORD_RESET=true` on the LibreDB Studio StatefulSet in Canvas, restart the workload, then remove `ADMIN_PASSWORD_RESET` so the value is not reapplied on every start.
 
 ## Configuration
 
@@ -102,7 +102,7 @@ A multi-replica design requires PostgreSQL server storage plus a review of sessi
 
 ### The login credentials are rejected
 
-Confirm that the email and password match the values entered during deployment. Review `ADMIN_EMAIL` and `ADMIN_PASSWORD` on the StatefulSet resource card, apply the intended values, and restart the workload.
+Confirm that the email and password match the values entered during deployment. On a server-side store the password is held in the database, so correcting `ADMIN_PASSWORD` on the StatefulSet resource card is not enough on its own: add `ADMIN_PASSWORD_RESET=true` next to it, restart the workload, then remove that flag. The pod log names the account when the stored password and the variable disagree.
 
 ### The application page is still starting
 
