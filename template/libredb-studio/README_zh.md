@@ -1,6 +1,6 @@
 # 在 Sealos 上部署和托管 LibreDB Studio
 
-LibreDB Studio 是一款开源数据库 IDE，可直接在浏览器中查询和管理 PostgreSQL、MySQL、SQLite、MongoDB 等数据源。此模板会在 Sealos Cloud 上部署 LibreDB Studio 0.14.1，并配置 HTTPS 入口、持久化服务端存储、健康检查和部署时创建的管理员账号。
+LibreDB Studio 是一款开源数据库 IDE，可直接在浏览器中查询和管理 PostgreSQL、MySQL、SQLite、MongoDB 等数据源。此模板会在 Sealos Cloud 上部署 LibreDB Studio 0.18.2，并配置 HTTPS 入口、持久化服务端存储、健康检查和部署时创建的管理员账号。
 
 ![LibreDB Studio 截图](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/libredb-studio/website-screenshot.webp)
 
@@ -21,7 +21,7 @@ PostgreSQL 选项保存 LibreDB Studio 的连接配置、收藏查询等应用�
 
 模板包含可用部署所需的运行组件：
 
-- **LibreDB Studio**：`ghcr.io/libredb/libredb-studio:0.14.1`
+- **LibreDB Studio**：`ghcr.io/libredb/libredb-studio:0.18.2`
 - **默认 SQLite 存储**：`/app/data/libredb-storage.db`，使用 1 GiB 应用 PVC
 - **可选 PostgreSQL 存储**：KubeBlocks 托管的 `postgresql-16.4.0`，使用 1 GiB 数据 PVC
 - **HTTPS 入口**：通过 Sealos Service、Ingress 和 App 资源暴露 `3000` 端口
@@ -80,7 +80,7 @@ Sealos 将 Kubernetes 部署、网络、存储和可视化运维集中在同一�
 3. 点击 **Sign In**，进入管理概览页。
 4. 选择 **Editor**，添加数据库连接并执行查询。
 
-建议将部署凭据保存到密码管理器。需要更换凭据时，可在 Canvas 中修改 LibreDB Studio StatefulSet 的环境变量，然后重启工作负载。
+建议将部署凭据保存到密码管理器。本模板使用服务端存储，自 0.18.0 起账号保存在数据库中，`ADMIN_PASSWORD` 只在首次启动时写入。之后再修改该变量并重启不会改变密码。如需更换密码，请把 `ADMIN_PASSWORD` 设为新值，并在 Canvas 中为 LibreDB Studio StatefulSet 添加 `ADMIN_PASSWORD_RESET=true`，重启工作负载，然后删除 `ADMIN_PASSWORD_RESET`，以免每次启动都重新应用。
 
 ## 配置
 
@@ -102,7 +102,7 @@ Sealos 将 Kubernetes 部署、网络、存储和可视化运维集中在同一�
 
 ### 登录凭据校验失败
 
-确认邮箱和密码与部署时填写的值一致。在 StatefulSet 资源卡片中检查 `ADMIN_EMAIL` 和 `ADMIN_PASSWORD`，应用目标值后重启工作负载。
+确认邮箱和密码与部署时填写的值一致。服务端存储下密码保存在数据库中，仅在 StatefulSet 资源卡片中修改 `ADMIN_PASSWORD` 并不生效：请同时添加 `ADMIN_PASSWORD_RESET=true`，重启工作负载，然后删除该变量。当存储的密码与环境变量不一致时，Pod 日志会指出对应的账号。
 
 ### 应用页面仍在启动
 
