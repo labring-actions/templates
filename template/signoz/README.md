@@ -1,6 +1,6 @@
 # Deploy and Host SigNoz on Sealos
 
-SigNoz is an OpenTelemetry-native observability platform for logs, traces, metrics, dashboards, and alerts. This template deploys the official SigNoz self-hosted runtime as a persistent four-service stack on Sealos.
+SigNoz is an OpenTelemetry-native observability platform for logs, traces, metrics, dashboards, and alerts. This template deploys the official SigNoz self-hosted runtime as a persistent modern four-service stack on Sealos.
 
 ![SigNoz Screenshot](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/signoz/website-screenshot.webp)
 
@@ -34,18 +34,17 @@ The template includes the complete self-hosted runtime and its persistent data p
 **Architecture Components:**
 
 - **SigNoz**: Serves the web console, API, authentication, alerting, and query engine.
-- **OpenTelemetry Collector**: Receives OTLP over gRPC and HTTP, processes telemetry, and exports it to ClickHouse.
+- **OpenTelemetry Collector**: Receives OTLP over gRPC and HTTP, runs idempotent ClickHouse schema migrations on startup, and streams telemetry into ClickHouse.
 - **ClickHouse**: Stores traces, logs, metrics, metadata, analytics, and meter data.
-- **ZooKeeper**: Coordinates the replicated ClickHouse table layout used by the official runtime.
-- **Telemetry Store Migrator**: Runs once at deployment and completes synchronous and asynchronous ClickHouse migrations before the application starts.
+- **ClickHouse Keeper**: Modern, lightweight C++ Raft coordination engine for ClickHouse, replacing legacy ZooKeeper and dramatically lowering memory and CPU overhead.
 
 **Persistent Data:**
 
-SigNoz stores users, organizations, sessions, and application settings in SQLite on the SigNoz volume. ClickHouse data and logs use separate volumes, and ZooKeeper has its own coordination-data volume.
+SigNoz stores users, organizations, sessions, and application settings in SQLite on the SigNoz volume. ClickHouse telemetry data and Keeper coordination logs/snapshots are stored on independent persistent volumes.
 
 **Version Alignment:**
 
-The component images and configuration follow the official SigNoz `v0.117.0` Docker deployment bundle, including SigNoz OpenTelemetry Collector `v0.144.2`, ClickHouse `25.5.6`, and ZooKeeper `3.7.1`.
+The component images and configuration follow the official SigNoz `v0.146.0` architecture, including SigNoz OpenTelemetry Collector `v0.144.14`, ClickHouse `25.12.5`, and ClickHouse Keeper `25.12.5`.
 
 **License Information:**
 
@@ -64,7 +63,7 @@ Sealos is a Kubernetes-based cloud operating system that manages the application
 ## Deployment Guide
 
 1. Open the [SigNoz template](https://sealos.io/products/app-store/signoz) and click **Deploy Now**.
-2. Start the deployment and wait for the ClickHouse migration Job and all four services to become ready. A fresh deployment usually takes several minutes.
+2. Start the deployment and wait for the services to become ready.
 3. Open the SigNoz URL from the completed Canvas.
 
 ## First Login
@@ -79,8 +78,8 @@ Store the registered credentials in a secure password manager. Later users can s
 
 Applications inside the same Sealos namespace can send OTLP data to:
 
-- **OTLP gRPC**: `http://<app-name>-otel-collector:4317`
-- **OTLP HTTP**: `http://<app-name>-otel-collector:4318`
+- **OTLP gRPC**: `http://<app-name>-collector:4317`
+- **OTLP HTTP**: `http://<app-name>-collector:4318`
 
 Replace `<app-name>` with the generated deployment name shown on Canvas. Follow the [SigNoz instrumentation guides](https://signoz.io/docs/instrumentation/) for language-specific SDK configuration.
 
@@ -89,13 +88,13 @@ Replace `<app-name>` with the generated deployment name shown on Canvas. Follow 
 - **AI Dialog**: Describe a resource or configuration change from Canvas.
 - **Resource Cards**: Inspect and edit workload resources, environment variables, and storage.
 - **Scaling**: Increase CPU and memory before sustained ingestion or larger retention workloads.
-- **Backups**: Snapshot the SigNoz, ClickHouse data, ClickHouse log, and ZooKeeper volumes together for a consistent recovery point.
+- **Backups**: Snapshot the SigNoz, ClickHouse, and Keeper persistent volumes together for a consistent recovery point.
 
 ## Troubleshooting
 
 ### Deployment remains in initialization
 
-The first telemetry-store migration creates many ClickHouse tables. Check the Telemetry Store Migrator Job and ClickHouse Pod on Canvas, then allow the migration to finish.
+On initial boot, ClickHouse prepares its data directory and the Collector executes schema migrations (`bootstrap`, `sync up`, `async up`) before opening ports. Check the Collector and ClickHouse Pod logs on Canvas to verify migration progress.
 
 ### Login fails
 
