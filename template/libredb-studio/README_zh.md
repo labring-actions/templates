@@ -1,6 +1,6 @@
 # 在 Sealos 上部署和托管 LibreDB Studio
 
-LibreDB Studio 是一款开源数据库 IDE，可直接在浏览器中查询和管理 PostgreSQL、MySQL、SQLite、MongoDB 等数据源。此模板会在 Sealos Cloud 上部署 LibreDB Studio 1.0.0，并配置 HTTPS 入口、持久化服务端存储、健康检查和部署时创建的管理员账号。
+LibreDB Studio 是一款开源数据库 IDE，可直接在浏览器中查询和管理 PostgreSQL、MySQL、SQLite、MongoDB 等数据源。此模板会在 Sealos Cloud 上部署 LibreDB Studio 1.2.0，并配置 HTTPS 入口、持久化服务端存储、健康检查和部署时创建的管理员账号。
 
 ![LibreDB Studio 截图](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/libredb-studio/website-screenshot.webp)
 
@@ -21,7 +21,7 @@ PostgreSQL 选项保存 LibreDB Studio 的连接配置、收藏查询等应用�
 
 模板包含可用部署所需的运行组件：
 
-- **LibreDB Studio**：`ghcr.io/libredb/libredb-studio:1.0.0`
+- **LibreDB Studio**：`ghcr.io/libredb/libredb-studio:1.2.0`
 - **默认 SQLite 存储**：`/app/data/libredb-storage.db`，使用 1 GiB 应用 PVC
 - **可选 PostgreSQL 存储**：KubeBlocks 托管的 `postgresql-16.4.0`，使用 1 GiB 数据 PVC
 - **HTTPS 入口**：通过 Sealos Service、Ingress 和 App 资源暴露 `3000` 端口
@@ -45,7 +45,7 @@ PostgreSQL 选项保存 LibreDB Studio 的连接配置、收藏查询等应用�
 
 **资源基线：**
 
-Sealos 实测确认应用的稳定最低档位为 `100m` CPU 和 `128Mi` 内存。PostgreSQL 初始化容器和 Job 使用相同档位；可选 PostgreSQL 集群使用 `500m` CPU 和 `512Mi` 内存。两种存储模式均通过冷启动、管理员登录、页面操作、服务端存储写读、查询执行和重启持久化验证。
+应用档位为 `100m` CPU 和 `256Mi` 内存。以 1.2.0 镜像在该档位实测：容器在 7 秒内响应 `/api/db/health`，远在启动探针的 60 秒预算之内，稳定占用约 120Mi 且未触及上限。原先的 `128Mi` 上限对本版本已无余量：同一次实测中匿名内存约 124Mi，并反复触及上限。PostgreSQL 初始化容器和 Job 仍使用 `100m` CPU 和 `128Mi` 内存；可选 PostgreSQL 集群使用 `500m` CPU 和 `512Mi` 内存。冷启动、管理员登录、页面操作、服务端存储写读和重启持久化均已在 SQLite 模式下于该档位验证。
 
 **安全默认值：**
 
@@ -77,7 +77,7 @@ Sealos 将 Kubernetes 部署、网络、存储和可视化运维集中在同一�
 
 1. 打开系统生成的应用地址。
 2. 在 `/login` 页面输入已配置的管理员邮箱和密码。
-3. 点击 **Sign In**，进入管理概览页。
+3. 点击 **Sign in**，进入管理概览页。
 4. 选择 **Editor**，添加数据库连接并执行查询。
 
 建议将部署凭据保存到密码管理器。本模板使用服务端存储，自 0.18.0 起账号保存在数据库中，`ADMIN_PASSWORD` 只在首次启动时写入。之后再修改该变量并重启不会改变密码。如需更换密码，请把 `ADMIN_PASSWORD` 设为新值，并在 Canvas 中为 LibreDB Studio StatefulSet 添加 `ADMIN_PASSWORD_RESET=true`，重启工作负载，然后删除 `ADMIN_PASSWORD_RESET`，以免每次启动都重新应用。

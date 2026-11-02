@@ -1,6 +1,6 @@
 # Deploy and Host LibreDB Studio on Sealos
 
-LibreDB Studio is an open-source database IDE for querying and managing PostgreSQL, MySQL, SQLite, MongoDB, and other supported data sources from a browser. This template deploys LibreDB Studio 1.0.0 with HTTPS access, persistent server-side storage, health probes, and deployment-defined administrator credentials on Sealos Cloud.
+LibreDB Studio is an open-source database IDE for querying and managing PostgreSQL, MySQL, SQLite, MongoDB, and other supported data sources from a browser. This template deploys LibreDB Studio 1.2.0 with HTTPS access, persistent server-side storage, health probes, and deployment-defined administrator credentials on Sealos Cloud.
 
 ![LibreDB Studio Screenshot](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/libredb-studio/website-screenshot.webp)
 
@@ -21,7 +21,7 @@ The PostgreSQL option stores LibreDB Studio settings such as saved connections a
 
 The template includes the runtime components required for a working deployment:
 
-- **LibreDB Studio**: `ghcr.io/libredb/libredb-studio:1.0.0`
+- **LibreDB Studio**: `ghcr.io/libredb/libredb-studio:1.2.0`
 - **Default SQLite storage**: `/app/data/libredb-storage.db` on a 1 GiB application PVC
 - **Optional PostgreSQL storage**: KubeBlocks-managed `postgresql-16.4.0` with a 1 GiB data PVC
 - **HTTPS entrypoint**: Sealos Service, Ingress, and App resources on port `3000`
@@ -35,7 +35,7 @@ The template includes the runtime components required for a working deployment:
 
 ### Implementation Details
 
-**Architecture components:**
+**Architecture Components:**
 
 - **LibreDB Studio StatefulSet**: Runs one application replica; SQLite mode mounts persistent storage at `/app/data`.
 - **SQLite mode**: Persists server-side application state in the application PVC and is selected by default.
@@ -45,7 +45,7 @@ The template includes the runtime components required for a working deployment:
 
 **Resource baseline:**
 
-Live Sealos testing established `100m` CPU and `128Mi` memory as the lowest stable application tier. The PostgreSQL initialization containers and Job use the same tier. The optional PostgreSQL cluster uses `500m` CPU and `512Mi` memory. Both storage modes passed cold start, administrator login, UI navigation, server storage write/read, query execution, and restart persistence checks.
+The application tier is `100m` CPU and `256Mi` memory. Measured at those limits with the 1.2.0 image, the container answers `/api/db/health` in 7 seconds, inside the startup probe's 60 second budget, and settles around 120Mi without reaching the limit. The earlier `128Mi` limit no longer leaves room for this release: the same run held about 124Mi of anonymous memory and reached the limit repeatedly. The PostgreSQL initialization containers and Job stay on `100m` CPU and `128Mi` memory. The optional PostgreSQL cluster uses `500m` CPU and `512Mi` memory. Cold start, administrator login, UI navigation, server storage write and read, and restart persistence were checked in SQLite mode at these limits.
 
 **Security defaults:**
 
@@ -77,7 +77,7 @@ LibreDB Studio uses a sign-in-only account model for this deployment. The templa
 
 1. Open the generated application URL.
 2. Enter the configured administrator email and password on `/login`.
-3. Click **Sign In** to open the administration overview.
+3. Click **Sign in** to open the administration overview.
 4. Choose **Editor** to add database connections and run queries.
 
 Store the deployment credentials in your password manager. This template runs a server-side store, so from 0.18.0 the account lives in the database and `ADMIN_PASSWORD` only seeds it on the first start. Editing that variable later and restarting does not change the password. To change it, set `ADMIN_PASSWORD` to the new value, add `ADMIN_PASSWORD_RESET=true` on the LibreDB Studio StatefulSet in Canvas, restart the workload, then remove `ADMIN_PASSWORD_RESET` so the value is not reapplied on every start.
