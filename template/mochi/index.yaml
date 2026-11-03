@@ -1,0 +1,207 @@
+# Sealos app-store template for Mochi.
+#
+# Lives in our repo so it can be reviewed here first; the listing itself comes from a pull
+# request against labring-actions/templates (copy this directory to template/mochi/).
+#
+# Sealos renders this with its own templating (${{ ... }}), so the file is valid YAML but the
+# values are resolved by their renderer, not by Helm.
+---
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: mochi-template
+spec:
+  title: "Mochi"
+  url: "https://www.mochichatbot.com"
+  gitRepo: "https://github.com/AM-young-fun/Mochi-ai-chatbot"
+  author: "Mochi · Flatkey"
+  description: "An AI chatbot for Discord, Telegram, Slack, QQ and LINE, with a dashboard, long-term memory and a knowledge base."
+  readme: "https://raw.githubusercontent.com/labring-actions/templates/main/template/mochi/README.md"
+  icon: "https://raw.githubusercontent.com/labring-actions/templates/main/template/mochi/logo.png"
+  screenshots:
+    - "https://raw.githubusercontent.com/labring-actions/templates/main/template/mochi/website-screenshot.webp"
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      title: "Mochi"
+      description: "一个住在 Discord、Telegram、Slack、QQ 和 LINE 里的 AI 机器人，带控制台、长期记忆和知识库。"
+  categories:
+    - ai
+
+  defaults:
+    app_host:
+      type: string
+      value: mochi-${{ random(8) }}
+    app_name:
+      type: string
+      value: mochi-${{ random(8) }}
+
+  inputs:
+    admin_token:
+      description: "Dashboard password (keep it; you need it to open the dashboard)"
+      type: string
+      default: ${{ random(32) }}
+      required: true
+    volume_size:
+      description: "Persistent storage for bots, memory and your knowledge base (GiB)"
+      type: string
+      default: "1"
+      required: false
+    ga_measurement_id:
+      description: "Optional: Google Analytics 4 measurement id for the dashboard (e.g. G-XXXXXXXXXX). Leave empty to stay untracked."
+      type: string
+      default: ""
+      required: false
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: "ghcr.io/am-young-fun/mochi:latest"
+    deploy.cloud.sealos.io/minReplicas: "1"
+    deploy.cloud.sealos.io/maxReplicas: "1"
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  # One replica on purpose: a Telegram bot token can only be polled by one process, the
+  # Discord/QQ/Slack sessions are single-connection, and the SQLite database takes a write lock.
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      terminationGracePeriodSeconds: 30
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: "ghcr.io/am-young-fun/mochi:latest"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+          env:
+            - name: ADMIN_TOKEN
+              value: ${{ inputs.admin_token }}
+            - name: PUBLIC_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: DATA_DIR
+              value: /app/data
+            - name: PORT
+              value: "3000"
+            # Behind the Sealos ingress the visitor's IP arrives in X-Forwarded-For.
+            - name: TRUST_PROXY
+              value: "1"
+            - name: GA_MEASUREMENT_ID
+              value: ${{ inputs.ga_measurement_id }}
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1024Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          volumeMounts:
+            - name: data-volume
+              mountPath: /app/data
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /app/data
+          value: "1"
+        name: data-volume
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: ${{ inputs.volume_size }}Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - port: 80
+      targetPort: 3000
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    # Knowledge-base uploads and base64 image payloads can be large.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /()(.*)
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: "https://raw.githubusercontent.com/labring-actions/templates/main/template/mochi/logo.png"
+  name: "Mochi"
+  type: link
