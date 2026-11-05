@@ -1,0 +1,755 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: corsfix
+spec:
+  title: Corsfix
+  url: https://corsfix.com
+  gitRepo: https://github.com/corsfix/corsfix
+  author: Corsfix
+  description: Open-source CORS proxy with a dashboard for managing applications, API keys, secrets, and request analytics.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/corsfix/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/corsfix/logo.svg
+  screenshots:
+  - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/corsfix/website-screenshot.webp
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: 开源 CORS 代理，提供用于管理应用、API 密钥、加密凭据和请求分析的控制面板。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/corsfix/README_zh.md
+  categories:
+  - tool
+  - backend
+  defaults:
+    app_name:
+      type: string
+      value: corsfix-${{ random(8) }}
+    app_host:
+      type: string
+      value: corsfix-${{ random(8) }}
+    proxy_host:
+      type: string
+      value: corsfix-proxy-${{ random(8) }}
+    mongodb_password:
+      type: string
+      value: ${{ random(32) }}
+    redis_password:
+      type: string
+      value: ${{ random(32) }}
+    auth_secret:
+      type: string
+      value: ${{ random(64) }}
+    kek_version_1:
+      type: string
+      value: ${{ base64(random(32)) }}
+  inputs:
+    disable_signup:
+      description: Disable new account registration. Leave false for first setup; set DISABLE_SIGNUP=true on the dashboard after creating your account.
+      type: boolean
+      default: 'false'
+      required: false
+    rpm:
+      description: Proxy requests-per-minute limit per client IP. Local development origins have a separate 60 RPM limit.
+      type: choice
+      options:
+      - '60'
+      - '120'
+      - '180'
+      - '600'
+      default: '180'
+      required: true
+    allowed_origins:
+      description: Optional comma-separated origin hostnames allowed without dashboard registration, without https://. Leave empty to manage applications in the dashboard.
+      type: string
+      default: ''
+      required: false
+    allowed_targets:
+      description: Optional comma-separated target hostnames for the origins above, without https://. Empty allows any public target for those origins. Dashboard applications have their own target settings.
+      type: string
+      default: ''
+      required: false
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ${{ defaults.app_name }}-secrets
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+type: Opaque
+stringData:
+  MONGODB_PASSWORD: ${{ defaults.mongodb_password }}
+  REDIS_PASSWORD: ${{ defaults.redis_password }}
+  AUTH_SECRET: ${{ defaults.auth_secret }}
+  KEK_VERSION_1: ${{ defaults.kek_version_1 }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-mongo
+  labels:
+    app: ${{ defaults.app_name }}-mongo
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-mongo
+  annotations:
+    originImageName: mongo:8.0.17
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}-mongo
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-mongo
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-mongo
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-mongo
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      containers:
+      - name: ${{ defaults.app_name }}-mongo
+        image: mongo:8.0.17
+        imagePullPolicy: IfNotPresent
+        args:
+        - --wiredTigerCacheSizeGB
+        - '0.25'
+        env:
+        - name: MONGO_INITDB_ROOT_USERNAME
+          value: corsfix
+        - name: MONGO_INITDB_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-secrets
+              key: MONGODB_PASSWORD
+        - name: MONGO_INITDB_DATABASE
+          value: db
+        ports:
+        - name: mongo
+          containerPort: 27017
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        startupProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -ec
+            - 'mongosh --quiet --host 127.0.0.1 --username "$MONGO_INITDB_ROOT_USERNAME" --password "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --eval ''quit(db.adminCommand({ ping: 1 }).ok ? 0 : 1)'''
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 30
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -ec
+            - 'mongosh --quiet --host 127.0.0.1 --username "$MONGO_INITDB_ROOT_USERNAME" --password "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --eval ''quit(db.adminCommand({ ping: 1 }).ok ? 0 : 1)'''
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -ec
+            - 'mongosh --quiet --host 127.0.0.1 --username "$MONGO_INITDB_ROOT_USERNAME" --password "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --eval ''quit(db.adminCommand({ ping: 1 }).ok ? 0 : 1)'''
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 6
+        volumeMounts:
+        - name: mongo-data
+          mountPath: /data/db
+        - name: mongo-config
+          mountPath: /data/configdb
+  volumeClaimTemplates:
+  - metadata:
+      name: mongo-data
+      annotations:
+        path: /data/db
+        value: '1'
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+  - metadata:
+      name: mongo-config
+      annotations:
+        path: /data/configdb
+        value: '1'
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-mongo
+  labels:
+    app: ${{ defaults.app_name }}-mongo
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-mongo
+spec:
+  ports:
+  - name: mongo
+    port: 27017
+    targetPort: 27017
+    protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-mongo
+  clusterIP: None
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    app: ${{ defaults.app_name }}-redis
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-redis
+  annotations:
+    originImageName: redis:7.4.11-alpine
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}-redis
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-redis
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-redis
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-redis
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      containers:
+      - name: ${{ defaults.app_name }}-redis
+        image: redis:7.4.11-alpine
+        imagePullPolicy: IfNotPresent
+        args:
+        - redis-server
+        - --requirepass
+        - $(REDIS_PASSWORD)
+        - --appendonly
+        - 'yes'
+        env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-secrets
+              key: REDIS_PASSWORD
+        - name: REDISCLI_AUTH
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-secrets
+              key: REDIS_PASSWORD
+        ports:
+        - name: redis
+          containerPort: 6379
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 20m
+            memory: 32Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+        startupProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -ec
+            - '[ "$(redis-cli ping)" = PONG ]'
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 30
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -ec
+            - '[ "$(redis-cli ping)" = PONG ]'
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -ec
+            - '[ "$(redis-cli ping)" = PONG ]'
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 6
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data
+  volumeClaimTemplates:
+  - metadata:
+      name: redis-data
+      annotations:
+        path: /data
+        value: '1'
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-redis
+  labels:
+    app: ${{ defaults.app_name }}-redis
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-redis
+spec:
+  ports:
+  - name: redis
+    port: 6379
+    targetPort: 6379
+    protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-redis
+  clusterIP: None
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/corsfix/corsfix-app:8899bb15e71c7238285ccefc4c95a0cd47daeaf0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      containers:
+      - name: ${{ defaults.app_name }}
+        image: ghcr.io/corsfix/corsfix-app:8899bb15e71c7238285ccefc4c95a0cd47daeaf0
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: MONGODB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-secrets
+              key: MONGODB_PASSWORD
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-secrets
+              key: REDIS_PASSWORD
+        - name: MONGODB_URI
+          value: mongodb://corsfix:$(MONGODB_PASSWORD)@${{ defaults.app_name }}-mongo:27017/db?authSource=admin
+        - name: REDIS_URI
+          value: redis://default:$(REDIS_PASSWORD)@${{ defaults.app_name }}-redis:6379
+        - name: KEK_VERSION_1
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-secrets
+              key: KEK_VERSION_1
+        - name: KEK_VERSION
+          value: KEK_VERSION_1
+        - name: AUTH_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-secrets
+              key: AUTH_SECRET
+        - name: AUTH_TRUST_HOST
+          value: 'true'
+        - name: AUTH_URL
+          value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+        - name: PROXY_DOMAIN
+          value: ${{ defaults.proxy_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+        - name: DISABLE_SIGNUP
+          value: ${{ inputs.disable_signup }}
+        ports:
+        - name: http
+          containerPort: 3000
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 1000m
+            memory: 512Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1001
+          runAsGroup: 1001
+          capabilities:
+            drop:
+            - ALL
+        startupProbe:
+          httpGet:
+            path: /api/auth/session
+            port: 3000
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 30
+        readinessProbe:
+          httpGet:
+            path: /api/auth/session
+            port: 3000
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /api/auth/session
+            port: 3000
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 6
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      initContainers:
+      - name: wait-mongo
+        image: mongo:8.0.17
+        imagePullPolicy: IfNotPresent
+        command:
+        - /bin/sh
+        - -ec
+        - |-
+          for i in $(seq 1 120); do
+            if mongosh "$MONGODB_URI" --quiet --eval 'quit(db.adminCommand({ ping: 1 }).ok ? 0 : 1)' >/dev/null 2>&1; then exit 0; fi
+            sleep 2
+          done
+          exit 1
+        env:
+        - name: MONGODB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-secrets
+              key: MONGODB_PASSWORD
+        - name: MONGODB_URI
+          value: mongodb://corsfix:$(MONGODB_PASSWORD)@${{ defaults.app_name }}-mongo:27017/db?authSource=admin
+        resources:
+          requests:
+            cpu: 20m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+      - name: wait-redis
+        image: redis:7.4.11-alpine
+        imagePullPolicy: IfNotPresent
+        command:
+        - /bin/sh
+        - -ec
+        - |-
+          for i in $(seq 1 120); do
+            if [ "$(redis-cli -h ${{ defaults.app_name }}-redis ping 2>/dev/null || true)" = PONG ]; then exit 0; fi
+            sleep 2
+          done
+          exit 1
+        env:
+        - name: REDISCLI_AUTH
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-secrets
+              key: REDIS_PASSWORD
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+  - name: http
+    port: 3000
+    targetPort: 3000
+    protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+spec:
+  rules:
+  - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: ${{ defaults.app_name }}
+            port:
+              number: 3000
+  tls:
+  - hosts:
+    - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+    secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}-proxy
+  labels:
+    app: ${{ defaults.app_name }}-proxy
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-proxy
+  annotations:
+    originImageName: ghcr.io/corsfix/corsfix-proxy:8899bb15e71c7238285ccefc4c95a0cd47daeaf0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}-proxy
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}-proxy
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-proxy
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-proxy
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      containers:
+      - name: ${{ defaults.app_name }}-proxy
+        image: ghcr.io/corsfix/corsfix-proxy:8899bb15e71c7238285ccefc4c95a0cd47daeaf0
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: MONGODB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-secrets
+              key: MONGODB_PASSWORD
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-secrets
+              key: REDIS_PASSWORD
+        - name: MONGODB_URI
+          value: mongodb://corsfix:$(MONGODB_PASSWORD)@${{ defaults.app_name }}-mongo:27017/db?authSource=admin
+        - name: REDIS_URI
+          value: redis://default:$(REDIS_PASSWORD)@${{ defaults.app_name }}-redis:6379
+        - name: KEK_VERSION_1
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-secrets
+              key: KEK_VERSION_1
+        - name: APP_DOMAIN
+          value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+        - name: RPM
+          value: ${{ inputs.rpm }}
+        - name: ALLOWED_ORIGINS
+          value: ${{ inputs.allowed_origins }}
+        - name: ALLOWED_TARGETS
+          value: ${{ inputs.allowed_targets }}
+        ports:
+        - name: http
+          containerPort: 80
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+            add:
+            - NET_BIND_SERVICE
+        startupProbe:
+          httpGet:
+            path: /up
+            port: 80
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 30
+        readinessProbe:
+          httpGet:
+            path: /up
+            port: 80
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /up
+            port: 80
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 6
+      initContainers:
+      - name: wait-mongo
+        image: mongo:8.0.17
+        imagePullPolicy: IfNotPresent
+        command:
+        - /bin/sh
+        - -ec
+        - |-
+          for i in $(seq 1 120); do
+            if mongosh "$MONGODB_URI" --quiet --eval 'quit(db.adminCommand({ ping: 1 }).ok ? 0 : 1)' >/dev/null 2>&1; then exit 0; fi
+            sleep 2
+          done
+          exit 1
+        env:
+        - name: MONGODB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-secrets
+              key: MONGODB_PASSWORD
+        - name: MONGODB_URI
+          value: mongodb://corsfix:$(MONGODB_PASSWORD)@${{ defaults.app_name }}-mongo:27017/db?authSource=admin
+        resources:
+          requests:
+            cpu: 20m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+      - name: wait-redis
+        image: redis:7.4.11-alpine
+        imagePullPolicy: IfNotPresent
+        command:
+        - /bin/sh
+        - -ec
+        - |-
+          for i in $(seq 1 120); do
+            if [ "$(redis-cli -h ${{ defaults.app_name }}-redis ping 2>/dev/null || true)" = PONG ]; then exit 0; fi
+            sleep 2
+          done
+          exit 1
+        env:
+        - name: REDISCLI_AUTH
+          valueFrom:
+            secretKeyRef:
+              name: ${{ defaults.app_name }}-secrets
+              key: REDIS_PASSWORD
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}-proxy
+  labels:
+    app: ${{ defaults.app_name }}-proxy
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-proxy
+spec:
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+    protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}-proxy
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}-proxy
+  labels:
+    app: ${{ defaults.app_name }}-proxy
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}-proxy
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.proxy_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '75'
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '75'
+    nginx.ingress.kubernetes.io/proxy-buffering: 'off'
+    nginx.ingress.kubernetes.io/proxy-request-buffering: 'off'
+spec:
+  rules:
+  - host: ${{ defaults.proxy_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: ${{ defaults.app_name }}-proxy
+            port:
+              number: 80
+  tls:
+  - hosts:
+    - ${{ defaults.proxy_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+    secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/corsfix/logo.svg
+  name: Corsfix
+  type: link
