@@ -1,6 +1,6 @@
 # Deploy and Host LibreDB Studio on Sealos
 
-LibreDB Studio is an open-source database IDE for querying and managing PostgreSQL, MySQL, SQLite, MongoDB, and other supported data sources from a browser. This template deploys LibreDB Studio 0.14.1 with HTTPS access, persistent server-side storage, health probes, and deployment-defined administrator credentials on Sealos Cloud.
+LibreDB Studio is an open-source database IDE for querying and managing PostgreSQL, MySQL, SQLite, MongoDB, and other supported data sources from a browser. This template deploys LibreDB Studio 1.2.0 with HTTPS access, persistent server-side storage, health probes, and deployment-defined administrator credentials on Sealos Cloud.
 
 ![LibreDB Studio Screenshot](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/libredb-studio/website-screenshot.webp)
 
@@ -21,7 +21,7 @@ The PostgreSQL option stores LibreDB Studio settings such as saved connections a
 
 The template includes the runtime components required for a working deployment:
 
-- **LibreDB Studio**: `ghcr.io/libredb/libredb-studio:0.14.1`
+- **LibreDB Studio**: `ghcr.io/libredb/libredb-studio:1.2.0`
 - **Default SQLite storage**: `/app/data/libredb-storage.db` on a 1 GiB application PVC
 - **Optional PostgreSQL storage**: KubeBlocks-managed `postgresql-16.4.0` with a 1 GiB data PVC
 - **HTTPS entrypoint**: Sealos Service, Ingress, and App resources on port `3000`
@@ -35,7 +35,7 @@ The template includes the runtime components required for a working deployment:
 
 ### Implementation Details
 
-**Architecture components:**
+**Architecture Components:**
 
 - **LibreDB Studio StatefulSet**: Runs one application replica; SQLite mode mounts persistent storage at `/app/data`.
 - **SQLite mode**: Persists server-side application state in the application PVC and is selected by default.
@@ -45,7 +45,7 @@ The template includes the runtime components required for a working deployment:
 
 **Resource baseline:**
 
-Live Sealos testing established `100m` CPU and `128Mi` memory as the lowest stable application tier. The PostgreSQL initialization containers and Job use the same tier. The optional PostgreSQL cluster uses `500m` CPU and `512Mi` memory. Both storage modes passed cold start, administrator login, UI navigation, server storage write/read, query execution, and restart persistence checks.
+The application tier is a `100m` CPU limit with a `10m` CPU request, and `512Mi` memory with a `160Mi` memory request. The template shipped a `128Mi` limit and the application does not fit inside it. Measured in local container runs, not on a cluster, at `100m` CPU in SQLite mode with `AUTH_BOOTSTRAP=off`, driving repeated `POST /api/auth/login` plus `GET /` and `GET /login`: `/api/db/health` answers 9 to 14 seconds after start, well inside the startup probe's 60 second budget, sign-ins return 200, and the container is then OOM killed. Four runs under that exercise, carried out separately by two people, were killed four times out of four. Of those four kills, two recorded a sample just before death, at 112.5Mi and 127.2Mi of the 128Mi cap, and a third peaked at 120.0Mi. Three of those runs recorded exit code 137 about 16 seconds after start, while the login page was being rendered. A lighter pass that only polled health and the index page was not killed at `128Mi` and stayed near 113Mi to 119Mi, so the shipped ceiling holds while only health and the index page are polled. The same login exercise under `512Mi` completes: health answers in 9 to 13 seconds, requests are served without error, and memory settles between 130Mi and 140Mi, at most about 27 percent of that cap. `512Mi` is headroom rather than a measured requirement; nothing here approached it, and `256Mi` was never run. It is chosen because the image pins `NODE_OPTIONS=--max-old-space-size=384`, so V8 old space alone is allowed to reach 384Mi, which a `256Mi` ceiling could not hold if it did. That flag has been in the image since at least 0.14.1, so none of this is new in 1.2.0. The `160Mi` request is sized to the steady state measured above, not to the worst case the limit covers, and it departs from this repository's usual request of a tenth of the limit because a `51Mi` request would sit far below what the container actually holds. Cluster figures can differ, since the pod is guaranteed `10m` CPU rather than the `100m` used here, which can also slow the start times. The PostgreSQL initialization containers and Job stay on `100m` CPU and `128Mi` memory, and were not re-measured. The optional PostgreSQL cluster uses `500m` CPU and `512Mi` memory and was not re-measured either.
 
 **Security defaults:**
 
@@ -60,7 +60,7 @@ Sealos combines Kubernetes deployment, networking, storage, and visual operation
 - **Immediate HTTPS access**: Receive a generated public domain after deployment.
 - **App Launchpad and Canvas operations**: Inspect workloads, logs, storage, and networking from resource cards.
 - **AI-assisted changes**: Describe resource or configuration updates in the Canvas dialog.
-- **Pay-as-you-go resources**: Start from the tested minimum and scale with actual workload demand.
+- **Pay-as-you-go resources**: Start from the tier the template ships and scale with actual workload demand.
 
 ## Deployment Guide
 
@@ -77,10 +77,10 @@ LibreDB Studio uses a sign-in-only account model for this deployment. The templa
 
 1. Open the generated application URL.
 2. Enter the configured administrator email and password on `/login`.
-3. Click **Sign In** to open the administration overview.
+3. Click **Sign in** to open the administration overview.
 4. Choose **Editor** to add database connections and run queries.
 
-Store the deployment credentials in your password manager. Credential changes can be applied from the LibreDB Studio StatefulSet environment variables in Canvas, followed by a workload restart.
+Store the deployment credentials in your password manager. This template runs a server-side store, so from 0.18.0 the account lives in the database and `ADMIN_PASSWORD` only seeds it on the first start. Editing that variable later and restarting does not change the password. To change it, set `ADMIN_PASSWORD` to the new value, add `ADMIN_PASSWORD_RESET=true` on the LibreDB Studio StatefulSet in Canvas, restart the workload, then remove `ADMIN_PASSWORD_RESET` so the value is not reapplied on every start.
 
 ## Configuration
 
@@ -96,17 +96,17 @@ The template generates the application name, public host, and JWT signing secret
 
 The template keeps one LibreDB Studio replica and supports vertical scaling from Canvas. Increase application CPU or memory for more concurrent sessions or heavier result sets. Expand the application PVC for SQLite mode, or the PostgreSQL data PVC for PostgreSQL mode, as stored state grows.
 
-A multi-replica design requires PostgreSQL server storage plus a review of session handling and application behavior. The published template uses the verified single-replica topology.
+A multi-replica design requires PostgreSQL server storage plus a review of session handling and application behavior. The published template ships a single-replica topology.
 
 ## Troubleshooting
 
 ### The login credentials are rejected
 
-Confirm that the email and password match the values entered during deployment. Review `ADMIN_EMAIL` and `ADMIN_PASSWORD` on the StatefulSet resource card, apply the intended values, and restart the workload.
+Confirm that the email and password match the values entered during deployment. On a server-side store the password is held in the database, so correcting `ADMIN_PASSWORD` on the StatefulSet resource card is not enough on its own: add `ADMIN_PASSWORD_RESET=true` next to it, restart the workload, then remove that flag. The pod log warns at each start when the stored password and the variable disagree.
 
 ### The application page is still starting
 
-Open Canvas and check the LibreDB Studio StatefulSet. In PostgreSQL mode, also confirm that the PostgreSQL cluster is `Running` and the `-pg-init` Job is `Complete`.
+Open Canvas and check the LibreDB Studio StatefulSet. In PostgreSQL mode, also confirm that the PostgreSQL cluster is `Running` and the `-pg-init` Job is `Complete`. If the pod restarts in a loop instead, check whether it was OOM killed: at the `128Mi` limit this template shipped before, the container was OOM killed with exit code 137 shortly after start in all four runs of the login exercise described above. Lower the memory limit below the shipped `512Mi` only with that in mind.
 
 ### Saved settings are missing after a restart
 
