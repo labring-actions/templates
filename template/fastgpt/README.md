@@ -15,6 +15,8 @@ It deploys:
 - Redis
 - Sealos object storage buckets for public and private assets
 
+During deployment, enable **Deploy the commercial edition** to add the FastGPT Pro service. Leave it disabled to deploy the open-source edition only.
+
 ## Notes
 
 1. Wait a few minutes after deployment so the database clusters and the AIProxy database init job can finish.

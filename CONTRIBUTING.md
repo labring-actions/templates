@@ -49,8 +49,11 @@ spec:
   author: "your-name"                   # Your name
   description: "Brief description of what this app does"
   readme: "https://raw.githubusercontent.com/.../README.md"  # Optional
+  youtube: ""                          # Optional YouTube tutorial URL
   icon: "https://..."                   # App icon URL (recommended size: 96x96)
 ```
+
+`spec.youtube` accepts one YouTube tutorial URL as a string. Omit the field or leave it empty when no tutorial is available.
 
 #### 3. Configure the Application
 
@@ -121,6 +124,7 @@ spec:
   author: "Your Name"
   description: "An example application template"
   readme: "https://raw.githubusercontent.com/.../README.md"
+  youtube: ""                          # Optional YouTube tutorial URL
   icon: "https://example.com/icon.png"
   templateType: inline
   

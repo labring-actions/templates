@@ -31,6 +31,10 @@ templates/
 3. **数据库资源** - ServiceAccount → Role → RoleBinding → Cluster → Job (初始化)
 4. **应用资源** - Secret → ConfigMap → Deployment/StatefulSet → Service → Ingress → App
 
+## 视频教程
+
+Template CR 的 `spec.youtube` 是可选字符串，与 `spec.readme` 同级，用于存放一个 YouTube 视频教程的完整链接。省略该字段或设为空字符串表示暂无教程。
+
 ## Defaults 和 Inputs 配置规范
 
 ### 基本原则

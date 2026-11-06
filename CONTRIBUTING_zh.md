@@ -49,8 +49,11 @@ spec:
   author: "你的名字"                        # 你的名字
   description: "简短描述这个应用是做什么的"
   readme: "https://raw.githubusercontent.com/.../README.md"  # 可选
+  youtube: ""                            # Optional YouTube tutorial URL
   icon: "https://..."                       # 应用图标 URL（推荐尺寸：96x96）
 ```
+
+`spec.youtube` 是可选字符串，用于填写一个 YouTube 视频教程的完整链接。省略或留空表示暂无教程。
 
 #### 3. 配置应用
 
@@ -121,6 +124,7 @@ spec:
   author: "你的名字"
   description: "一个示例应用模板"
   readme: "https://raw.githubusercontent.com/.../README.md"
+  youtube: ""                            # Optional YouTube tutorial URL
   icon: "https://example.com/icon.png"
   templateType: inline
   

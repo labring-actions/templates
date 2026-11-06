@@ -20,6 +20,7 @@ spec:
   author: 'sealos'                                     
   description: 'Fast GPT allows you to use your own openai API KEY to quickly call the openai interface, currently integrating Gpt35, Gpt4 and embedding. You can build your own knowledge base.'    
   readme: 'https://raw.githubusercontent.com/labring/FastGPT/main/README.md'
+  youtube: '' # Optional YouTube tutorial URL
   icon: 'https://avatars.githubusercontent.com/u/50446880?s=96&v=4'
   templateType: inline
   defaults:
@@ -54,6 +55,7 @@ spec:
 
 | 代码            | 描述                                                         |
 | :---------------| :----------------------------------------------------------- |
+| `youtube`       | 可选字符串，填写一个 YouTube 视频教程的完整链接。省略或设为 `''` 表示暂无教程。 |
 | `templateType` | `inline` 表示这是一个内联模板，所有 yaml 文件都集成在一个文件中。 |
 | `defaults`      | 定义要填充到资源文件中的默认值，例如应用程序名称（app_name）、域名（app_host）等。 |
 | `inputs`        | 定义部署应用程序时用户需要的一些参数，例如电子邮件、API-KEY 等。如果没有，则可以省略此项 |
@@ -216,6 +218,7 @@ spec:
   author: 'Sealos'
   description: '一键免费部署你的跨平台私人 ChatGPT 应用'
   readme: 'https://raw.githubusercontent.com/Yidadaa/ChatGPT-Next-Web/main/README.md'
+  youtube: '' # Optional YouTube tutorial URL
   icon: 'https://raw.githubusercontent.com/Yidadaa/ChatGPT-Next-Web/main/docs/images/icon.svg'
   templateType: inline
   categories:
