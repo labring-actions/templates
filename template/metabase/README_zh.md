@@ -1,6 +1,6 @@
 # 在 Sealos 上部署和托管 Metabase
 
-Metabase 是一个开源商业智能平台，适用于仪表盘、SQL 探索和自助式数据分析。本模板会在 Sealos Cloud 上部署 Metabase 0.61.3，并配套 PostgreSQL、持久化插件存储和公开 HTTPS 访问入口。
+Metabase 是一个开源商业智能平台，适用于仪表盘、SQL 探索和自助式数据分析。本模板会在 Sealos Cloud 上部署 Metabase 0.65.3，并配套 PostgreSQL、持久化插件存储和公开 HTTPS 访问入口。
 
 ![Metabase 截图](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/metabase/website-screenshot.webp)
 
@@ -10,7 +10,7 @@ Metabase 可以帮助团队连接数据库、提出数据问题、创建仪表�
 
 此 Sealos 模板会将 Metabase 作为 StatefulSet 运行，并创建一个 Kubeblocks PostgreSQL 数据库存储 Metabase 应用数据。模板还会把持久化卷挂载到 `/plugins`，用于保留自定义数据库驱动和插件文件。
 
-Sealos 会自动配置 Kubernetes Service、HTTPS Ingress、生成的公网 URL 和 App 入口。首次访问时，Metabase 会显示初始化流程，用于创建第一个管理员账号并完成工作区配置。
+Sealos 会自动配置 Kubernetes Service、HTTPS Ingress 和生成的公网 URL。首次访问时，Metabase 会显示初始化流程，用于创建第一个管理员账号并完成工作区配置。
 
 ## 常见使用场景
 
@@ -22,7 +22,7 @@ Sealos 会自动配置 Kubernetes Service、HTTPS Ingress、生成的公网 URL 
 
 ## Metabase 托管依赖
 
-此 Sealos 模板包含运行所需的组件：Metabase 容器镜像、PostgreSQL `postgresql-16.4.0` 数据库、用于创建 `metabaseappdb` 的数据库初始化 Job、持久化插件存储、Kubernetes Service、Ingress 和 Sealos App 入口。
+此 Sealos 模板包含运行所需的组件：Metabase 容器镜像、PostgreSQL `postgresql-16.4.0` 数据库、用于创建 `metabaseappdb` 的数据库初始化 Job、持久化插件存储、Kubernetes Service 和 Ingress。
 
 ### 部署依赖
 
@@ -37,11 +37,11 @@ Sealos 会自动配置 Kubernetes Service、HTTPS Ingress、生成的公网 URL 
 
 此模板会部署以下服务：
 
-- **Metabase Web 服务**：运行 `metabase/metabase:v0.61.3`，监听 `3000` 端口，提供 Web UI、API 和后台应用任务。
+- **Metabase Web 服务**：运行 `metabase/metabase:v0.65.3`，监听 `3000` 端口，提供 Web UI、API 和后台应用任务。
 - **PostgreSQL**：由 Kubeblocks 管理的 PostgreSQL `postgresql-16.4.0`，用于存储 Metabase 用户、权限、仪表盘元数据、问题和已保存设置。
 - **PostgreSQL 初始化 Job**：在 PostgreSQL 就绪后，以幂等方式创建 `metabaseappdb` 数据库。
 - **持久化插件存储**：挂载到 `/plugins` 的 `1Gi` 卷，用于在重启后保留自定义驱动和插件文件。
-- **Ingress 与 App 入口**：Sealos 通过 HTTPS 域名暴露 Metabase，并在仪表盘中创建应用入口。
+- **Ingress**：Sealos 通过 HTTPS 域名暴露 Metabase，用于初始化、登录和仪表盘访问。
 
 **配置：**
 
@@ -62,7 +62,7 @@ Metabase 开源版使用 AGPLv3 License。此 Sealos 模板只是 Metabase 的�
 
 Sealos 是基于 Kubernetes 的 AI 辅助云操作系统，覆盖从云端开发到生产部署和运维管理的完整应用生命周期。在 Sealos 上部署 Metabase 可以获得：
 
-- **一键部署**：通过一个模板同时部署 Metabase、PostgreSQL、存储、网络和 App 入口。
+- **一键部署**：通过一个模板同时部署 Metabase、PostgreSQL、存储和网络。
 - **无需 Kubernetes 经验**：不用手写清单，也能获得 Kubernetes 的可靠性。
 - **内置持久化存储**：Metabase 元数据保存在 PostgreSQL 中，插件文件保存在持久化存储中。
 - **即时公网访问**：每次部署都会获得 HTTPS URL，可用于初始化、登录和仪表盘共享。
@@ -76,7 +76,7 @@ Sealos 是基于 Kubernetes 的 AI 辅助云操作系统，覆盖从云端开发
 1. 打开 [Metabase 模板](https://sealos.io/products/app-store/metabase)，点击 **Deploy Now**。
 2. 除非需要自定义生成名称或访问域名，否则保留默认参数即可。
 3. 等待部署完成，通常需要 2-3 分钟。部署后会跳转到 Canvas。后续如需修改，可在 AI 对话框中描述需求，或点击对应资源卡片调整配置。
-4. 从 App 入口打开生成的 Metabase URL。
+4. 打开部署结果或 Ingress 生成的 Metabase HTTPS URL。
 5. 完成首次初始化向导：
    - 输入首个管理员的姓名、邮箱地址和密码。
    - 设置组织或站点名称。
@@ -107,7 +107,7 @@ Sealos 是基于 Kubernetes 的 AI 辅助云操作系统，覆盖从云端开发
 4. 如果元数据或插件使用量增长，可提高 PostgreSQL 或存储资源。
 5. 应用变更并等待 Pod 重新就绪。
 
-默认应用规格为 `1` CPU 和 `2G` 内存。实际验证显示，Metabase 0.61.3 使用 `1024Mi` 时可能在冷启动或重启过程中失败；`2G` 已通过冷启动、首次初始化、重启和登录检查。
+默认应用规格为 `1` CPU 和 `2048Mi` 内存。对 Metabase 0.65.3 的现场验证显示，该规格可完成冷启动、首次初始化、登录、浏览集合和仪表盘列表检查。
 
 ## 故障排查
 
