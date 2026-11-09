@@ -1,6 +1,6 @@
 # Deploy and Host Metabase on Sealos
 
-Metabase is an open source business intelligence platform for dashboards, SQL exploration, and self-service analytics. This template deploys Metabase 0.61.3 with PostgreSQL, persistent plugin storage, and a public HTTPS endpoint on Sealos Cloud.
+Metabase is an open source business intelligence platform for dashboards, SQL exploration, and self-service analytics. This template deploys Metabase 0.65.3 with PostgreSQL, persistent plugin storage, and a public HTTPS endpoint on Sealos Cloud.
 
 ![Metabase Screenshot](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/metabase/website-screenshot.webp)
 
@@ -10,7 +10,7 @@ Metabase helps teams connect to databases, ask questions, build dashboards, and 
 
 This Sealos template runs Metabase as a StatefulSet and provisions a Kubeblocks PostgreSQL database for the Metabase application database. A persistent volume is mounted at `/plugins` so custom database drivers and plugin files can survive restarts.
 
-Sealos also configures the Kubernetes Service, HTTPS Ingress, generated public URL, and App entry automatically. On first access, Metabase shows its setup flow so you can create the first administrator account and finish the workspace configuration.
+Sealos also configures the Kubernetes Service, HTTPS Ingress, and generated public URL automatically. On first access, Metabase shows its setup flow so you can create the first administrator account and finish the workspace configuration.
 
 ## Common Use Cases
 
@@ -22,7 +22,7 @@ Sealos also configures the Kubernetes Service, HTTPS Ingress, generated public U
 
 ## Dependencies for Metabase Hosting
 
-The Sealos template includes the required runtime components: the Metabase container image, a PostgreSQL `postgresql-16.4.0` database, a database initialization job for `metabaseappdb`, persistent plugin storage, a Kubernetes Service, an Ingress, and a Sealos App entry.
+The Sealos template includes the required runtime components: the Metabase container image, a PostgreSQL `postgresql-16.4.0` database, a database initialization job for `metabaseappdb`, persistent plugin storage, a Kubernetes Service, an Ingress, and HTTPS Ingress exposure.
 
 ### Deployment Dependencies
 
@@ -37,11 +37,11 @@ The Sealos template includes the required runtime components: the Metabase conta
 
 This template deploys the following services:
 
-- **Metabase Web Service**: Runs `metabase/metabase:v0.61.3` on port `3000` and serves the web UI, API, and background application tasks.
+- **Metabase Web Service**: Runs `metabase/metabase:v0.65.3` on port `3000` and serves the web UI, API, and background application tasks.
 - **PostgreSQL**: Kubeblocks-managed PostgreSQL `postgresql-16.4.0` stores Metabase users, permissions, dashboard metadata, questions, and saved settings.
 - **PostgreSQL Init Job**: Creates the `metabaseappdb` database idempotently after PostgreSQL is ready.
 - **Persistent Plugin Storage**: A `1Gi` volume mounted at `/plugins` keeps custom drivers and plugin files across restarts.
-- **Ingress and App Entry**: Sealos exposes Metabase through an HTTPS domain and creates a dashboard entry for direct access.
+- **Ingress**: Sealos exposes Metabase through an HTTPS domain for setup, login, and dashboard access.
 
 **Configuration:**
 
@@ -62,7 +62,7 @@ Metabase Open Source Edition is distributed under the AGPLv3 License. This Sealo
 
 Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies the entire application lifecycle, from development in cloud IDEs to production deployment and management. By deploying Metabase on Sealos, you get:
 
-- **One-Click Deployment**: Deploy Metabase, PostgreSQL, storage, networking, and the App entry from one template.
+- **One-Click Deployment**: Deploy Metabase, PostgreSQL, storage, and networking from one template.
 - **Zero Kubernetes Expertise Required**: Use Kubernetes-backed reliability without writing manifests manually.
 - **Persistent Storage Included**: Keep Metabase metadata in PostgreSQL and plugin files on persistent storage.
 - **Instant Public Access**: Each deployment receives an HTTPS URL for setup, login, and dashboard sharing.
@@ -76,7 +76,7 @@ Deploy Metabase on Sealos and focus on analytics instead of infrastructure manag
 1. Open the [Metabase template](https://sealos.io/products/app-store/metabase) and click **Deploy Now**.
 2. Keep the default parameters unless you need a custom generated name or host.
 3. Wait for deployment to complete, typically 2-3 minutes. After deployment, you will be redirected to the Canvas. For later changes, describe your requirements in the AI dialog or click the relevant resource cards to modify settings.
-4. Open the generated Metabase URL from the App entry.
+4. Open the generated Metabase HTTPS URL from the deployment result or Ingress.
 5. Complete the first-run setup wizard:
    - Enter the first administrator's name, email address, and password.
    - Set the organization or site name.
@@ -107,7 +107,7 @@ To scale Metabase on Sealos:
 4. Increase PostgreSQL or storage resources if metadata or plugin usage grows.
 5. Apply the change and wait for the pod to become ready again.
 
-The default application profile is `1` CPU and `2G` memory. Live validation showed `1024Mi` can fail during cold start or restart for Metabase 0.61.3, while `2G` completed cold start, first-run setup, restart, and login checks.
+The default application profile is `1` CPU and `2048Mi` memory. Live validation for Metabase 0.65.3 completed cold start, first-run setup, login, collection browse, and dashboard list checks at this tier.
 
 ## Troubleshooting
 
