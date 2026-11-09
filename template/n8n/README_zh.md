@@ -1,6 +1,6 @@
 # 在 Sealos 上部署和托管 n8n
 
-n8n 是一个工作流自动化平台，可通过可视化编辑器连接 API、应用和数据流程。本模板在 Sealos Cloud 上部署 n8n 2.22.4，包含持久化存储，并可选启用 PostgreSQL 16.4 和 Redis 队列模式。
+n8n 是一个工作流自动化平台，可通过可视化编辑器连接 API、应用和数据流程。本模板在 Sealos Cloud 上部署 n8n 2.46.6，包含持久化存储，并可选启用 PostgreSQL 16.4 和 Redis 队列模式。
 
 ![应用截图](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/n8n/website-screenshot.webp)
 
@@ -38,7 +38,7 @@ Sealos 模板包含 n8n 应用服务、1Gi 持久化存储、可选的 PostgreSQ
 
 本模板会部署以下资源：
 
-- **n8n StatefulSet**：运行 n8n 2.22.4，并将 `/home/node/.n8n` 存储在持久卷中。
+- **n8n StatefulSet**：运行 n8n 2.46.6，并将 `/home/node/.n8n` 存储在持久卷中。
 - **Service 和 Ingress**：通过 HTTPS 暴露 n8n Web 界面、API 和 Webhook 端点。
 - **PostgreSQL Cluster（可选）**：提供适合生产环境的工作流与执行数据存储。
 - **PostgreSQL 初始化 Job（可选）**：在 PostgreSQL 就绪后幂等创建 `n8n` 数据库。
@@ -58,7 +58,7 @@ Sealos 模板包含 n8n 应用服务、1Gi 持久化存储、可选的 PostgreSQ
 
 ### 配置
 
-- **n8n 版本**：2.22.4
+- **n8n 版本**：2.46.6
 - **PostgreSQL 版本**：启用时为 16.4.0
 - **Redis 版本**：启用队列模式时为 7.2.7
 - **端口**：5678
