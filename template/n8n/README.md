@@ -1,6 +1,6 @@
 # Deploy and Host n8n on Sealos
 
-n8n is a workflow automation platform for connecting APIs, apps, and data workflows with a visual editor. This template deploys n8n 2.22.4 on Sealos Cloud with persistent storage, optional PostgreSQL 16.4, and optional Redis-backed queue mode.
+n8n is a workflow automation platform for connecting APIs, apps, and data workflows with a visual editor. This template deploys n8n 2.46.6 on Sealos Cloud with persistent storage, optional PostgreSQL 16.4, and optional Redis-backed queue mode.
 
 ![Application Screenshot](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/n8n/website-screenshot.webp)
 
@@ -38,7 +38,7 @@ The Sealos template includes the n8n application service, 1Gi persistent storage
 
 This template deploys these resources:
 
-- **n8n StatefulSet**: Runs n8n 2.22.4 and stores `/home/node/.n8n` on persistent storage.
+- **n8n StatefulSet**: Runs n8n 2.46.6 and stores `/home/node/.n8n` on persistent storage.
 - **Service and Ingress**: Exposes the n8n web UI, API, and webhook endpoints over HTTPS.
 - **PostgreSQL Cluster (optional)**: Provides production-grade workflow and execution data storage.
 - **PostgreSQL Init Job (optional)**: Creates the `n8n` database idempotently after PostgreSQL is ready.
@@ -58,7 +58,7 @@ This template deploys these resources:
 
 ### Configuration
 
-- **n8n version**: 2.22.4
+- **n8n version**: 2.46.6
 - **PostgreSQL version**: 16.4.0 when enabled
 - **Redis version**: 7.2.7 when queue mode is enabled
 - **Port**: 5678
