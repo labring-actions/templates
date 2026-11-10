@@ -20,7 +20,7 @@
 ## 使用说明
 
 1. 部署完成后请等待几分钟，让数据库集群和 AIProxy 的数据库初始化任务执行完成。
-2. 登录用户名是 `root`，密码为部署时填写的 `root_password`。
+2. 登录用户名是 `root`，初始密码为 `123456`。从 FastGPT v4.17.3 起不再支持通过环境变量（`DEFAULT_ROOT_PSW`）指定 root 密码，首次登录必须按提示设置新密码完成激活；忘记密码时可在 FastGPT 容器内执行 `node /app/scripts/reset-root-password.cjs '新密码'` 重置。
 3. 模型能力仍需要在部署后继续配置。AIProxy 会以内网服务方式部署，并通过 FastGPT 内置集成来调用。
 4. MCP 的公网地址已经预写入 `config.json`。
 5. Agent sandbox 默认不开启，因为上游 Docker 方案依赖 Docker Socket 相关服务，不能直接照搬到 Sealos。如果你已经有托管的沙盒服务，可在部署时填写 `agent_sandbox_baseurl` 和 `agent_sandbox_token`。

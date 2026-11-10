@@ -20,7 +20,7 @@ During deployment, enable **Deploy the commercial edition** to add the FastGPT P
 ## Notes
 
 1. Wait a few minutes after deployment so the database clusters and the AIProxy database init job can finish.
-2. Sign in with username `root` and the `root_password` you entered at deploy time.
+2. Sign in with username `root` and the initial password `123456`. Since FastGPT v4.17.3 the root password can no longer be set through an environment variable (`DEFAULT_ROOT_PSW`), and the first sign-in requires setting a new password to activate the account. If you lose the password, reset it inside the FastGPT container with `node /app/scripts/reset-root-password.cjs '<new-password>'`.
 3. AI models still need to be configured after deployment. AIProxy is deployed internally and is consumed through FastGPT's built-in integration.
 4. The MCP public address is preconfigured in `config.json`.
 5. Agent sandbox integration is disabled by default because the upstream Docker topology depends on Docker-socket-based services. If you already have a hosted sandbox service, fill `agent_sandbox_baseurl` and `agent_sandbox_token` during deployment.
