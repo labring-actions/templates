@@ -1548,3 +1548,21 @@ graph TB
 >
 > When the user enters information in the input box, the `Template CR` content will not be re-parsed,
 > meaning that the original expression will not be re-evaluated, such as `value: ${{ random(8) }}`.
+
+### Localized input descriptions
+
+Keep the default explanation in `spec.inputs.<key>.description`. Add translated explanations at `spec.i18n.<language>.inputs.<key>.description` (for example, `zh`). These are presentation-only strings: input keys, types, required flags, defaults and deployment expressions remain unchanged. Clients without a matching translation use the default description. Use plain text, not template expressions.
+
+```yaml
+spec:
+  inputs:
+    init_password:
+      description: Initial administrator password.
+      type: string
+      required: true
+  i18n:
+    zh:
+      inputs:
+        init_password:
+          description: 初始管理员密码。
+```
