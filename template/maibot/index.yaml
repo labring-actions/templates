@@ -1,0 +1,333 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: maibot
+spec:
+  title: MaiBot
+  url: https://maibot.chat/
+  gitRepo: https://github.com/Mai-with-u/MaiBot
+  author: Sealos
+  description: MaiBot is an open-source LLM-powered digital companion with a multi-bot host, a browser management dashboard, persistent memory, plugins, and messaging-platform adapters.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/maibot/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/maibot/logo.svg
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/maibot/website-screenshot.webp
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: MaiBot 是开源的大语言模型数字伴侣，提供多 Bot 宿主、浏览器管理面板、持久记忆、插件和即时通讯平台适配能力。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/maibot/README_zh.md
+      inputs:
+        webui_password:
+          description: MaiBot WebUI 初始登录密码。至少 10 位，包含 ASCII 大写字母、小写字母和以下特殊字符之一：!@#$%^&*()_+-=[]{}|;:,.<>?/，且不含空白字符。
+  categories:
+    - ai
+    - tool
+  defaults:
+    app_name:
+      type: string
+      value: maibot-${{ random(8) }}
+    app_host:
+      type: string
+      value: maibot-${{ random(8) }}
+  inputs:
+    webui_password:
+      description: "Initial MaiBot WebUI password. Use at least 10 characters with an ASCII uppercase letter, a lowercase letter, and one character from !@#$%^&*()_+-=[]{}|;:,.<>?/; whitespace is not allowed."
+      type: string
+      required: true
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-initvn-webuivn-credentialsvn-sh: |
+    #!/bin/sh
+    set -eu
+
+    WEBUI_PASSWORD="$WEBUI_PASSWORD" PUBLIC_BASE_URL="$PUBLIC_BASE_URL" python - <<'PY'
+    import json
+    import os
+    from pathlib import Path
+
+    password = os.environ["WEBUI_PASSWORD"]
+    public_base_url = os.environ["PUBLIC_BASE_URL"]
+    specials = "!@#$%^&*()_+-=[]{}|;:,.<>?/"
+    if (
+        len(password) < 10
+        or not any(character in "ABCDEFGHIJKLMNOPQRSTUVWXYZ" for character in password)
+        or not any(character in "abcdefghijklmnopqrstuvwxyz" for character in password)
+        or not any(character in specials for character in password)
+        or any(character.isspace() for character in password)
+    ):
+        raise SystemExit(
+            "webui_password must contain at least 10 characters, an ASCII uppercase letter, "
+            "a lowercase letter, a special character, and no whitespace."
+        )
+
+    host = Path("/MaiMBot/host")
+    host.mkdir(parents=True, exist_ok=True)
+    Path("/MaiMBot/bots").mkdir(parents=True, exist_ok=True)
+
+    credentials = host / "webui.json"
+    if not credentials.exists():
+        temporary = credentials.with_suffix(".tmp")
+        temporary.write_text(
+            json.dumps(
+                {
+                    "access_token": password,
+                    "token_source": "configured",
+                    "first_setup_completed": False,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        temporary.chmod(0o600)
+        os.replace(temporary, credentials)
+
+    config = host / "config.toml"
+    if not config.exists():
+        temporary = config.with_suffix(".tmp")
+        temporary.write_text(
+            "\n".join(
+                [
+                    "[webui]",
+                    "enabled = true",
+                    'hosts = ["0.0.0.0"]',
+                    "port = 8001",
+                    f"public_base_url = {json.dumps(public_base_url)}",
+                    'ssl_certfile = ""',
+                    'ssl_keyfile = ""',
+                    "secure_cookie = true",
+                    'anti_crawler_mode = "basic"',
+                    'allowed_ips = "127.0.0.1"',
+                    'trusted_proxies = ""',
+                    "trust_xff = false",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        temporary.chmod(0o600)
+        os.replace(temporary, config)
+    PY
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: sengokucola/maibot:v1.4.5
+    deploy.cloud.sealos.io/minReplicas: "1"
+    deploy.cloud.sealos.io/maxReplicas: "1"
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 90
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: webui-bootstrap
+          image: sengokucola/maibot:v1.4.5
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+          args:
+            - /bootstrap/init-webui-credentials.sh
+          env:
+            - name: TZ
+              value: Asia/Shanghai
+            - name: WEBUI_PASSWORD
+              value: "${{ inputs.webui_password }}"
+            - name: PUBLIC_BASE_URL
+              value: "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+          volumeMounts:
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /bootstrap/init-webui-credentials.sh
+              subPath: vn-initvn-webuivn-credentialsvn-sh
+            - name: vn-maimbotvn-host
+              mountPath: /MaiMBot/host
+            - name: vn-maimbotvn-bots
+              mountPath: /MaiMBot/bots
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: sengokucola/maibot:v1.4.5
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: TZ
+              value: Asia/Shanghai
+            - name: MAIBOT_LEGACY_0X_UPGRADE_CONFIRMED
+              value: "1"
+            - name: HTTP_HOST
+              value: 0.0.0.0
+          ports:
+            - name: http
+              containerPort: 8001
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 100m
+              memory: 512Mi
+            requests:
+              cpu: 10m
+              memory: 51Mi
+          startupProbe:
+            httpGet:
+              path: /api/webui/auth/check
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /api/webui/auth/check
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/webui/auth/check
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: vn-maimbotvn-host
+              mountPath: /MaiMBot/host
+            - name: vn-maimbotvn-bots
+              mountPath: /MaiMBot/bots
+      volumes:
+        - name: ${{ defaults.app_name }}-cm
+          configMap:
+            name: ${{ defaults.app_name }}
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-maimbotvn-host
+        annotations:
+          path: /MaiMBot/host
+          value: "1"
+        labels:
+          app: ${{ defaults.app_name }}
+          cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+    - metadata:
+        name: vn-maimbotvn-bots
+        annotations:
+          path: /MaiMBot/bots
+          value: "1"
+        labels:
+          app: ${{ defaults.app_name }}
+          cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  selector:
+    app: ${{ defaults.app_name }}
+  ports:
+    - name: http
+      port: 8001
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/backend-protocol: WS
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 8001
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/maibot/logo.svg
+  name: MaiBot
+  type: link
