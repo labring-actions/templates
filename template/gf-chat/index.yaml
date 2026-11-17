@@ -1,0 +1,206 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: gf-chat
+spec:
+  title: 'AI 女友聊天（GF Chat）'
+  url: 'https://github.com/Lijian2004/gf-chat'
+  gitRepo: 'https://github.com/Lijian2004/gf-chat'
+  author: 'Lijian2004'
+  description: '带长期记忆的 AI 女友聊天应用：亲密度成长、日记与时间线、主动关心、语音通话，数据持久化保存。'
+  readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/gf-chat/README.md'
+  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/gf-chat/logo.png'
+  screenshots:
+    - 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/gf-chat/website-screenshot.webp'
+  templateType: inline
+  locale: zh
+  i18n:
+    zh:
+      readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/gf-chat/README_zh.md'
+  categories:
+    - ai
+    - frontend
+  defaults:
+    app_name:
+      type: string
+      value: gf-chat-${{ random(8) }}
+    app_host:
+      type: string
+      value: ${{ random(8) }}
+  inputs:
+    access_password:
+      description: '访问密码，部署后进入页面需要输入；留空则不开启登录验证'
+      type: string
+      default: ''
+      required: false
+    deepseek_api_key:
+      description: 'DeepSeek API Key，主对话模型，必填'
+      type: string
+      default: ''
+      required: true
+    volc_api_key:
+      description: '火山引擎语音合成 API Key，用于语音播报与语音通话；留空则回退浏览器语音'
+      type: string
+      default: ''
+      required: false
+    bigmodel_api_key_1:
+      description: '智谱 API Key，用于长期记忆抽取与 Flash 备用模型；留空则只使用 DeepSeek'
+      type: string
+      default: ''
+      required: false
+    bigmodel_api_key_2:
+      description: '智谱 API Key，用于 GLM Pro 备用模型；留空不影响主流程'
+      type: string
+      default: ''
+      required: false
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/lijian2004/gf-chat:latest
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 10
+      containers:
+      - name: ${{ defaults.app_name }}
+        image: ghcr.io/lijian2004/gf-chat:latest
+        imagePullPolicy: Always
+        env:
+        - name: ACCESS_PASSWORD
+          value: ${{ inputs.access_password }}
+        - name: MAX_TOKENS
+          value: '8192'
+        - name: HISTORY_LIMIT
+          value: '24'
+        - name: REQUEST_TIMEOUT
+          value: '60'
+        - name: VOLC_API_KEY
+          value: ${{ inputs.volc_api_key }}
+        - name: DEEPSEEK_API_KEY
+          value: ${{ inputs.deepseek_api_key }}
+        - name: DEEPSEEK_BASE_URL
+          value: https://api.deepseek.com/anthropic
+        - name: DEEPSEEK_MODEL
+          value: deepseek-v4-pro
+        - name: BIGMODEL_API_KEY_1
+          value: ${{ inputs.bigmodel_api_key_1 }}
+        - name: BIGMODEL_API_KEY_2
+          value: ${{ inputs.bigmodel_api_key_2 }}
+        - name: BIGMODEL_BASE_URL
+          value: https://open.bigmodel.cn/api/anthropic
+        - name: BIGMODEL_MODEL_FLASH
+          value: GLM-5.3-Flash
+        - name: BIGMODEL_MODEL_FLASHX
+          value: GLM-5.3-FlashX
+        - name: BIGMODEL_MODEL_PRO
+          value: GLM-5.3
+        resources:
+          requests:
+            cpu: 50m
+            memory: 51Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        ports:
+        - containerPort: 8000
+          name: http
+        volumeMounts:
+        - name: vn-appvn-data
+          mountPath: /app/data
+  volumeClaimTemplates:
+  - metadata:
+      annotations:
+        path: /app/data
+        value: '1'
+      name: vn-appvn-data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+  - name: http
+    port: 8000
+    targetPort: 8000
+    protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+spec:
+  rules:
+  - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+    http:
+      paths:
+      - pathType: Prefix
+        path: /
+        backend:
+          service:
+            name: ${{ defaults.app_name }}
+            port:
+              number: 8000
+  tls:
+  - hosts:
+    - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+    secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/gf-chat/logo.png'
+  name: 'AI 女友聊天（GF Chat）'
+  type: link
