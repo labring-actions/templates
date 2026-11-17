@@ -54,7 +54,7 @@ kind: StatefulSet
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: ghcr.io/sillytavern/sillytavern:1.18.0
+    originImageName: ghcr.io/sillytavern/sillytavern:1.19.0
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -75,89 +75,29 @@ spec:
     spec:
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 30
-      initContainers:
-        - name: prepare-config
-          image: ghcr.io/sillytavern/sillytavern:1.18.0
-          imagePullPolicy: IfNotPresent
-          env:
-            ${{ if(inputs.enable_basic_auth === 'true') }}
-            - name: ST_BASIC_AUTH_MODE
-              value: 'true'
-            - name: ST_BASIC_AUTH_USERNAME
-              value: ${{ inputs.basic_auth_username }}
-            - name: ST_BASIC_AUTH_PASSWORD
-              value: ${{ inputs.basic_auth_password }}
-            ${{ else() }}
-            - name: ST_BASIC_AUTH_MODE
-              value: 'false'
-            - name: ST_BASIC_AUTH_USERNAME
-              value: user
-            - name: ST_BASIC_AUTH_PASSWORD
-              value: ''
-            ${{ endif() }}
-          command:
-            - /bin/sh
-            - -ec
-            - |
-              if [ ! -s /config/config.yaml ]; then
-                cp /home/node/app/default/config.yaml /config/config.yaml
-              fi
-              node <<'NODE'
-              const fs = require('fs');
-              const path = '/config/config.yaml';
-              let config = fs.readFileSync(path, 'utf8');
-
-              function setTopLevel(key, value) {
-                const line = `${key}: ${value}`;
-                const pattern = new RegExp(`^${key}:.*$`, 'm');
-                config = pattern.test(config) ? config.replace(pattern, line) : `${config.trimEnd()}\n${line}\n`;
-              }
-
-              function setBlock(key, body) {
-                const block = `${key}:\n${body}\n`;
-                const lines = config.split('\n');
-                const start = lines.findIndex((line) => line === `${key}:`);
-                if (start === -1) {
-                  config = `${config.trimEnd()}\n${block}`;
-                  return;
-                }
-                let end = start + 1;
-                while (end < lines.length && (lines[end].startsWith(' ') || lines[end].trim() === '')) {
-                  end += 1;
-                }
-                lines.splice(start, end - start, ...block.trimEnd().split('\n'));
-                config = `${lines.join('\n').trimEnd()}\n`;
-              }
-
-              setTopLevel('listen', 'true');
-              setTopLevel('whitelistMode', 'false');
-              setTopLevel('enableForwardedWhitelist', 'false');
-              setTopLevel('basicAuthMode', process.env.ST_BASIC_AUTH_MODE === 'true' ? 'true' : 'false');
-              setBlock('basicAuthUser', `  username: ${JSON.stringify(process.env.ST_BASIC_AUTH_USERNAME || 'user')}\n  password: ${JSON.stringify(process.env.ST_BASIC_AUTH_PASSWORD || '')}`);
-              setBlock('hostWhitelist', '  enabled: false\n  scan: false\n  hosts: []');
-
-              fs.writeFileSync(path, config);
-              NODE
-              chown -R 1000:1000 /config
-          resources:
-            requests:
-              cpu: 20m
-              memory: 25Mi
-            limits:
-              cpu: 200m
-              memory: 256Mi
-          volumeMounts:
-            - name: vn-homevnodevnappvnconfig
-              mountPath: /config
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: ${{ defaults.app_name }}
-          image: ghcr.io/sillytavern/sillytavern:1.18.0
+          image: ghcr.io/sillytavern/sillytavern:1.19.0
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           env:
             - name: NODE_ENV
               value: production
             - name: FORCE_COLOR
               value: '1'
+            - name: NODE_OPTIONS
+              value: --max-old-space-size=384
             - name: SILLYTAVERN_LISTEN
               value: 'true'
             - name: SILLYTAVERN_LISTENADDRESS_IPV4
@@ -170,34 +110,39 @@ spec:
               value: '30'
             - name: SILLYTAVERN_WHITELISTMODE
               value: 'false'
-            ${{ if(inputs.enable_basic_auth === 'true') }}
-            - name: SILLYTAVERN_BASICAUTHMODE
+            - name: SILLYTAVERN_HOSTWHITELIST_ENABLED
+              value: 'false'
+            - name: SILLYTAVERN_HOSTWHITELIST_SCAN
+              value: 'false'
+            - name: SILLYTAVERN_BROWSERLAUNCH_ENABLED
+              value: 'false'
+            - name: SILLYTAVERN_PROTOCOL_IPV6
+              value: 'false'
+            - name: SILLYTAVERN_RATELIMITING_PREFERREALIPHEADER
               value: 'true'
+            - name: SILLYTAVERN_BASICAUTHMODE
+              value: ${{ inputs.enable_basic_auth }}
             - name: SILLYTAVERN_BASICAUTHUSER_USERNAME
               value: ${{ inputs.basic_auth_username }}
             - name: SILLYTAVERN_BASICAUTHUSER_PASSWORD
               value: ${{ inputs.basic_auth_password }}
-            ${{ else() }}
-            - name: SILLYTAVERN_BASICAUTHMODE
-              value: 'false'
-            ${{ endif() }}
           ports:
             - name: http
               containerPort: 8000
               protocol: TCP
           resources:
             requests:
-              cpu: 20m
+              cpu: 10m
               memory: 51Mi
             limits:
-              cpu: 200m
+              cpu: 100m
               memory: 512Mi
           startupProbe:
             exec:
               command:
                 - node
                 - src/healthcheck.js
-            failureThreshold: 60
+            failureThreshold: 90
             periodSeconds: 10
             timeoutSeconds: 5
           readinessProbe:
@@ -217,17 +162,17 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 10
           volumeMounts:
-            - name: vn-homevnodevnappvnconfig
+            - name: vn-homevn-nodevn-appvn-config
               mountPath: /home/node/app/config
-            - name: vn-homevnodevnappvndata
+            - name: vn-homevn-nodevn-appvn-data
               mountPath: /home/node/app/data
-            - name: vn-homevnodevnappvnplugins
+            - name: vn-homevn-nodevn-appvn-plugins
               mountPath: /home/node/app/plugins
-            - name: vn-homevnodevnappvnpublicvnscriptsvnextensionsvnthird-party
+            - name: vn-homevn-nodevn-appvn-publicvn-scriptsvn-extensionsvn-4cbb5b9f
               mountPath: /home/node/app/public/scripts/extensions/third-party
   volumeClaimTemplates:
     - metadata:
-        name: vn-homevnodevnappvnconfig
+        name: vn-homevn-nodevn-appvn-config
         annotations:
           path: /home/node/app/config
           value: '1'
@@ -238,7 +183,7 @@ spec:
           requests:
             storage: 1Gi
     - metadata:
-        name: vn-homevnodevnappvndata
+        name: vn-homevn-nodevn-appvn-data
         annotations:
           path: /home/node/app/data
           value: '1'
@@ -249,7 +194,7 @@ spec:
           requests:
             storage: 1Gi
     - metadata:
-        name: vn-homevnodevnappvnplugins
+        name: vn-homevn-nodevn-appvn-plugins
         annotations:
           path: /home/node/app/plugins
           value: '1'
@@ -260,7 +205,7 @@ spec:
           requests:
             storage: 1Gi
     - metadata:
-        name: vn-homevnodevnappvnpublicvnscriptsvnextensionsvnthird-party
+        name: vn-homevn-nodevn-appvn-publicvn-scriptsvn-extensionsvn-4cbb5b9f
         annotations:
           path: /home/node/app/public/scripts/extensions/third-party
           value: '1'
