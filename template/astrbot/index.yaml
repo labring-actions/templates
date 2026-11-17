@@ -1,0 +1,206 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: astrbot
+spec:
+  title: AstrBot
+  url: https://astrbot.app/
+  gitRepo: https://github.com/AstrBotDevs/AstrBot
+  author: Sealos
+  description: AstrBot is an open-source AI agent assistant and development framework that connects large language models with messaging platforms, plugins, knowledge bases, and automation workflows.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/astrbot/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/astrbot/logo.svg
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/astrbot/website-screenshot.webp
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: AstrBot 是开源 AI Agent 助手与开发框架，可连接大语言模型、即时通讯平台、插件、知识库和自动化工作流。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/astrbot/README_zh.md
+  categories:
+    - ai
+    - tool
+  defaults:
+    app_name:
+      type: string
+      value: astrbot-${{ random(8) }}
+    app_host:
+      type: string
+      value: astrbot-${{ random(8) }}
+  inputs:
+    dashboard_password:
+      description: Password for the astrbot dashboard administrator. Use at least 8 characters including uppercase, lowercase, and numeric characters.
+      type: string
+      required: true
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: soulter/astrbot:v4.29.4
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: soulter/astrbot:v4.29.4
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: TZ
+              value: Asia/Shanghai
+            - name: ASTRBOT_DASHBOARD_INITIAL_PASSWORD
+              value: ${{ inputs.dashboard_password }}
+          ports:
+            - name: http
+              containerPort: 6185
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 10m
+              memory: 51Mi
+            limits:
+              cpu: 100m
+              memory: 512Mi
+          startupProbe:
+            httpGet:
+              path: /api/auth/setup-status
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /api/auth/setup-status
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/auth/setup-status
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: vn-astrbotvn-data
+              mountPath: /AstrBot/data
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-astrbotvn-data
+        annotations:
+          path: /AstrBot/data
+          value: '1'
+        labels:
+          app: ${{ defaults.app_name }}
+          cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  selector:
+    app: ${{ defaults.app_name }}
+  ports:
+    - name: http
+      port: 6185
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 6185
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/astrbot/logo.svg
+  name: AstrBot
+  type: link
