@@ -1,0 +1,146 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata: 
+  name: grafana
+spec:
+  title: 'Grafana'                         
+  url: 'https://grafana.com/'                         
+  gitRepo: 'https://github.com/grafana/grafana'        
+  author: 'grafana'                                     
+  description: 'Grafana allows you to query, visualize, alert on and understand your metrics no matter where they are stored. Create, explore, and share dashboards with your team and foster a data-driven culture:'    
+  readme: 'https://raw.githubusercontent.com/grafana/grafana/main/README.md'
+  icon: 'https://avatars.githubusercontent.com/u/7195757?s=48&v=4'
+  templateType: inline
+  defaults:
+    app_name:
+      type: string
+      value: grafana-${{ random(8) }}
+    app_host:
+      type: string
+      value: ${{ random(8) }}
+  inputs:
+    user_name:
+      description: 'Set username'
+      type: string
+      default: 'admin'
+      required: true
+    user_password:
+      description: 'Set password'
+      type: string
+      default: 'password@grafana'
+      required: true
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: grafana/grafana-enterprise
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+    deploy.cloud.sealos.io/resize: 5Gi
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    app: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 50%
+  minReadySeconds: 10
+  serviceName: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: grafana/grafana-enterprise
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              value: ${{ inputs.user_name }}
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              value: ${{ inputs.user_password }}
+          resources:
+            requests:
+              cpu: 100m
+              memory: 51Mi
+            limits:
+              cpu: 1000m
+              memory: 512Mi
+          ports:
+            - containerPort: 3000
+          imagePullPolicy: Always
+          volumeMounts:
+            - name: vn-varvn-libvn-${{ defaults.app_name }}
+              mountPath: /var/lib/grafana
+      volumes: []
+  volumeClaimTemplates:
+    - metadata:
+        annotations:
+          path: /var/lib/grafana
+          value: '5'
+        name: vn-varvn-libvn-${{ defaults.app_name }}
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - port: 3000
+      targetPort: 3000
+      name: ${{ defaults.app_name }}-port
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 3000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
