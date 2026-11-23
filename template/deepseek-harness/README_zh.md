@@ -1,4 +1,4 @@
-# 在 Sealos 上部署并托管 DeepSeek Harness
+# 在 Sealos 上部署和托管 DeepSeek Harness
 
 DeepSeek Harness 是开源编码智能体工作台，提供浏览器聊天、工具调用、会话管理和模型配置。本模板在 Sealos Cloud 上以单个有状态副本集（StatefulSet）部署 DeepSeek Harness 0.2.2-rc.5，并挂载持久化存储。
 
@@ -10,7 +10,7 @@ DeepSeek Harness 在端口 `3080` 上运行一个 Web 进程。浏览器界面�
 
 模板挂载两个持久卷：`/data` 保存 DSH Profile、凭据、设置和会话数据，`/workspace` 保存智能体使用的项目文件。Pod 重启或模板更新后，两份数据都会保留。
 
-应用采用启动令牌（Launch Token）认证。首次打开带令牌的 URL 会签发一个有效期为 30 天的浏览器 Cookie，容器每次启动都会生成新的启动令牌。
+应用使用两层认证。认证代理首先要求输入部署表单中的 HTTP Basic Auth 用户名和密码；通过后，DeepSeek Harness 再要求使用服务端打印的启动令牌（Launch Token）。首次打开带令牌的 URL 会签发一个有效期为 30 天的浏览器 Cookie，容器每次启动都会生成新的启动令牌，已签发的 Cookie 在重启后继续保持 30 天有效期。
 
 ## 常见使用场景
 
@@ -22,7 +22,7 @@ DeepSeek Harness 在端口 `3080` 上运行一个 Web 进程。浏览器界面�
 
 ## DeepSeek Harness 托管依赖
 
-Sealos 模板包含 DeepSeek Harness Web 服务、Service、HTTPS Ingress 和两个 1Gi 持久卷。应用状态全部保存在模板创建的 PVC 中。
+Sealos 模板包含 DeepSeek Harness Web 服务、认证代理、Service、HTTPS Ingress 和两个 1Gi 持久卷。应用状态全部保存在模板创建的 PVC 中。
 
 执行模型请求需要一个 DeepSeek API Key。部署完成后可在 **Settings → Models** 中填写密钥，也可以在同一页面添加 OpenAI、Anthropic 或 Gemini 兼容的第三方模型提供方。
 
@@ -30,6 +30,7 @@ Sealos 模板包含 DeepSeek Harness Web 服务、Service、HTTPS Ingress 和两
 
 - [DeepSeek Harness 仓库](https://github.com/deepseek-ai/deepseek-harness) - 上游源码与文档
 - [DeepSeek Harness Docker](https://github.com/yangchuansheng/deepseek-harness-docker) - 本模板使用的容器镜像
+- [Caddy](https://caddyserver.com/) - 用于 HTTP Basic Auth 的认证代理
 - [DeepSeek 开放平台](https://platform.deepseek.com/) - API Key 管理
 - [模型配置指南](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/guide/providers.md) - 模型提供方配置
 - [公开部署指南](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/guide/public-deployments.md) - 反向代理与认证行为
@@ -41,28 +42,33 @@ Sealos 模板包含 DeepSeek Harness Web 服务、Service、HTTPS Ingress 和两
 本模板部署以下资源：
 
 - **DeepSeek Harness 有状态副本集**：以 UID/GID `1000` 运行 Web UI 和智能体运行时。
-- **Service 和 Ingress**：通过 Sealos HTTPS 入口暴露端口 `3080`。
+- **认证代理**：以 Sidecar 方式运行 Caddy，监听端口 `8080`，执行 HTTP Basic Auth，并把通过认证的请求转发到端口 `3080` 上的 DeepSeek Harness。
+- **Service 和 Ingress**：暴露 Service 端口 `3080`，后端指向认证代理，并通过 Sealos HTTPS 入口对外提供访问。
 - **`/data` PVC**：保存 `$DSH_HOME`、Profile、凭据、设置和会话数据。
 - **`/workspace` PVC**：保存智能体会话使用的项目目录。
 
-上游 Docker Compose 文件定义一个 Web 服务。本模板保留单服务拓扑，并使用 StatefulSet 承载需要持久化存储的实例。
+上游 Docker Compose 文件定义一个 Web 服务。本模板保留应用拓扑，并增加认证代理作为安全门禁。StatefulSet 用于承载需要持久化存储的实例。
 
 ### 资源配置
 
 | 组件 | CPU 请求 | CPU 限制 | 内存请求 | 内存限制 | 存储 |
 |------|----------|----------|----------|----------|------|
-| DeepSeek Harness | 20m | 200m | 51Mi | 512Mi | 2 × 1Gi |
+| DeepSeek Harness | 20m | 200m | 102Mi | 1024Mi | 2 × 1Gi |
+| 认证代理 | 10m | 100m | 12Mi | 128Mi | - |
 
-512Mi 内存档位已通过冷启动、令牌登录、模型配置、会话创建、消息交互和 Shell 工具执行验证。处理大型仓库或长时间智能体会话时，可将内存提升到 `1024Mi` 或 `2048Mi`。
+验证过程中，Web 进程在浏览器会话和模型交互后超过 512Mi 限制。768Mi 测试运行正常，模板采用 Sealos 支持的下一档 `1024Mi`，为生产使用保留余量。该档位通过冷启动、令牌登录、默认工作区创建、模型配置、会话创建、消息交互和重启持久化测试。处理大型仓库或长时间智能体会话时，可将 DeepSeek Harness 内存提升到 `2048Mi` 或 `4096Mi`。
 
 ### 配置说明
 
 - **镜像**：`ghcr.io/yangchuansheng/deepseek-harness:v0.2.2-rc.5`
 - **端口**：`3080`
+- **认证代理**：`caddy:2.11.9-alpine`，内部端口 `8080`
 - **公网地址**：`https://<应用主机名>.<区域域名>/`
 - **可信主机**：自动生成的 Ingress 主机名
+- **Basic Auth**：部署输入 `basic_auth_username` 和 `basic_auth_password`，传递给认证代理
 - **遥测**：通过 `DSH_TELEMETRY_DISABLED=1` 关闭
 - **持久化**：`/data` 和 `/workspace` 两个 PVC
+- **默认工作区**：`/workspace/deepseek-harness/default-workspace`，通过 DSH `--patch` 覆盖配置
 - **副本数**：`1`
 
 ### 许可信息
@@ -77,43 +83,48 @@ Sealos 是构建在 Kubernetes 上的 AI 辅助云操作系统，将部署、运
 - **持久化存储**：会话历史、凭据、设置和项目文件在重启后继续保留。
 - **自动 HTTPS 访问**：Sealos 自动提供公网 Ingress 和证书。
 - **Canvas 运维**：通过资源卡片查看日志、调整资源和管理存储。
-- **按量使用资源**：从已验证的 200m CPU、512Mi 内存规格起步。
+- **按量使用资源**：从已验证的 300m CPU 限制和 1Gi 应用内存起步。
 - **模型配置简单**：在浏览器界面中添加 DeepSeek 或第三方模型提供方。
 
 ## 部署指南
 
 1. 打开 [DeepSeek Harness 模板](https://sealos.io/products/app-store/deepseek-harness)，点击 **Deploy Now**。
-2. 检查自动生成的应用名称和主机名，然后确认部署。
+2. 检查自动生成的应用名称、主机名和 Basic Auth 凭据。确认部署前请保存 Basic Auth 密码。
 3. 等待部署完成，通常需要 2-3 分钟。资源创建完成后，Sealos 会跳转到 Canvas。
 4. 打开 Canvas 中显示的应用地址。
-5. 按照[登录与注册](#登录与注册)完成浏览器认证。
+5. 按照[登录与访问](#登录与访问)完成浏览器认证。
 
-## 登录与注册
+## 登录与访问
 
-DeepSeek Harness 使用启动令牌认证。每次容器启动都会在应用日志中输出新的登录 URL。
+登录需要两层凭据。先在认证代理输入部署表单中的 Basic Auth 用户名和密码，再使用应用日志中的启动令牌登录 DeepSeek Harness。
 
-1. 在 Sealos Canvas 中打开本次部署。
-2. 打开 DeepSeek Harness 有状态副本集或 Pod 的资源卡片，查看日志。
-3. 找到最新一条以 `dsh web:` 开头的日志：
+DeepSeek Harness 不提供自助注册。访问权限由部署时设置的 Basic Auth 凭据和启动令牌授予。
+
+1. 在 Sealos Canvas 中打开本次部署，并打开应用地址。
+2. 浏览器提示输入凭据时，填写部署表单中的 `basic_auth_username` 和 `basic_auth_password`。
+3. 打开 DeepSeek Harness 有状态副本集或 Pod 的资源卡片，查看日志。
+4. 找到最新一条以 `dsh web:` 开头的日志：
 
    ```text
    dsh web: https://<应用主机名>.<区域域名>/?token=<启动令牌>
    ```
 
-4. 在浏览器中完整打开该 URL。DeepSeek Harness 会签发会话 Cookie，并跳转到不带令牌的应用根地址。
-5. 后续访问使用干净的应用根地址即可。Cookie 有效期为 30 天。
+5. 在浏览器中完整打开该 URL。DeepSeek Harness 会签发会话 Cookie，并跳转到不带令牌的应用根地址。
+6. 后续访问使用干净的应用根地址即可。浏览器会保留 Basic Auth 凭据和 DeepSeek Harness Cookie。
 
-Pod 或容器每次重启后，启动令牌都会变化。访问失效时，请回到日志中获取最新的 `dsh web:` URL。
+Pod 或容器每次重启后，启动令牌都会变化。DeepSeek Harness Cookie 过期或容器重启后，请回到日志中获取最新的 `dsh web:` URL。Basic Auth 凭据保持不变，除非你更新部署输入。
 
 启动令牌等同于部署密码，可访问已保存的凭据和工作区文件。请只向可信人员共享。
 
 ### 选择工作区
 
-首次使用时，请选择持久化工作区：
+首次使用时，模板会自动创建 **Default workspace**，路径为 `/workspace/deepseek-harness/default-workspace`。
+
+如需使用持久卷中的其他目录：
 
 1. 点击 **Choose workspace**。
-2. 打开 **Edit path**。
-3. 输入 `/workspace`。
+2. 点击 **Add workspace…**。
+3. 输入 `/workspace` 下的目录路径。
 4. 点击 **Open**。
 
 新建会话后，智能体即可读取和修改工作区卷中的项目文件。
@@ -142,21 +153,36 @@ API Key 保存在持久化数据卷的 `/data/.dsh/.credentials.yaml` 中，Pod 
 
 | 使用场景 | 建议内存 |
 |----------|----------|
-| UI、配置、短会话 | 512Mi |
-| 中型仓库、频繁工具调用 | 1024Mi |
-| 大型仓库、长时间智能体任务 | 2048Mi |
+| UI、配置、短会话 | 1024Mi |
+| 中型仓库、频繁工具调用 | 2048Mi |
+| 大型仓库、长时间智能体任务 | 4096Mi |
 
 请将 StatefulSet 保持在一个副本。应用使用共享浏览器会话，`/data` 和 `/workspace` 采用 ReadWriteOnce 持久卷。
 
+## 安全说明
+
+这是一个单租户部署。每个通过认证的浏览器都拥有 owner 权限，可以执行 Shell、访问已保存的凭据和工作区文件。请只向可信人员开放访问。
+
+- 认证代理从部署输入读取 Basic Auth 密码，并保存在 Pod 环境变量中。请使用独立密码，并避免把密码写入工单或截图。
+- `dsh web:` 启动令牌等同于 root 密码。请把带令牌的 URL 当作密码保管。
+- 已签发的 30 天浏览器 Cookie 在 Pod 重启后继续有效，因为签名密钥保存在 `/data` 卷中。重启 Pod 会轮换启动令牌，已签发的 Cookie 仍保持 30 天有效期。
+- 应用没有按设备撤销会话的列表。修改 Basic Auth 密码会阻止使用旧 Basic Auth 凭据的浏览器；已有 DeepSeek Harness Cookie 会继续有效，直到过期或重置 `/data`。
+- 如需彻底重置，请使用全新的 `/data` 卷重新部署。该操作会清除凭据、设置和会话数据；如需保留项目文件，请先备份 `/workspace`。
+- 如需多用户访问或账号级撤销，请用 OAuth2 或 SSO 代理替换认证代理。Basic Auth 提供的是一组共享凭据。
+
 ## 故障排查
 
-### 应用返回 401
+### 浏览器反复要求 Basic Auth
+
+请输入部署表单中的 `basic_auth_username` 和 `basic_auth_password`。如果浏览器缓存了旧凭据，请使用隐私窗口，或清除该主机保存的凭据。
+
+### DeepSeek Harness 返回 401
 
 浏览器缺少有效会话 Cookie。请打开 Pod 日志中最新的 `dsh web:` 令牌 URL。Pod 重启后需要获取新令牌。
 
-### 无法自动创建工作区
+### 默认工作区不可用
 
-手动选择持久工作区：**Choose workspace → Edit path → `/workspace` → Open**。
+打开 **Choose workspace → Add workspace…**，输入 `/workspace` 下的目录并点击 **Open**。同时确认 `/workspace` 卷已挂载，并且 UID `1000` 具有写权限。
 
 ### 没有可用模型
 
@@ -168,7 +194,7 @@ API Key 保存在持久化数据卷的 `/data/.dsh/.credentials.yaml` 中，Pod 
 
 ### 大型任务期间界面变慢
 
-将 StatefulSet 内存限制提升到 `1024Mi` 或 `2048Mi`，并保持单副本运行。
+将 StatefulSet 内存限制提升到 `2048Mi` 或 `4096Mi`，并保持单副本运行。
 
 ## 更多资源
 
