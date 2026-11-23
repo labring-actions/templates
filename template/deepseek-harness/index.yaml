@@ -18,6 +18,11 @@ spec:
     zh:
       description: 开源编码智能体工作台，提供浏览器聊天、模型配置、工具调用和持久化会话。
       readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/deepseek-harness/README_zh.md
+      inputs:
+        basic_auth_username:
+          description: 认证代理的 HTTP Basic Auth 用户名。
+        basic_auth_password:
+          description: 认证代理的 HTTP Basic Auth 密码。
   categories:
     - ai
     - dev-ops
@@ -29,6 +34,49 @@ spec:
     app_host:
       type: string
       value: deepseek-harness-${{ random(8) }}
+  inputs:
+    basic_auth_username:
+      description: Username for HTTP Basic Auth at the public Ingress.
+      type: string
+      default: admin
+      required: true
+    basic_auth_password:
+      description: Password for HTTP Basic Auth at the public Ingress.
+      type: string
+      default: ${{ random(24) }}
+      required: true
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-optvn-configvn-cordisvn-patchvn-yml: |
+    - id: workspace-controller
+      name: '@deepseek-ai/dsh-api-workspace-controller'
+      config:
+        documentsDirectory: /workspace
+  vn-optvn-authvn-startvn-sh: |
+    set -eu
+    : "${AUTH_USER:?AUTH_USER is required}"
+    : "${AUTH_PASSWORD:?AUTH_PASSWORD is required}"
+    export XDG_DATA_HOME=/tmp/caddy-data
+    export XDG_CONFIG_HOME=/tmp/caddy-config
+    mkdir -p "$XDG_DATA_HOME" "$XDG_CONFIG_HOME"
+    AUTH_HASH=$(caddy hash-password --plaintext "$AUTH_PASSWORD")
+    export AUTH_HASH
+    cat > /tmp/Caddyfile <<'CADDY'
+    :8080 {
+        basic_auth {
+            {$AUTH_USER} {$AUTH_HASH}
+        }
+        reverse_proxy {$POD_IP}:3080
+    }
+    CADDY
+    exec caddy run --config /tmp/Caddyfile --adapter caddyfile
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -68,6 +116,11 @@ spec:
         - name: ${{ defaults.app_name }}
           image: ghcr.io/yangchuansheng/deepseek-harness:v0.2.2-rc.5
           imagePullPolicy: IfNotPresent
+          args:
+            - dsh
+            - web
+            - --patch
+            - /opt/config/cordis.patch.yml
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -81,31 +134,31 @@ spec:
             - name: DSH_TELEMETRY_DISABLED
               value: '1'
           ports:
-            - name: http
+            - name: app-http
               containerPort: 3080
               protocol: TCP
           resources:
             limits:
               cpu: 200m
-              memory: 512Mi
+              memory: 1024Mi
             requests:
               cpu: 20m
-              memory: 51Mi
+              memory: 102Mi
           startupProbe:
             tcpSocket:
-              port: http
+              port: app-http
             failureThreshold: 30
             periodSeconds: 5
           readinessProbe:
             tcpSocket:
-              port: http
+              port: app-http
             initialDelaySeconds: 5
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
           livenessProbe:
             tcpSocket:
-              port: http
+              port: app-http
             initialDelaySeconds: 30
             periodSeconds: 20
             timeoutSeconds: 5
@@ -115,6 +168,70 @@ spec:
               mountPath: /data
             - name: vn-workspace
               mountPath: /workspace
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /opt/config/cordis.patch.yml
+              subPath: vn-optvn-configvn-cordisvn-patchvn-yml
+              readOnly: true
+        - name: auth-proxy
+          image: caddy:2.11.9-alpine
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - exec /bin/sh /opt/auth/start.sh
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: AUTH_USER
+              value: ${{ inputs.basic_auth_username }}
+            - name: AUTH_PASSWORD
+              value: ${{ inputs.basic_auth_password }}
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 12Mi
+          startupProbe:
+            tcpSocket:
+              port: http
+            failureThreshold: 30
+            periodSeconds: 2
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /opt/auth/start.sh
+              subPath: vn-optvn-authvn-startvn-sh
+      volumes:
+        - name: ${{ defaults.app_name }}-cm
+          configMap:
+            name: ${{ defaults.app_name }}
   volumeClaimTemplates:
     - metadata:
         name: vn-data
