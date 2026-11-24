@@ -1,0 +1,221 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: maildev
+spec:
+  title: MailDev
+  url: https://maildev.github.io/maildev/
+  gitRepo: https://github.com/maildev/maildev
+  author: Sealos
+  description: A development SMTP server with a web inbox for inspecting captured email.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/maildev/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/maildev/logo.svg
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/maildev/website-screenshot.webp
+  templateType: inline
+  locale: en
+  categories:
+    - dev-ops
+    - tool
+  defaults:
+    app_name:
+      type: string
+      value: maildev-${{ random(8) }}
+    app_host:
+      type: string
+      value: maildev-${{ random(8) }}
+  inputs:
+    web_user:
+      description: Username for the MailDev web inbox.
+      type: string
+      default: admin
+      required: true
+    web_password:
+      description: Password for the MailDev web inbox.
+      type: string
+      required: true
+  i18n:
+    zh:
+      description: 带 Web 收件箱的开发用 SMTP 服务器，用于检查和调试应用发出的邮件。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/maildev/README_zh.md
+      inputs:
+        web_user:
+          description: MailDev Web 收件箱的用户名。
+        web_password:
+          description: MailDev Web 收件箱的密码。
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: maildev/maildev:3.0.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: maildev/maildev:3.0.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MAILDEV_WEB_USER
+              value: ${{ inputs.web_user }}
+            - name: MAILDEV_WEB_PASS
+              value: ${{ inputs.web_password }}
+            - name: MAILDEV_MAIL_DIRECTORY
+              value: /data
+            - name: MAILDEV_MAX_MESSAGE_SIZE
+              value: '26214400'
+            - name: MAILDEV_MAX_EMAILS
+              value: '200'
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: http
+              containerPort: 1080
+              protocol: TCP
+            - name: smtp
+              containerPort: 1025
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 10m
+              memory: 12Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          startupProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 24
+          readinessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: vn-data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-data
+        annotations:
+          path: /data
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+    - name: smtp
+      port: 1025
+      targetPort: smtp
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/maildev/logo.svg
+  name: MailDev
+  type: link
