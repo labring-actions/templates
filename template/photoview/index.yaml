@@ -1,0 +1,245 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: photoview
+spec:
+  title: Photoview
+  url: https://photoview.github.io/
+  gitRepo: https://github.com/photoview/photoview
+  author: Sealos
+  description: Self-hosted photo and video gallery with directory scanning, thumbnails, face recognition, and album sharing.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/photoview/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/photoview/logo.png
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/photoview/website-screenshot.webp
+  templateType: inline
+  locale: en
+  categories:
+    - tool
+  defaults:
+    app_host:
+      type: string
+      value: photoview-${{ random(8) }}
+    app_name:
+      type: string
+      value: photoview-${{ random(8) }}
+  i18n:
+    zh:
+      description: 自托管照片和视频图库，支持目录扫描、缩略图、人脸识别和相册分享。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/photoview/README_zh.md
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: photoview/photoview:2.4.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: photoview/photoview:2.4.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PHOTOVIEW_DATABASE_DRIVER
+              value: sqlite
+            - name: PHOTOVIEW_SQLITE_PATH
+              value: /home/photoview/database/photoview.db
+            - name: PHOTOVIEW_LISTEN_IP
+              value: 0.0.0.0
+            - name: PHOTOVIEW_LISTEN_PORT
+              value: '4001'
+            - name: PHOTOVIEW_SERVE_UI
+              value: '1'
+            - name: PHOTOVIEW_MEDIA_CACHE
+              value: /home/photoview/media-cache
+            - name: TZ
+              value: Asia/Shanghai
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: http
+              containerPort: 4001
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 50m
+              memory: 102Mi
+            limits:
+              cpu: 500m
+              memory: 1024Mi
+          startupProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  curl -fsS -X POST http://127.0.0.1:4001/api/graphql \
+                    -H 'Content-Type: application/json' \
+                    --data-raw '{"operationName":"CheckInitialSetup","variables":{},"query":"query CheckInitialSetup { siteInfo { initialSetup }}"}' >/dev/null
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  curl -fsS -X POST http://127.0.0.1:4001/api/graphql \
+                    -H 'Content-Type: application/json' \
+                    --data-raw '{"operationName":"CheckInitialSetup","variables":{},"query":"query CheckInitialSetup { siteInfo { initialSetup }}"}' >/dev/null
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  curl -fsS -X POST http://127.0.0.1:4001/api/graphql \
+                    -H 'Content-Type: application/json' \
+                    --data-raw '{"operationName":"CheckInitialSetup","variables":{},"query":"query CheckInitialSetup { siteInfo { initialSetup }}"}' >/dev/null
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: vn-homevn-photoviewvn-database
+              mountPath: /home/photoview/database
+            - name: vn-homevn-photoviewvn-mediavn-cache
+              mountPath: /home/photoview/media-cache
+            - name: vn-photos
+              mountPath: /photos
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-homevn-photoviewvn-database
+        annotations:
+          path: /home/photoview/database
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+    - metadata:
+        name: vn-homevn-photoviewvn-mediavn-cache
+        annotations:
+          path: /home/photoview/media-cache
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+    - metadata:
+        name: vn-photos
+        annotations:
+          path: /photos
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/photoview/logo.png
+  name: Photoview
+  type: link
