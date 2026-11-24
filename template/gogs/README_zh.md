@@ -89,7 +89,7 @@ Sealos 是构建在 Kubernetes 之上的 AI 辅助云操作系统，将部署、
 
 Gogs 没有预置管理员。全新实例上注册的第一个账号会成为站点管理员。打开公网地址，选择 **Register**，使用用户名、邮箱和密码创建初始账号。
 
-注册完成后登录，从头像菜单打开 **Site Administration** 管理用户、仓库、认证源和站点设置。模板保持注册开放；初始账号创建完成后，可在 **Site Administration → Users** 关闭注册，或修改 `app.ini` 中的 `DISABLE_REGISTRATION`。
+注册完成后登录，从头像菜单打开 **Site Administration** 管理用户、仓库、认证源和站点设置。模板保持注册开放。需要关闭时，在 `app.ini` 中设置 `DISABLE_REGISTRATION = true` 并重启 Pod。
 
 ## 配置
 

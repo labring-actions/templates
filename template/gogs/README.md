@@ -89,7 +89,7 @@ Sealos is an AI-assisted cloud operating system built on Kubernetes that unifies
 
 Gogs has no pre-seeded administrator. The first account registered on a fresh instance becomes the site administrator. Open the public URL, choose **Register**, and create the initial account with a username, email address, and password.
 
-After registration, sign in and open **Site Administration** from the avatar menu to manage users, repositories, authentication sources, and site settings. Registration stays open in the template; close it under **Site Administration → Users** or by editing `DISABLE_REGISTRATION` in `app.ini` after the initial accounts are created.
+After registration, sign in and open **Site Administration** from the avatar menu to manage users, repositories, authentication sources, and site settings. Registration stays open in the template. To close it, set `DISABLE_REGISTRATION = true` in `app.ini` and restart the Pod.
 
 ## Configuration
 
