@@ -8,7 +8,7 @@ OpenQQ is a OneBot v11 bridge for QQ NT that connects the Linux QQ client to bot
 
 OpenQQ runs the official Linux QQ desktop client under Xvfb and attaches to it through a native launcher. The browser console manages the QQ session, OneBot connections, event history, API debugging, bot programs, AI provider settings, and runtime logs. A noVNC desktop on a separate public address displays the QQ login window so you can scan a QR code or use password login from any browser.
 
-The template runs one StatefulSet with two containers. The main container provides the OpenQQ console, the OneBot v11 WebSocket service, and the noVNC desktop. An nginx sidecar forwards browser traffic to the console and noVNC while preserving the host headers that OpenQQ validates. Two 1Gi persistent volumes keep the QQ login state at `/root/.config/QQ` and the OpenQQ configuration and bot data at `/app/data`.
+The template runs one single-replica StatefulSet for OpenQQ and one small nginx Deployment for the console and noVNC paths. The proxy forwards requests with the internal host and origin values that OpenQQ validates, while the OneBot WebSocket connects directly to the application Service. Three 1Gi persistent volumes keep the QQ login state at `/root/.config/QQ`, the OpenQQ configuration and bot data at `/app/data`, and a Chromium-compatible heap at `/dev/shm`.
 
 Sealos provisions the public domains, TLS certificates, services, and persistent storage. The console, noVNC, and OneBot WebSocket each receive their own HTTPS address.
 
@@ -22,7 +22,7 @@ Sealos provisions the public domains, TLS certificates, services, and persistent
 
 ## Dependencies for OpenQQ Hosting
 
-The Sealos template includes the OpenQQ application, the Linux QQ client, Xvfb, fluxbox, x11vnc, noVNC, an nginx reverse proxy, and two persistent volumes. No external database, Redis, or object storage service is required.
+The Sealos template includes the OpenQQ application, the Linux QQ client, Xvfb, fluxbox, x11vnc, noVNC, a lightweight nginx proxy Deployment, and three persistent volumes. No external database, Redis, or object storage service is required.
 
 ### Deployment Dependencies
 
@@ -36,11 +36,12 @@ The Sealos template includes the OpenQQ application, the Linux QQ client, Xvfb, 
 
 **Architecture Components:**
 
-- **OpenQQ application**: A single-replica StatefulSet serving the WebUI on port `17860`, the OneBot v11 forward WebSocket on port `3001`, and noVNC on port `6080`.
-- **Linux QQ client**: Runs inside the same container under Xvfb and attaches through the OpenQQ native launcher.
-- **Web proxy sidecar**: An unprivileged nginx container listens on `18080` for the WebUI and `18081` for noVNC, forwarding requests with the public host header OpenQQ expects.
-- **Persistent QQ volume**: A 1Gi volume mounted at `/root/.config/QQ` stores the QQ login session and client state.
-- **Persistent OpenQQ volume**: A 1Gi volume mounted at `/app/data` stores `openqq.json`, bot programs, memories, and AI settings.
+- **OpenQQ application**: A single-replica StatefulSet serving the WebUI on `17860`, the OneBot v11 forward WebSocket on `3001`, and noVNC on `6080`.
+- **Linux QQ client**: Runs inside the OpenQQ container under Xvfb and attaches through the native launcher.
+- **Web proxy Deployment**: An unprivileged nginx Deployment listens on `18080` for the console and `18081` for noVNC. It rewrites `Host` and `Origin` to the internal values accepted by OpenQQ.
+- **Persistent QQ volume**: A 1Gi volume at `/root/.config/QQ` stores the QQ login session and client state.
+- **Persistent OpenQQ volume**: A 1Gi volume at `/app/data` stores `openqq.json`, bot programs, memories, and AI settings.
+- **Shared memory volume**: A 1Gi volume at `/dev/shm` provides the shared memory pool used by the bundled Chromium runtime.
 - **Public routes**: Three Ingress resources publish the console, the noVNC desktop, and the OneBot WebSocket endpoint.
 
 **Configuration:**
@@ -49,7 +50,7 @@ The Sealos template includes the OpenQQ application, the Linux QQ client, Xvfb, 
 - **OneBot access token**: Generated automatically and used by the WebSocket endpoint.
 - **WebUI access key**: Generated at every container start and printed in the main container log.
 - **Timezone**: `Asia/Shanghai`.
-- **Resource limits**: `200m` CPU and `1024Mi` memory for the main container; `100m` CPU and `128Mi` memory for the proxy.
+- **Resource limits**: `500m` CPU and `1024Mi` memory for the main container; `100m` CPU and `128Mi` memory for the proxy. `200m` caused repeated readiness flaps during cold start, and `100m` failed the native IPC handshake.
 - **QQ version**: The container image bundles Linux QQ `3.2.34-53644`. OpenQQ marks `9.9.33-52230` and `9.9.37-54395` as fully validated upstream versions.
 
 **License Information:**
@@ -64,7 +65,7 @@ Sealos is an AI-assisted cloud operating system built on Kubernetes that unifies
 - **Desktop Runtime Included**: Run the Linux QQ client, Xvfb, noVNC, and the OneBot bridge without managing a remote desktop host.
 - **Persistent QQ Session**: Keep the QQ login and bot data across Pod restarts through dedicated volumes.
 - **Separate Public Endpoints**: Reach the console, noVNC login screen, and OneBot WebSocket through distinct managed domains.
-- **Pay-as-You-Go Resources**: Start with a validated `200m` CPU and `1024Mi` memory profile and adjust resources through Canvas.
+- **Pay-as-You-Go Resources**: Start with a validated `500m` CPU and `1024Mi` memory profile and adjust resources through Canvas.
 - **Canvas Operations**: Inspect logs, storage, and network resources, then modify the deployment through the AI dialog or resource cards.
 - **Kubernetes Reliability**: Use health probes, automated recovery, service discovery, and declarative resource management.
 
@@ -82,13 +83,17 @@ Sealos is an AI-assisted cloud operating system built on Kubernetes that unifies
 
 ## Sign-In and Account Setup
 
-OpenQQ uses two independent access layers.
+OpenQQ has no separate registration page. Create the account layer by opening the keyed console URL, then sign in to QQ through the noVNC desktop with an existing QQ account.
+
+OpenQQ uses three independent access layers.
 
 **Console access**: The WebUI generates a fresh 32-byte access key each time the main container starts. The complete keyed URL appears in the main container log on the line beginning with `[OpenQQ] OpenQQ 0.5.0`. Copy the `#token=` value and append it to your public console URL. A missing or incorrect key returns HTTP 401. After a Pod restart, fetch the new key from the log and replace the old fragment.
 
 **QQ sign-in**: The QQ desktop client requires a QQ account. Open the noVNC address, enter the VNC password configured during deployment, then scan the QR code with mobile QQ or use QQ password login in the virtual desktop. The login session is stored in the `/root/.config/QQ` volume, so later restarts retain the session while QQ keeps it valid.
 
 **OneBot client authentication**: Use the OneBot access token from **Connections** or `/api/config`. Send it as an `Authorization: Bearer <token>` header or as the `?access_token=<token>` query parameter when connecting to the forward WebSocket. Requests without a valid token are rejected.
+
+The OneBot token is written to `/app/data/openqq.json` only when that file does not exist. On a fresh volume, the `OPENQQ_AUTO_INIT=1` setting creates the configuration from the template inputs. After the file exists, changing a generated token input has no effect on the stored token. Edit the token in **Connections** for an existing deployment.
 
 ## Configuration
 
@@ -106,7 +111,7 @@ The OneBot access token and WebUI key are sensitive credentials. Share the conso
 
 ## Scaling
 
-OpenQQ attaches to one QQ desktop session and uses a single-replica StatefulSet with ReadWriteOnce volumes. Keep `replicas` at `1`. For a larger workload, raise the CPU or memory limits through the StatefulSet resource card in Canvas. The template starts with `200m` CPU and `1024Mi` memory limits, which passed a cold start, console login, console navigation, noVNC login, OneBot handshake, and a 60-second stability window.
+OpenQQ attaches to one QQ desktop session and uses a single-replica StatefulSet with ReadWriteOnce volumes. Keep `replicas` at `1`. For a larger workload, raise the CPU or memory limits through the StatefulSet resource card in Canvas. The template starts at `500m` CPU and `1024Mi` memory. `200m` produced repeated readiness flaps during cold start; `500m` completed cold start, console login, console navigation, noVNC password entry, OneBot handshake, and a stability window without restarts. Memory peaked near `590Mi` in the container cgroup, so `1024Mi` leaves headroom.
 
 ## Troubleshooting
 
@@ -114,9 +119,17 @@ OpenQQ attaches to one QQ desktop session and uses a single-replica StatefulSet 
 
 Copy the current keyed URL from the main container log. The key changes after every container restart. Keep the `#token=` fragment intact when replacing the local host with the public domain.
 
-### The console shows "no healthy upstream"
+### The console returns HTTP 403
 
-Wait for both containers to become Ready. The proxy becomes ready after the OpenQQ WebUI starts. If the state persists, open the main container log and check for the OpenQQ startup banner.
+The request reached OpenQQ with a host or origin it does not allow. Use the console URL and the noVNC URL from Canvas. The template handles this through the proxy Deployment and the `openqq.internal` allow-list value; do not connect directly to port `17860` from a public host.
+
+### The console or OneBot API returns HTTP 401
+
+The request is missing a valid credential. For the console, copy the latest `#token=` fragment from the main container log and keep it in the URL. For the OneBot WebSocket, copy the current token from **Connections** and pass it as a Bearer header or an `access_token` query parameter. Fetch a fresh console URL after any main container restart because the WebUI key changes on each start.
+
+### The OneBot endpoint returns HTTP 426
+
+The OneBot port answers ordinary HTTP GET requests with `426 Upgrade Required`. Connect with a WebSocket client to `wss://<onebot-domain>/` and include the OneBot token.
 
 ### noVNC asks for a password
 
