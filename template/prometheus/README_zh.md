@@ -8,7 +8,7 @@ Prometheus 是开源监控系统与时序数据库，用于指标采集、PromQL
 
 Prometheus 按计划抓取 HTTP 指标端点，将样本写入本地时序数据库，并执行 PromQL 查询与告警规则。Web UI 提供查询控制台、图表、抓取目标状态、告警规则和运行时配置。
 
-本模板运行一个 StatefulSet，使用 `prom/prometheus:v3.16.0` 镜像并监听 `9090` 端口。1Gi 持久卷挂载到 `/prometheus`，保存 TSDB、WAL 和压缩数据。容器以 UID/GID `65534` 运行，使用非 root 安全上下文，仅因 Prometheus 需要写入运行文件而关闭只读根文件系统。
+本模板运行一个 StatefulSet，使用 `prom/prometheus:v3.16.0` 镜像并监听 `9090` 端口。1Gi 持久卷挂载到 `/prometheus`，保存 TSDB、WAL 和压缩数据。容器以 UID/GID `65534` 运行，使用非 root 安全上下文，并保留可写根文件系统以写入运行文件。
 
 Prometheus 启动时使用镜像内置配置，并通过命令行限制保留窗口：24 小时或 800MB，以先达到的限制为准。Service 将 `80` 端口映射到 `9090`，Sealos Ingress 通过 HTTPS 发布 UI。模板未提供认证层；生产环境可保持 URL 私密，或在前面增加认证代理。
 

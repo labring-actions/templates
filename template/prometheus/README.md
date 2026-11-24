@@ -8,7 +8,7 @@ Prometheus is an open-source monitoring system and time-series database for metr
 
 Prometheus scrapes HTTP metrics endpoints on a schedule, stores samples in its local time-series database, and evaluates PromQL queries and alerting rules. The web UI provides a query console, graph view, target status, alert rules, and runtime configuration.
 
-This template runs one StatefulSet with `prom/prometheus:v3.16.0` on port `9090`. A 1Gi persistent volume is mounted at `/prometheus` and stores the TSDB, WAL, and compaction output. The container runs as UID/GID `65534` with a non-root security context and a read-only root filesystem disabled only because Prometheus writes runtime files.
+This template runs one StatefulSet with `prom/prometheus:v3.16.0` on port `9090`. A 1Gi persistent volume is mounted at `/prometheus` and stores the TSDB, WAL, and compaction output. The container runs as UID/GID `65534` with a non-root security context and a writable root filesystem for runtime files.
 
 Prometheus starts with the configuration bundled in the image and the retention limits passed on the command line: 24 hours or 800MB, whichever limit is reached first. The Service maps port `80` to the UI on `9090`, and a Sealos Ingress publishes the UI over HTTPS. The template exposes no authentication layer; keep the URL private or add an auth proxy for production use.
 
