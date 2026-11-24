@@ -1,0 +1,267 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: archivebox
+spec:
+  title: ArchiveBox
+  url: https://archivebox.io/
+  gitRepo: https://github.com/ArchiveBox/ArchiveBox
+  author: Sealos
+  description: Self-hosted web archiving for snapshots of pages, media, and bookmarks with searchable full-text indexes.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/archivebox/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/archivebox/logo.png
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/archivebox/website-screenshot.webp
+  templateType: inline
+  locale: en
+  categories:
+    - tool
+    - storage
+  defaults:
+    app_host:
+      type: string
+      value: archivebox-${{ random(8) }}
+    app_name:
+      type: string
+      value: archivebox-${{ random(8) }}
+  inputs:
+    admin_username:
+      description: Username for the ArchiveBox administrator account.
+      type: string
+      default: admin
+      required: true
+    admin_password:
+      description: Password for the ArchiveBox administrator account.
+      type: string
+      required: true
+  i18n:
+    zh:
+      description: 自托管网页归档工具，保存页面、媒体和书签快照，并提供可搜索的全文索引。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/archivebox/README_zh.md
+      inputs:
+        admin_username:
+          description: ArchiveBox 管理员用户名。
+        admin_password:
+          description: ArchiveBox 管理员密码。
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: archivebox/archivebox:0.9.77
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 911
+        runAsGroup: 911
+        fsGroup: 911
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: prepare-data
+          image: busybox:1.37.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+          args:
+            - chown -R 911:911 /data /dev/shm
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - CHOWN
+                - DAC_OVERRIDE
+                - FOWNER
+          resources:
+            requests:
+              cpu: 10m
+              memory: 12Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: vn-data
+              mountPath: /data
+            - name: vn-devvn-shm
+              mountPath: /dev/shm
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: archivebox/archivebox:0.9.77
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: BASE_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: ADMIN_USERNAME
+              value: ${{ inputs.admin_username }}
+            - name: ADMIN_PASSWORD
+              value: ${{ inputs.admin_password }}
+            - name: SERVER_SECURITY_MODE
+              value: auto
+            - name: PUBLIC_INDEX
+              value: 'False'
+            - name: PUBLIC_ADD_VIEW
+              value: 'False'
+            - name: TZ
+              value: Asia/Shanghai
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: http
+              containerPort: 5797
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 200m
+              memory: 204Mi
+              ephemeral-storage: 1Gi
+            limits:
+              cpu: 2
+              memory: 2048Mi
+              ephemeral-storage: 5Gi
+          startupProbe:
+            httpGet:
+              path: /health/
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /health/
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health/
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: vn-data
+              mountPath: /data
+            - name: vn-devvn-shm
+              mountPath: /dev/shm
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-data
+        annotations:
+          path: /data
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+    - metadata:
+        name: vn-devvn-shm
+        annotations:
+          path: /dev/shm
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/archivebox/logo.png
+  name: ArchiveBox
+  type: link
