@@ -48,7 +48,7 @@ Redis 组件各自使用 `50m/51Mi` 请求和 `500m/512Mi` 限制，每个组件
 
 **配置：**
 
-- **镜像**：`cheaperinference/omniroute@sha256:2c4c755a...` 固定摘要
+- **镜像**：`cheaperinference/omniroute@sha256:2c4c755a54f8ce5341bc1856580b71f47a0f16a9afab4a55f84d540810631f68`
 - **UI 端口**：`20128`
 - **API 端口**：`20129`
 - **实时 WebSocket 端口**：`20132`

@@ -48,7 +48,7 @@ The Redis components each use `50m/51Mi` requests and `500m/512Mi` limits, with 
 
 **Configuration:**
 
-- **Image**: `cheaperinference/omniroute@sha256:2c4c755a...` pinned digest
+- **Image**: `cheaperinference/omniroute@sha256:2c4c755a54f8ce5341bc1856580b71f47a0f16a9afab4a55f84d540810631f68`
 - **UI port**: `20128`
 - **API port**: `20129`
 - **Live WebSocket port**: `20132`
