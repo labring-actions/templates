@@ -1,0 +1,422 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: prompts-chat
+spec:
+  title: prompts.chat
+  url: https://prompts.chat/
+  gitRepo: https://github.com/f/prompts.chat
+  author: Sealos
+  description: A self-hosted prompt library with authentication, categories, tags, comments, and full-text search.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/prompts-chat/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/prompts-chat/logo.svg
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/prompts-chat/website-screenshot.webp
+  templateType: inline
+  locale: en
+  categories:
+    - ai
+    - tool
+  defaults:
+    app_host:
+      type: string
+      value: prompts-chat-${{ random(8) }}
+    app_name:
+      type: string
+      value: prompts-chat-${{ random(8) }}
+  inputs:
+    admin_email:
+      description: Email address for the initial administrator account.
+      type: string
+      default: admin@example.com
+      required: true
+    admin_username:
+      description: Username for the initial administrator account.
+      type: string
+      default: admin
+      required: true
+    admin_password:
+      description: Password for the initial administrator account.
+      type: string
+      required: true
+  i18n:
+    zh:
+      description: 自托管提示词库，支持账号登录、分类、标签、评论与全文搜索。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/prompts-chat/README_zh.md
+      inputs:
+        admin_email:
+          description: 初始管理员账号的邮箱地址。
+        admin_username:
+          description: 初始管理员账号的用户名。
+        admin_password:
+          description: 初始管理员账号的密码。
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    kb.io/database: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  terminationPolicy: Delete
+  componentSpecs:
+    - name: postgresql
+      componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
+      replicas: 1
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/f/prompts.chat@sha256:9223bf16f8f3d7570fc114f2d1a346714acd8a6713f7a9d1eebd5aee03ce0862
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: ghcr.io/f/prompts.chat@sha256:9223bf16f8f3d7570fc114f2d1a346714acd8a6713f7a9d1eebd5aee03ce0862
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: DATABASE_URL
+              value: postgresql://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/prompts?schema=public
+            - name: DIRECT_URL
+              value: postgresql://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/prompts?schema=public
+            - name: AUTH_SECRET
+              value: ${{ random(32) }}
+            - name: AUTH_TRUST_HOST
+              value: 'true'
+            - name: AUTH_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: NEXTAUTH_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: NODE_ENV
+              value: production
+            - name: PCHAT_AUTH_PROVIDERS
+              value: credentials
+            - name: PCHAT_ALLOW_REGISTRATION
+              value: 'true'
+            - name: PCHAT_LOCALES
+              value: en,zh
+            - name: PCHAT_DEFAULT_LOCALE
+              value: en
+            - name: PCHAT_FEATURE_AI_SEARCH
+              value: 'false'
+            - name: PCHAT_FEATURE_AI_GENERATION
+              value: 'false'
+            - name: PCHAT_FEATURE_PROMPT_ENHANCER
+              value: 'false'
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 50m
+              memory: 51Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  backoffLimit: 12
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}-pg-init
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: seed-admin
+          image: postgres:16-bookworm
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PGHOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PGPORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PGDATABASE
+              value: postgres
+            - name: ADMIN_EMAIL
+              value: ${{ inputs.admin_email }}
+            - name: ADMIN_USERNAME
+              value: ${{ inputs.admin_username }}
+            - name: ADMIN_PASSWORD
+              value: ${{ inputs.admin_password }}
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready >/dev/null 2>&1; do
+                echo "waiting for PostgreSQL"
+                sleep 2
+              done
+              if ! psql -tAc "SELECT 1 FROM pg_database WHERE datname='prompts'" | grep -q 1; then
+                psql -v ON_ERROR_STOP=1 -c 'CREATE DATABASE prompts'
+              fi
+              until psql -d prompts -tAc 'SELECT 1 FROM users LIMIT 1' >/dev/null 2>&1; do
+                echo "waiting for the prompts.chat schema"
+                sleep 3
+              done
+              psql -d prompts -v ON_ERROR_STOP=1 \
+                -v admin_email="$ADMIN_EMAIL" \
+                -v admin_username="$ADMIN_USERNAME" \
+                -v admin_password="$ADMIN_PASSWORD" <<'SQL'
+              CREATE EXTENSION IF NOT EXISTS pgcrypto;
+              INSERT INTO users (id, email, username, name, password, role, "updatedAt")
+              VALUES ('sealos-admin', :'admin_email', :'admin_username', 'Sealos Admin', crypt(:'admin_password', gen_salt('bf', 12)), 'ADMIN', now())
+              ON CONFLICT (email) DO UPDATE SET
+                username = EXCLUDED.username,
+                password = EXCLUDED.password,
+                role = 'ADMIN',
+                "updatedAt" = now();
+              SQL
+          resources:
+            requests:
+              cpu: 10m
+              memory: 12Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/prompts-chat/logo.svg
+  name: prompts.chat
+  type: link
