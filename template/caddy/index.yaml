@@ -1,0 +1,227 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: caddy
+spec:
+  title: Caddy
+  url: https://caddyserver.com/
+  gitRepo: https://github.com/caddyserver/caddy
+  author: Sealos
+  description: Production-ready web server and reverse proxy with automatic HTTPS, HTTP/3, and a compact Caddyfile configuration.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/caddy/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/caddy/logo.png
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/caddy/website-screenshot.webp
+  templateType: inline
+  locale: en
+  categories:
+    - dev-ops
+    - tool
+  defaults:
+    app_host:
+      type: string
+      value: caddy-${{ random(8) }}
+    app_name:
+      type: string
+      value: caddy-${{ random(8) }}
+  i18n:
+    zh:
+      description: 生产级 Web 服务器与反向代理，支持自动 HTTPS、HTTP/3 和简洁的 Caddyfile 配置。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/caddy/README_zh.md
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-etcvn-caddyvn-caddyfile: |
+    :8080 {
+    	root * /srv
+    	file_server
+    }
+  vn-srvvn-indexvn-html: |
+    <!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <title>Caddy on Sealos</title>
+      <style>
+        body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f4f6f8; color: #1f2933; font-family: system-ui, sans-serif; }
+        main { max-width: 42rem; padding: 3rem; background: #fff; border-radius: 1rem; box-shadow: 0 20px 50px rgba(15, 23, 42, 0.12); }
+        h1 { margin-top: 0; font-size: 2rem; }
+        code { padding: 0.15rem 0.35rem; background: #eef2f6; border-radius: 0.3rem; }
+      </style>
+    </head>
+    <body>
+      <main>
+        <h1>Caddy is running</h1>
+        <p>This page is served by the official Caddy image on Sealos.</p>
+        <p>Edit the <code>Caddyfile</code> and <code>index.html</code> keys in the <code>ConfigMap</code> to serve your own site or proxy an internal service.</p>
+      </main>
+    </body>
+    </html>
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: caddy:2.11.9-alpine
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: caddy:2.11.9-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: XDG_CONFIG_HOME
+              value: /tmp/caddy/config
+            - name: XDG_DATA_HOME
+              value: /tmp/caddy/data
+            - name: TZ
+              value: Asia/Shanghai
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 10m
+              memory: 12Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /etc/caddy/Caddyfile
+              subPath: vn-etcvn-caddyvn-caddyfile
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /srv/index.html
+              subPath: vn-srvvn-indexvn-html
+      volumes:
+        - name: ${{ defaults.app_name }}-cm
+          configMap:
+            name: ${{ defaults.app_name }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/caddy/logo.png
+  name: Caddy
+  type: link
