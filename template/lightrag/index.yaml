@@ -1,0 +1,293 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: lightrag
+spec:
+  title: LightRAG
+  url: https://lightrag.github.io/
+  gitRepo: https://github.com/HKUDS/LightRAG
+  author: Sealos
+  description: Graph-based retrieval-augmented generation server with document ingestion, knowledge-graph exploration, and a built-in web UI.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/lightrag/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/lightrag/logo.png
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/lightrag/website-screenshot.webp
+  templateType: inline
+  locale: en
+  categories:
+    - ai
+    - tool
+  defaults:
+    app_host:
+      type: string
+      value: lightrag-${{ random(8) }}
+    app_name:
+      type: string
+      value: lightrag-${{ random(8) }}
+    token_secret:
+      type: string
+      value: ${{ random(32) }}
+    lightrag_api_key:
+      type: string
+      value: ${{ random(32) }}
+  inputs:
+    admin_password:
+      description: Password for the LightRAG web UI and API user "admin". Use at least 8 characters.
+      type: string
+      required: true
+    llm_api_key:
+      description: API key for the OpenAI-compatible chat and embedding endpoints.
+      type: string
+      required: true
+    llm_base_url:
+      description: OpenAI-compatible chat completion base URL.
+      type: string
+      default: https://api.openai.com/v1
+    llm_model:
+      description: Chat model used for entity and relation extraction.
+      type: string
+      default: gpt-4.1-mini
+    embedding_base_url:
+      description: OpenAI-compatible embedding base URL.
+      type: string
+      default: https://api.openai.com/v1
+    embedding_model:
+      description: Embedding model name.
+      type: string
+      default: text-embedding-3-small
+    embedding_dim:
+      description: Embedding vector dimension produced by the embedding model.
+      type: string
+      default: "1536"
+  i18n:
+    zh:
+      description: 基于知识图谱的检索增强生成服务，支持文档入库、图谱探索和内置 Web UI。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/lightrag/README_zh.md
+      inputs:
+        admin_password:
+          description: LightRAG Web UI 与 API 用户 "admin" 的密码，至少 8 个字符。
+        llm_api_key:
+          description: OpenAI 兼容的对话与向量接口 API Key。
+        llm_base_url:
+          description: OpenAI 兼容的对话补全基础地址。
+        llm_model:
+          description: 用于实体和关系抽取的对话模型。
+        embedding_base_url:
+          description: OpenAI 兼容的向量接口基础地址。
+        embedding_model:
+          description: 向量模型名称。
+        embedding_dim:
+          description: 向量模型输出的维度。
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/hkuds/lightrag:v1.5.8
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: ghcr.io/hkuds/lightrag:v1.5.8
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: HOST
+              value: 0.0.0.0
+            - name: PORT
+              value: '9621'
+            - name: WORKING_DIR
+              value: /app/data/rag_storage
+            - name: INPUT_DIR
+              value: /app/data/inputs
+            - name: PROMPT_DIR
+              value: /app/data/prompts
+            - name: LIGHTRAG_DEFAULT_UI
+              value: webui
+            - name: LLM_BINDING
+              value: openai
+            - name: LLM_BINDING_HOST
+              value: ${{ inputs.llm_base_url }}
+            - name: LLM_BINDING_API_KEY
+              value: ${{ inputs.llm_api_key }}
+            - name: LLM_MODEL
+              value: ${{ inputs.llm_model }}
+            - name: EMBEDDING_BINDING
+              value: openai
+            - name: EMBEDDING_BINDING_HOST
+              value: ${{ inputs.embedding_base_url }}
+            - name: EMBEDDING_BINDING_API_KEY
+              value: ${{ inputs.llm_api_key }}
+            - name: EMBEDDING_MODEL
+              value: ${{ inputs.embedding_model }}
+            - name: EMBEDDING_DIM
+              value: ${{ inputs.embedding_dim }}
+            - name: AUTH_ACCOUNTS
+              value: admin:${{ inputs.admin_password }}
+            - name: TOKEN_SECRET
+              value: ${{ defaults.token_secret }}
+            - name: LIGHTRAG_API_KEY
+              value: ${{ defaults.lightrag_api_key }}
+            - name: TZ
+              value: Asia/Shanghai
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: http
+              containerPort: 9621
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 50m
+              memory: 51Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: vn-appvn-datavn-ragvn-storage
+              mountPath: /app/data/rag_storage
+            - name: vn-appvn-datavn-inputs
+              mountPath: /app/data/inputs
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-appvn-datavn-ragvn-storage
+        annotations:
+          path: /app/data/rag_storage
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+    - metadata:
+        name: vn-appvn-datavn-inputs
+        annotations:
+          path: /app/data/inputs
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/webui
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/lightrag/logo.png
+  name: LightRAG
+  type: link
