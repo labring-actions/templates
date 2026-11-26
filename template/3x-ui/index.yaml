@@ -1,0 +1,240 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: 3x-ui
+spec:
+  title: 3x-ui
+  url: https://3x-ui.com/
+  gitRepo: https://github.com/MHSanaei/3x-ui
+  author: Sealos
+  description: An Xray proxy management panel with multi-protocol inbounds, traffic accounting, and client controls.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/3x-ui/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/3x-ui/logo.png
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/3x-ui/website-screenshot.webp
+  templateType: inline
+  locale: en
+  categories:
+    - dev-ops
+    - tool
+  defaults:
+    app_host:
+      type: string
+      value: 3x-ui-${{ random(8) }}
+    app_name:
+      type: string
+      value: xui-${{ random(8) }}
+  inputs:
+    panel_username:
+      description: Username for the 3x-ui panel administrator.
+      type: string
+      default: admin
+      required: true
+    panel_password:
+      description: Password for the 3x-ui panel administrator.
+      type: string
+      required: true
+  i18n:
+    zh:
+      description: Xray 代理管理面板，支持多协议入站、流量统计和客户端管理。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/3x-ui/README_zh.md
+      inputs:
+        panel_username:
+          description: 3x-ui 面板管理员用户名。
+        panel_password:
+          description: 3x-ui 面板管理员密码。
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/mhsanaei/3x-ui:v3.11.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: set-credentials
+          image: ghcr.io/mhsanaei/3x-ui:v3.11.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PANEL_USERNAME
+              value: ${{ inputs.panel_username }}
+            - name: PANEL_PASSWORD
+              value: ${{ inputs.panel_password }}
+            - name: XUI_DB_FOLDER
+              value: /etc/x-ui
+            - name: XUI_ENABLE_FAIL2BAN
+              value: 'false'
+          command:
+            - sh
+            - -c
+            - /app/x-ui setting -username "$PANEL_USERNAME" -password "$PANEL_PASSWORD" -port 2053 -webBasePath / -resetTwoFactor=true
+          securityContext:
+            allowPrivilegeEscalation: false
+          resources:
+            requests:
+              cpu: 10m
+              memory: 12Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: vn-etcvn-xvn-ui
+              mountPath: /etc/x-ui
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: ghcr.io/mhsanaei/3x-ui:v3.11.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: XUI_DB_FOLDER
+              value: /etc/x-ui
+            - name: XUI_ENABLE_FAIL2BAN
+              value: 'false'
+            - name: XUI_LOG_LEVEL
+              value: info
+            - name: TZ
+              value: Asia/Shanghai
+          securityContext:
+            allowPrivilegeEscalation: false
+          ports:
+            - name: http
+              containerPort: 2053
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 20m
+              memory: 25Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 36
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: vn-etcvn-xvn-ui
+              mountPath: /etc/x-ui
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-etcvn-xvn-ui
+        annotations:
+          path: /etc/x-ui
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/3x-ui/logo.png
+  name: 3x-ui
+  type: link
