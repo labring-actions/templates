@@ -38,6 +38,7 @@ The Sealos template includes the required runtime components: the Metabase conta
 This template deploys the following services:
 
 - **Metabase Web Service**: Runs `metabase/metabase:v0.65.3` on port `3000` and serves the web UI, API, and background application tasks.
+- **Container Command**: Starts the JVM directly (`java -jar /app/metabase.jar`) instead of the image entrypoint, because the entrypoint's root branch `chmod`s the 713 MB jar, forcing an overlayfs copy-up that exceeds the per-container 100 MiB ephemeral-storage limit and gets the pod evicted during startup.
 - **PostgreSQL**: Kubeblocks-managed PostgreSQL `postgresql-16.4.0` stores Metabase users, permissions, dashboard metadata, questions, and saved settings.
 - **PostgreSQL Init Job**: Creates the `metabaseappdb` database idempotently after PostgreSQL is ready.
 - **Persistent Plugin Storage**: A `1Gi` volume mounted at `/plugins` keeps custom drivers and plugin files across restarts.
@@ -50,6 +51,7 @@ The template configures Metabase with PostgreSQL environment variables from the 
 - `MB_DB_TYPE=postgres`
 - `MB_DB_DBNAME=metabaseappdb`
 - `MB_DB_HOST`, `MB_DB_PORT`, `MB_DB_USER`, and `MB_DB_PASS` from `${{ defaults.app_name }}-pg-conn-credential`
+- `MB_JETTY_HOST=0.0.0.0` so Jetty binds all interfaces when the entrypoint is bypassed
 - `JAVA_OPTS=-XX:MaxRAMPercentage=75 -XX:InitialRAMPercentage=25` for stable JVM sizing inside the container limit
 
 No required user inputs are needed during deployment. After the first administrator is created, database connections, users, SSO, email, and embedding settings are managed inside the Metabase admin interface.

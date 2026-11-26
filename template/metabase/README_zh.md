@@ -38,6 +38,7 @@ Sealos 会自动配置 Kubernetes Service、HTTPS Ingress 和生成的公网 URL
 此模板会部署以下服务：
 
 - **Metabase Web 服务**：运行 `metabase/metabase:v0.65.3`，监听 `3000` 端口，提供 Web UI、API 和后台应用任务。
+- **容器启动命令**：直接启动 JVM（`java -jar /app/metabase.jar`），绕过镜像入口脚本；该脚本在 root 分支会对 713 MB 的 jar 执行 `chmod`，在 overlayfs 上触发整文件 copy-up，超过单容器 100 MiB 的临时存储限制，导致 Pod 在启动过程中被驱逐。
 - **PostgreSQL**：由 Kubeblocks 管理的 PostgreSQL `postgresql-16.4.0`，用于存储 Metabase 用户、权限、仪表盘元数据、问题和已保存设置。
 - **PostgreSQL 初始化 Job**：在 PostgreSQL 就绪后，以幂等方式创建 `metabaseappdb` 数据库。
 - **持久化插件存储**：挂载到 `/plugins` 的 `1Gi` 卷，用于在重启后保留自定义驱动和插件文件。
@@ -50,6 +51,7 @@ Sealos 会自动配置 Kubernetes Service、HTTPS Ingress 和生成的公网 URL
 - `MB_DB_TYPE=postgres`
 - `MB_DB_DBNAME=metabaseappdb`
 - `MB_DB_HOST`、`MB_DB_PORT`、`MB_DB_USER` 和 `MB_DB_PASS` 来自 `${{ defaults.app_name }}-pg-conn-credential`
+- `MB_JETTY_HOST=0.0.0.0`，在绕过入口脚本时让 Jetty 监听所有网卡
 - `JAVA_OPTS=-XX:MaxRAMPercentage=75 -XX:InitialRAMPercentage=25`，用于在容器限制内稳定设置 JVM 大小
 
 部署时不需要填写必填参数。第一个管理员创建完成后，可以在 Metabase 管理界面中配置数据库连接、用户、SSO、邮件和嵌入式分析设置。
