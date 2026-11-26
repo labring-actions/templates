@@ -80,11 +80,46 @@ def stepwise_match(items: list[dict], patterns: list[re.Pattern[str]]) -> list[i
     return indices
 
 
-def detect_multi_service(resource_docs: list[dict]) -> bool:
-    kinds = [doc.get("kind") for doc in resource_docs if isinstance(doc, dict)]
-    if any(kind in {"Cluster", "Job", "ObjectStorageBucket"} for kind in kinds):
-        return True
-    return sum(1 for kind in kinds if kind in {"Deployment", "StatefulSet"}) > 1
+def labeled_block(text: str, labels: list[str]) -> str:
+    for label in labels:
+        pattern = re.compile(
+            rf"^\*\*{re.escape(label)}[：:]?\*\*\s*$|^###\s+{re.escape(label)}\s*$",
+            re.MULTILINE | re.IGNORECASE,
+        )
+        match = pattern.search(text)
+        if not match:
+            continue
+        start = match.end()
+        next_label = re.search(
+            r"^\*\*[^*\n]+[：:]?\*\*\s*$|^###\s+\S",
+            text[start:],
+            re.MULTILINE,
+        )
+        end = start + next_label.start() if next_label else len(text)
+        return text[start:end].strip()
+    return ""
+
+
+def bullet_count(text: str) -> int:
+    return sum(1 for line in text.splitlines() if re.match(r"^\s*[-*]\s+\S", line))
+
+
+def link_count(text: str) -> int:
+    return len(re.findall(r"\]\(https?://", text))
+
+
+def subheading_count(text: str) -> int:
+    return len(re.findall(r"^###\s+\S", text, re.MULTILINE))
+
+
+RESOURCE_TABLE_EN = re.compile(
+    r"^\|\s*Component\s*\|\s*CPU Request\s*\|\s*CPU Limit\s*\|\s*Memory Request\s*\|\s*Memory Limit\s*\|",
+    re.IGNORECASE | re.MULTILINE,
+)
+RESOURCE_TABLE_ZH = re.compile(
+    r"^\|\s*组件\s*\|\s*CPU 请求\s*\|\s*CPU (?:限制|上限)\s*\|\s*内存请求\s*\|\s*内存(?:限制|上限)\s*\|",
+    re.MULTILINE,
+)
 
 
 def validate_template(template_dir: Path) -> list[str]:
@@ -151,13 +186,6 @@ def validate_template(template_dir: Path) -> list[str]:
 
     english = readme_path.read_text(encoding="utf-8")
     chinese = readme_zh_path.read_text(encoding="utf-8")
-    multi_service = detect_multi_service(docs[1:])
-    if multi_service:
-        if "Architecture Components" not in english:
-            errors.append(f"{template_dir.name}: README.md should include Architecture Components")
-        if "架构组件" not in chinese:
-            errors.append(f"{template_dir.name}: README_zh.md should include 架构组件")
-
     english_headings = headings(english)
     if not english_headings or english_headings[0]["level"] != 1 or english_headings[0]["text"] != f"Deploy and Host {title} on Sealos":
         errors.append(f"{template_dir.name}: README.md H1 should be '# Deploy and Host {title} on Sealos'")
@@ -166,21 +194,51 @@ def validate_template(template_dir: Path) -> list[str]:
         re.compile(r"^About Hosting\b"),
         re.compile(r"^Common Use Cases\b"),
         re.compile(r"^Dependencies for\b"),
+        re.compile(r"^Implementation Details\b"),
         re.compile(r"^Why Deploy\b.*\bon Sealos\b"),
         re.compile(r"^Deployment Guide\b"),
+        re.compile(r"^Scaling\b"),
+        re.compile(r"^Troubleshooting\b"),
         re.compile(r"^License\b"),
     ]
     english_sequence = stepwise_match(english_headings, english_patterns)
     if english_sequence is None:
         errors.append(f"{template_dir.name}: README.md is missing a required section or section order")
     else:
-        deployment_section = section_text(english, english_headings, english_sequence[4])
+        dependencies_section = section_text(english, english_headings, english_sequence[2])
+        if link_count(dependencies_section) < 2:
+            errors.append(
+                f"{template_dir.name}: README.md Deployment Dependencies should contain at least two official links"
+            )
+
+        implementation_section = section_text(english, english_headings, english_sequence[3])
+        architecture = labeled_block(implementation_section, ["Architecture Components"])
+        configuration = labeled_block(implementation_section, ["Configuration"])
+        resources = labeled_block(implementation_section, ["Resource Allocation"])
+        if bullet_count(architecture) < 2:
+            errors.append(f"{template_dir.name}: README.md Architecture Components should list at least two components")
+        if bullet_count(configuration) < 3:
+            errors.append(f"{template_dir.name}: README.md Configuration should list at least three settings")
+        if not RESOURCE_TABLE_EN.search(resources):
+            errors.append(f"{template_dir.name}: README.md Resource Allocation should contain a CPU and memory table")
+
+        deployment_section = section_text(english, english_headings, english_sequence[5])
         step1 = first_numbered_step(deployment_section)
         expected_url = f"https://sealos.io/products/app-store/{slug}"
         if not step1 or expected_url not in step1 or "Deploy Now" not in step1:
             errors.append(f"{template_dir.name}: README.md step 1 should open the template page and click Deploy Now")
         if not re.search(r"2\s*-\s*3\s*(?:minutes|mins?|分钟)", deployment_section, re.I):
             errors.append(f"{template_dir.name}: README.md should mention the typical 2-3 minute deployment time")
+
+        scaling_section = section_text(english, english_headings, english_sequence[6])
+        if len(scaling_section) < 200:
+            errors.append(
+                f"{template_dir.name}: README.md Scaling should explain the replica model and resource adjustment path"
+            )
+
+        troubleshooting_section = section_text(english, english_headings, english_sequence[7])
+        if subheading_count(troubleshooting_section) < 2:
+            errors.append(f"{template_dir.name}: README.md Troubleshooting should contain at least two failure modes")
 
     if "website-screenshot.webp" not in english:
         errors.append(f"{template_dir.name}: README.md should reference website-screenshot.webp")
@@ -193,21 +251,49 @@ def validate_template(template_dir: Path) -> list[str]:
         re.compile(r"托管"),
         re.compile(r"常见使用场景"),
         re.compile(r"依赖"),
+        re.compile(r"实现细节"),
         re.compile(r"为什么在 Sealos 上部署"),
         re.compile(r"部署指南"),
+        re.compile(r"扩缩容"),
+        re.compile(r"故障排查"),
         re.compile(r"许可证"),
     ]
     chinese_sequence = stepwise_match(chinese_headings, chinese_patterns)
     if chinese_sequence is None:
         errors.append(f"{template_dir.name}: README_zh.md is missing a required section or section order")
     else:
-        deployment_section = section_text(chinese, chinese_headings, chinese_sequence[4])
+        dependencies_section = section_text(chinese, chinese_headings, chinese_sequence[2])
+        if link_count(dependencies_section) < 2:
+            errors.append(f"{template_dir.name}: README_zh.md dependencies should contain at least two official links")
+
+        implementation_section = section_text(chinese, chinese_headings, chinese_sequence[3])
+        architecture = labeled_block(implementation_section, ["架构组件"])
+        configuration = labeled_block(implementation_section, ["配置"])
+        resources = labeled_block(implementation_section, ["资源分配"])
+        if bullet_count(architecture) < 2:
+            errors.append(f"{template_dir.name}: README_zh.md 架构组件 should list at least two components")
+        if bullet_count(configuration) < 3:
+            errors.append(f"{template_dir.name}: README_zh.md 配置 should list at least three settings")
+        if not RESOURCE_TABLE_ZH.search(resources):
+            errors.append(f"{template_dir.name}: README_zh.md 资源分配 should contain a CPU and memory table")
+
+        deployment_section = section_text(chinese, chinese_headings, chinese_sequence[5])
         step1 = first_numbered_step(deployment_section)
         expected_url = f"https://sealos.io/products/app-store/{slug}"
         if not step1 or expected_url not in step1 or ("Deploy Now" not in step1 and "立即部署" not in step1):
             errors.append(f"{template_dir.name}: README_zh.md step 1 should open the template page and click Deploy Now")
         if not re.search(r"2\s*-\s*3\s*(?:minutes|mins?|分钟)", deployment_section, re.I):
             errors.append(f"{template_dir.name}: README_zh.md should mention the typical 2-3 minute deployment time")
+
+        scaling_section = section_text(chinese, chinese_headings, chinese_sequence[6])
+        if len(scaling_section) < 80:
+            errors.append(
+                f"{template_dir.name}: README_zh.md 扩缩容 should explain the replica model and resource adjustment path"
+            )
+
+        troubleshooting_section = section_text(chinese, chinese_headings, chinese_sequence[7])
+        if subheading_count(troubleshooting_section) < 2:
+            errors.append(f"{template_dir.name}: README_zh.md 故障排查 should contain at least two failure modes")
 
     expected_url = f"https://sealos.io/products/app-store/{slug}"
     if "sealos.run" in chinese:
