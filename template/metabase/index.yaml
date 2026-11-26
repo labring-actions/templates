@@ -193,9 +193,31 @@ spec:
         - name: ${{ defaults.app_name }}
           image: metabase/metabase:v0.65.3
           imagePullPolicy: IfNotPresent
+          # Start the JVM directly instead of the image entrypoint (/app/run_metabase.sh).
+          # That script takes its root branch in this image, which runs
+          # `chmod o+r /app/metabase.jar`. Changing metadata of a file that lives in a
+          # lower overlayfs layer forces a copy-up of the whole jar (713 MB) into the
+          # container writable layer. Sealos limits every container to 100 MiB of
+          # ephemeral storage, so the pod is evicted mid-startup, the StatefulSet
+          # recreates it, and it loops forever while the startup probe keeps reporting
+          # `connect: connection refused` on port 3000.
+          # MB_DB_* below point Metabase at PostgreSQL, so the entrypoint's H2 file
+          # handling is not needed; running java ourselves avoids touching the jar.
+          command:
+            - /bin/sh
+            - -c
+            - >-
+              exec java $JAVA_OPTS -XX:+IgnoreUnrecognizedVMOptions
+              -Dfile.encoding=UTF-8 -Dlogfile.path=/tmp/metabase-log
+              -XX:+CrashOnOutOfMemoryError -server
+              --add-opens java.base/java.nio=ALL-UNNAMED
+              --enable-native-access=ALL-UNNAMED -jar /app/metabase.jar
           env:
             - name: MB_DB_TYPE
               value: postgres
+            # The entrypoint used to export this; without it Jetty may bind loopback only.
+            - name: MB_JETTY_HOST
+              value: 0.0.0.0
             - name: MB_DB_DBNAME
               value: metabaseappdb
             - name: MB_DB_PORT
