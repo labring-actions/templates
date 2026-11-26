@@ -1,0 +1,234 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: grist
+spec:
+  title: Grist
+  url: https://www.getgrist.com
+  gitRepo: https://github.com/gristlabs/grist-core
+  author: Sealos
+  description: Self-hosted relational spreadsheet with formulas, linked tables, charts, document history, and API access.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/grist/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/grist/logo.png
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/grist/website-screenshot.webp
+  templateType: inline
+  locale: en
+  categories:
+    - tool
+    - low-code
+  defaults:
+    app_host:
+      type: string
+      value: grist-${{ random(8) }}
+    app_name:
+      type: string
+      value: grist-${{ random(8) }}
+    session_secret:
+      type: string
+      value: ${{ random(48) }}
+  inputs:
+    boot_key:
+      description: Installation boot key used by the Grist first-run setup wizard and admin panel. Save it before deployment.
+      type: string
+      required: true
+  i18n:
+    zh:
+      description: 自托管关系型电子表格，支持公式、关联表、图表、文档历史和 API。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/grist/README_zh.md
+      inputs:
+        boot_key:
+          description: Grist 首次设置向导和管理员面板使用的安装引导密钥。请在部署前妥善保存。
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: gristlabs/grist:1.7.22
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+    docker-to-sealos.resource-override-source: 'Empirical Sealos test for Grist 1.7.22: the tested 100m/204Mi requests and 1 CPU/2048Mi limits created and reopened a document across a Pod restart with zero restarts.'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: gristlabs/grist:1.7.22
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: GRIST_HOST
+              value: 0.0.0.0
+            - name: PORT
+              value: '8484'
+            - name: GRIST_BOOT_KEY
+              value: ${{ inputs.boot_key }}
+            - name: GRIST_SESSION_SECRET
+              value: ${{ defaults.session_secret }}
+            - name: GRIST_SESSION_COOKIE
+              value: grist_core
+            - name: GRIST_SERVE_SAME_ORIGIN
+              value: 'true'
+            - name: GRIST_ORG_IN_PATH
+              value: 'true'
+            - name: GRIST_DATA_DIR
+              value: /persist/docs
+            - name: GRIST_INST_DIR
+              value: /persist
+            - name: TYPEORM_DATABASE
+              value: /persist/home.sqlite3
+            - name: GRIST_SQLITE_MODE
+              value: wal
+            - name: GRIST_SANDBOX_FLAVOR
+              value: pyodide
+            - name: GRIST_ALLOW_AUTOMATIC_VERSION_CHECKING
+              value: 'false'
+            - name: HOME
+              value: /tmp
+            - name: TZ
+              value: Asia/Shanghai
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: http
+              containerPort: 8484
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 100m
+              memory: 204Mi
+            limits:
+              cpu: 1
+              memory: 2048Mi
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: vn-persist
+              mountPath: /persist
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-persist
+        annotations:
+          path: /persist
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/grist/logo.png
+  name: Grist
+  type: link
