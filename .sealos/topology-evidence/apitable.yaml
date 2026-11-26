@@ -1,0 +1,123 @@
+apiVersion: docker-to-sealos/v1
+kind: TopologyEvidence
+metadata:
+  name: apitable-topology
+spec:
+  appName: apitable
+  source: https://github.com/apitable/apitable/blob/v1.13.0-beta.1/docker-compose.yaml
+  resources:
+    - kind: ObjectStorageBucket
+      name: ${{ defaults.app_name }}
+      when: inputs.enable_s3_storage === 'true'
+    - kind: Cluster
+      name: ${{ defaults.app_name }}-mysql
+      when: always
+      components:
+        - name: mysql
+          replicas: 1
+    - kind: Cluster
+      name: ${{ defaults.app_name }}-redis
+      when: always
+      components:
+        - name: redis
+          replicas: 1
+        - name: redis-sentinel
+          replicas: 1
+    - kind: StatefulSet
+      name: ${{ defaults.app_name }}-rabbitmq
+      when: always
+      replicas: 1
+    - kind: Deployment
+      name: ${{ defaults.app_name }}-backend-server
+      when: always
+      replicas: 1
+    - kind: Deployment
+      name: ${{ defaults.app_name }}-room-server
+      when: always
+      replicas: 1
+    - kind: Deployment
+      name: ${{ defaults.app_name }}-web-server
+      when: always
+      replicas: 1
+    - kind: Deployment
+      name: ${{ defaults.app_name }}-databus-server
+      when: always
+      replicas: 1
+    - kind: Deployment
+      name: ${{ defaults.app_name }}-imageproxy-server
+      when: always
+      replicas: 1
+    - kind: Deployment
+      name: ${{ defaults.app_name }}-gateway
+      when: always
+      replicas: 1
+---
+apiVersion: docker-to-sealos/v1
+kind: RuntimeBundleEvidence
+metadata:
+  name: apitable-runtime-bundle
+spec:
+  appName: apitable
+  source: https://github.com/apitable/apitable/releases/tag/v1.13.0-beta.1
+  images:
+    - apitable/backend-server:v1.13.0-beta.1_2016
+    - apitable/room-server:v1.13.0-beta.1_2016
+    - apitable/web-server:v1.13.0-beta.1_2016
+    - apitable/databus-server@sha256:462fa8bea11df94642b80a58d683aaf9995d79061588843a9d6b7ee66a421600
+    - apitable/imageproxy-server:v0.13.4-alpha_build13
+    - nginx:1.31.2-alpine
+    - rabbitmq:4.3.2-management
+  components:
+    - ${{ defaults.app_name }}-backend-server
+    - ${{ defaults.app_name }}-room-server
+    - ${{ defaults.app_name }}-web-server
+    - ${{ defaults.app_name }}-databus-server
+    - ${{ defaults.app_name }}-imageproxy-server
+    - ${{ defaults.app_name }}-gateway
+    - ${{ defaults.app_name }}-rabbitmq
+  routes:
+    - path: /
+      service: ${{ defaults.app_name }}-gateway
+  env:
+    - MYSQL_HOST
+    - REDIS_HOST
+    - RABBITMQ_HOST
+    - AWS_ENDPOINT
+  validation:
+    deployments:
+      - branch: managed-s3
+        resourcesCreated: 34
+        ready: true
+        restarts: 0
+      - branch: storage-disabled
+        resourcesCreated: 34
+        ready: true
+        restarts: 0
+    accountFlow:
+      - fresh registration
+      - password sign-in
+      - authenticated profile read
+      - workspace creation and list readback
+      - datasheet creation and tree readback
+    database:
+      schemaTables: 95
+      createdSpaceRows: 1
+      createdDatasheetRows: 1
+    objectStorage:
+      putStatus: 200
+      directDownloadHashMatched: true
+      presignedDownloadHashMatched: true
+      anonymousReadStatus: 403
+      testObjectDeleted: true
+    resources:
+      accepted:
+        component: room-server
+        cpu: '1'
+        memory: 1Gi
+        observedMemory: 786Mi
+      rejected:
+        component: room-server
+        cpu: 500m
+        memory: 512Mi
+        signal: OOMKilled
+        exitCode: 137

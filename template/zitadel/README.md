@@ -1,148 +1,114 @@
 # Deploy and Host ZITADEL on Sealos
 
-ZITADEL is an open-source identity and access management (IAM) platform for authentication and authorization. This template deploys ZITADEL with a managed PostgreSQL backend on Sealos Cloud.
+ZITADEL is an open-source identity and access management platform for SSO, OAuth 2.0, OpenID Connect, SAML, user management, and policy-based authorization. This template deploys ZITADEL v4.16.2 with a managed PostgreSQL database on Sealos Cloud.
 
-![ZITADEL Logo](./logo.png)
+![ZITADEL Management Console](./website-screenshot.webp)
 
 ## About Hosting ZITADEL
 
-ZITADEL provides centralized identity services including SSO, OAuth 2.0, OIDC, SAML, user and organization management, and policy-based access controls. It is commonly used as an identity layer for SaaS platforms, internal tools, and API ecosystems.
+ZITADEL provides a central identity layer for applications, APIs, employees, and customers. Its management console lets administrators organize users, projects, applications, roles, login policies, and identity providers from one place.
 
-This Sealos template deploys ZITADEL as a production-oriented stack with HTTPS ingress and persistent PostgreSQL storage (via KubeBlocks). The application is exposed through a public TLS endpoint, and database credentials are injected from managed Kubernetes secrets.
-
-For first-time bootstrapping, the template provisions the initial human user from deployment inputs. Based on ZITADEL's first-instance model in the official Kubernetes documentation, the login identifier format should be `<username>@zitadel.<domain>`.
+The template keeps a compact single-ZITADEL topology and provisions PostgreSQL 16.4 through KubeBlocks. Sealos supplies persistent database storage, a TLS-enabled public endpoint, service discovery, and an App link. A startup gate waits for PostgreSQL before ZITADEL initializes, which prevents database readiness races during a fresh deployment.
 
 ## Common Use Cases
 
-- **Workforce SSO**: Centralize login for internal dashboards, admin systems, and enterprise tools.
-- **Customer Identity (CIAM)**: Manage end-user sign-up, sign-in, and account lifecycle for SaaS applications.
-- **API and Service Authentication**: Issue and validate tokens for backend services and machine-to-machine workflows.
-- **B2B Multi-Organization Access**: Isolate users, roles, and permissions across organizations/tenants.
-- **Policy-Driven Access Control**: Enforce secure access patterns with configurable identity policies.
+- **Workforce SSO**: Centralize authentication for internal dashboards and business applications.
+- **Customer Identity (CIAM)**: Manage customer sign-in, account lifecycle, MFA, and recovery flows.
+- **Application Authentication**: Add OAuth 2.0 and OpenID Connect to web, native, and mobile applications.
+- **API Authorization**: Issue and validate tokens for APIs and machine-to-machine workloads.
+- **B2B Organizations**: Separate users, roles, and access policies across customer organizations.
 
 ## Dependencies for ZITADEL Hosting
 
-The Sealos template includes all required runtime dependencies: ZITADEL application service, managed PostgreSQL cluster, ingress, service exposure, and persistent storage.
+The template includes the ZITADEL service, a managed PostgreSQL cluster, persistent database storage, an HTTPS ingress, and the Sealos App resource.
 
 ### Deployment Dependencies
 
-- [ZITADEL Kubernetes Installation](https://zitadel.com/docs/self-hosting/deploy/kubernetes/installation) - Official installation flow and prerequisites
-- [ZITADEL Kubernetes Configuration](https://zitadel.com/docs/self-hosting/deploy/kubernetes/configuration) - First-instance and runtime configuration reference
-- [ZITADEL Helm Values](https://github.com/zitadel/zitadel-charts/blob/main/charts/zitadel/values.yaml) - Upstream chart values reference
-- [ZITADEL GitHub Repository](https://github.com/zitadel/zitadel) - Source code, releases, and issue tracking
-- [Sealos Platform](https://sealos.io) - Deployment and operations environment
+- [ZITADEL Kubernetes Guide](https://zitadel.com/docs/self-hosting/deploy/kubernetes) - Official Kubernetes deployment guidance
+- [ZITADEL Configuration Reference](https://zitadel.com/docs/self-hosting/manage/configure/configure) - Runtime and first-instance settings
+- [ZITADEL GitHub Repository](https://github.com/zitadel/zitadel) - Source code and releases
 
 ## Implementation Details
 
 ### Architecture Components
 
-This template deploys the following resources:
+- **ZITADEL StatefulSet**: Runs `ghcr.io/zitadel/zitadel:v4.16.2` with the official `start-from-init` command.
+- **PostgreSQL Readiness Gate**: Uses `postgres:16.4-alpine` and `pg_isready` before starting ZITADEL.
+- **PostgreSQL Cluster**: Runs PostgreSQL 16.4 through KubeBlocks with a 1 GiB persistent volume.
+- **Service and Ingress**: Expose port 8080 through a public HTTPS endpoint.
+- **App Resource**: Adds the ZITADEL entry URL to the Sealos deployment Canvas.
 
-- **ZITADEL (StatefulSet)**: Runs `ghcr.io/zitadel/zitadel:v4.10.1` and starts with `start-from-init`.
-- **PostgreSQL Cluster (KubeBlocks)**: Provisions PostgreSQL `16.4.0` with persistent storage and managed credentials.
-- **Service + Ingress**: Exposes ZITADEL over HTTPS with NGINX ingress annotations and TLS integration.
-- **App Resource**: Publishes the external access URL to Sealos app cards.
+Database host, port, username, and password values come from the KubeBlocks connection Secret. The first organization and its IAM owner are created from the required deployment inputs.
 
-### Runtime Configuration
+### Verified Minimum Resources
 
-Primary deployment parameters:
-
-- `admin_username`: Initial first-instance human username.
-- `admin_password`: Initial first-instance human password.
-
-Database connection fields (`host`, `port`, `username`, `password`) are injected from the KubeBlocks-generated secret `${{ defaults.app_name }}-pg-conn-credential`.
-
-### Default Resources and Storage
+These values passed a fresh database initialization, administrator login, Organization and Users console actions, and a 222-second stability window with zero restarts:
 
 | Component | CPU Request | CPU Limit | Memory Request | Memory Limit | Storage |
-|---|---:|---:|---:|---:|---|
-| ZITADEL | 20m | 200m | 25Mi | 256Mi | Managed by runtime + DB persistence |
-| PostgreSQL | 50m | 500m | 51Mi | 512Mi | `data` 1Gi |
+|---|---:|---:|---:|---:|---:|
+| ZITADEL | 10m | 100m | 25Mi | 256Mi | - |
+| PostgreSQL readiness gate | 10m | 100m | 12Mi | 128Mi | - |
+| PostgreSQL | 50m | 500m | 51Mi | 512Mi | 1Gi |
 
-### License Information
-
-ZITADEL is licensed under [GNU AGPL v3](https://github.com/zitadel/zitadel/blob/main/LICENSE).
+The 128 MiB ZITADEL memory tier reached `OOMKilled` during first initialization. Keep the application memory limit at 256 MiB or higher.
 
 ## Why Deploy ZITADEL on Sealos?
 
-Sealos is an AI-assisted Cloud Operating System built on Kubernetes that simplifies deployment and operations. By deploying ZITADEL on Sealos, you get:
+Sealos is an AI-assisted cloud operating system built on Kubernetes. This template provides:
 
-- **One-Click Deployment**: Launch IAM infrastructure without manual Kubernetes YAML management.
-- **Managed Database Provisioning**: PostgreSQL is provisioned and wired automatically.
-- **Easy Customization**: Tune environment variables and compute/storage resources from Canvas.
-- **Secure Public Access**: HTTPS ingress with TLS support out of the box.
-- **Persistent Storage Included**: Durable storage for database state.
-- **AI-Assisted Operations**: Update configuration using AI dialog or resource cards.
-- **Pay-as-You-Go Efficiency**: Scale resources based on actual workload demand.
-
-Deploy ZITADEL on Sealos and focus on identity design instead of infrastructure plumbing.
+- **One-Click Deployment**: Provision the application, database, networking, and storage together.
+- **Managed PostgreSQL**: Create and connect a persistent KubeBlocks database automatically.
+- **Secure Public Access**: Receive an HTTPS URL with TLS termination at the ingress.
+- **Resource Efficiency**: Start with verified low-load limits and pay for the resources you use.
+- **AI-Assisted Operations**: Update resources through the Canvas AI dialog or resource cards.
 
 ## Deployment Guide
 
-1. Open the [ZITADEL template](https://sealos.io/appstore/zitadel) and click **Deploy Now**.
-2. Configure deployment parameters:
-   - **App Host** and **App Name**
-   - **Admin Username** and **Admin Password**
-   - Keep **Master Key** as generated unless you need a custom value
-3. Wait for deployment to complete (typically 2-3 minutes). After deployment, you will be redirected to Canvas. For later changes, describe your requirements in the dialog to let AI apply updates, or click relevant resource cards to modify settings.
-4. Access ZITADEL console and sign in:
-   - **Console URL**: `https://<domain>/ui/console`
-   - **Login Name**: `<username>@zitadel.<domain>`
-   - **Password**: your configured `admin_password`
+1. Open the [ZITADEL template](https://sealos.io/products/app-store/zitadel) and click **Deploy Now**.
+2. Enter the required first administrator values:
+   - `admin_username`: The username portion of the initial IAM owner account.
+   - `admin_password`: A password with at least 8 characters containing uppercase and lowercase letters, a number, and a special character.
+3. Start the deployment and wait for PostgreSQL and ZITADEL to become ready. A fresh deployment typically takes 2-3 minutes, then Sealos opens the Canvas.
+4. Open the ZITADEL App URL. The root URL redirects to the login flow; the management console is available at `/ui/console/`.
+5. Sign in with the generated login name and your configured password:
+   - **Login name**: `<admin_username>@zitadel.<deployed-domain>`
+   - **Password**: The value entered for `admin_password`
+6. On the first sign-in, configure two-factor authentication or select **Skip** to continue to the management console.
 
-Where `<domain>` is your deployed public domain (normally `${app_host}.${SEALOS_CLOUD_DOMAIN}`).
+For example, an `admin_username` of `admin` on `zitadel-ab12cd34.usw-1.sealos.app` produces this login name:
 
-Example:
+```text
+admin@zitadel.zitadel-ab12cd34.usw-1.sealos.app
+```
 
-- Domain: `zitadel-ab12cd34.usw-1.sealos.app`
-- Username: `zitadel-admin`
-- Login Name: `zitadel-admin@zitadel.zitadel-ab12cd34.usw-1.sealos.app`
+Use the complete login name shown above. ZITADEL uses the organization suffix to identify the account.
 
 ## Configuration
 
-After deployment, you can configure ZITADEL through:
+After signing in, use the ZITADEL console to create projects and applications, add users, configure identity providers, and manage policies. Complete these security tasks before connecting production applications:
 
-- **AI Dialog**: Describe desired changes and let AI apply updates.
-- **Resource Cards**: Adjust StatefulSet resources, environment variables, and ingress settings.
-- **ZITADEL Console**: Manage organizations, users, applications, and identity flows.
+1. Configure MFA for the administrator account.
+2. Review organization and instance login policies.
+3. Create a dedicated project and application for each relying service.
+4. Record client credentials and redirect URIs in a secure system.
 
-Recommended post-deployment actions:
+The generated 32-character master key protects encrypted ZITADEL data. Keep the deployed master key unchanged for the lifetime of the database.
 
-1. Verify the first admin can sign in.
-2. Rotate/bootstrap credentials according to your security policy.
-3. Configure OIDC/SAML applications and token settings.
-4. Enable MFA and additional security policies.
-
-## Scaling
-
-To scale your deployment:
-
-1. Open your deployment Canvas.
-2. Select the ZITADEL StatefulSet resource card.
-3. Increase CPU/Memory based on workload.
-4. Apply changes and verify readiness/liveness probes stay healthy.
-
-For higher availability and performance, also plan PostgreSQL sizing and backup strategy according to traffic and retention requirements.
+Use the Sealos Canvas AI dialog or resource cards for later resource changes. Keep the StatefulSet at one replica for this template topology; a highly available architecture requires coordinated ZITADEL and PostgreSQL planning from the official production guide.
 
 ## Troubleshooting
 
-### Common Issues
+### The login page says the user cannot be found
 
-**Issue: Pod enters CrashLoopBackOff during initialization**
-- Cause: Initial admin password does not satisfy password policy requirements.
-- Solution: Use a strong password containing uppercase, lowercase, number, and special character.
+Use `<admin_username>@zitadel.<deployed-domain>`. The organization domain adds the `zitadel.` prefix before the public deployment domain.
 
-**Issue: Login fails even with correct password**
-- Cause: Login identifier format is incorrect.
-- Solution: Use `Login Name = <username>@zitadel.<domain>`.
+### The application is still starting
 
-**Issue: Cannot access `/ui/console`**
-- Cause: Ingress/TLS provisioning is still in progress.
-- Solution: Wait for ingress and certificate readiness, then retry.
+The readiness gate waits for the managed PostgreSQL endpoint before ZITADEL runs its first-instance migrations. Allow 2-3 minutes for a fresh deployment and inspect the PostgreSQL and StatefulSet resource cards in Canvas.
 
-**Issue: Database connection errors on startup**
-- Cause: PostgreSQL not yet ready or temporary startup race.
-- Solution: Verify PostgreSQL cluster health and retry once dependencies are ready.
+### ZITADEL restarts with `OOMKilled`
+
+Set the ZITADEL memory limit to at least 256 MiB. The 128 MiB tier failed during verified first initialization.
 
 ### Getting Help
 
@@ -150,12 +116,6 @@ For higher availability and performance, also plan PostgreSQL sizing and backup 
 - [ZITADEL GitHub Issues](https://github.com/zitadel/zitadel/issues)
 - [Sealos Discord](https://discord.gg/wdUn538zVP)
 
-## Additional Resources
-
-- [ZITADEL Self-Hosting Overview](https://zitadel.com/docs/self-hosting/deploy/overview)
-- [ZITADEL Kubernetes Deployment Docs](https://zitadel.com/docs/self-hosting/deploy/kubernetes)
-- [Sealos Documentation](https://sealos.io/docs)
-
 ## License
 
-This Sealos template follows repository licensing terms. ZITADEL itself is licensed under [GNU AGPL v3](https://github.com/zitadel/zitadel/blob/main/LICENSE).
+This Sealos template follows the repository license. ZITADEL is licensed under the [GNU Affero General Public License v3.0](https://github.com/zitadel/zitadel/blob/main/LICENSE).

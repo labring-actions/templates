@@ -1,0 +1,60 @@
+apiVersion: docker-to-sealos/v1
+kind: TopologyEvidence
+metadata:
+  name: emqx-topology
+spec:
+  appName: emqx
+  source: https://github.com/emqx/emqx/blob/v5.8.9/deploy/charts/emqx/values.yaml
+  resources:
+    - kind: StatefulSet
+      name: ${{ defaults.app_name }}
+      when: always
+      replicas: 3
+---
+apiVersion: docker-to-sealos/v1
+kind: RuntimeBundleEvidence
+metadata:
+  name: emqx-runtime-bundle
+spec:
+  appName: emqx
+  source: https://github.com/emqx/emqx/releases/tag/v5.8.9
+  images:
+    - emqx/emqx:5.8.9
+  components:
+    - ${{ defaults.app_name }}
+  routes:
+    - path: /
+      service: ${{ defaults.app_name }}
+    - path: /mqtt
+      service: ${{ defaults.app_name }}
+      when: inputs.WS_ENABLE === 'true'
+  env:
+    - EMQX_NODE__COOKIE
+    - EMQX_CLUSTER__DISCOVERY_STRATEGY
+    - EMQX_CLUSTER__DNS__NAME
+    - EMQX_DASHBOARD__DEFAULT_PASSWORD
+  validation:
+    cluster:
+      runningNodes: 3
+      stoppedNodes: 0
+      edition: ce
+      version: 5.8.9
+    dashboard:
+      authenticated: true
+      apiNodeCount: 3
+      negativePathStatus: 404
+    mqttWebSocket:
+      tls: true
+      qos: 1
+      publishSubscribeMatched: true
+      payloadHashMatched: true
+    resources:
+      accepted:
+        cpu: 500m
+        memory: 512Mi
+        observedMemoryRange: 233Mi-245Mi
+      rejected:
+        cpu: 200m
+        memory: 256Mi
+        signal: OOMKilled
+        exitCode: 137

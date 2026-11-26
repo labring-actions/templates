@@ -1,8 +1,8 @@
 # 在 Sealos 上部署和托管 Nakama Server
 
-Nakama 是一个开源游戏服务器，面向实时多人游戏、玩家账号、社交系统和在线运营场景。此模板会在 Sealos Cloud 上部署 Nakama v3.39.0，并自动配置托管 PostgreSQL 数据库。
+Nakama 是一个开源游戏服务器，面向实时多人游戏、玩家账号、社交系统和在线运营场景。此模板会在 Sealos Cloud 上部署 Nakama v3.40.0，并自动配置托管 PostgreSQL 数据库。
 
-![Nakama 控制台截图](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/nakama/website-screenshot.webp)
+![Nakama 控制台 Dashboard](website-screenshot.webp)
 
 ## 关于托管 Nakama
 
@@ -37,7 +37,7 @@ Nakama Console 是主要的 Web 入口。HTTP API 会通过独立 URL 暴露给 
 
 此模板会部署以下服务：
 
-- **Nakama Server**：运行 `heroiclabs/nakama:3.39.0` 的 StatefulSet，并为 `/data` 提供持久存储，用于运行时模块。
+- **Nakama Server**：运行 `heroiclabs/nakama:3.40.0` 的 StatefulSet，并为 `/data` 提供持久存储，用于运行时模块。
 - **PostgreSQL 数据库**：KubeBlocks PostgreSQL 16.4.0 集群，用于持久化 Nakama 数据。
 - **PostgreSQL 初始化 Job**：以幂等方式创建 `nakama` 数据库。
 - **Nakama Console Ingress**：主 Web 入口，路由到 Nakama Console 的 `7351` 端口。
@@ -46,15 +46,24 @@ Nakama Console 是主要的 Web 入口。HTTP API 会通过独立 URL 暴露给 
 
 **配置：**
 
-Nakama 只有在 PostgreSQL 可访问且目标数据库存在后才会启动。迁移 init container 会先执行 `nakama migrate up`，主容器启动后使用 `nakama healthcheck` 作为启动、就绪和存活探针。
+Nakama 会在 PostgreSQL 可访问且目标数据库存在后启动。迁移 init container 会先执行 `nakama migrate up`，主容器启动后使用 `nakama healthcheck` 作为启动、就绪和存活探针。初始化任务和 Nakama 工作负载统一使用 UID/GID 1000、RuntimeDefault seccomp、空 Linux capabilities，并关闭权限提升。
 
-主服务资源已调试到此模板通过验证的最小 Sealos 档位：Nakama 容器使用 `100m` CPU 和 `128Mi` 内存。PostgreSQL 使用标准数据库档位：`500m` CPU 和 `512Mi` 内存。
+**已验证的最小资源：**
+
+| 组件 | CPU | 内存 | 存储 |
+| --- | ---: | ---: | ---: |
+| Nakama | 100m | 128Mi | 运行时模块 100Mi |
+| 目录和 PostgreSQL 就绪初始化器 | 100m | 128Mi | - |
+| Nakama 数据库迁移 | 200m | 256Mi | - |
+| PostgreSQL | 500m | 512Mi | 1Gi |
+
+在 Console、玩家认证、WebSocket 和 gRPC 实测期间，Nakama 容器使用约 6–9m CPU 和 11–17Mi 内存。模板为长期运行的服务采用 Sealos 支持的最小工作负载档位。
 
 **登录和访问：**
 
 Nakama Console 需要使用部署时配置的控制台凭据：
 
-- **用户名**：`console_username` 的值，默认是 `admin`
+- **用户名**：必填 `console_username` 的值
 - **密码**：`console_password` 的值
 
 玩家账号不是从控制台登录页注册的。游戏客户端需要通过 Nakama API 创建或认证玩家账号，例如使用 `/v2/account/authenticate/device?create=true` 设备认证接口，并将配置的 socket/server key 作为 Basic Auth 用户名。
@@ -78,7 +87,7 @@ Sealos 是基于 Kubernetes 的 AI 云操作系统，统一应用从部署到运
 
 1. 打开 [Nakama Server 模板](https://sealos.io/products/app-store/nakama)，点击 **Deploy Now**。
 2. 在弹窗中配置参数：
-   - **Console Username**：Nakama Console 管理员用户名，默认是 `admin`。
+   - **Console Username**：Nakama Console 的必填管理员用户名，请选择唯一值。
    - **Console Password**：控制台用户密码。请设置强密码并妥善保存。
    - **Enable gRPC**：可选。仅当客户端需要公开 gRPC 端点时开启。
 3. 等待部署完成。由于 PostgreSQL 需要先初始化，通常需要 2-3 分钟。
@@ -100,7 +109,7 @@ Sealos 是基于 Kubernetes 的 AI 云操作系统，统一应用从部署到运
 
 ### 控制台登录
 
-控制台不提供公开自助注册。请使用部署时配置的控制台凭据登录。如果忘记密码，可以更新 Nakama StatefulSet 参数中的 `console_password`，或使用新密码重新部署。
+部署表单会根据必填用户名和密码创建 Console 管理员。请将两项凭据保存到密码管理器。轮换凭据时，可以更新 Nakama StatefulSet 的对应参数，或使用新值重新部署。
 
 ### 客户端认证
 
@@ -133,7 +142,7 @@ curl -X POST "https://<api-url>/v2/account/authenticate/device?create=true" \
 
 **Nakama Console 登录失败**
 - 原因：控制台用户名或密码不正确。
-- 解决：使用部署时配置的凭据。默认用户名是 `admin`，密码是你在部署表单中填写的值。
+- 解决：使用部署表单中配置的用户名和密码，两项 Console 凭据均为必填输入。
 
 **API 返回 `Server key invalid`**
 - 原因：客户端使用了错误的 Basic Auth 用户名。
@@ -152,7 +161,7 @@ curl -X POST "https://<api-url>/v2/account/authenticate/device?create=true" \
 - [Nakama 文档](https://heroiclabs.com/docs/nakama/)
 - [Nakama GitHub Issues](https://github.com/heroiclabs/nakama/issues)
 - [Heroic Labs 论坛](https://forum.heroiclabs.com/)
-- [Sealos 文档](https://sealos.run/docs/)
+- [Sealos 文档](https://sealos.io/docs/)
 - [Sealos Discord](https://discord.gg/wdUn538zVP)
 
 ## 更多资源

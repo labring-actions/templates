@@ -45,7 +45,7 @@ kind: StatefulSet
 metadata:
     name: ${{ defaults.app_name }}
     annotations:
-        originImageName: itzg/minecraft-server:2026.5.3-java25
+        originImageName: itzg/minecraft-server:2026.8.0-java25
         deploy.cloud.sealos.io/minReplicas: "1"
         deploy.cloud.sealos.io/maxReplicas: "1"
     labels:
@@ -84,11 +84,11 @@ spec:
                           "chown -R 1000:1000 /data; chmod -R 770 /data",
                       ]
                   volumeMounts:
-                      - name: vn-minecraft
+                      - name: vn-data
                         mountPath: /data
             containers:
                 - name: ${{ defaults.app_name }}
-                  image: itzg/minecraft-server:2026.5.3-java25
+                  image: itzg/minecraft-server:2026.8.0-java25
                   imagePullPolicy: IfNotPresent
                   env:
                       - name: EULA
@@ -111,30 +111,44 @@ spec:
                         value: ""
                   volumeMounts:
                       - mountPath: /data
-                        name: vn-minecraft
+                        name: vn-data
                   ports:
                       - containerPort: 25565
                         name: game
+                  startupProbe:
+                      exec:
+                          command:
+                              - mc-health
+                      initialDelaySeconds: 30
+                      periodSeconds: 5
+                      timeoutSeconds: 5
+                      failureThreshold: 60
+                  livenessProbe:
+                      exec:
+                          command:
+                              - mc-health
+                      periodSeconds: 30
+                      timeoutSeconds: 5
+                      failureThreshold: 3
                   readinessProbe:
                       exec:
                           command:
-                              - mc-monitor
-                              - status
-                      initialDelaySeconds: 30
+                              - mc-health
                       periodSeconds: 5
-                      failureThreshold: 20
+                      timeoutSeconds: 5
+                      failureThreshold: 3
                   resources:
                       requests:
-                          cpu: 100m
-                          memory: 200Mi
+                          cpu: 20m
+                          memory: 204Mi
                           ephemeral-storage: 400Mi
                       limits:
-                          cpu: "1"
-                          memory: 2G
+                          cpu: 200m
+                          memory: 2048Mi
                           ephemeral-storage: 400Mi
     volumeClaimTemplates:
         - metadata:
-              name: vn-minecraft
+              name: vn-data
               annotations:
                   path: /data
                   value: "1"

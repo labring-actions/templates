@@ -1,131 +1,99 @@
 # Deploy and Host EMQX on Sealos
 
-EMQX is an open-source MQTT broker for IoT, industrial IoT, and connected vehicle messaging. This template deploys EMQX as a clustered StatefulSet on Sealos Cloud with persistent data and log storage.
+EMQX is an open-source MQTT broker for IoT, industrial telemetry, and connected-device messaging. This template deploys EMQX Community Edition `5.8.9` as a three-node StatefulSet with DNS cluster discovery and per-node persistent data and log volumes.
 
 ![EMQX Screenshot](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/emqx/website-screenshot.webp)
 
 ## About Hosting EMQX
 
-EMQX provides MQTT, MQTT over TLS, WebSocket, and dashboard access for device messaging workloads. The Sealos template runs EMQX with DNS-based cluster discovery so multiple replicas can form a broker cluster automatically.
+EMQX provides MQTT, MQTT over TLS, MQTT over WebSocket, a management REST API, and a browser Dashboard. The template uses the official open-source `emqx/emqx:5.8.9` image and keeps three replicas because an odd member count provides a practical clustered baseline.
 
-The deployment persists `/opt/emqx/data` and `/opt/emqx/log` for each pod, exposes the Dashboard through HTTPS, and can optionally expose MQTT TCP and TLS listeners through a NodePort service.
+The Dashboard receives a generated HTTPS address. Public MQTT WebSocket and NodePort listeners are explicit deployment choices.
 
-## Common Use Cases
+## What Gets Deployed
 
-- **IoT Device Messaging**: Connect sensors, gateways, and applications with MQTT topics.
-- **Industrial IoT Telemetry**: Ingest machine and equipment telemetry from factories or edge sites.
-- **Connected Vehicle Messaging**: Route vehicle status, command, and telemetry messages.
-- **MQTT WebSocket Access**: Let browser clients connect through the `/mqtt` WebSocket path.
-- **Broker Evaluation**: Quickly test EMQX clustering and dashboard features on Kubernetes.
+| Component | Purpose | Default profile |
+| --- | --- | --- |
+| EMQX StatefulSet | Three clustered broker nodes | 500m CPU / 512 MiB per node |
+| Headless Service | Stable DNS SRV discovery for Erlang distribution | Internal |
+| ClusterIP Service | Dashboard and MQTT WebSocket backends | Internal |
+| Dashboard Ingress | Public HTTPS Dashboard | Enabled |
+| MQTT WebSocket Ingress | Public `wss://.../mqtt` endpoint | Controlled by `WS_ENABLE` |
+| MQTT NodePort Service | MQTT, TLS, WS, and WSS ports | Controlled by `TCP_ENABLE` |
+| Persistent volumes | `/opt/emqx/data` and `/opt/emqx/log` | Two 1 GiB volumes per node |
 
-## Dependencies for EMQX Hosting
+Resource requests are 50m CPU and 51 MiB memory per broker node.
 
-The Sealos template includes the EMQX broker container, Kubernetes StatefulSet orchestration, persistent volumes, internal services, public HTTPS ingress, and a Sealos App dashboard entry.
+## Deployment Inputs
 
-### Deployment Dependencies
+| Input | Default | Purpose |
+| --- | --- | --- |
+| `ADMIN_PASSWORD` | Required | Initial password for the Dashboard `admin` account; use 8-64 characters. |
+| `WS_ENABLE` | `false` | Publishes MQTT over WebSocket at `wss://<app-host>/mqtt`. |
+| `TCP_ENABLE` | `false` | Creates a NodePort service for ports 1883, 8883, 8083, and 8084. |
 
-- [EMQX Documentation](https://docs.emqx.com/en/emqx/latest/) - Official EMQX documentation
-- [EMQX GitHub Repository](https://github.com/emqx/emqx) - Source code and releases
-- [EMQX Docker Image](https://hub.docker.com/r/emqx/emqx) - Container image used by this template
+## Account and Security
 
-### Implementation Details
+The Dashboard username is `admin`, and its initial password comes from the required `ADMIN_PASSWORD` input. Change this password after the first login.
 
-**Architecture Components:**
-
-This template deploys the following resources:
-
-- **EMQX StatefulSet**: Runs one, three, or five EMQX broker replicas.
-- **Headless Service**: Provides DNS records for EMQX cluster discovery.
-- **ClusterIP Service**: Exposes the Dashboard and MQTT WebSocket listener inside the cluster.
-- **Ingress**: Publishes the Dashboard and `/mqtt` WebSocket endpoint with HTTPS.
-- **Optional NodePort Service**: Exposes MQTT TCP (`1883`) and MQTT TLS (`8883`) when enabled.
-- **Persistent Volumes**: Stores EMQX data and logs for each broker pod.
-
-**Configuration:**
-
-- Dashboard username is `admin`.
-- `ADMIN_PASSWORD` sets the initial Dashboard admin password and should be changed after first login.
-- `REPLICA_COUNT` controls the number of broker replicas.
-- `TCP_ENABLE` controls whether external MQTT TCP and TLS ports are exposed.
-- EMQX clustering uses DNS discovery through the template-managed headless service.
-
-**License Information:**
-
-EMQX is licensed under Apache License 2.0. This Sealos template is provided as part of the Sealos template repository.
-
-## Why Deploy EMQX on Sealos?
-
-Sealos is an AI-assisted Cloud Operating System built on Kubernetes that unifies application deployment, operations, and scaling. By deploying EMQX on Sealos, you get:
-
-- **One-Click Deployment**: Deploy EMQX without manually writing Kubernetes manifests.
-- **Built-in Persistent Storage**: Keep broker data and logs across pod restarts.
-- **Automatic HTTPS Access**: Use a generated public URL with TLS for the Dashboard and WebSocket endpoint.
-- **Cluster-Ready Defaults**: Start with DNS-based EMQX cluster discovery and configurable replica count.
-- **Canvas Operations**: Adjust resources and settings later through the Sealos Canvas, AI dialog, or resource cards.
-
-Deploy EMQX on Sealos when you want an MQTT broker that can be launched quickly while still using Kubernetes-native primitives.
+A fresh EMQX CE installation accepts unauthenticated MQTT clients under its default listener policy. Configure MQTT authentication and authorization in the Dashboard before enabling `WS_ENABLE` or `TCP_ENABLE` for production traffic.
 
 ## Deployment Guide
 
-1. Open the [EMQX template](https://sealos.io/products/app-store/emqx) and click **Deploy Now**.
-2. Configure the deployment parameters:
-   - `REPLICA_COUNT`: Choose `1`, `3`, or `5` broker replicas.
-   - `ADMIN_PASSWORD`: Set the initial Dashboard admin password.
-   - `TCP_ENABLE`: Enable only if you need external MQTT TCP/TLS access.
-3. Wait for deployment to complete, typically 2-3 minutes. After deployment, you will be redirected to the Canvas. For later changes, describe your requirements in the dialog to let AI apply updates, or click the relevant resource cards to modify settings.
-4. Access EMQX through the generated URLs:
-   - **Dashboard**: Open the application URL and log in with username `admin` and your configured password.
-   - **MQTT WebSocket**: Use `wss://[your-app-url]/mqtt` for browser MQTT clients.
-   - **MQTT TCP/TLS**: If `TCP_ENABLE` is enabled, use the NodePort service information shown in Sealos.
+1. Open the [EMQX template](https://sealos.io/products/app-store/emqx) and select **Deploy Now**.
+2. Set a strong `ADMIN_PASSWORD`.
+3. Keep `WS_ENABLE=false` and `TCP_ENABLE=false` while configuring broker authentication.
+4. Wait for all three StatefulSet pods to become ready and form one cluster.
+5. Open the generated HTTPS URL and sign in as `admin`.
+6. Configure MQTT authentication and authorization, then enable the required public listener during a controlled redeployment.
+
+## Client Endpoints
+
+- **Dashboard**: `https://<app-host>.<region-domain>/`
+- **MQTT WebSocket**: `wss://<app-host>.<region-domain>/mqtt` when `WS_ENABLE=true`
+- **MQTT TCP/TLS**: Use the NodePort mappings shown by Sealos when `TCP_ENABLE=true`
 
 ## Configuration
 
-After deployment, you can configure EMQX through:
-
-- **EMQX Dashboard**: Manage listeners, authentication, authorization, clients, rules, and cluster settings.
-- **Sealos AI Dialog**: Describe resource or template changes and let AI apply them.
-- **Resource Cards**: Click the StatefulSet, Service, or Ingress cards in Canvas to adjust resources and networking.
+- **EMQX Dashboard**: Manage listeners, authentication, authorization, clients, rules, connectors, and cluster settings.
+- **REST API**: Use `/api/v5` on the Dashboard hostname with a Dashboard access token.
+- **Sealos Canvas**: Inspect logs, cluster pods, services, ingress routes, metrics, and persistent volumes.
+- **Cluster discovery**: DNS SRV records from the headless Service connect the three stable pod hostnames.
 
 ## Scaling
 
-To scale EMQX after deployment:
+The template fixes the initial topology at three replicas. Plan any later topology change together with MQTT session behavior, persistent-volume ownership, rolling-update order, and client reconnection tests.
 
-1. Open the Canvas for your deployment.
-2. Click the EMQX StatefulSet resource card.
-3. Adjust the replica count and resource limits.
-4. Apply the changes and wait for the EMQX cluster to rebalance.
+The validated memory floor is 512 MiB per node. A 256 MiB cold-start candidate repeatedly reached OOMKilled with exit code 137; the 512 MiB profile formed a three-node cluster with zero restarts.
 
-For production workloads, use an odd replica count such as `3` or `5` and validate client reconnect behavior during rolling updates.
+## Validated Runtime
+
+All three nodes joined the same cluster and appeared as running through both `emqx ctl cluster status` and the authenticated `/api/v5/nodes` endpoint. Dashboard authentication reported EMQX `5.8.9` Community Edition.
+
+With `WS_ENABLE=true`, two external TLS WebSocket clients completed MQTT v5 subscribe and publish operations at QoS 1. The received topic and payload hash matched the published values. An authenticated unknown REST path returned HTTP 404.
 
 ## Troubleshooting
 
+### A broker pod stays unready
+
+Check `emqx ctl status`, pod restart reasons, and memory metrics. Confirm that all pods resolve the headless Service and share the same node cookie.
+
 ### Dashboard login fails
 
-- Cause: The initial password may have already been changed after first startup.
-- Solution: Use the current Dashboard password. If you need to reset it, follow the EMQX documentation for changing Dashboard users from the CLI or Dashboard.
+Use username `admin` and the password supplied through `ADMIN_PASSWORD`. An administrator can reset Dashboard users with the EMQX CLI when required.
 
-### MQTT TCP clients cannot connect
+### MQTT clients cannot connect
 
-- Cause: `TCP_ENABLE` may be disabled, or the client is using the wrong NodePort endpoint.
-- Solution: Enable `TCP_ENABLE` during deployment or expose the listener later through Sealos networking settings.
+Confirm the selected public listener input, endpoint type, port mapping, TLS mode, WebSocket path, and configured MQTT authentication policy.
 
-### Cluster replicas do not become ready
-
-- Cause: EMQX needs stable DNS names and enough resources to finish cluster startup.
-- Solution: Check pod logs in Canvas, confirm all replicas can resolve the headless service, and increase CPU or memory if startup probes keep failing.
-
-### Getting Help
+## Resources
 
 - [EMQX Documentation](https://docs.emqx.com/en/emqx/latest/)
-- [EMQX GitHub Issues](https://github.com/emqx/emqx/issues)
-- [Sealos Discord](https://discord.gg/wdUn538zVP)
-
-## Additional Resources
-
+- [EMQX 5.8.9 Release](https://github.com/emqx/emqx/releases/tag/v5.8.9)
+- [Official Helm Values](https://github.com/emqx/emqx/blob/v5.8.9/deploy/charts/emqx/values.yaml)
 - [EMQX Dashboard Guide](https://docs.emqx.com/en/emqx/latest/dashboard/introduction.html)
-- [MQTT Listener Configuration](https://docs.emqx.com/en/emqx/latest/configuration/listener.html)
-- [EMQX Clustering](https://docs.emqx.com/en/emqx/latest/deploy/cluster/create-cluster.html)
+- [Sealos Documentation](https://sealos.io/docs)
 
 ## License
 
-This Sealos template is provided under the repository license. EMQX itself is licensed under Apache License 2.0.
+EMQX `5.8.9` Community Edition is distributed under Apache License 2.0. This template follows the Sealos templates repository license.
