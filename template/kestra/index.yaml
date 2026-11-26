@@ -1,0 +1,349 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: kestra
+spec:
+  title: Kestra
+  url: https://kestra.io
+  gitRepo: https://github.com/kestra-io/kestra
+  author: Sealos
+  description: Event-driven orchestration platform for data, AI, and infrastructure workflows.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/kestra/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/kestra/logo.png
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/kestra/website-screenshot.webp
+  templateType: inline
+  locale: en
+  categories:
+    - tool
+  defaults:
+    app_host:
+      type: string
+      value: kestra-${{ random(8) }}
+    app_name:
+      type: string
+      value: kestra-${{ random(8) }}
+  i18n:
+    zh:
+      description: 事件驱动的数据、AI 与基础设施工作流编排平台。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/kestra/README_zh.md
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  finalizers:
+    - cluster.kubeblocks.io/finalizer
+  name: ${{ defaults.app_name }}-pg
+  labels:
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  componentSpecs:
+    - componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
+      name: postgresql
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+  tolerations: []
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: kestra/kestra:v2.0.11
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 60
+      initContainers:
+        - name: wait-for-postgres
+          image: busybox:1.36.1
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z "$DB_HOST" "$DB_PORT"; do echo waiting for postgres; sleep 2; done
+          env:
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 10m
+              memory: 12Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+        - name: init-encryption-key
+          image: kestra/kestra:v2.0.11
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              if [ ! -s /app/storage/.kestra-encryption-key ]; then
+                head -c 32 /dev/urandom | base64 | tr -d '\n' > /app/storage/.kestra-encryption-key
+              fi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 10m
+              memory: 12Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: vn-appvn-storage
+              mountPath: /app/storage
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: kestra/kestra:v2.0.11
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - export KESTRA_ENCRYPTION_SECRET_KEY="$(cat /app/storage/.kestra-encryption-key)"; exec /app/kestra server standalone
+          env:
+            - name: KESTRA_CONFIGURATION
+              value: |
+                kestra:
+                  repository:
+                    type: postgres
+                  queue:
+                    type: postgres
+                  storage:
+                    type: local
+                    local:
+                      base-path: /app/storage
+                  tasks:
+                    tmp-dir:
+                      path: /tmp/kestra-wd/tmp
+                  url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/
+                  server:
+                    terminationGracePeriod: 50s
+            - name: DATASOURCES_POSTGRES_DRIVERCLASSNAME
+              value: org.postgresql.Driver
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: DATASOURCES_POSTGRES_URL
+              value: jdbc:postgresql://$(DB_HOST):$(DB_PORT)/postgres
+            - name: DATASOURCES_POSTGRES_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: DATASOURCES_POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: JAVA_OPTS
+              value: -XX:InitialRAMPercentage=25 -XX:MaxRAMPercentage=60 -XX:+ExitOnOutOfMemoryError
+            - name: TZ
+              value: Asia/Shanghai
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: management
+              containerPort: 8081
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 100m
+              memory: 204Mi
+            limits:
+              cpu: '1'
+              memory: 2048Mi
+          startupProbe:
+            httpGet:
+              path: /health
+              port: management
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: management
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: management
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: vn-appvn-storage
+              mountPath: /app/storage
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-appvn-storage
+        annotations:
+          path: /app/storage
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/kestra/logo.png
+  name: Kestra
+  type: link
