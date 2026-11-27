@@ -194,21 +194,28 @@ data:
         </macros>
         <user_defined_executable_functions_config>/etc/clickhouse-server/functions.yaml</user_defined_executable_functions_config>
         <user_scripts_path>/var/lib/clickhouse/user_scripts/</user_scripts_path>
-        <!-- Bound ClickHouse's own diagnostic logs. Without a TTL these grow without
-             limit and can easily exceed the size of the actual telemetry data.
-             Mirrors the official SigNoz Foundry deployment configuration. -->
+        <!-- ClickHouse keeps its own diagnostic logs in system.*_log tables. Left at
+             the upstream defaults they are unbounded, and the first six below are
+             purely forensic tables SigNoz never reads. In a live deployment metric_log
+             alone accumulated 556 parts / 1.63 GiB and kept 8-10 concurrent merges
+             busy, accounting for ~900 MiB of merge memory - enough to push a 4 GiB
+             ClickHouse into OOMKill and a restart loop. Removing a section stops its
+             table from being created and written at all. -->
+        <metric_log remove="remove"/>
+        <asynchronous_metric_log remove="remove"/>
+        <text_log remove="remove"/>
+        <background_schedule_pool_log remove="remove"/>
+        <processors_profile_log remove="remove"/>
+        <aggregated_zookeeper_log remove="remove"/>
+
+        <!-- These stay available for troubleshooting, bounded to one day so they
+             cannot outgrow the telemetry data itself. -->
         <trace_log>
             <ttl>event_date + INTERVAL 1 DAY DELETE</ttl>
         </trace_log>
-        <processors_profile_log>
-            <ttl>event_date + INTERVAL 1 DAY DELETE</ttl>
-        </processors_profile_log>
         <query_log>
             <ttl>event_date + INTERVAL 1 DAY DELETE</ttl>
         </query_log>
-        <query_thread_log>
-            <ttl>event_date + INTERVAL 1 DAY DELETE</ttl>
-        </query_thread_log>
         <query_views_log>
             <ttl>event_date + INTERVAL 1 DAY DELETE</ttl>
         </query_views_log>
@@ -218,24 +225,9 @@ data:
         <part_log>
             <ttl>event_date + INTERVAL 1 DAY DELETE</ttl>
         </part_log>
-        <text_log>
-            <ttl>event_date + INTERVAL 1 DAY DELETE</ttl>
-        </text_log>
-        <metric_log>
-            <ttl>event_date + INTERVAL 1 DAY DELETE</ttl>
-        </metric_log>
-        <asynchronous_metric_log>
-            <ttl>event_date + INTERVAL 1 DAY DELETE</ttl>
-        </asynchronous_metric_log>
         <error_log>
             <ttl>event_date + INTERVAL 1 DAY DELETE</ttl>
         </error_log>
-        <background_schedule_pool_log>
-            <ttl>event_date + INTERVAL 1 DAY DELETE</ttl>
-        </background_schedule_pool_log>
-        <aggregated_zookeeper_log>
-            <ttl>event_date + INTERVAL 1 DAY DELETE</ttl>
-        </aggregated_zookeeper_log>
     </clickhouse>
   vn-etcvn-clickhousevn-servervn-usersvn-dvn-defaultvn-xml: |-
     <clickhouse>
