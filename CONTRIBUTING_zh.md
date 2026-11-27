@@ -109,6 +109,45 @@ spec:
 - **安全性**：不要暴露不必要的端口或服务
 - **文档**：在 `readme` 字段中链接到官方文档
 
+#### 输入校验
+
+当应用会拒绝某些取值时，给输入项加上 `validation`。Sealos 会在部署前检查用户填的值，避免部署出一个起不来或登不进去的实例。
+
+```yaml
+inputs:
+  admin_password:
+    description: "Admin password. Use at least 8 characters with uppercase, lowercase, and a number."
+    type: string
+    required: true
+    validation:
+      - pattern: '^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9]).{8,}$'
+  max_players:
+    description: "Maximum concurrent players, from 1 to 8."
+    type: number
+    default: "4"
+    validation:
+      - pattern: '^[1-8]$'
+```
+
+规则：
+
+- `validation` 是一个列表，每一项只有一个键 `pattern`，值是正则表达式。取值必须匹配全部 pattern 才算通过。
+- pattern 在取值的**任意位置**匹配到就算匹配。`[A-Z]` 表示"包含大写字母"。需要整串匹配时写 `^...$`：应写 `^[a-z0-9]+$`，不要写 `[a-z0-9]+`。
+- 支持 lookahead。不带任何标志位，区分大小写。用 `[A-Za-z]` 代替 `(?i)`，用 `[0-9]` 代替 `\d`。
+- 空值不校验。不允许为空请用 `required: true`。
+- `validation` 只对 `string` 和 `number` 类型的输入项生效。
+- 超过 1024 个字符的取值一律不通过。
+- 规则没有自己的错误提示，用户看到的是 `description`，所以 description 必须用人话把要求写清楚。中文描述写在 `spec.i18n.zh.inputs.<key>.description`。
+- 只写应用真正强制的规则。规则比应用实际要求更严，会把正常的部署拦住。
+- 静态的 `default` 必须能通过自己的规则。
+
+PR 会自动运行 `scripts/check-input-validation.mjs`。本地运行：
+
+```bash
+npm install --no-save --no-package-lock js-yaml@4.3.2
+node scripts/check-input-validation.mjs template/my-awesome-app/index.yaml
+```
+
 #### 模板结构示例
 
 ```yaml

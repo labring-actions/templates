@@ -109,6 +109,45 @@ spec:
 - **Security**: Don't expose unnecessary ports or services
 - **Documentation**: Link to official docs in `readme` field
 
+#### Input Validation
+
+Add `validation` to an input when the application rejects some values. Sealos checks the value before it deploys, so the user does not get an instance that cannot start or cannot be signed in to.
+
+```yaml
+inputs:
+  admin_password:
+    description: "Admin password. Use at least 8 characters with uppercase, lowercase, and a number."
+    type: string
+    required: true
+    validation:
+      - pattern: '^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9]).{8,}$'
+  max_players:
+    description: "Maximum concurrent players, from 1 to 8."
+    type: number
+    default: "4"
+    validation:
+      - pattern: '^[1-8]$'
+```
+
+Rules:
+
+- `validation` is a list. Each item has one key, `pattern`, a regular expression. A value must match every pattern.
+- A pattern matches when it is found **anywhere** in the value. `[A-Z]` means "contains an uppercase letter". Write `^...$` when the whole value must match: `^[a-z0-9]+$`, not `[a-z0-9]+`.
+- Lookahead is supported. No flags are applied: matching is case-sensitive. Write `[A-Za-z]` instead of `(?i)`, and `[0-9]` instead of `\d`.
+- An empty value is not checked. Use `required: true` to forbid an empty value.
+- `validation` works on `string` and `number` inputs only.
+- A value longer than 1024 characters is always rejected.
+- Rules have no error message of their own. The user sees the `description`, so it must state the requirement in plain words. Add the translated description under `spec.i18n.<lang>.inputs.<key>.description`.
+- Only add a rule that the application really enforces. A rule that is stricter than the application blocks valid deployments.
+- A static `default` must pass its own rules.
+
+A pull request check runs `scripts/check-input-validation.mjs`. Run it locally:
+
+```bash
+npm install --no-save --no-package-lock js-yaml@4.3.2
+node scripts/check-input-validation.mjs template/my-awesome-app/index.yaml
+```
+
 #### Example Template Structure
 
 ```yaml
