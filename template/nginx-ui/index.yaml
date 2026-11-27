@@ -1,0 +1,258 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: nginx-ui
+spec:
+  title: Nginx UI
+  url: https://nginxui.com/
+  gitRepo: https://github.com/0xJacky/nginx-ui
+  author: Sealos
+  description: Web administration interface for Nginx with configuration editing, certificate management, logs, and a built-in Nginx runtime.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/nginx-ui/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/nginx-ui/logo.png
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/nginx-ui/website-screenshot.webp
+  templateType: inline
+  locale: en
+  categories:
+    - dev-ops
+    - tool
+  defaults:
+    app_name:
+      type: string
+      value: nginx-ui-${{ random(8) }}
+    app_host:
+      type: string
+      value: nginx-ui-${{ random(8) }}
+    jwt_secret:
+      type: string
+      value: ${{ random(64) }}
+  inputs:
+    admin_username:
+      description: Username for the initial Nginx UI administrator.
+      type: string
+      default: admin
+      required: true
+    admin_password:
+      description: Password for the initial administrator. Use at least 8 characters.
+      type: string
+      required: true
+  i18n:
+    zh:
+      description: Nginx Web 管理界面，支持配置编辑、证书管理、日志查看及内置 Nginx 运行环境。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/nginx-ui/README_zh.md
+      inputs:
+        admin_username:
+          description: Nginx UI 初始管理员用户名。
+        admin_password:
+          description: 初始管理员密码，至少 8 个字符。
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: uozi/nginx-ui:v3.0.8
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  minReadySeconds: 10
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: seed-nginx-config
+          image: uozi/nginx-ui:v3.0.8
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              if [ ! -f /etc/nginx/nginx.conf ]; then
+                cp -a /usr/local/etc/nginx/. /etc/nginx/
+              fi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 50m
+              memory: 12Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+          volumeMounts:
+            - name: vn-etcvn-nginx
+              mountPath: /etc/nginx
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: uozi/nginx-ui:v3.0.8
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: TZ
+              value: Asia/Shanghai
+            - name: NGINX_UI_NODE_SKIP_INSTALLATION
+              value: 'true'
+            - name: NGINX_UI_IGNORE_DOCKER_SOCKET
+              value: 'true'
+            - name: NGINX_UI_PREDEFINED_USER_NAME
+              value: ${{ inputs.admin_username }}
+            - name: NGINX_UI_PREDEFINED_USER_PASSWORD
+              value: ${{ inputs.admin_password }}
+            - name: NGINX_UI_APP_JWT_SECRET
+              value: ${{ defaults.jwt_secret }}
+            - name: NGINX_UI_SERVER_RUN_MODE
+              value: release
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+            - name: ui
+              containerPort: 9000
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 50m
+              memory: 25Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: ui
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: ui
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: ui
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: vn-etcvn-nginx
+              mountPath: /etc/nginx
+            - name: vn-etcvn-nginxvn-ui
+              mountPath: /etc/nginx-ui
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-etcvn-nginx
+        annotations:
+          path: /etc/nginx
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+    - metadata:
+        name: vn-etcvn-nginxvn-ui
+        annotations:
+          path: /etc/nginx-ui
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/nginx-ui/logo.png
+  name: Nginx UI
+  type: link
