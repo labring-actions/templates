@@ -1,6 +1,6 @@
 # 在 Sealos 上部署和托管 LibreDB Studio
 
-LibreDB Studio 是一款开源数据库 IDE，可直接在浏览器中查询和管理 PostgreSQL、MySQL、SQLite、MongoDB 等数据源。此模板会在 Sealos Cloud 上部署 LibreDB Studio 0.14.1，并配置 HTTPS 入口、持久化服务端存储、健康检查和部署时创建的管理员账号。
+LibreDB Studio 是一款开源数据库 IDE，可直接在浏览器中查询和管理 PostgreSQL、MySQL、SQLite、MongoDB 等数据源。此模板会在 Sealos Cloud 上部署 LibreDB Studio 1.3.0，并配置 HTTPS 入口、持久化服务端存储、健康检查和部署时创建的管理员账号。
 
 ![LibreDB Studio 截图](https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/libredb-studio/website-screenshot.webp)
 
@@ -21,7 +21,7 @@ PostgreSQL 选项保存 LibreDB Studio 的连接配置、收藏查询等应用�
 
 模板包含可用部署所需的运行组件：
 
-- **LibreDB Studio**：`ghcr.io/libredb/libredb-studio:0.14.1`
+- **LibreDB Studio**：`ghcr.io/libredb/libredb-studio:1.3.0`
 - **默认 SQLite 存储**：`/app/data/libredb-storage.db`，使用 1 GiB 应用 PVC
 - **可选 PostgreSQL 存储**：KubeBlocks 托管的 `postgresql-16.4.0`，使用 1 GiB 数据 PVC
 - **HTTPS 入口**：通过 Sealos Service、Ingress 和 App 资源暴露 `3000` 端口
@@ -45,7 +45,7 @@ PostgreSQL 选项保存 LibreDB Studio 的连接配置、收藏查询等应用�
 
 **资源基线：**
 
-Sealos 实测确认应用的稳定最低档位为 `100m` CPU 和 `128Mi` 内存。PostgreSQL 初始化容器和 Job 使用相同档位；可选 PostgreSQL 集群使用 `500m` CPU 和 `512Mi` 内存。两种存储模式均通过冷启动、管理员登录、页面操作、服务端存储写读、查询执行和重启持久化验证。
+应用档位为 CPU 上限 `100m`、CPU 请求 `10m`，内存上限 `512Mi`、内存请求 `160Mi`。模板原先的 `128Mi` 上限容纳不下该应用。以下为本地容器实测，并非集群实测，条件为 `100m` CPU、SQLite 模式、`AUTH_BOOTSTRAP=off`，并反复调用 `POST /api/auth/login` 以及 `GET /` 和 `GET /login`：`/api/db/health` 在启动后 9 至 14 秒响应，远在启动探针 60 秒的允许范围之内，登录请求返回 200，随后容器被 OOM 终止。这组登录测试共跑四次，由两人分别执行，四次全部被终止。这四次终止中，有两次记录到终止前的采样，分别为 128Mi 上限中的 112.5Mi 和 127.2Mi，另有一次峰值为 120.0Mi；其中三次记录到退出码 137，距启动约 16 秒，发生在渲染登录页面时。另有一次较轻的测试只轮询健康检查和首页，在 `128Mi` 下未被终止，保持在 113Mi 至 119Mi，可见只轮询健康检查和首页时，原先的上限尚能支撑。同一组登录压测在 `512Mi` 上限下可以完成：健康检查在 9 至 13 秒内响应，请求均无报错，内存稳定在 130Mi 至 140Mi，最多约为该上限的 27%。`512Mi` 属于余量而非实测需求：本次没有任何一项接近该值，`256Mi` 也未曾运行。之所以取该值，是因为镜像固定了 `NODE_OPTIONS=--max-old-space-size=384`，仅 V8 老生代就可增长到 384Mi，若真如此，`256Mi` 的上限便无法容纳。该设置至少从 0.14.1 起就存在，因此这些都不是 1.2.0 带来的变化。`160Mi` 的内存请求按上述实测的稳定占用设定，而非按上限所覆盖的最坏情况；它偏离了本仓库常见的「请求为上限十分之一」做法，因为 `51Mi` 的请求会远低于容器实际占用。集群上的数值可能不同，因为集群为 Pod 保证的 CPU 只有 `10m`，而非本次所用的 `100m`，这也可能拉长上述启动时间。PostgreSQL 初始化容器和 Job 仍使用 `100m` CPU 和 `128Mi` 内存，本次未重新实测；可选 PostgreSQL 集群使用 `500m` CPU 和 `512Mi` 内存，同样未重新实测。
 
 **安全默认值：**
 
@@ -60,7 +60,7 @@ Sealos 将 Kubernetes 部署、网络、存储和可视化运维集中在同一�
 - **即时 HTTPS 访问**：部署完成后自动获得公网域名。
 - **App Launchpad 与 Canvas 运维**：通过资源卡片查看工作负载、日志、存储和网络。
 - **AI 辅助变更**：在 Canvas 对话中描述资源或配置调整。
-- **按量使用资源**：从实测最低档位起步，随实际负载扩容。
+- **按量使用资源**：从模板自带的档位起步，随实际负载扩容。
 
 ## 部署指南
 
@@ -77,10 +77,10 @@ Sealos 将 Kubernetes 部署、网络、存储和可视化运维集中在同一�
 
 1. 打开系统生成的应用地址。
 2. 在 `/login` 页面输入已配置的管理员邮箱和密码。
-3. 点击 **Sign In**，进入管理概览页。
+3. 点击 **Sign in**，进入管理概览页。
 4. 选择 **Editor**，添加数据库连接并执行查询。
 
-建议将部署凭据保存到密码管理器。需要更换凭据时，可在 Canvas 中修改 LibreDB Studio StatefulSet 的环境变量，然后重启工作负载。
+建议将部署凭据保存到密码管理器。本模板使用服务端存储，自 0.18.0 起账号保存在数据库中，`ADMIN_PASSWORD` 只在首次启动时写入。之后再修改该变量并重启不会改变密码。如需更换密码，请把 `ADMIN_PASSWORD` 设为新值，并在 Canvas 中为 LibreDB Studio StatefulSet 添加 `ADMIN_PASSWORD_RESET=true`，重启工作负载，然后删除 `ADMIN_PASSWORD_RESET`，以免每次启动都重新应用。
 
 ## 配置
 
@@ -96,17 +96,17 @@ Sealos 将 Kubernetes 部署、网络、存储和可视化运维集中在同一�
 
 模板保持一个 LibreDB Studio 副本，可在 Canvas 中纵向扩容。并发会话或大型结果集增加时，可提升应用 CPU 和内存。应用状态增长时，可按存储模式扩展应用 PVC 或 PostgreSQL 数据 PVC。
 
-多副本架构需要 PostgreSQL 服务端存储，并需复核会话处理和应用运行方式。当前模板采用已经验证的单副本拓扑。
+多副本架构需要 PostgreSQL 服务端存储，并需复核会话处理和应用运行方式。当前模板采用单副本拓扑。
 
 ## 故障排查
 
 ### 登录凭据校验失败
 
-确认邮箱和密码与部署时填写的值一致。在 StatefulSet 资源卡片中检查 `ADMIN_EMAIL` 和 `ADMIN_PASSWORD`，应用目标值后重启工作负载。
+确认邮箱和密码与部署时填写的值一致。服务端存储下密码保存在数据库中，仅在 StatefulSet 资源卡片中修改 `ADMIN_PASSWORD` 并不生效：请同时添加 `ADMIN_PASSWORD_RESET=true`，重启工作负载，然后删除该变量。若存储的密码与环境变量不一致，Pod 日志会在每次启动时发出警告。
 
 ### 应用页面仍在启动
 
-在 Canvas 中检查 LibreDB Studio StatefulSet。PostgreSQL 模式还需确认 PostgreSQL 集群状态为 `Running`，并且 `-pg-init` Job 已进入 `Complete`。
+在 Canvas 中检查 LibreDB Studio StatefulSet。PostgreSQL 模式还需确认 PostgreSQL 集群状态为 `Running`，并且 `-pg-init` Job 已进入 `Complete`。若 Pod 反复重启，请检查是否被 OOM 终止：在本模板此前采用的 `128Mi` 上限下，上文那组登录测试的四次运行均在启动后不久被 OOM 终止，退出码 137。若要把内存上限调到现在的 `512Mi` 以下，请考虑这一点。
 
 ### 重启后缺少已保存的设置
 
