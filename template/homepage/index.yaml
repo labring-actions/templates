@@ -1,0 +1,357 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: homepage
+spec:
+  title: Homepage
+  url: https://gethomepage.dev
+  gitRepo: https://github.com/gethomepage/homepage
+  author: Sealos
+  description: Customizable self-hosted dashboard for services, bookmarks, infrastructure widgets, and homelab operations.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/homepage/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/homepage/logo.png
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/homepage/website-screenshot.webp
+  templateType: inline
+  locale: en
+  categories:
+    - tool
+    - frontend
+  defaults:
+    app_host:
+      type: string
+      value: homepage-${{ random(8) }}
+    app_name:
+      type: string
+      value: homepage-${{ random(8) }}
+    auth_secret:
+      type: string
+      value: ${{ random(48) }}
+  inputs:
+    admin_password:
+      description: Password for the Homepage sign-in page. Use a strong, unique password and save it before deployment.
+      type: string
+      required: true
+  i18n:
+    zh:
+      description: 可定制的自托管服务导航面板，用于聚合服务、书签、基础资源组件和家庭实验室运维信息。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/homepage/README_zh.md
+      inputs:
+        admin_password:
+          description: Homepage 登录页密码。请使用强密码并在部署前妥善保存。
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-appvn-configvn-settingsvn-yaml: |
+    title: Sealos Homepage
+    description: A self-hosted launchpad for your services and links.
+    theme: dark
+    color: slate
+    layout:
+      Sealos:
+        style: row
+        columns: 3
+      Monitor:
+        style: row
+        columns: 3
+  vn-appvn-configvn-servicesvn-yaml: |
+    - Sealos:
+        - Sealos Console:
+          href: https://hzh.sealos.run
+          description: Manage workloads, storage, and public endpoints.
+          siteMonitor: https://hzh.sealos.run
+        - Sealos Documentation:
+          href: https://sealos.io/docs
+          description: Platform guides and Kubernetes concepts.
+          siteMonitor: https://sealos.io/docs
+    - Monitor:
+        - Sealos Website:
+          href: https://sealos.io
+          description: Product updates and cloud resources.
+          siteMonitor: https://sealos.io
+        - GitHub:
+          href: https://github.com/labring
+          description: Sealos and template repositories.
+          siteMonitor: https://github.com/labring
+  vn-appvn-configvn-bookmarksvn-yaml: |
+    - Developer:
+        GitHub:
+          - abbr: GH
+            href: https://github.com/
+        Kubernetes:
+          - abbr: K8s
+            href: https://kubernetes.io/docs/
+    - Reference:
+        Homepage Docs:
+          - abbr: HP
+            href: https://gethomepage.dev/
+  vn-appvn-configvn-widgetsvn-yaml: |
+    - resources:
+        cpu: true
+        memory: true
+        disk: /
+    - search:
+        provider: duckduckgo
+        target: _blank
+  vn-appvn-configvn-dockervn-yaml: |
+    # Add Docker API integrations here when the daemon is reachable.
+  vn-appvn-configvn-kubernetesvn-yaml: |
+    # Add Kubernetes integrations here when a service account is configured.
+  vn-appvn-configvn-proxmoxvn-yaml: |
+    # Add Proxmox integrations here when a Proxmox endpoint is available.
+  vn-bootstrapvn-sh: |
+    #!/bin/sh
+    set -eu
+    for file in settings.yaml services.yaml bookmarks.yaml widgets.yaml docker.yaml kubernetes.yaml proxmox.yaml; do
+      if [ ! -f "/app/config/$file" ]; then
+        cp "/bootstrap/$file" "/app/config/$file"
+      fi
+    done
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/gethomepage/homepage:v2.8.0
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+    docker-to-sealos.resource-override-source: 'Empirical Sealos test for Homepage v2.8.0: the tested Homepage container at 50m/51Mi requests and 500m/512Mi limits served the authenticated dashboard and service groups with zero restarts, while the bootstrap init container used 50m/12Mi and 500m/128Mi.'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: bootstrap-config
+          image: ghcr.io/gethomepage/homepage:v2.8.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - /bootstrap/bootstrap.sh
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 50m
+              memory: 12Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+          volumeMounts:
+            - name: vn-appvn-config
+              mountPath: /app/config
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /bootstrap/bootstrap.sh
+              subPath: vn-bootstrapvn-sh
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /bootstrap/settings.yaml
+              subPath: vn-appvn-configvn-settingsvn-yaml
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /bootstrap/services.yaml
+              subPath: vn-appvn-configvn-servicesvn-yaml
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /bootstrap/bookmarks.yaml
+              subPath: vn-appvn-configvn-bookmarksvn-yaml
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /bootstrap/widgets.yaml
+              subPath: vn-appvn-configvn-widgetsvn-yaml
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /bootstrap/docker.yaml
+              subPath: vn-appvn-configvn-dockervn-yaml
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /bootstrap/kubernetes.yaml
+              subPath: vn-appvn-configvn-kubernetesvn-yaml
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /bootstrap/proxmox.yaml
+              subPath: vn-appvn-configvn-proxmoxvn-yaml
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: ghcr.io/gethomepage/homepage:v2.8.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PUID
+              value: '1000'
+            - name: PGID
+              value: '1000'
+            - name: HOSTNAME
+              value: 0.0.0.0
+            - name: PORT
+              value: '3000'
+            - name: TZ
+              value: Asia/Shanghai
+            - name: HOMEPAGE_ALLOWED_HOSTS
+              value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: HOMEPAGE_AUTH_ENABLED
+              value: 'true'
+            - name: HOMEPAGE_AUTH_SECRET
+              value: ${{ defaults.auth_secret }}
+            - name: HOMEPAGE_EXTERNAL_URL
+              value: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            - name: HOMEPAGE_AUTH_PASSWORD
+              value: ${{ inputs.admin_password }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 50m
+              memory: 51Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          startupProbe:
+            httpGet:
+              path: /api/healthcheck
+              port: http
+              httpHeaders:
+                - name: Host
+                  value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 36
+          readinessProbe:
+            httpGet:
+              path: /api/healthcheck
+              port: http
+              httpHeaders:
+                - name: Host
+                  value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /api/healthcheck
+              port: http
+              httpHeaders:
+                - name: Host
+                  value: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: vn-appvn-config
+              mountPath: /app/config
+      volumes:
+        - name: ${{ defaults.app_name }}-cm
+          configMap:
+            name: ${{ defaults.app_name }}
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-appvn-config
+        annotations:
+          path: /app/config
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/homepage/logo.png
+  name: Homepage
+  type: link
