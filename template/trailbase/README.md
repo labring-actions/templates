@@ -10,7 +10,7 @@ TrailBase runs as one StatefulSet with a single application container on port `4
 
 The template mounts a 1Gi volume at `/data`. An init container copies the image's bundled depot, including the optional authentication UI component, into that volume before the server starts. The volume then keeps databases, sessions, uploaded files, configuration, and WASM components across Pod restarts and template updates.
 
-On first boot TrailBase prints the generated administrator credentials to the container log. Copy the email and password from the `Created new admin user` entry, then sign in at `/_/admin/`. The tested profile uses `50m` CPU and `25Mi` memory as requests and `500m` CPU and `128Mi` memory as limits.
+On first boot TrailBase prints the generated administrator credentials to the container log. Copy the email and password from the `Created new admin user` entry, then sign in at `/_/admin/`. The tested profile uses `50m` CPU and `12Mi` memory as requests and `500m` CPU and `128Mi` memory as limits.
 
 ## Common Use Cases
 
@@ -67,7 +67,7 @@ On first boot TrailBase prints the generated administrator credentials to the co
 
 | Component | CPU Request | CPU Limit | Memory Request | Memory Limit | Storage |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| TrailBase | 50m | 500m | 25Mi | 128Mi | 1Gi |
+| TrailBase | 50m | 500m | 12Mi | 128Mi | 1Gi |
 | Depot initializer | 50m | 500m | 25Mi | 256Mi | Shared |
 
 The values above are the live-tested profile. The Pod reached Ready with zero restarts, the generated administrator signed in, the Tables view and health endpoint responded, and a Pod restart preserved the account and session. Idle memory settled near 42Mi and CPU near 5m.
