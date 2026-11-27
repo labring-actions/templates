@@ -1,0 +1,151 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: mosquitto
+spec:
+  title: Eclipse Mosquitto
+  url: https://mosquitto.org
+  gitRepo: https://github.com/eclipse-mosquitto/mosquitto
+  author: Sealos
+  description: Lightweight MQTT broker for IoT messaging, telemetry, and event-driven applications.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/mosquitto/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/mosquitto/logo.png
+  screenshots:
+    - https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/mosquitto/website-screenshot.webp
+  templateType: inline
+  locale: en
+  categories:
+    - backend
+  defaults:
+    app_name:
+      type: string
+      value: mosquitto-${{ random(8) }}
+  i18n:
+    zh:
+      description: 轻量级 MQTT Broker，适用于物联网消息、遥测和事件驱动应用。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/mosquitto/README_zh.md
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+data:
+  vn-mosquittovn-configvn-mosquittovn-conf: |
+    persistence true
+    persistence_location /mosquitto/data/
+    log_dest stdout
+    listener 1883 0.0.0.0
+    allow_anonymous true
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: eclipse-mosquitto:2.0.23
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+    docker-to-sealos.resource-override-source: 'Empirical Sealos test for Eclipse Mosquitto 2.0.23: the tested 50m/12Mi requests and 500m/128Mi limits retained an MQTT message across a Pod restart.'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  serviceName: ${{ defaults.app_name }}
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1883
+        runAsGroup: 1883
+        fsGroup: 1883
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: eclipse-mosquitto:2.0.23
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: mqtt
+              containerPort: 1883
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 50m
+              memory: 12Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+          startupProbe:
+            tcpSocket:
+              port: mqtt
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+          readinessProbe:
+            tcpSocket:
+              port: mqtt
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket:
+              port: mqtt
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: ${{ defaults.app_name }}-cm
+              mountPath: /mosquitto/config/mosquitto.conf
+              subPath: vn-mosquittovn-configvn-mosquittovn-conf
+            - name: vn-mosquittovn-data
+              mountPath: /mosquitto/data
+      volumes:
+        - name: ${{ defaults.app_name }}-cm
+          configMap:
+            name: ${{ defaults.app_name }}
+  volumeClaimTemplates:
+    - metadata:
+        name: vn-mosquittovn-data
+        annotations:
+          path: /mosquitto/data
+          value: '1'
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  ports:
+    - name: mqtt
+      port: 1883
+      targetPort: mqtt
+      protocol: TCP
+  selector:
+    app: ${{ defaults.app_name }}
